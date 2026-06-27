@@ -1,9 +1,10 @@
 # Architecture
 
-pi-setup is configuration-as-code for a personal Pi agent environment. It has
+pi-setup is configuration-as-code for a reusable Pi agent environment. It has
 one deployable artifact (the `pi/` tree), one orchestration CLI (`agnt`), and
-a feedback loop that lets routing and prompts improve from observed outcomes
-(see `docs/SELF-IMPROVEMENT.md`).
+a feedback loop that lets routing and prompts improve from observed outcomes.
+For the narrative overview, start with [The agnt System](AGNT-SYSTEM.md). For
+the feedback loop, see [Self-Improvement Loop](SELF-IMPROVEMENT.md).
 
 ## Repository vs runtime
 
@@ -11,7 +12,7 @@ a feedback loop that lets routing and prompts improve from observed outcomes
 pi-setup/ (this repo, source of truth)
 ├── pi/                  deployable Pi config  ──rsync──▶  ~/.pi (runtime copy)
 ├── .beads/              Beads work graph export/config; local DB ignored
-├── docs/                architecture, migration notes, procedures
+├── docs/                architecture, procedures, design decisions, audits
 ├── scripts/             deploy, layout checks, behavioral eval suite
 ├── tests/               pytest for agnt/agent-instructions internals
 └── .pi/                 project-local plans/runs/scratch (not deployable)
@@ -46,9 +47,8 @@ agnt invoke       runs `pi --mode json --no-session`; emits metric records
 ### Model catalog (`pi/agent/catalog.json`)
 
 A **family** is one set of weights (or a close equivalent) reachable through
-several **venues**: local Ollama on the MacBook (slow, huge memory), the
-remote NVIDIA box via Olla (fast, 12 GB limit), or OpenRouter (fast, costs
-money). The catalog is the single source for venue facts: cost class,
+several **venues**: a local Ollama host, a remote Olla-compatible GPU endpoint,
+or OpenRouter. The catalog is the single source for venue facts: cost class,
 modalities, context window, reasoning capability, GPU-watt assumptions, and
 OpenRouter opportunity-cost rates for subscription-backed models. `agnt` and
 `agent-instructions` read it via the shared `bin/_agnt_common.py`; no model
@@ -58,13 +58,14 @@ itself reads provider config there.
 ### Work, tasks, prompts, skills, roles, and tools
 
 The context system uses small orthogonal primitives. See
-`docs/SELF-IMPROVEMENT-PRINCIPLES.md` for the design rationale.
+[Self-Improvement Principles](SELF-IMPROVEMENT-PRINCIPLES.md) for the design
+rationale.
 
 - **Work item / bead**: durable task-graph node. Answers "what unit of work is
   scheduled, blocked, or complete?" Beads is the canonical agent-facing work
   queue. GitHub issues are not mirrored now; any future integration should
-  follow `docs/GITHUB-ADAPTER.md` and remain an adapter rather than a second
-  source of truth.
+  follow the [GitHub Adapter Decision](GITHUB-ADAPTER.md) and remain an adapter
+  rather than a second source of truth.
 - **Invocation/result message**: structured interface between orchestration and
   workers. Answers "what should run now?" and "what happened with what
   evidence?"
@@ -135,17 +136,19 @@ artifacts, `.pi/metrics/` for runtime telemetry, `agnt action render` and
 `agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch plans,
 `agnt invoke` for peer dispatch, `agnt runs invoke` / `agnt work run` for
 invocation-backed worker execution, `agnt context-health` for context entropy
-checks, and `pi/agent/evals/` for gates. See `docs/ORCHESTRATION-LOOP.md` for
-why the production loop is a gated command loop rather than an always-on daemon.
+checks, and `pi/agent/evals/` for gates. See the
+[Orchestration Loop Decision](ORCHESTRATION-LOOP.md) for why the production loop
+is a gated command loop rather than an always-on daemon.
 
 ### Metrics and feedback
 
 Raw per-invocation records land in `<git-root>/.pi/metrics/invocations/`
-(project-local, gitignored). `agnt metrics consolidate` — run by the tracked
-pre-commit hook — appends compact records to the durable global store
-`~/.pi/metrics/agent-invocations.jsonl`. `agnt route` aggregates outcomes by
-family across both and demotes families with negative track records. Git
-never tracks telemetry; it tracks the policy changes the telemetry justifies.
+(project-local, gitignored). `agnt metrics consolidate` appends compact records
+to the durable global store `~/.pi/metrics/agent-invocations.jsonl`; run it
+manually or from a locally installed hook. `agnt route` aggregates outcomes by
+family across pending and consolidated metrics and demotes families with
+negative track records. Git never tracks telemetry; it tracks the policy changes
+the telemetry justifies.
 
 ## Quality gates
 

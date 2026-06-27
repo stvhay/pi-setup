@@ -1,6 +1,8 @@
-# Pi local helper commands
+# agnt command reference
 
-Use `agnt` as the primary command surface for local agent helpers. Commands are designed to compose with normal Unix idioms: stdin when no file is supplied, stdout for primary output, stderr for diagnostics, and `-o` for files/directories when needed.
+`agnt` is the primary command surface for Pi orchestration helpers: routing, peer invocation, context composition, action templates, run artifacts, Beads-backed work, metrics, evals, and context-health checks. For the conceptual overview, see [The agnt System](../../../docs/AGNT-SYSTEM.md).
+
+Commands are designed to compose with normal Unix idioms: stdin when no file is supplied, stdout for primary output, stderr for diagnostics, and `-o` for files/directories when needed.
 
 ```bash
 agnt [command [args]] [subcommand ...] [filename]
@@ -53,13 +55,13 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
 
 Metrics use `schemaVersion: 1` and are best-effort: when Pi/provider usage is unavailable, metrics JSON records `usageSource: "unavailable"` and `usage: null`. New records include a stable `recordId`; old records remain loadable. When usage is available but the provider reports zero/missing dollars for a known subscription-backed or OpenRouter model, `agnt` fills `usage.cost` with an OpenRouter-price opportunity-cost estimate and marks it with `usage.costSource: "openrouter-assumed"` and `usage.costEstimated: true`. This keeps subscription GPT usage comparable without routing GPT calls through OpenRouter.
 
-Local models keep cash/API `usage.cost.total` at zero with `usage.costSource: "local-free"`. For known local equivalents, metrics add a separate `usage.opportunityCost` using an OpenRouter proxy model rather than pretending that local inference spent API dollars. Local calls also get a rough marginal GPU electricity estimate in `usage.localCompute`, using `AGNT_LOCAL_GPU_WATTS` when set. Otherwise `olla-local/*` defaults to an assumed remote Olla marginal GPU draw of 208W, `ollama/*` defaults to an assumed local MacBook GPU draw of 34.2W, and `AGNT_USE_NVIDIA_SMI=1` opts into sampling `nvidia-smi` on the current host. Electricity price uses `AGNT_ELECTRICITY_USD_PER_KWH` or the default `$0.1304/kWh`. Raw metrics live under `.pi/metrics/` and are ignored by git.
+Local models keep cash/API `usage.cost.total` at zero with `usage.costSource: "local-free"`. For known local equivalents, metrics add a separate `usage.opportunityCost` using an OpenRouter proxy model rather than pretending that local inference spent API dollars. Local calls also get a rough marginal GPU electricity estimate in `usage.localCompute`, using `AGNT_LOCAL_GPU_WATTS` when set. Otherwise `olla-local/*` defaults to an assumed remote Olla marginal GPU draw of 208W, `ollama/*` defaults to an assumed local workstation draw of 34.2W, and `AGNT_USE_NVIDIA_SMI=1` opts into sampling `nvidia-smi` on the current host. Electricity price uses `AGNT_ELECTRICITY_USD_PER_KWH` or the default `$0.1304/kWh`. Raw metrics live under `.pi/metrics/` and are ignored by git.
 
 Use `agnt invoke` and `agnt invoke --fanout` for all peer calls; they capture metrics by default. The old `pi-peer`/`pi-fanout` wrappers were removed because they bypassed metrics capture.
 
-## Metrics
+## Common routing flow
 
-Example routing flow:
+Example:
 
 ```bash
 agnt route --task review --risk medium --budget cheap --local-ok
@@ -90,7 +92,7 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
   - Renders an action template into an invocation artifact bundle under `.pi/runs/` unless `--dry-run` is supplied.
 
 - `agnt runs create ...`
-  - Creates a generic invocation/result run bundle. See `docs/RUN-ARTIFACTS.md` for schema details.
+  - Creates a generic invocation/result run bundle. See [Run Artifacts](../../../docs/RUN-ARTIFACTS.md) for schema details.
 
 - `agnt runs invoke .pi/runs/<run-id> [--model provider/model] [--no-metrics]`
   - Reads `invocation.yaml`, invokes a worker, writes prompt/response/stderr/metrics artifacts, and updates `result.yaml`.
@@ -163,11 +165,7 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
 - `agnt metrics prune [--consumed-dir DIR]`
   - Deletes consumed raw metrics.
 
-To consolidate metrics automatically before commits, install the tracked hook once per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
+To consolidate metrics automatically before commits, install a local hook that runs `agnt metrics consolidate`. This repository does not currently ship a tracked `.githooks` hook; manual consolidation is the portable default.
 
 ## Instruction context
 

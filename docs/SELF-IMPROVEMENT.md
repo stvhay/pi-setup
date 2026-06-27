@@ -3,7 +3,7 @@
 How this setup learns from its own model usage, for both **routing** (which
 model gets which task) and **prompts** (per-model instruction overlays). For
 broader workflow/context design principles, see
-`docs/SELF-IMPROVEMENT-PRINCIPLES.md`.
+[Self-Improvement Principles](SELF-IMPROVEMENT-PRINCIPLES.md).
 
 Principle: telemetry is runtime state; policy is config. Metrics live in
 `~/.pi/metrics/` and per-project `.pi/metrics/` and are never tracked. What
@@ -48,9 +48,9 @@ Outcomes: `accepted`, `rejected`, `verified-pass`, `verified-fail`,
 ```
 
 Appends compact records to the global store
-`~/.pi/metrics/agent-invocations.jsonl` (override: `AGNT_METRICS_OUTPUT`).
-The tracked pre-commit hook (`git config core.hooksPath .githooks` in
-deployed `~/.pi`) does this automatically.
+`~/.pi/metrics/agent-invocations.jsonl` (override: `AGNT_METRICS_OUTPUT`). Run
+this manually or from a locally installed hook when you want pending metrics to
+contribute to cross-project routing history.
 
 ### 4. Routing feedback (automatic)
 
