@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Generic web search helper for Pi skills.
+
+Uses a SearXNG instance configured with SEARXNG_URL.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+import urllib.parse
+import urllib.request
+
+DEFAULT_BASE = ""
+
+
+def infer_category(query: str) -> str | None:
+    """Infer a SearXNG category. None means use the instance default."""
+    q = query.lower()
+
+    news_terms = [
+        "latest", "today", "breaking", "news", "announced", "release", "released",
+        "earnings", "acquisition", "lawsuit", "election", "current", "recent",
+    ]
+    science_terms = [
+        "paper", "papers", "arxiv", "doi", "pubmed", "clinical", "study", "studies",
+        "meta-analysis", "systematic review", "trial", "research literature", "journal",
+        "citation", "citations", "scholar", "academic",
+    ]
+    it_terms = [
+        "api", "sdk", "cli", "docs", "documentation", "github", "stackoverflow",
+        "npm", "pypi", "crate", "rust", "python", "typescript", "javascript",
+        "node", "react", "vue", "svelte", "go", "golang", "swift", "kubernetes",
+        "docker", "postgres", "sqlite", "error", "exception", "stack trace",
+        "function", "class", "library", "framework", "package", "config", "configuration",
+    ]
+
+    def has_any(terms: list[str]) -> bool:
+        return any(term in q for term in terms)
+
+    # Prefer time-sensitive news over topical categories when the query asks for recency.
+    if has_any(news_terms):
+        return "news"
+    if has_any(science_terms):
+        return "science"
+    if has_any(it_terms) or re.search(r"\b[A-Za-z0-9_.-]+Error\b", query):
+        return "it"
+    return None
+
+
+parser = argparse.ArgumentParser(description="Search the web via SearXNG and print concise markdown results.")
+parser.add_argument("query", nargs="+", help="search query")
+parser.add_argument("-n", "--num", type=int, default=8, help="number of results to print (default: 8)")
+parser.add_argument(
+    "-c",
+    "--category",
+    default="auto",
+    help="SearXNG category: auto (default), default/general, it, science, news, etc.",
+)
+parser.add_argument("--json", action="store_true", help="print raw JSON response")
+args = parser.parse_args()
+
+base = os.environ.get("SEARXNG_URL", DEFAULT_BASE).rstrip("/")
+if not base:
+    print("SEARXNG_URL is not set; configure a SearXNG instance URL before using web-search", file=sys.stderr)
+    sys.exit(2)
+query = " ".join(args.query)
+category = infer_category(query) if args.category == "auto" else args.category
+if category in ("", "default", "general"):
+    category = None
+
+params = {"q": query, "format": "json"}
+if category:
+    params["categories"] = category
+url = f"{base}/search?{urllib.parse.urlencode(params)}"
+
+try:
+    req = urllib.request.Request(url, headers={"User-Agent": "pi-web-search/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as res:
+        data = json.loads(res.read().decode("utf-8"))
+except Exception as e:
+    print(f"web-search error: {e}", file=sys.stderr)
+    sys.exit(1)
+
+if args.json:
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    sys.exit(0)
+
+results = data.get("results", [])[: max(args.num, 0)]
+print(f"# Search results for: {query}\n")
+print(f"Source: {base}")
+print(f"cat: {category or 'default'}\n")
+for i, r in enumerate(results, 1):
+    title = (r.get("title") or "Untitled").strip()
+    link = (r.get("url") or "").strip()
+    content = (r.get("content") or "").strip().replace("\n", " ")
+    engines = ", ".join(r.get("engines") or ([r.get("engine")] if r.get("engine") else []))
+    print(f"## {i}. {title}")
+    print(link)
+    if engines:
+        print(f"Engines: {engines}")
+    if content:
+        print(content)
+    print()

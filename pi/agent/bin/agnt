@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Front controller for Pi agent helper commands."""
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+from pathlib import Path
+from typing import List
+
+ROOT = Path(__file__).resolve().parent.parent
+BIN = ROOT / "bin"
+sys.path.insert(0, str(BIN))
+
+from agnt_lib.core import (  # noqa: E402
+    BIN,
+    EVALS,
+    PROMPT_PATTERNS,
+    ROOT,
+    TASKS,
+    VALID_OUTCOMES,
+    capture,
+    die,
+    run,
+)
+from agnt_lib.tasks import *  # noqa: E402,F401,F403
+from agnt_lib.metrics import *  # noqa: E402,F401,F403
+from agnt_lib.invoke import *  # noqa: E402,F401,F403
+from agnt_lib.routing import *  # noqa: E402,F401,F403
+from agnt_lib.evals import *  # noqa: E402,F401,F403
+from agnt_lib.prompt import *  # noqa: E402,F401,F403
+from agnt_lib.actions import *  # noqa: E402,F401,F403
+from agnt_lib.runs import *  # noqa: E402,F401,F403
+from agnt_lib.work import *  # noqa: E402,F401,F403
+from agnt_lib.context_health import *  # noqa: E402,F401,F403
+from agnt_lib.benchmark import *  # noqa: E402,F401,F403
+from agnt_lib import graphify as graphify_impl  # noqa: E402
+
+def cmd_soul(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(prog="agnt soul", description="Emit or validate SOUL.md communication preferences.")
+    parser.add_argument("path", nargs="?", default=str(ROOT / "SOUL.md"))
+    parser.add_argument("--check", action="store_true", help="validate safety boundary phrases")
+    args = parser.parse_args(argv)
+    path = Path(args.path).expanduser()
+    if not path.is_file():
+        die(f"SOUL file not found: {path}", 1)
+    texts = [path.read_text(encoding="utf-8")]
+    supplements = path.parent / f"{path.stem}.d"
+    if supplements.is_dir():
+        for supplement in sorted(supplements.rglob("*.md")):
+            texts.append(supplement.read_text(encoding="utf-8"))
+    text = "\n\n".join(item.rstrip() for item in texts if item.strip()) + "\n"
+    if args.check:
+        lowered = text.lower()
+        required = ["collaborative partner", "safety boundary"]
+        missing = [phrase for phrase in required if phrase not in lowered]
+        if missing:
+            for phrase in missing:
+                print(f"FAIL missing phrase: {phrase}")
+            return 1
+        print("PASS soul check")
+        return 0
+    print(text.rstrip())
+    return 0
+
+
+def cmd_instructions(argv: List[str]) -> int:
+    return run([str(BIN / "agent-instructions"), *argv])
+
+
+def cmd_graphify(argv: List[str]) -> int:
+    """Run graphify through the Pi helper surface."""
+    return graphify_impl.cmd_graphify(argv, runner=run, which=shutil.which)
+
+
+def main(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(prog="agnt", description="Pi agent helper command surface.")
+    sub = parser.add_subparsers(dest="command")
+    for name, help_text in {
+        "tasks": "list task/model routing hints",
+        "invoke": "invoke one or more Pi peer models",
+        "web-search": "search the web",
+        "web-fetch": "fetch a URL",
+        "instructions": "generate layered instructions",
+        "soul": "emit or validate communication preferences",
+        "route": "recommend a model for a task",
+        "recommend": "alias for route",
+        "metrics": "inspect and consolidate invocation metrics",
+        "eval": "run filesystem-defined agnt evals",
+        "prompt": "inventory prompts and manage prompt pattern notes",
+        "action": "list, validate, and render prompt/action templates",
+        "runs": "create and validate invocation/result run artifacts",
+        "work": "inspect beads-backed ready work and dispatch/run artifacts",
+        "context-health": "check active context for stale terms and entropy signals",
+        "benchmark": "run reproducible agent benchmarks",
+        "graphify": "run graphify knowledge-graph tooling",
+        "plans-dir": "print/create the active plans directory",
+        "risk": "manage session risk budget",
+    }.items():
+        sub.add_parser(name, help=help_text)
+
+    if not argv:
+        parser.print_help()
+        return 0
+    command, rest = argv[0], argv[1:]
+    if command in {"-h", "--help"}:
+        parser.print_help()
+        return 0
+    if command == "tasks":
+        return cmd_tasks(rest)
+    if command == "invoke":
+        return cmd_invoke(rest)
+    if command == "web-search":
+        return run([str(BIN / "web-search"), *rest])
+    if command == "web-fetch":
+        return run([str(BIN / "web-fetch"), *rest])
+    if command == "instructions":
+        return cmd_instructions(rest)
+    if command == "soul":
+        return cmd_soul(rest)
+    if command in {"route", "recommend"}:
+        return cmd_route(rest)
+    if command == "metrics":
+        return cmd_metrics(rest)
+    if command == "eval":
+        return cmd_eval(rest)
+    if command == "prompt":
+        return cmd_prompt(rest)
+    if command == "action":
+        return cmd_action(rest)
+    if command == "runs":
+        return cmd_runs(rest)
+    if command == "work":
+        return cmd_work(rest)
+    if command == "context-health":
+        return cmd_context_health(rest)
+    if command == "benchmark":
+        return cmd_benchmark(rest)
+    if command == "graphify":
+        return cmd_graphify(rest)
+    if command == "plans-dir":
+        return run([str(BIN / "pi-plans-dir"), *rest])
+    if command == "risk":
+        return run([str(BIN / "total-risk"), *rest])
+    parser.print_help(sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -1,0 +1,67 @@
+{
+  "providers": {
+    "openrouter-localish": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "api": "openai-completions",
+      "apiKey": "!~/.pi/agent/bin/openrouter-api-key",
+      "headers": {
+        "HTTP-Referer": "https://github.com/example/pi-setup",
+        "X-OpenRouter-Title": "Pi Setup"
+      },
+      "compat": {
+        "thinkingFormat": "openrouter"
+      },
+      "models": [
+        {
+          "id": "google/gemma-4-31b-it",
+          "name": "Gemma 4 31B via OpenRouter",
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "cost": { "input": 0.12, "output": 0.37, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "google/gemma-4-31b-it:free",
+          "name": "Gemma 4 31B via OpenRouter (free)",
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen/qwen3.5-9b",
+          "name": "Qwen3.5 9B via OpenRouter",
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "cost": { "input": 0.04, "output": 0.15, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "meta-llama/llama-3.1-8b-instruct",
+          "name": "Llama 3.1 8B via OpenRouter",
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 32768,
+          "cost": { "input": 0.02, "output": 0.05, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "meta-llama/llama-3.3-70b-instruct",
+          "name": "Llama 3.3 70B via OpenRouter",
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 32768,
+          "cost": { "input": 0.10, "output": 0.32, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "deepseek/deepseek-r1-distill-qwen-32b",
+          "name": "DeepSeek R1 Distill Qwen 32B via OpenRouter",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 128000,
+          "maxTokens": 32768,
+          "cost": { "input": 0.29, "output": 0.29, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,124 @@
+<!--
+  Fixture template — a synthetic page that links the vendored upstream CSS
+  so the screenshot rig can render against production styles.
+
+  Replace `../theme-vendor/cascade.css` with the actual vendored
+  stylesheet path. Add `<link>` tags for every stylesheet the live page
+  loads. Hand-build the body to mirror a representative production page:
+  forms, tables, buttons, alerts, modals — whatever the real page contains.
+
+  Strip dynamic JS unless the script is essential for rendering.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixture — replace with page name</title>
+<link rel="stylesheet" href="../theme-vendor/cascade.css">
+</head>
+<body>
+
+<!-- Header (if applicable) -->
+<header>
+  <a href="#" class="brand">App</a>
+  <nav>
+    <a href="#" class="active">Home</a>
+    <a href="#">Settings</a>
+  </nav>
+</header>
+
+<!-- Main content area -->
+<main class="container">
+  <h1>Page title</h1>
+  <p>Body copy demonstrating <a href="#">a link</a> and <strong>strong</strong>
+  and <em>emphasis</em>.</p>
+
+  <!-- Form components -->
+  <form>
+    <fieldset>
+      <legend>A form section</legend>
+      <label for="ex-text">Text input</label>
+      <input id="ex-text" type="text" value="example">
+      <label for="ex-pass">Password</label>
+      <input id="ex-pass" type="password">
+      <label><input type="checkbox" checked> A checkbox</label>
+      <label><input type="radio" name="r"> Radio A</label>
+      <label><input type="radio" name="r" checked> Radio B</label>
+      <select>
+        <option>Option 1</option>
+        <option selected>Option 2</option>
+      </select>
+    </fieldset>
+    <div class="actions">
+      <button type="submit" class="btn-primary">Save</button>
+      <button type="button" class="btn-neutral">Cancel</button>
+      <button type="button" class="btn-danger">Delete</button>
+    </div>
+  </form>
+
+  <!-- Tabular data -->
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Status</th><th>Address</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>example-1</td><td><span class="pill pill-success">Up</span></td><td>192.168.1.1</td><td><button class="btn-sm">Edit</button></td></tr>
+      <tr><td>example-2</td><td><span class="pill pill-warning">Idle</span></td><td>192.168.1.2</td><td><button class="btn-sm">Edit</button></td></tr>
+      <tr><td>example-3</td><td><span class="pill pill-danger">Down</span></td><td>192.168.1.3</td><td><button class="btn-sm">Edit</button></td></tr>
+    </tbody>
+  </table>
+
+  <!-- Alerts / status messages -->
+  <div class="alert alert-info">An informational message.</div>
+  <div class="alert alert-success">An action succeeded.</div>
+  <div class="alert alert-warning">A warning to be aware of.</div>
+  <div class="alert alert-danger">An error occurred.</div>
+
+  <!-- Code block -->
+  <pre><code>example: code block
+with-multiple: lines
+to-test: monospace fg/bg</code></pre>
+
+  <!-- Details/disclosure (covers details-open state) -->
+  <details>
+    <summary>Click to expand</summary>
+    <p>Hidden content visible only when summary is clicked.</p>
+  </details>
+</main>
+
+<!--
+  Interactive-state declarations.
+
+  Each entry is a state to capture in addition to the static screenshot.
+  screenshot.py renders one PNG per entry, named
+  `<fixture>--<name>.png`. Use this for any state the static screenshot
+  doesn't cover: hover, focus, dropdown-open, modals, alternate
+  viewports, prefers-contrast / prefers-reduced-motion media features.
+
+  Available state types (one or more keys per entry):
+    {"hover":   "<selector>"}                 — hover pseudo
+    {"focus":   "<selector>"}                 — focus pseudo
+    {"click":   "<selector>"}                 — click (open dropdown/modal/details)
+    {"viewport":{"width":N,"height":N}}       — alternate viewport
+    {"media":   [{"name":"...","value":"..."}]} — CSS media features
+
+  Coverage rule of thumb: every interactive *type* in the fixture
+  (hoverable, focusable, clickable-to-open) needs at least one state
+  captured. Missing this is what let the LuCI Routing/NAT regression
+  ship.
+-->
+<script id="layer-theme-states" type="application/json">
+[
+  {"name": "hover-primary",  "hover": ".btn-primary"},
+  {"name": "hover-danger",   "hover": ".btn-danger"},
+  {"name": "focus-input",    "focus": "#ex-text"},
+  {"name": "focus-select",   "focus": "select"},
+  {"name": "details-open",   "click": "details > summary"},
+  {"name": "high-contrast",  "media": [{"name": "prefers-contrast", "value": "more"}]},
+  {"name": "reduced-motion", "media": [{"name": "prefers-reduced-motion", "value": "reduce"}]}
+]
+</script>
+
+</body>
+</html>

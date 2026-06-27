@@ -1,0 +1,24 @@
+{
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.5",
+  "defaultThinkingLevel": "medium",
+  "theme": "dark",
+  "enabledModels": [
+    "openai-codex/gpt-5.5",
+    "openai-codex/gpt-5.4-mini",
+    "olla-cloud/gpt-4.1-mini",
+    "olla-cloud/gemini-flash",
+    "ollama/gemma4:31b",
+    "olla-local/gemma4:e4b",
+    "olla-local/qwen3:8b",
+    "olla-local/deepseek-r1:14b",
+    "openrouter-localish/google/gemma-4-31b-it",
+    "openrouter-localish/google/gemma-4-31b-it:free",
+    "openrouter-localish/qwen/qwen3.5-9b",
+    "openrouter-localish/meta-llama/llama-3.1-8b-instruct",
+    "openrouter-localish/meta-llama/llama-3.3-70b-instruct",
+    "openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b"
+  ],
+  "packages": [],
+  "lastChangelogVersion": "0.79.0"
+}

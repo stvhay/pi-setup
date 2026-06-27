@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "comment": "Model family catalog. A family is one set of weights (or a close equivalent) reachable through multiple venues (providers). Routing policy lives in tasks/*.md; venue facts live here; OpenRouter cash pricing stays in models.json. Family ids key the AGENTS.d/models/<family>.md prompt overlays so per-model prompt learning transfers across venues.",
+  "defaults": {
+    "electricityUsdPerKwh": 0.1304,
+    "providerGpuWatts": {
+      "ollama": 34.2,
+      "olla-local": 208.0
+    }
+  },
+  "families": {
+    "gpt-5.5": {
+      "venues": [
+        {
+          "target": "openai-codex/gpt-5.5",
+          "costClass": "frontier",
+          "reasoning": true,
+          "input": ["text", "image", "audio"],
+          "contextWindow": 400000
+        }
+      ]
+    },
+    "gpt-5.4-mini": {
+      "openrouterRates": {"input": 0.75, "output": 4.5},
+      "venues": [
+        {
+          "target": "openai-codex/gpt-5.4-mini",
+          "costClass": "balanced",
+          "reasoning": true,
+          "input": ["text", "image", "audio"],
+          "contextWindow": 400000
+        }
+      ]
+    },
+    "claude-opus-4-7": {
+      "venues": [
+        {
+          "target": "claude-opus-4-7",
+          "costClass": "frontier",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 200000
+        }
+      ]
+    },
+    "claude-sonnet-4-6": {
+      "venues": [
+        {
+          "target": "claude-sonnet-4-6",
+          "costClass": "balanced",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 200000
+        }
+      ]
+    },
+    "gpt-4.1": {
+      "openrouterRates": {"input": 2.0, "output": 8.0},
+      "venues": [
+        {
+          "target": "olla-cloud/gpt-4.1",
+          "costClass": "cheap",
+          "input": ["text"],
+          "contextWindow": 1000000
+        }
+      ]
+    },
+    "gpt-4.1-mini": {
+      "openrouterRates": {"input": 0.4, "output": 1.6},
+      "venues": [
+        {
+          "target": "olla-cloud/gpt-4.1-mini",
+          "costClass": "cheap",
+          "input": ["text"],
+          "contextWindow": 1000000
+        }
+      ]
+    },
+    "gemini-flash": {
+      "venues": [
+        {
+          "target": "olla-cloud/gemini-flash",
+          "costClass": "cheap",
+          "input": ["text", "image", "audio", "video"],
+          "contextWindow": 1000000
+        }
+      ]
+    },
+    "gemma4-31b": {
+      "venues": [
+        {
+          "target": "ollama/gemma4:31b",
+          "costClass": "local",
+          "input": ["text", "image"],
+          "contextWindow": 128000
+        },
+        {
+          "target": "olla-local/gemma4:31b",
+          "costClass": "local",
+          "input": ["text", "image"],
+          "contextWindow": 128000
+        },
+        {
+          "target": "openrouter-localish/google/gemma-4-31b-it",
+          "costClass": "cheap",
+          "equivalence": "exact-family",
+          "input": ["text", "image"],
+          "contextWindow": 262144
+        },
+        {
+          "target": "openrouter-localish/google/gemma-4-31b-it:free",
+          "costClass": "cheap",
+          "equivalence": "exact-family",
+          "input": ["text", "image"],
+          "contextWindow": 262144
+        }
+      ]
+    },
+    "gemma4-e4b": {
+      "venues": [
+        {
+          "target": "olla-local/gemma4:e4b",
+          "costClass": "local",
+          "input": ["text", "image"],
+          "contextWindow": 128000
+        }
+      ]
+    },
+    "qwen3-8b": {
+      "venues": [
+        {
+          "target": "olla-local/qwen3:8b",
+          "costClass": "local",
+          "input": ["text"],
+          "contextWindow": 128000
+        },
+        {
+          "target": "ollama/qwen3:8b",
+          "costClass": "local",
+          "input": ["text"],
+          "contextWindow": 128000
+        },
+        {
+          "target": "openrouter-localish/qwen/qwen3.5-9b",
+          "costClass": "cheap",
+          "equivalence": "approximate-family",
+          "input": ["text"],
+          "contextWindow": 262144
+        }
+      ]
+    },
+    "deepseek-r1-14b": {
+      "venues": [
+        {
+          "target": "olla-local/deepseek-r1:14b",
+          "costClass": "local",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 128000
+        },
+        {
+          "target": "ollama/deepseek-r1:14b",
+          "costClass": "local",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 128000
+        },
+        {
+          "target": "openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b",
+          "costClass": "cheap",
+          "equivalence": "approximate-family",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 128000
+        }
+      ]
+    },
+    "llama-3.1-8b": {
+      "venues": [
+        {
+          "target": "openrouter-localish/meta-llama/llama-3.1-8b-instruct",
+          "costClass": "cheap",
+          "input": ["text"],
+          "contextWindow": 131072
+        }
+      ]
+    },
+    "llama-3.3-70b": {
+      "venues": [
+        {
+          "target": "openrouter-localish/meta-llama/llama-3.3-70b-instruct",
+          "costClass": "cheap",
+          "input": ["text"],
+          "contextWindow": 131072
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+# Local worktrees and environment state
+.worktrees/
+.envrc.local.d/
+.direnv/
+.venv/
+
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+
+# Generated knowledge-graph artifacts
+graphify-out/
+
+# Local Claude/Pi scratch state
+.claude/
+.pi/council/
+.pi/peer-runs/
+.pi/redteam/
+.pi/research/
+.pi/reviews/
+.pi/metrics/
+.pi/eval-runs/
+.pi/runs/

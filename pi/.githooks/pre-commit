@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(git rev-parse --show-toplevel)
+
+if [ -x "$ROOT/agent/bin/agnt" ]; then
+  AGNT="$ROOT/agent/bin/agnt"
+  SESSION_CWD="$ROOT/agent"
+elif [ -x "$ROOT/bin/agnt" ]; then
+  AGNT="$ROOT/bin/agnt"
+  SESSION_CWD="$ROOT"
+else
+  echo "agnt metrics hook: agnt not found; skipping" >&2
+  exit 0
+fi
+
+# Consolidation appends to the global runtime store (~/.pi/metrics/), which
+# feeds routing decisions; nothing is staged because telemetry is not tracked.
+"$AGNT" metrics import-session --latest --cwd "$SESSION_CWD" --kind orchestration || true
+"$AGNT" metrics consolidate

@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Track a cumulative risk budget for agent development sessions.
+
+Usage:
+    total-risk reset <budget>              Reset session, set budget ceiling
+    total-risk check <category> [conds...] Preview cost without logging
+    total-risk <category> [conditions...]  Log a task, return updated budget
+    total-risk status                      Show current session state
+
+Categories:
+    docs, style, tests, new-feature, mechanical-refactor, structural-refactor,
+    modify-feature, bug-fix, performance, security, ci-infra
+
+Conditions:
+    4-plus-files, same-module, module:<path>, ci-pass, ci-fail, review-clean
+
+State defaults to <git-root>/.pi/risk-budget.json. Override with PI_RISK_BUDGET_FILE.
+Output is JSON.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+BASE_COSTS = {
+    "docs": 1,
+    "style": 1,
+    "tests": 2,
+    "new-feature": 3,
+    "mechanical-refactor": 3,
+    "ci-infra": 4,
+    "structural-refactor": 5,
+    "modify-feature": 5,
+    "bug-fix": 7,
+    "performance": 7,
+    "security": 8,
+}
+COST_FLOOR = 1
+
+
+def _git_root() -> Path:
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if out:
+            return Path(out)
+    except Exception:
+        pass
+    return Path.cwd()
+
+
+def state_file() -> Path:
+    override = os.environ.get("PI_RISK_BUDGET_FILE")
+    if override:
+        return Path(override).expanduser()
+    return _git_root() / ".pi" / "risk-budget.json"
+
+
+def load_state() -> dict[str, Any] | None:
+    path = state_file()
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return None
+
+
+def save_state(state: dict[str, Any]) -> None:
+    path = state_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def reset(budget: float) -> dict[str, Any]:
+    state = {"budget": budget, "total": 0, "task_count": 0, "tasks": [], "modules_touched": []}
+    save_state(state)
+    return {"action": "reset", "budget": budget, "total": 0, "remaining": budget, "status": "ok", "state_file": str(state_file())}
+
+
+def _budget_status(remaining: float, budget: float) -> str:
+    if remaining <= 0:
+        return "checkpoint"
+    if remaining < budget * 0.25:
+        return "warning"
+    return "ok"
+
+
+def status(state: dict[str, Any] | None) -> dict[str, Any]:
+    if state is None:
+        return {"error": "No active session. Run: total-risk reset <budget>", "state_file": str(state_file())}
+    remaining = state["budget"] - state["total"]
+    return {
+        "action": "status",
+        "budget": state["budget"],
+        "total": round(state["total"], 1),
+        "remaining": round(remaining, 1),
+        "task_count": state["task_count"],
+        "status": _budget_status(remaining, state["budget"]),
+        "tasks": state["tasks"],
+        "state_file": str(state_file()),
+    }
+
+
+def _calculate_cost(state: dict[str, Any], category: str, conditions: list[str]) -> tuple[float, int, list[str], list[str]]:
+    base = BASE_COSTS[category]
+    cost = float(base)
+    modifiers: list[str] = []
+
+    if "4-plus-files" in conditions:
+        cost *= 1.5
+        modifiers.append("×1.5 files")
+
+    module_paths = [c.split(":", 1)[1] for c in conditions if c.startswith("module:")]
+    same_module = "same-module" in conditions
+    if not same_module and module_paths and state.get("modules_touched"):
+        same_module = any(mp in state["modules_touched"] for mp in module_paths)
+    if same_module:
+        cost *= 1.3
+        modifiers.append("×1.3 same-module")
+
+    n = state["task_count"]
+    if n > 0:
+        degradation = math.pow(1.05, n)
+        cost *= degradation
+        modifiers.append(f"×{degradation:.2f} context(n={n})")
+
+    if "ci-pass" in conditions:
+        cost -= 1
+        modifiers.append("−1 ci-pass")
+    if "ci-fail" in conditions:
+        cost += 3
+        modifiers.append("+3 ci-fail")
+    if "review-clean" in conditions:
+        cost -= 1
+        modifiers.append("−1 review-clean")
+
+    return round(max(cost, COST_FLOOR), 1), base, modifiers, module_paths
+
+
+def check_task(state: dict[str, Any] | None, category: str, conditions: list[str]) -> dict[str, Any]:
+    if state is None:
+        return {"error": "No active session. Run: total-risk reset <budget>", "state_file": str(state_file())}
+    if category not in BASE_COSTS:
+        return {"error": f"Unknown category: {category}", "valid_categories": sorted(BASE_COSTS)}
+    cost, base, modifiers, _ = _calculate_cost(state, category, conditions)
+    remaining = state["budget"] - state["total"]
+    remaining_after = remaining - cost
+    if remaining <= 0:
+        advice, reason = "skip", "Budget exhausted. Checkpoint required before new tasks."
+    elif cost > remaining:
+        advice, reason = "skip", f"Task cost ({cost}) exceeds remaining budget ({round(remaining, 1)})."
+    elif remaining_after < state["budget"] * 0.15:
+        advice, reason = "caution", f"This would leave only {round(remaining_after, 1)} budget."
+    else:
+        advice, reason = "ok", "Within budget."
+    return {"action": "check", "category": category, "base": base, "modifiers": modifiers, "adjusted_cost": cost, "remaining_before": round(remaining, 1), "remaining_after": round(remaining_after, 1), "advice": advice, "reason": reason}
+
+
+def log_task(state: dict[str, Any] | None, category: str, conditions: list[str]) -> dict[str, Any]:
+    if state is None:
+        return {"error": "No active session. Run: total-risk reset <budget>", "state_file": str(state_file())}
+    if category not in BASE_COSTS:
+        return {"error": f"Unknown category: {category}", "valid_categories": sorted(BASE_COSTS)}
+    remaining = state["budget"] - state["total"]
+    if remaining <= 0:
+        return {"action": "blocked", "reason": "Budget exhausted. Checkpoint required.", "budget": state["budget"], "total": round(state["total"], 1), "remaining": round(remaining, 1), "status": "checkpoint"}
+    cost, base, modifiers, module_paths = _calculate_cost(state, category, conditions)
+    state["total"] = round(state["total"] + cost, 1)
+    state["task_count"] += 1
+    for mp in module_paths:
+        if mp not in state["modules_touched"]:
+            state["modules_touched"].append(mp)
+    task = {"seq": state["task_count"], "category": category, "base": base, "modifiers": modifiers, "adjusted_cost": cost}
+    state["tasks"].append(task)
+    save_state(state)
+    remaining = state["budget"] - state["total"]
+    return {"action": "logged", "task": task, "total": state["total"], "budget": state["budget"], "remaining": round(remaining, 1), "status": _budget_status(remaining, state["budget"]), "state_file": str(state_file())}
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+    cmd = sys.argv[1]
+    if cmd == "reset":
+        if len(sys.argv) < 3:
+            result = {"error": "Usage: total-risk reset <budget>"}
+        else:
+            try:
+                result = reset(float(sys.argv[2]))
+            except ValueError:
+                result = {"error": f"Budget must be a number, got: {sys.argv[2]}"}
+    elif cmd == "status":
+        result = status(load_state())
+    elif cmd == "check":
+        if len(sys.argv) < 3:
+            result = {"error": "Usage: total-risk check <category> [conditions...]"}
+        else:
+            result = check_task(load_state(), sys.argv[2], sys.argv[3:])
+    elif cmd in BASE_COSTS:
+        result = log_task(load_state(), cmd, sys.argv[2:])
+    else:
+        result = {"error": f"Unknown command or category: {cmd}", "valid_categories": sorted(BASE_COSTS), "commands": ["reset <budget>", "check <category> [conds...]", "status", "<category> [conditions...]"]}
+    print(json.dumps(result, indent=2))
+    if "error" in result:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

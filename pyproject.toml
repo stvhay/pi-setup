@@ -1,0 +1,9 @@
+[project]
+name = "pi-setup"
+version = "0.1.0"
+description = "Pi setup and agent harness configuration"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false

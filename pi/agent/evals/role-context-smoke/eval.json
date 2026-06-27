@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "role-context-smoke",
+  "summary": "Smoke-test default global+project role discovery and generated instruction context.",
+  "kind": "instructions",
+  "cases": [
+    {
+      "name": "code-reviewer-role",
+      "args": ["--role", "code-reviewer", "--context", "openrouter-localish/qwen/qwen3.5-9b"],
+      "contains": ["# Role: code reviewer", "### Verdict: PASS | NEEDS_WORK | NOT_SURE", "# Project Instructions"]
+    },
+    {
+      "name": "implementation-worker-role",
+      "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-5.4-mini"],
+      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "# Project Instructions"]
+    },
+    {
+      "name": "verifier-role",
+      "args": ["--role", "verifier"],
+      "contains": ["# Role: verifier", "NOT_VERIFIED", "# Project Instructions"]
+    },
+    {
+      "name": "family-overlay-local-venue",
+      "args": ["--context", "ollama/gemma4:31b"],
+      "contains": ["# Model notes: gemma4-31b (all venues)"]
+    },
+    {
+      "name": "family-overlay-openrouter-venue",
+      "args": ["--context", "openrouter-localish/google/gemma-4-31b-it"],
+      "contains": ["# Model notes: gemma4-31b (all venues)"]
+    },
+    {
+      "name": "family-overlay-gpt41mini",
+      "args": ["--context", "olla-cloud/gpt-4.1-mini"],
+      "contains": ["# Model notes: gpt-4.1-mini (all venues)", "agnt plans-dir"]
+    }
+  ]
+}

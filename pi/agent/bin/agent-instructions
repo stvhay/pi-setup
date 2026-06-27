@@ -1,0 +1,368 @@
+#!/usr/bin/env python3
+"""Generate layered agent instructions.
+
+Default behavior (no root argument):
+- Start with the global Pi agent instructions next to this script.
+- Add global model and role overlays when requested.
+- Append project instruction files discovered from git root to cwd:
+  AGENTS.md, AGENT.md, CLAUDE.md
+- For each project instruction file, also append matching model/role overlays if present.
+
+Explicit root behavior is preserved for package checks and special cases:
+- `agent-instructions ROOT.md --check`
+- `agent-instructions ROOT.md --roles`
+- `agent-instructions ROOT.md --context provider/model --role role`
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import subprocess
+import sys
+from pathlib import Path
+from typing import Dict, Iterable, List, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _agnt_common as common  # noqa: E402
+
+
+SUSPICIOUS = [
+    "ignore agents.md",
+    "ignore agent.md",
+    "skip verification",
+    "push automatically",
+    "merge automatically",
+    "delete branches automatically",
+]
+
+INSTRUCTION_FILENAMES = ("AGENTS.md", "AGENT.md", "CLAUDE.md")
+
+
+def die(message: str, code: int = 2) -> None:
+    print(f"agent-instructions: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def global_root() -> Path:
+    return Path(__file__).resolve().parent.parent / "AGENTS.md"
+
+
+def root_stem(root: Path) -> str:
+    return root.name[:-3] if root.name.endswith(".md") else root.name
+
+
+def context_dir(root: Path) -> Path:
+    return root.parent / f"{root_stem(root)}.d"
+
+
+def rel(path: Path, base: Path) -> str:
+    try:
+        return str(path.relative_to(base))
+    except ValueError:
+        return str(path)
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def split_frontmatter(text: str) -> Tuple[Dict[str, object], str]:
+    return common.split_frontmatter(text)
+
+
+def validate_model_id(model: str) -> List[str]:
+    parts = [part.strip() for part in model.strip().split("/")]
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        die(f"invalid model id: {model}", 1)
+    for part in parts:
+        if "\\" in part or "\x00" in part:
+            die(f"invalid model id: {model}", 1)
+    return parts
+
+
+def model_candidates(model: str) -> List[Path]:
+    parts = validate_model_id(model)
+    candidates: List[Path] = []
+    # Family overlay first: one set of weights reachable via several venues
+    # shares one prompt supplement (see catalog.json). Venue files refine it.
+    family = common.family_for_target(model.strip())
+    if family:
+        candidates.append(Path(f"{family}.md"))
+    provider = parts[0]
+    candidates.append(Path(f"{provider}.md"))
+    if len(parts) == 1:
+        return candidates
+
+    current = Path(provider)
+    for segment in parts[1:-1]:
+        current = current / segment
+        candidates.append(current.with_suffix(".md"))
+
+    final_parent = current
+    final = parts[-1]
+    hyphen_parts = final.split("-")
+    for i in range(1, len(hyphen_parts) + 1):
+        candidates.append(final_parent / f"{'-'.join(hyphen_parts[:i])}.md")
+    return candidates
+
+
+def existing_model_files(root: Path, model: str) -> List[Path]:
+    models_dir = context_dir(root) / "models"
+    files: List[Path] = []
+    for candidate in model_candidates(model):
+        path = models_dir / candidate
+        try:
+            path.resolve().relative_to(models_dir.resolve())
+        except ValueError:
+            die(f"invalid model path candidate: {candidate}", 1)
+        if path.is_file():
+            files.append(path)
+    return files
+
+
+def role_file(root: Path, role: str) -> Path:
+    if "/" in role or "\\" in role or role.strip() in {"", ".", ".."}:
+        die(f"invalid role id: {role}", 1)
+    return context_dir(root) / "roles" / f"{role.strip()}.md"
+
+
+def iter_role_files(root: Path) -> Iterable[Path]:
+    roles_dir = context_dir(root) / "roles"
+    if not roles_dir.is_dir():
+        return []
+    return sorted(roles_dir.glob("*.md"))
+
+
+def role_meta(path: Path) -> Dict[str, object]:
+    meta, body = split_frontmatter(read_text(path))
+    if "id" not in meta:
+        meta["id"] = path.stem
+    if "summary" not in meta:
+        summary = ""
+        for line in body.splitlines():
+            clean = line.strip(" #")
+            if clean:
+                summary = clean
+                break
+        meta["summary"] = summary
+    return meta
+
+
+def value_list(meta: Dict[str, object], key: str) -> List[str]:
+    value = meta.get(key, [])
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if value in (None, ""):
+        return []
+    return [str(value)]
+
+
+def model_matches(patterns: List[str], model: str) -> bool:
+    if not patterns:
+        return True
+    slash = model.strip()
+    for pattern in patterns:
+        if fnmatch.fnmatch(slash, pattern):
+            return True
+    return False
+
+
+def role_is_qualified(meta: Dict[str, object], model: str | None) -> str:
+    if not model:
+        return ""
+    disallowed = value_list(meta, "disallowed") + value_list(meta, "avoid")
+    qualified = value_list(meta, "qualified")
+    preferred = value_list(meta, "preferred")
+    if disallowed and model_matches(disallowed, model):
+        return "no"
+    if preferred and model_matches(preferred, model):
+        return "preferred"
+    if qualified and model_matches(qualified, model):
+        return "yes"
+    if qualified or preferred:
+        return "no"
+    return "unknown"
+
+
+def git_root_for(cwd: Path) -> Path:
+    try:
+        out = subprocess.check_output(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], text=True, stderr=subprocess.DEVNULL).strip()
+        return Path(out).resolve()
+    except (OSError, subprocess.CalledProcessError):
+        return cwd.resolve()
+
+
+def path_chain(base: Path, cwd: Path) -> List[Path]:
+    base = base.resolve()
+    cwd = cwd.resolve()
+    try:
+        rel_parts = cwd.relative_to(base).parts
+    except ValueError:
+        return [cwd]
+    paths = [base]
+    current = base
+    for part in rel_parts:
+        current = current / part
+        paths.append(current)
+    return paths
+
+
+def discover_project_roots(cwd: Path) -> List[Path]:
+    base = git_root_for(cwd)
+    roots: List[Path] = []
+    global_resolved = global_root().resolve()
+    for directory in path_chain(base, cwd):
+        for filename in INSTRUCTION_FILENAMES:
+            path = directory / filename
+            if path.is_file() and path.resolve() != global_resolved and path not in roots:
+                roots.append(path)
+    return roots
+
+
+def package_files(root: Path, model: str | None, role: str | None, require_role: bool) -> List[Path]:
+    files = [root]
+    if model:
+        files.extend(existing_model_files(root, model))
+    if role:
+        rf = role_file(root, role)
+        if rf.is_file():
+            files.append(rf)
+        elif require_role:
+            die(f"role not found: {role} ({rf})", 1)
+    return files
+
+
+def instruction_roots(explicit_root: Path | None, include_project: bool, cwd: Path) -> List[Tuple[Path, bool]]:
+    roots: List[Tuple[Path, bool]] = []
+    if explicit_root is not None:
+        roots.append((explicit_root, True))
+        if include_project:
+            for project_root in discover_project_roots(cwd):
+                if project_root.resolve() != explicit_root.resolve():
+                    roots.append((project_root, False))
+        return roots
+
+    gr = global_root()
+    if gr.is_file():
+        roots.append((gr, True))
+    else:
+        die(f"global root file not found: {gr}", 1)
+    if include_project:
+        roots.extend((project_root, False) for project_root in discover_project_roots(cwd))
+    return roots
+
+
+def emit_file(path: Path, base: Path, show_sources: bool) -> None:
+    if show_sources:
+        print(f"<!-- source: {rel(path, base)} -->")
+    print(read_text(path).rstrip())
+    print()
+
+
+def generate_context(roots: List[Tuple[Path, bool]], model: str | None, role: str | None, show_sources: bool) -> None:
+    emitted: List[Path] = []
+    if show_sources:
+        print("<!-- generated by agent-instructions -->")
+    for root, require_role in roots:
+        base = root.parent
+        for path in package_files(root, model, role, require_role):
+            resolved = path.resolve()
+            if resolved in emitted:
+                continue
+            emitted.append(resolved)
+            emit_file(path, base, show_sources)
+
+
+def list_roles(roots: List[Tuple[Path, bool]], model: str | None) -> None:
+    rows: List[Tuple[Path, Dict[str, object]]] = []
+    for root, _require_role in roots:
+        for path in iter_role_files(root):
+            rows.append((path, role_meta(path)))
+    if not rows:
+        print("No roles found.")
+        return
+    include_qualified = model is not None
+    if include_qualified:
+        print("| Role | Source | Qualified | Task | Write access | Preferred models | Summary |")
+        print("|---|---|---|---|---|---|---|")
+    else:
+        print("| Role | Source | Task | Write access | Preferred models | Summary |")
+        print("|---|---|---|---|---|---|")
+    for path, meta in rows:
+        role_id = str(meta.get("id", path.stem))
+        source = rel(path, Path.cwd()).replace("|", "\\|")
+        task = str(meta.get("task", "")).replace("|", "\\|")
+        write_access = str(meta.get("writeAccess", "unspecified")).lower()
+        preferred = ", ".join(value_list(meta, "preferred"))
+        summary = str(meta.get("summary", "")).replace("|", "\\|")
+        if include_qualified:
+            print(f"| {role_id} | {source} | {role_is_qualified(meta, model)} | {task} | {write_access} | {preferred} | {summary} |")
+        else:
+            print(f"| {role_id} | {source} | {task} | {write_access} | {preferred} | {summary} |")
+
+
+def run_check(roots: List[Tuple[Path, bool]]) -> int:
+    problems: List[str] = []
+    for root, _require_role in roots:
+        if not root.is_file():
+            problems.append(f"missing root file: {root}")
+            continue
+        ctx = context_dir(root)
+        for sub in ("models", "roles"):
+            d = ctx / sub
+            if d.exists() and not d.is_dir():
+                problems.append(f"not a directory: {d}")
+        seen_roles = set()
+        for path in iter_role_files(root):
+            meta = role_meta(path)
+            role_id = str(meta.get("id", path.stem))
+            if role_id in seen_roles:
+                problems.append(f"duplicate role id under {context_dir(root)}: {role_id}")
+            seen_roles.add(role_id)
+        files = [root] + (sorted(ctx.glob("**/*.md")) if ctx.exists() else [])
+        for path in files:
+            text = read_text(path).lower() if path.is_file() else ""
+            for phrase in SUSPICIOUS:
+                if phrase in text:
+                    problems.append(f"suspicious phrase in {path}: {phrase}")
+    if problems:
+        for problem in problems:
+            print(f"FAIL {problem}")
+        return 1
+    print("PASS agent-instructions check")
+    return 0
+
+
+def parse_args(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate layered AGENTS.md/SKILL.md context.")
+    parser.add_argument("root", nargs="?", help="Optional root Markdown instruction file. Defaults to global Pi AGENTS.md plus project instructions.")
+    parser.add_argument("--context", help="Model context, e.g. openrouter-localish/google/gemma-4-31b-it")
+    parser.add_argument("--role", help="Role id from <root>.d/roles/<role>.md")
+    parser.add_argument("--roles", action="store_true", help="List available roles instead of generating context")
+    parser.add_argument("--sources", action="store_true", help="Include source comments in generated context")
+    parser.add_argument("--check", action="store_true", help="Validate context package structure")
+    parser.add_argument("--cwd", default=str(Path.cwd()), help="Directory used for project instruction discovery")
+    parser.add_argument("--no-project", action="store_true", help="Do not append project AGENTS.md/AGENT.md/CLAUDE.md files")
+    parser.add_argument("--project", action="store_true", help="Append discovered project instructions even when an explicit root is supplied")
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str]) -> int:
+    args = parse_args(argv)
+    explicit_root = Path(args.root).expanduser().resolve() if args.root else None
+    if explicit_root is not None and not explicit_root.is_file():
+        die(f"root file not found: {explicit_root}", 1)
+    include_project = not args.no_project and (explicit_root is None or args.project)
+    roots = instruction_roots(explicit_root, include_project, Path(args.cwd).expanduser())
+    if args.check:
+        return run_check(roots)
+    if args.roles:
+        list_roles(roots, args.context)
+        return 0
+    generate_context(roots, args.context, args.role, args.sources)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
