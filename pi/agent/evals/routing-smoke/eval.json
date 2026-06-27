@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "routing-smoke",
+  "summary": "Smoke-test deterministic agnt route recommendations.",
+  "kind": "route",
+  "cases": [
+    {
+      "name": "review-cheap-local",
+      "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "olla-local/qwen3:8b", "fanoutRecommended": true}
+    },
+    {
+      "name": "orchestration-high-quality",
+      "args": ["--task", "orchestration", "--risk", "high", "--budget", "quality"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.5", "thinkingLevel": "high"}
+    },
+    {
+      "name": "research-long-context",
+      "args": ["--task", "research", "--context-tokens", "200000"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "olla-cloud/gemini-flash"}
+    },
+    {
+      "name": "review-impossible-video-context",
+      "args": ["--task", "review", "--context-tokens", "999999999", "--modality", "video"],
+      "assert": {"exitCode": 1, "routeStatus": "no_candidate", "selected": false}
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# Pi runtime/private state
+agent/auth.json
+agent/sessions/
+agent/mcp-cache.json
+agent/mcp-onboarding.json
+agent/trust.json
+
+# Local scratch and overrides (runtime state lives in deployed ~/.pi, not here)
+/.pi/
+/metrics/
+agent/macbook-ollama-power-*/
+.DS_Store
+*.local
+*.local.json
+.env
+.env.*
+
+# Python bytecode/cache
+__pycache__/
+*.py[cod]

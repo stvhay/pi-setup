@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "code-review-smoke",
+  "summary": "Smoke-test the code-review peer prompt shape through agnt invoke.",
+  "kind": "invoke",
+  "task": "review",
+  "defaultModels": ["olla-cloud/gpt-4.1-mini"],
+  "prompt": "prompt.md",
+  "assert": {"nonEmptyOutput": true}
+}

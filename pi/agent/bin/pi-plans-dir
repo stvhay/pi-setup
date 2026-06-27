@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Print the project-local Pi plans directory and create it if needed.
+# Override with PI_PLANS_DIR for unusual workflows.
+if [ -n "${PI_PLANS_DIR:-}" ]; then
+  dir="$PI_PLANS_DIR"
+else
+  if git_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+    dir="$git_root/.pi/plans"
+  else
+    dir="${PWD}/.pi/plans"
+  fi
+fi
+mkdir -p "$dir"
+printf '%s\n' "$dir"

@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Compute next semver and optionally update version files.
+
+Usage:
+    compute-version <patch|minor|major> [--update] [--project-root PATH]
+    compute-version --ci [--update] [--project-root PATH]
+
+Reads version from any present files:
+- pyproject.toml: [project].version
+- package.json: version
+- .claude-plugin/plugin.json: version (compatibility only)
+
+With --update, writes the computed version to all discovered files.
+Non-CI update requires CHANGELOG.md to contain a matching ## vX.Y.Z section.
+CI mode reads <!-- bump: TYPE --> from the ## Unreleased section and rewrites it to ## vX.Y.Z.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+_VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-.+)?$")
+_BUMP_COMMENT_RE = re.compile(r"<!--\s*bump:\s*(major|minor|patch)\s*-->")
+
+
+def bump_version(current: str, bump_type: str) -> str:
+    if bump_type not in {"patch", "minor", "major"}:
+        raise ValueError(f"bump_type must be patch, minor, or major, got: {bump_type!r}")
+    m = _VERSION_RE.match(current.strip())
+    if not m:
+        raise ValueError(f"Invalid version format: {current!r}")
+    major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if bump_type == "patch":
+        patch += 1
+    elif bump_type == "minor":
+        minor += 1
+        patch = 0
+    else:
+        major += 1
+        minor = 0
+        patch = 0
+    return f"{major}.{minor}.{patch}"
+
+
+def _read_pyproject(path: Path) -> str | None:
+    file = path / "pyproject.toml"
+    if not file.exists():
+        return None
+    import tomllib
+
+    data = tomllib.loads(file.read_text(encoding="utf-8"))
+    return data.get("project", {}).get("version")
+
+
+def _read_json_version(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8")).get("version")
+
+
+def discover_versions(project_root: Path) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    pyproject = _read_pyproject(project_root)
+    if pyproject:
+        versions["pyproject.toml"] = pyproject
+    package_json = _read_json_version(project_root / "package.json")
+    if package_json:
+        versions["package.json"] = package_json
+    plugin_json = _read_json_version(project_root / ".claude-plugin" / "plugin.json")
+    if plugin_json:
+        versions[".claude-plugin/plugin.json"] = plugin_json
+    return versions
+
+
+def check_version_consistency(versions: dict[str, str]) -> None:
+    unique = set(versions.values())
+    if len(unique) > 1:
+        detail = ", ".join(f"{k}={v}" for k, v in sorted(versions.items()))
+        print(f"VERSION_DRIFT: {detail}", file=sys.stderr)
+        sys.exit(1)
+
+
+def check_changelog_has_version(project_root: Path, version: str) -> None:
+    changelog = project_root / "CHANGELOG.md"
+    if not changelog.exists():
+        print(f"CHANGELOG_MISSING: CHANGELOG.md not found in {project_root}", file=sys.stderr)
+        sys.exit(1)
+    pattern = re.compile(rf"^## v{re.escape(version)}\b", re.MULTILINE)
+    if not pattern.search(changelog.read_text(encoding="utf-8")):
+        print(f"CHANGELOG_MISSING: no '## v{version}' section in CHANGELOG.md", file=sys.stderr)
+        sys.exit(1)
+
+
+def parse_changelog_bump_type(project_root: Path) -> str:
+    changelog = project_root / "CHANGELOG.md"
+    if not changelog.exists():
+        print("CHANGELOG_MISSING: CHANGELOG.md not found", file=sys.stderr)
+        sys.exit(1)
+    content = changelog.read_text(encoding="utf-8")
+    unreleased = re.search(r"^## Unreleased\b", content, re.MULTILINE)
+    if not unreleased:
+        print("CHANGELOG_NO_UNRELEASED: no '## Unreleased' section", file=sys.stderr)
+        sys.exit(1)
+    start = unreleased.end()
+    next_heading = re.search(r"^## ", content[start:], re.MULTILINE)
+    section = content[start : start + next_heading.start()] if next_heading else content[start:]
+    match = _BUMP_COMMENT_RE.search(section)
+    if not match:
+        print("CHANGELOG_NO_BUMP: no '<!-- bump: TYPE -->' in Unreleased section", file=sys.stderr)
+        sys.exit(1)
+    return match.group(1)
+
+
+def rewrite_changelog_unreleased(project_root: Path, version: str) -> None:
+    changelog = project_root / "CHANGELOG.md"
+    content = changelog.read_text(encoding="utf-8")
+    content = re.sub(r"^## Unreleased\b.*$", f"## v{version}", content, count=1, flags=re.MULTILINE)
+    content = re.sub(r"\n?<!--\s*bump:\s*(?:major|minor|patch)\s*-->\n?", "\n", content, count=1)
+    changelog.write_text(content, encoding="utf-8")
+
+
+def _write_json_version(path: Path, version: str) -> None:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["version"] = version
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_pyproject_version(path: Path, version: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if not re.search(r"(?m)^version\s*=", text):
+        print("PYPROJECT_UNSUPPORTED: no simple project version line found", file=sys.stderr)
+        sys.exit(1)
+    text = re.sub(r'(?m)^version\s*=\s*["\'][^"\']+["\']', f'version = "{version}"', text, count=1)
+    path.write_text(text, encoding="utf-8")
+
+
+def update_version_files(project_root: Path, versions: dict[str, str], version: str) -> None:
+    if "pyproject.toml" in versions:
+        _write_pyproject_version(project_root / "pyproject.toml", version)
+    if "package.json" in versions:
+        _write_json_version(project_root / "package.json", version)
+    if ".claude-plugin/plugin.json" in versions:
+        _write_json_version(project_root / ".claude-plugin" / "plugin.json", version)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="compute-version")
+    parser.add_argument("bump_type", nargs="?", choices=["patch", "minor", "major"])
+    parser.add_argument("--ci", action="store_true", help="Read bump type from CHANGELOG.md Unreleased section")
+    parser.add_argument("--update", action="store_true", help="Write updated version to discovered version files")
+    parser.add_argument("--project-root", type=Path, default=Path.cwd())
+    args = parser.parse_args(argv)
+
+    if args.ci and args.bump_type:
+        parser.error("--ci and bump_type are mutually exclusive")
+    if not args.ci and not args.bump_type:
+        parser.error("bump_type is required unless --ci is used")
+
+    root = args.project_root.resolve()
+    versions = discover_versions(root)
+    if not versions:
+        print("ERROR: no version files found (pyproject.toml, package.json, or .claude-plugin/plugin.json)", file=sys.stderr)
+        sys.exit(1)
+    check_version_consistency(versions)
+    current = next(iter(versions.values()))
+    bump_type = parse_changelog_bump_type(root) if args.ci else args.bump_type
+    assert bump_type is not None
+    new_version = bump_version(current, bump_type)
+
+    if args.update:
+        if args.ci:
+            update_version_files(root, versions, new_version)
+            rewrite_changelog_unreleased(root, new_version)
+        else:
+            check_changelog_has_version(root, new_version)
+            update_version_files(root, versions, new_version)
+
+    print(new_version)
+
+
+if __name__ == "__main__":
+    main()
