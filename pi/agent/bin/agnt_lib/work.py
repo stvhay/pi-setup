@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .actions import load_action
+from .doctor import doctor_report
 from .runs import create_run_bundle, invoke_run_bundle, load_yaml_json, update_run_result
 
 
@@ -333,6 +334,7 @@ def cmd_work(argv: List[str]) -> int:
     run.add_argument("--close-bead", action="store_true", help="close bead only if invocation succeeds")
     run.add_argument("--runs-dir")
     run.add_argument("--metrics-dir")
+    run.add_argument("--preflight", action="store_true", help="run agnt doctor dispatch preflight before invoking the worker")
     run.add_argument("--id")
     run.add_argument("--dry-run", action="store_true", help="show dispatch plan without invoking")
     audit = sub.add_parser("audit", help="audit Beads queue health against unresolved required-work signals")
@@ -395,6 +397,15 @@ def cmd_work(argv: List[str]) -> int:
         print(json.dumps({"schemaVersion": 1, **result}, indent=2, sort_keys=True))
         return 1 if result.get("beadUpdateError") else 0
     if args.command == "run":
+        if args.preflight:
+            report = doctor_report(check_names=["command.pi", "command.bd", "provider.env", "catalog.parse"])
+            if report.get("failures"):
+                print(json.dumps(report, indent=2, sort_keys=True), file=sys.stderr)
+                return 1
+            if report.get("warnings"):
+                print("agnt work preflight warnings:", file=sys.stderr)
+                for warning in report.get("warnings") or []:
+                    print(f"- {warning.get('id')}: {warning.get('message')}", file=sys.stderr)
         code, bead, err = get_bead(args.bead_id)
         if code != 0:
             print(err, file=sys.stderr)
