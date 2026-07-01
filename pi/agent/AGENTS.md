@@ -35,6 +35,8 @@ When practical, commands read stdin if no filename is supplied, write primary re
 - Generate layered role/model instructions: `agnt instructions --context provider/model --role ROLE`
 - Run evals: `agnt eval list` and `agnt eval run EVAL_ID --dry-run`
 - Inventory prompts: `agnt prompt inventory`
+- Check operational readiness: `agnt doctor --json`
+- Capture/sync lessons learned: `agnt lessons capture ...`, `agnt lessons push`, `agnt lessons triage`
 - List/validate action templates: `agnt action list` and `agnt action validate`
 - Create/validate run artifacts: `agnt runs create` and `agnt runs validate`
 - Inspect beads-backed work: `agnt work next --json` and `agnt work plan --dry-run`
@@ -42,6 +44,16 @@ When practical, commands read stdin if no filename is supplied, write primary re
 - Resolve plans dir: `agnt plans-dir`
 
 Use `agnt -h` and `agnt COMMAND -h` for current syntax.
+
+# Operational health
+
+If tools, model providers, scripts, environment variables, Node/npm-based commands, Beads, Docker, or project checks fail repeatedly or unexpectedly, stop improvising and run:
+
+```bash
+agnt doctor --json
+```
+
+Use the report to distinguish broken environment from task failure. Fix or report failed checks before continuing high-effect work. For model dispatches where environment drift would be costly, prefer `agnt invoke --preflight ...` or `agnt work run --preflight ...`. `agnt doctor` is read-only: it may suggest Node LTS/nvm/home-environment remedies, but it must not edit shell startup files or home-managed config without explicit user approval through a separate repair action.
 
 # Orchestration
 
@@ -96,6 +108,8 @@ agnt web-fetch URL
 # Development workflow conventions
 
 - Prefer filesystem artifacts over chat-only state. Keep designs/plans in project-local `.pi/plans/` unless instructed otherwise.
+- When you encounter a reusable lesson about Pi config, skills, tools, routing, provider setup, or agent workflow, capture it with `agnt lessons capture --kind friction|improvement|bug|success --area <area> --summary "..." --evidence "..."`. Keep evidence concise and non-secret; `agnt lessons` applies best-effort redaction but you remain responsible for not pasting secrets.
+- To trickle lessons up to the central server, use `agnt lessons push` when `AGNT_LESSONS_URL` is configured. In this repository, use `agnt lessons pull` and `agnt lessons triage --draft-beads` to convert useful lessons into Beads follow-up work; only create Beads with explicit approval/flags.
 - Use `agnt plans-dir` to resolve/create the plans directory.
 - Use `rg`, `find`, `git grep`, `git diff`, and exact file paths to retrieve context instead of bloating prompts.
 - If `graphify-out/graph.json` exists and the task asks about architecture, code concepts, dependencies, data flow, or cross-file relationships, probe it first with short keyword queries — `agnt graphify query "<keyword>"`, `agnt graphify explain "<symbol>"` — then verify important claims against source files. Matching is lexical: use identifiers/keywords, not sentence-form questions.
