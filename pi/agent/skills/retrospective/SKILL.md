@@ -126,6 +126,13 @@ Upstream/config candidates:
 - model/provider configuration adjustments
 - eval cases for repeated failures
 
+For reusable Pi configuration lessons that should be aggregated across projects,
+optionally capture a redacted lesson:
+
+```bash
+agnt lessons capture --kind friction --area <area> --summary "<lesson>" --evidence "<redacted evidence>"
+```
+
 ## Step 4: Present analysis
 
 Use this format:

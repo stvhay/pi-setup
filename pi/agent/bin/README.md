@@ -37,11 +37,12 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason. Evidence gathered on one venue applies to every venue of the same weights.
   - `agnt recommend` is an alias.
 
-- `agnt invoke [--task TASK] [--risk-category LABEL] [--thinking-level LEVEL] [--outcome OUTCOME] [--human-override] [--fallback-used] [--no-metrics] [--metrics-dir DIR] provider/model [filename]`
+- `agnt invoke [--task TASK] [--risk-category LABEL] [--thinking-level LEVEL] [--outcome OUTCOME] [--human-override] [--fallback-used] [--preflight] [--no-metrics] [--metrics-dir DIR] provider/model [filename]`
   - Runs one ephemeral Pi peer. Metrics are on by default, so `agnt` uses `pi --mode json --no-session`, preserves normal stdout, and writes raw token/cost/wall-clock metrics to `DIR` or `<git-root>/.pi/metrics/invocations/`.
   - Metrics include routing fields when supplied: task, risk category, thinking level, context size, estimated input tokens, outcome, human override, and fallback-used flags.
   - Use `--no-metrics` to use the older `pi --print --no-session` path and skip metrics.
   - Reads prompt from `filename`, `@filename`, argv text, or stdin.
+  - `--preflight` runs a focused `agnt doctor` check before calling the model; failures abort and warnings are printed to stderr.
 
 - `agnt invoke --fanout [--task TASK] [--no-metrics] [-o DIR] [prompt-or-file]`
   - Runs the task's preferred models and writes output artifacts to `DIR`.
@@ -112,8 +113,9 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
 - `agnt work start [BEAD_ID] [--action ACTION] [--target REF ...] [--claim]`
   - Creates a run bundle for a bead/action and copies bead acceptance criteria into `invocation.yaml`. It mutates Beads only when `--claim` is supplied.
 
-- `agnt work run [BEAD_ID] [--action ACTION] [--target REF ...] [--model provider/model] [--claim] [--close-bead]`
+- `agnt work run [BEAD_ID] [--action ACTION] [--target REF ...] [--model provider/model] [--preflight] [--claim] [--close-bead]`
   - Creates a run bundle, invokes a worker from `invocation.yaml`, updates `result.yaml`, and closes the bead only when `--close-bead` is supplied, invocation succeeds, evidence exists, and follow-up ids resolve to Beads.
+  - `--preflight` runs a focused operational doctor before dispatch.
 
 - `agnt work audit [--json] [--scan-root PATH ...]`
   - Reports Beads queue counts and required-work signals in docs/run artifacts; fails when the queue is empty but required future work appears unresolved.
@@ -121,11 +123,42 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
 - `agnt work finish .pi/runs/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--close-bead]`
   - Updates `result.yaml`; closes the invocation bead only when `--close-bead` is supplied and status is `succeeded` with evidence and reconciled follow-up ids.
 
+## Operational health
+
+- `agnt doctor [--json] [--strict] [--check CHECK ...] [--skip CHECK ...]`
+  - Checks local Pi/agnt operational readiness: core binaries, Python, git root, Beads, Node LTS policy, provider env vars, and core config parsing.
+  - Reports JSON with check status, evidence, redacted env-var presence, and suggested actions.
+  - `--strict` exits nonzero when required checks fail. Warnings describe degraded optional capabilities.
+  - After repeated tool, provider, or environment failures, run `agnt doctor` and fix the environment instead of retrying blindly.
+
+- `agnt doctor node [--json]`
+  - Runs the Node-focused check. It detects the active `node`, Node major, nvm/fnm/asdf/Nix/Homebrew hints, and suggests LTS remediation.
+  - The doctor is read-only. It never edits home shell files; suggestions respect conventions such as `~/.local/etc/profile.d/`, chezmoi/yadm, and Nix/Home Manager.
+
 ## Context health
 
 - `agnt context-health [--strict]`
   - Checks active Pi context for stale helper names, gate-weakening phrases, oversized unallowlisted skills, and overlapping skill descriptions.
   - `--strict` exits nonzero when failures are found; warnings are reported for entropy signals.
+
+## Lessons
+
+- `agnt lessons capture --summary TEXT [--kind KIND] [--area AREA] [--evidence TEXT] [--tag TAG ...] [--payload-json JSON] [--out FILE]`
+  - Appends one redacted JSONL lesson to the local inbox. Default: `~/.pi/lessons/inbox.jsonl` or `AGNT_LESSONS_INBOX`.
+  - Adds UUID, UTC date, hostname, project name, and project directory provenance.
+
+- `agnt lessons inbox [--file FILE] [--json]`
+  - Prints the local lessons inbox as JSONL or a JSON envelope.
+
+- `agnt lessons push [--url URL] [--file FILE] [--archive-dir DIR] [--dry-run]`
+  - Posts local JSONL to `${AGNT_LESSONS_URL}/lesson` or the supplied `--url`.
+  - Archives and clears pushed records only after a successful server response; preserves the inbox on failure.
+
+- `agnt lessons pull [--url URL] [--status STATUS] [--since ISO] [--project NAME] [--hostname NAME] [--limit N] [-o FILE]`
+  - Fetches `${AGNT_LESSONS_URL}/lessons` as JSONL. The current production server is `https://pi-lessons.st5ve.com`.
+
+- `agnt lessons triage [--file FILE] [--status new] [--draft-beads] [--create-beads]`
+  - Drafts Beads follow-up work from lessons. It creates Beads only with explicit `--create-beads`.
 
 ## Knowledge graphs
 

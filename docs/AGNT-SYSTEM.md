@@ -70,7 +70,9 @@ Metrics record best-effort model usage and outcomes. Evals check routing, instru
 - `agnt work` connects Beads work items to action/run artifacts and gated state transitions.
 - `agnt metrics` annotates, consolidates, prunes, and reports invocation metrics.
 - `agnt eval` runs deterministic or model-backed checks.
+- `agnt doctor` checks local operational readiness before agents rely on tools, providers, Beads, Node, or project config.
 - `agnt context-health` checks active context for drift, unsafe weakening, and entropy signals.
+- `agnt lessons` captures, pushes, pulls, and triages reusable lessons learned as JSONL records.
 
 See the [agnt command reference](../pi/agent/bin/README.md) for syntax and examples.
 
@@ -119,9 +121,10 @@ The system separates runtime telemetry from tracked policy:
 
 ```text
 capture metrics -> annotate outcomes -> consolidate summaries -> adjust routing/prompts -> eval -> commit policy
+capture lessons -> push to lesson server -> triage into Beads -> implement/eval -> commit policy
 ```
 
-Raw metrics and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, and evals.
+Raw metrics, lesson inboxes, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals.
 
 This means the system can learn from observed model behavior while preserving an auditable source-of-truth boundary.
 
