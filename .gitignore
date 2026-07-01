@@ -3,6 +3,7 @@
 .envrc.local.d/
 .direnv/
 .venv/
+lesson-server/.env
 
 # Python bytecode/cache
 __pycache__/

@@ -1,0 +1,72 @@
+services:
+  lesson-api:
+    build: .
+    image: pi-lesson-server:latest
+    container_name: lesson-api
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lessons}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in lesson-server/.env}@lesson-db:5432/${POSTGRES_DB:-lessons}
+      LESSON_BIND: 0.0.0.0
+      LESSON_PORT: "8080"
+      # Set to "1" in .env to expose /test/lesson, /test/lessons, and /test/logs backed by a separate table.
+      LESSON_ENABLE_TEST_API: ${LESSON_ENABLE_TEST_API:-0}
+    depends_on:
+      lesson-db:
+        condition: service_healthy
+    networks:
+      - caddy
+      - lessons-internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  lesson-db:
+    image: postgres:16-alpine
+    container_name: lesson-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lessons}
+      POSTGRES_USER: ${POSTGRES_USER:-lessons}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in lesson-server/.env}
+    volumes:
+      - lesson-db:/var/lib/postgresql/data
+    networks:
+      - lessons-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  lesson-db:
+
+networks:
+  caddy:
+    external: true
+    name: ${CADDY_NETWORK:-caddy}
+  lessons-internal:
+    internal: true
