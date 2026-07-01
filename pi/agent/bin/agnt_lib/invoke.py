@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Tuple
 import _agnt_common as common
 
 from .core import VALID_OUTCOMES, die, split_target
+from .doctor import doctor_report
 from .tasks import list_models, preferred_models
 from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, utc_now, write_json
 
@@ -152,6 +153,7 @@ def cmd_invoke(argv: List[str]) -> int:
     parser.add_argument("--outcome", choices=sorted(VALID_OUTCOMES), default="unknown", help="initial outcome label for metrics")
     parser.add_argument("--human-override", action="store_true", help="mark metrics as involving a human override")
     parser.add_argument("--fallback-used", action="store_true", help="mark metrics as involving a fallback")
+    parser.add_argument("--preflight", action="store_true", help="run agnt doctor invocation preflight before calling models")
     parser.add_argument("-o", "--output", help="output directory for fanout")
     parser.add_argument("items", nargs="*", help="provider/model plus prompt/file, or fanout pairs")
     args = parser.parse_args(argv)
@@ -163,6 +165,16 @@ def cmd_invoke(argv: List[str]) -> int:
         return 2
 
     use_metrics = not args.no_metrics
+
+    if args.preflight:
+        report = doctor_report(check_names=["command.pi", "provider.env", "catalog.parse"])
+        if report.get("failures"):
+            print(json.dumps(report, indent=2, sort_keys=True), file=sys.stderr)
+            return 1
+        if report.get("warnings"):
+            print("agnt invoke preflight warnings:", file=sys.stderr)
+            for warning in report.get("warnings") or []:
+                print(f"- {warning.get('id')}: {warning.get('message')}", file=sys.stderr)
 
     if not args.fanout:
         target = args.items[0]
