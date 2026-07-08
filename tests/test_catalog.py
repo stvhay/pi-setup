@@ -9,6 +9,7 @@ def test_family_resolution_across_venues(common):
         == "gemma4-31b"
     )
     assert common.family_for_target("openai-codex/gpt-5.5") == "gpt-5.5"
+    assert common.family_for_target("olla-cloud/glm-5.2:cloud") == "glm-5.2"
     assert common.family_for_target("unknown/model") is None
 
 
