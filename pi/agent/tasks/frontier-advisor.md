@@ -13,4 +13,4 @@ avoid:
   - olla-local/*
 ---
 
-Use as a read-only specialist advisor, not as the default workflow controller. Start by raising the OpenAI/Codex orchestrator to high or xhigh thinking when possible. Use GLM-5.2 for long-context coding, architecture, and standards-heavy second opinions, but do not rely on Pi thinking-level controls for it because the Olla/OpenRouter route rejects reasoning/thinking request parameters. Use Anthropic models only when their expected quality justifies retail-priced extra usage.
+Use as a read-only specialist advisor, not as the default workflow controller. Start by raising the OpenAI/Codex orchestrator to high or xhigh thinking when possible. Use GLM-5.2 for long-context coding, architecture, and standards-heavy second opinions; its Olla/OpenRouter route supports `high` and `xhigh` thinking via OpenRouter reasoning controls. Use Anthropic models only when their expected quality justifies retail-priced extra usage.

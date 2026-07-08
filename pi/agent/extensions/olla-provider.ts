@@ -139,7 +139,10 @@ function getCost(id: string, surface: ProviderSurface): ModelCost {
   return CLOUD_COSTS.find(([pattern]) => pattern.test(id))?.[1] ?? ZERO_COST;
 }
 
-function getThinkingLevelMap(_id: string): ThinkingLevelMap | null {
+function getThinkingLevelMap(id: string): ThinkingLevelMap | null {
+  if (id === "glm-5.2") {
+    return { minimal: null, low: null, medium: null, high: "high", xhigh: "xhigh" };
+  }
   return null;
 }
 
@@ -148,9 +151,10 @@ function getCompat(id: string, reasoning: boolean) {
     return {
       supportsStore: false,
       supportsDeveloperRole: false,
-      // Olla routes GLM 5.2 through OpenRouter. Although the model reasons
-      // natively, this proxy rejects Pi's OpenAI reasoning/thinking params.
-      supportsReasoningEffort: false,
+      // Olla routes GLM 5.2 through OpenRouter; use OpenRouter's nested
+      // `reasoning: { effort }` control, not ZAI top-level `thinking`.
+      supportsReasoningEffort: true,
+      thinkingFormat: "openrouter",
     };
   }
   return {
