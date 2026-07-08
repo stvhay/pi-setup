@@ -38,6 +38,16 @@ def test_doctor_redacts_provider_env_vars(agnt, monkeypatch):
     assert check["evidence"]["OPENROUTER_API_KEY"] == "present:redacted"
 
 
+def test_doctor_checks_olla_host_used_by_olla_provider(agnt, monkeypatch):
+    monkeypatch.setenv("OLLA_HOST", "https://olla.example.invalid")
+    monkeypatch.delenv("OLLA_API_KEY", raising=False)
+    report = agnt.doctor_report(check_names=["provider.env"])
+
+    check = report["checks"][0]
+    assert check["evidence"]["OLLA_HOST"] == "present:redacted"
+    assert "OLLA_API_KEY" not in check["evidence"]
+
+
 def test_node_non_lts_with_nvm_suggests_lts_without_mutation(agnt, monkeypatch, tmp_path):
     home = tmp_path / "home"
     nvm = home / ".nvm"

@@ -89,7 +89,7 @@
     "glm-5.2": {
       "venues": [
         {
-          "target": "olla-cloud/glm-5.2:cloud",
+          "target": "olla-cloud/glm-5.2",
           "costClass": "frontier",
           "reasoning": true,
           "input": ["text"],

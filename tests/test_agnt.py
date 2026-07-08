@@ -86,7 +86,7 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
 
 
 def test_glm_52_routing_policy_is_frontier_advisor_not_default_orchestrator(agnt):
-    target = "olla-cloud/glm-5.2:cloud"
+    target = "olla-cloud/glm-5.2"
     frontier_meta, _ = agnt.task_meta("frontier-advisor")
     planning_meta, _ = agnt.task_meta("planning")
     implementation_meta, _ = agnt.task_meta("implementation")
@@ -104,7 +104,7 @@ def test_glm_52_routing_policy_is_frontier_advisor_not_default_orchestrator(agnt
 
 
 def test_glm_52_uses_olla_cloud_provider(agnt):
-    target = "olla-cloud/glm-5.2:cloud"
+    target = "olla-cloud/glm-5.2"
     assert agnt.is_local_route_target(target) is False
     assert agnt.is_local_target(target) is False
 
@@ -116,6 +116,19 @@ def test_glm_52_uses_olla_cloud_provider(agnt):
     usage = agnt.apply_assumed_cost(usage_tokens(), target, elapsed_ms=60_000)
     assert usage.get("costSource") != "local-free"
     assert "localCompute" not in usage
+
+
+def test_glm_52_extension_uses_routable_id_without_unsupported_reasoning_params():
+    repo_root = Path(__file__).resolve().parents[1]
+    extension = (repo_root / "pi/agent/extensions/olla-provider.ts").read_text()
+
+    assert "glm-5.2:cloud" not in extension
+    assert 'KNOWN_OLLA_CLOUD_MODEL_IDS = ["glm-5.2"]' in extension
+    compat_body = extension.split("function getCompat", 1)[1]
+    assert 'if (id === "glm-5.2") {' in compat_body
+    glm_compat = compat_body.split('if (id === "glm-5.2") {', 1)[1].split("return {", 1)[1].split("};", 1)[0]
+    assert "supportsReasoningEffort: false" in glm_compat
+    assert "thinkingFormat" not in glm_compat
 
 
 def test_apply_assumed_cost_local_gets_opportunity_cost(agnt):
