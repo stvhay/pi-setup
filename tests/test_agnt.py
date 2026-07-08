@@ -85,6 +85,24 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     )
 
 
+def test_glm_52_routing_policy_is_frontier_advisor_not_default_orchestrator(agnt):
+    target = "olla-cloud/glm-5.2:cloud"
+    frontier_meta, _ = agnt.task_meta("frontier-advisor")
+    planning_meta, _ = agnt.task_meta("planning")
+    implementation_meta, _ = agnt.task_meta("implementation")
+    orchestration_meta, _ = agnt.task_meta("orchestration")
+    review_meta, _ = agnt.task_meta("review")
+    cheap_peer_meta, _ = agnt.task_meta("cheap-peer")
+
+    assert target in frontier_meta["qualified"]
+    assert frontier_meta["qualified"].index(target) < frontier_meta["qualified"].index("claude-opus-4-7")
+    assert target in planning_meta["qualified"]
+    assert target in implementation_meta["qualified"]
+    assert target not in orchestration_meta["preferred"] + orchestration_meta["qualified"]
+    assert target not in review_meta.get("preferred", []) + review_meta.get("qualified", [])
+    assert target not in cheap_peer_meta.get("preferred", []) + cheap_peer_meta.get("qualified", [])
+
+
 def test_glm_52_uses_olla_cloud_provider(agnt):
     target = "olla-cloud/glm-5.2:cloud"
     assert agnt.is_local_route_target(target) is False

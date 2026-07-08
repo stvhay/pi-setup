@@ -5,6 +5,7 @@ preferred:
   - openai-codex/gpt-5.5
 qualified:
   - openai-codex/gpt-5.4-mini
+  - olla-cloud/glm-5.2:cloud
   - claude-opus-4-7
   - claude-sonnet-4-6
 avoid:
@@ -12,4 +13,4 @@ avoid:
   - olla-local/*
 ---
 
-Use as a read-only specialist advisor, not as the default workflow controller. Start by raising the OpenAI/Codex orchestrator to high or xhigh thinking when possible. Use Anthropic models only when their expected quality justifies retail-priced extra usage.
+Use as a read-only specialist advisor, not as the default workflow controller. Start by raising the OpenAI/Codex orchestrator to high or xhigh thinking when possible. Use GLM-5.2 for long-context coding, architecture, and standards-heavy second opinions; prefer `high` for routine use and `xhigh` for hardest long-horizon analysis. Use Anthropic models only when their expected quality justifies retail-priced extra usage.

@@ -107,7 +107,7 @@ const CLOUD_METADATA: Array<[RegExp, ModelMetadata]> = [
   [/^gemini-(?:pro|flash|flash-lite)$/, { contextWindow: 1048576, maxTokens: 65536 }],
   [/^claude-(?:sonnet|haiku)$/, { contextWindow: 200000, maxTokens: 16384 }],
   [/^deepseek-(?:r1|v3\.2)$/, { contextWindow: 128000, maxTokens: 16384 }],
-  [/^glm-5\.2:cloud$/, { contextWindow: 999424, maxTokens: 32768 }],
+  [/^glm-5\.2:cloud$/, { contextWindow: 999424, maxTokens: 131072 }],
   [/^llama-3\.3-70b$/, { contextWindow: 128000, maxTokens: 8192 }],
 ];
 
@@ -141,9 +141,25 @@ function getCost(id: string, surface: ProviderSurface): ModelCost {
 
 function getThinkingLevelMap(id: string): ThinkingLevelMap | null {
   if (id === "glm-5.2:cloud") {
-    return { minimal: null, low: null, medium: "high", high: "high", xhigh: "max" };
+    return { minimal: null, low: "high", medium: "high", high: "high", xhigh: "max" };
   }
   return null;
+}
+
+function getCompat(id: string, reasoning: boolean) {
+  if (id === "glm-5.2:cloud") {
+    return {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+      thinkingFormat: "zai",
+      zaiToolStream: true,
+    };
+  }
+  return {
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: reasoning,
+  };
 }
 
 function withKnownOllaCloudIds(ids: string[] | null): string[] | null {
@@ -178,10 +194,7 @@ function buildModels(ids: string[], surface: ProviderSurface) {
       // explicit values avoids a downstream crash in formatTokenCount(undefined).
       cost: getCost(id, surface),
       ...metadata,
-      compat: {
-        supportsDeveloperRole: false,
-        supportsReasoningEffort: reasoning,
-      },
+      compat: getCompat(id, reasoning),
     });
   }
   return { models, skipped };
