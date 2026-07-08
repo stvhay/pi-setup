@@ -85,6 +85,21 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     )
 
 
+def test_glm_52_uses_olla_cloud_provider(agnt):
+    target = "olla-cloud/glm-5.2:cloud"
+    assert agnt.is_local_route_target(target) is False
+    assert agnt.is_local_target(target) is False
+
+    info = agnt.configured_model_info()[target]
+    assert info["family"] == "glm-5.2"
+    assert info["costClass"] == "frontier"
+    assert info["reasoning"] is True
+
+    usage = agnt.apply_assumed_cost(usage_tokens(), target, elapsed_ms=60_000)
+    assert usage.get("costSource") != "local-free"
+    assert "localCompute" not in usage
+
+
 def test_apply_assumed_cost_local_gets_opportunity_cost(agnt):
     usage = agnt.apply_assumed_cost(
         usage_tokens(), "ollama/gemma4:31b", elapsed_ms=60_000

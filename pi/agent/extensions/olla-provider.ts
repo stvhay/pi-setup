@@ -33,9 +33,14 @@ const VISION_PATTERNS: RegExp[] = [
   /^granite3\.3-vision/,
 ];
 
+// Olla's cloud OpenAI-compatible surface is the same provider used by
+// olla-cloud/gpt-4.1-mini. Some Ollama Cloud models may not appear in /v1/models
+// until first use, so keep known cloud-only ids here.
+const KNOWN_OLLA_CLOUD_MODEL_IDS = ["glm-5.2:cloud"];
+
 // Keep this conservative: Pi maps this to reasoning-effort compatibility, which
 // is not the same as a model having a native "thinking" capability in Ollama.
-const REASONING_PATTERNS: RegExp[] = [/^deepseek-r1/];
+const REASONING_PATTERNS: RegExp[] = [/^deepseek-r1/, /^glm-5\.2:cloud$/];
 
 // Excluded from registration (not chat-capable through openai-completions).
 const SKIP_PATTERNS: RegExp[] = [
@@ -77,6 +82,8 @@ type ModelMetadata = {
   maxTokens: number;
 };
 
+type ThinkingLevelMap = Record<string, string | null>;
+
 const DEFAULT_METADATA: ModelMetadata = {
   contextWindow: 128000,
   maxTokens: 16384,
@@ -100,6 +107,7 @@ const CLOUD_METADATA: Array<[RegExp, ModelMetadata]> = [
   [/^gemini-(?:pro|flash|flash-lite)$/, { contextWindow: 1048576, maxTokens: 65536 }],
   [/^claude-(?:sonnet|haiku)$/, { contextWindow: 200000, maxTokens: 16384 }],
   [/^deepseek-(?:r1|v3\.2)$/, { contextWindow: 128000, maxTokens: 16384 }],
+  [/^glm-5\.2:cloud$/, { contextWindow: 999424, maxTokens: 32768 }],
   [/^llama-3\.3-70b$/, { contextWindow: 128000, maxTokens: 8192 }],
 ];
 
@@ -131,6 +139,22 @@ function getCost(id: string, surface: ProviderSurface): ModelCost {
   return CLOUD_COSTS.find(([pattern]) => pattern.test(id))?.[1] ?? ZERO_COST;
 }
 
+function getThinkingLevelMap(id: string): ThinkingLevelMap | null {
+  if (id === "glm-5.2:cloud") {
+    return { minimal: null, low: null, medium: "high", high: "high", xhigh: "max" };
+  }
+  return null;
+}
+
+function withKnownOllaCloudIds(ids: string[] | null): string[] | null {
+  if (ids === null) return null;
+  return [...new Set([...ids, ...KNOWN_OLLA_CLOUD_MODEL_IDS])];
+}
+
+function isKnownOllaCloudModel(id: string): boolean {
+  return KNOWN_OLLA_CLOUD_MODEL_IDS.includes(id);
+}
+
 function buildModels(ids: string[], surface: ProviderSurface) {
   const models = [];
   const skipped: string[] = [];
@@ -142,10 +166,12 @@ function buildModels(ids: string[], surface: ProviderSurface) {
     const reasoning = REASONING_PATTERNS.some((p) => p.test(id));
     const vision = VISION_PATTERNS.some((p) => p.test(id));
     const metadata = getMetadata(id, surface);
+    const thinkingLevelMap = getThinkingLevelMap(id);
     models.push({
       id,
       name: id,
       reasoning,
+      ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
       input: vision ? ["text", "image"] : ["text"],
       // Pi's registerProvider path doesn't apply defaults the way parseModels does
       // (model-registry.js applyProviderConfig copies these fields raw). Setting
@@ -162,11 +188,14 @@ function buildModels(ids: string[], surface: ProviderSurface) {
 }
 
 export default async function olla(pi: any): Promise<void> {
-  const [cloudIds, localIds, hostIds] = await Promise.all([
+  const [cloudIdsRaw, localIdsRaw, hostIdsRaw] = await Promise.all([
     fetchModelIds(CLOUD_BASE),
     fetchModelIds(LOCAL_BASE),
     fetchModelIds(LOCALHOST_BASE),
   ]);
+  const cloudIds = withKnownOllaCloudIds(cloudIdsRaw);
+  const localIds = localIdsRaw?.filter((id) => !isKnownOllaCloudModel(id)) ?? null;
+  const hostIds = hostIdsRaw?.filter((id) => !isKnownOllaCloudModel(id)) ?? null;
 
   if (cloudIds === null && localIds === null && hostIds === null) {
     pi.logger?.warn?.("olla-provider: no remote OLLA_HOST configured/reachable and localhost is unreachable — no providers registered");
@@ -205,7 +234,7 @@ export default async function olla(pi: any): Promise<void> {
 
   // Cloud-only = ids in /openai minus ids in /ollama (those route through litellm only).
   const localSet = new Set(localIds ?? []);
-  const cloudOnlyIds = (cloudIds ?? []).filter((id) => !localSet.has(id));
+  const cloudOnlyIds = (cloudIds ?? []).filter((id) => isKnownOllaCloudModel(id) || !localSet.has(id));
 
   if (cloudOnlyIds.length > 0) {
     const { models, skipped } = buildModels(cloudOnlyIds, "cloud");
