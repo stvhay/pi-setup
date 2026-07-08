@@ -5,7 +5,7 @@ preferred:
   - openai-codex/gpt-5.5
 qualified:
   - openai-codex/gpt-5.4-mini
-  - olla-cloud/glm-5.2:cloud
+  - olla-cloud/glm-5.2
   - claude-sonnet-4-6
   - claude-opus-4-7
 ---

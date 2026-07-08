@@ -36,7 +36,7 @@ PROVIDER_ENV_VARS = {
     "anthropic": ["ANTHROPIC_API_KEY"],
     "gemini": ["GEMINI_API_KEY"],
     "google": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-    "olla-cloud": ["OLLA_API_KEY"],
+    "olla-cloud": ["OLLA_HOST"],
 }
 
 DEFAULT_NODE_LTS_MAJORS = {20, 22, 24}
