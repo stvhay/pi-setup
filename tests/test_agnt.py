@@ -118,17 +118,21 @@ def test_glm_52_uses_olla_cloud_provider(agnt):
     assert "localCompute" not in usage
 
 
-def test_glm_52_extension_uses_routable_id_without_unsupported_reasoning_params():
+def test_glm_52_extension_uses_routable_id_with_openrouter_thinking_params():
     repo_root = Path(__file__).resolve().parents[1]
     extension = (repo_root / "pi/agent/extensions/olla-provider.ts").read_text()
 
     assert "glm-5.2:cloud" not in extension
     assert 'KNOWN_OLLA_CLOUD_MODEL_IDS = ["glm-5.2"]' in extension
+    thinking_body = extension.split("function getThinkingLevelMap", 1)[1].split("function getCompat", 1)[0]
+    assert 'if (id === "glm-5.2") {' in thinking_body
+    assert "high: \"high\"" in thinking_body
+    assert "xhigh: \"xhigh\"" in thinking_body
     compat_body = extension.split("function getCompat", 1)[1]
     assert 'if (id === "glm-5.2") {' in compat_body
     glm_compat = compat_body.split('if (id === "glm-5.2") {', 1)[1].split("return {", 1)[1].split("};", 1)[0]
-    assert "supportsReasoningEffort: false" in glm_compat
-    assert "thinkingFormat" not in glm_compat
+    assert "supportsReasoningEffort: true" in glm_compat
+    assert 'thinkingFormat: "openrouter"' in glm_compat
 
 
 def test_apply_assumed_cost_local_gets_opportunity_cost(agnt):
