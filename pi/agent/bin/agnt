@@ -37,6 +37,7 @@ from agnt_lib.approvals import *  # noqa: E402,F401,F403
 from agnt_lib.gateway import *  # noqa: E402,F401,F403
 from agnt_lib.runner import *  # noqa: E402,F401,F403
 from agnt_lib.worktree_policy import *  # noqa: E402,F401,F403
+from agnt_lib.health import *  # noqa: E402,F401,F403
 from agnt_lib.context_health import *  # noqa: E402,F401,F403
 from agnt_lib.doctor import *  # noqa: E402,F401,F403
 from agnt_lib.lessons import *  # noqa: E402,F401,F403
