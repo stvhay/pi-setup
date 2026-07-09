@@ -355,6 +355,33 @@ def test_create_run_bundle_writes_invocation_and_result(agnt, tmp_path):
     assert invocation["allowedEffects"] == ["read_workspace", "write_artifacts"]
 
 
+def test_create_run_bundle_records_selected_model_and_thinking(agnt, tmp_path):
+    selection = {
+        "target": "olla-cloud/gpt-4.1-mini",
+        "thinkingLevel": "default",
+        "diversityGroup": "gpt-4.1-mini",
+        "score": 120,
+    }
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        role="documentation-reviewer",
+        bead="pi-test.1",
+        runs_dir=tmp_path,
+        id_value="selected-run",
+        selected_model="olla-cloud/gpt-4.1-mini",
+        thinking_level="default",
+        model_selection=selection,
+    )
+
+    invocation = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
+    assert invocation["model"] == "olla-cloud/gpt-4.1-mini"
+    assert invocation["selectedModel"] == "olla-cloud/gpt-4.1-mini"
+    assert invocation["thinkingLevel"] == "default"
+    assert invocation["modelSelection"] == selection
+    assert agnt.choose_invocation_model(invocation, None) == "olla-cloud/gpt-4.1-mini"
+
+
 def test_update_run_result_adds_evidence_and_terminal_status(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="verify",
@@ -434,6 +461,52 @@ def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
     assert (tmp_path / "metrics").is_dir()
 
 
+def test_select_model_returns_scored_selection_contract(agnt):
+    result = agnt.select_model(
+        "review",
+        risk="medium",
+        budget="cheap",
+        local_ok=True,
+        fanout_size=3,
+        diversity="normal",
+    )
+
+    assert result["routeStatus"] == "selected"
+    assert result["selected"] == result["selection"]["target"]
+    assert result["selection"]["thinkingLevel"] == result["thinkingLevel"]
+    assert result["selection"]["diversityGroup"]
+    assert result["candidateScores"]
+    assert all("score" in item and "diversityGroup" in item for item in result["candidateScores"])
+    fanout_groups = [item["diversityGroup"] for item in result["fanout"]]
+    assert len(fanout_groups) == len(set(fanout_groups))
+
+
+def test_select_model_honors_avoid_family_policy(agnt):
+    base = agnt.select_model("review", risk="medium", budget="cheap", local_ok=True)
+    avoided = base["selection"]["diversityGroup"]
+
+    result = agnt.select_model(
+        "review",
+        risk="medium",
+        budget="cheap",
+        local_ok=True,
+        model_policy={"avoidFamilies": [avoided]},
+    )
+
+    assert result["routeStatus"] == "selected"
+    assert result["selection"]["diversityGroup"] != avoided
+    assert any(item.get("diversityGroup") == avoided and "avoidFamilies" in item.get("reason", "") for item in result["rejectedCandidates"])
+
+
+def test_cmd_route_includes_selection_and_fanout_json(agnt, capsys):
+    assert agnt.cmd_route(["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok", "--fanout-size", "3"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["selection"]["target"] == result["selected"]
+    assert len(result["fanout"]) == 3
+    assert result["candidateScores"]
+
+
 def test_work_dispatch_plan_uses_action_template(agnt):
     bead = {"id": "pi-test.1", "title": "Review docs", "status": "open", "labels": ["docs"]}
     plan = agnt.dispatch_plan(bead, "review", ["docs/example.md"])
@@ -442,6 +515,24 @@ def test_work_dispatch_plan_uses_action_template(agnt):
     assert plan["routingTask"] == "review"
     assert plan["role"] == "documentation-reviewer"
     assert plan["inputRefs"] == ["docs/example.md"]
+
+
+def test_start_work_records_policy_selected_model(agnt, tmp_path):
+    bead = {"id": "pi-test.route", "title": "Review docs", "status": "open", "labels": ["docs"]}
+
+    result = agnt.start_work(
+        bead,
+        action_id="review",
+        target=["docs/example.md"],
+        claim=False,
+        runs_dir=tmp_path,
+        id_value="selected-work",
+    )
+
+    invocation = json.loads((Path(result["bundle"]) / "invocation.yaml").read_text(encoding="utf-8"))
+    assert invocation["selectedModel"]
+    assert invocation["thinkingLevel"]
+    assert invocation["modelSelection"]["target"] == invocation["selectedModel"]
 
 
 def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
@@ -627,7 +718,7 @@ def test_run_work_starts_invokes_and_optionally_closes(agnt, tmp_path):
             target=["docs/RUN-ARTIFACTS.md"],
             claim=True,
             close_bead=True,
-            model="olla-cloud/gpt-4.1-mini",
+            model=None,
             runs_dir=tmp_path,
             id_value="work-run",
         )
@@ -638,6 +729,32 @@ def test_run_work_starts_invokes_and_optionally_closes(agnt, tmp_path):
         ["update", "pi-test.7", "--claim"],
         ["close", "pi-test.7", "--reason", "Invoked successfully."],
     ]
+
+
+def test_run_work_rejects_direct_model_override(agnt, tmp_path):
+    bead = {"id": "pi-test.override", "title": "Verify thing", "status": "open", "labels": ["tests"]}
+
+    result = agnt.run_work(
+        bead,
+        action_id="verify",
+        target=["docs/RUN-ARTIFACTS.md"],
+        claim=False,
+        close_bead=False,
+        model="olla-cloud/gpt-4.1-mini",
+        runs_dir=tmp_path,
+        id_value="work-run-override",
+    )
+
+    assert "modelOverrideError" in result
+    assert "policy" in result["modelOverrideError"]
+
+
+def test_cmd_work_run_dry_run_rejects_direct_model_override(agnt, capsys):
+    assert agnt.cmd_work(["run", "pi-test.override", "--model", "olla-cloud/gpt-4.1-mini", "--dry-run"]) == 2
+
+    result = json.loads(capsys.readouterr().out)
+    assert "modelOverrideError" in result
+    assert "policy" in result["modelOverrideError"]
 
 
 def test_finish_work_updates_result_and_closes_bead(agnt, tmp_path):
