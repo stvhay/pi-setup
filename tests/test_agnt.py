@@ -382,6 +382,65 @@ def test_create_run_bundle_records_selected_model_and_thinking(agnt, tmp_path):
     assert agnt.choose_invocation_model(invocation, None) == "olla-cloud/gpt-4.1-mini"
 
 
+def test_create_run_bundle_records_orchestration_state_defaults(agnt, tmp_path):
+    ticket_metadata = {"id": "pi-test.12", "status": "open", "metadataValidation": {"status": "dispatchable"}}
+    dispatch_policy = {"allowedEffects": ["read_workspace"], "risk": "low", "budget": "cheap"}
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        role="documentation-reviewer",
+        bead="pi-test.12",
+        runs_dir=tmp_path,
+        id_value="orchestration-run",
+        ticket_metadata=ticket_metadata,
+        ephemeral_todo_seed=[{"title": "Review docs", "source": "pi-test.12"}],
+        worktree={"policy": "none", "path": str(tmp_path)},
+        dispatch_policy=dispatch_policy,
+    )
+
+    invocation = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
+    assert invocation["ticketMetadata"] == ticket_metadata
+    assert invocation["ephemeralTodoSeed"] == [{"title": "Review docs", "source": "pi-test.12"}]
+    assert invocation["worktree"] == {"policy": "none", "path": str(tmp_path)}
+    assert invocation["dispatchPolicy"] == dispatch_policy
+    assert invocation["sessionPolicy"] == "recorded"
+    assert invocation["memoryPolicy"] == "auto"
+    assert agnt.validate_run_bundle(bundle) == []
+
+
+def test_update_run_result_records_orchestration_refs_and_checks(agnt, tmp_path):
+    bundle = agnt.create_run_bundle(
+        action="verify",
+        routing_task="review",
+        role="verifier",
+        bead="pi-test.refs",
+        runs_dir=tmp_path,
+        id_value="refs-run",
+    )
+
+    result = agnt.update_run_result(
+        bundle,
+        status="needs-human",
+        summary="Waiting for approval.",
+        session_ref="pi-session://run/refs-run",
+        transcript_ref="artifacts/transcript.jsonl",
+        memory_summary_ref="artifacts/memory-summary.md",
+        approval_refs=["pi-approval.1"],
+        decision_refs=["pi-decision.1"],
+        health_checks=[{"name": "config", "status": "passed"}],
+        closeout_checks=[{"name": "evidence", "status": "pending"}],
+    )
+
+    assert result["sessionRef"] == "pi-session://run/refs-run"
+    assert result["transcriptRef"] == "artifacts/transcript.jsonl"
+    assert result["memorySummaryRef"] == "artifacts/memory-summary.md"
+    assert result["approvalRefs"] == ["pi-approval.1"]
+    assert result["decisionRefs"] == ["pi-decision.1"]
+    assert result["healthChecks"] == [{"name": "config", "status": "passed"}]
+    assert result["closeoutChecks"] == [{"name": "evidence", "status": "pending"}]
+    assert agnt.validate_run_bundle(bundle) == []
+
+
 def test_update_run_result_adds_evidence_and_terminal_status(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="verify",
@@ -422,12 +481,19 @@ def test_render_invocation_prompt_contains_contract(agnt):
         "allowedEffects": ["read_workspace"],
         "outputContract": "verification-review",
         "inputRefs": ["docs/RUN-ARTIFACTS.md"],
+        "sessionPolicy": "recorded",
+        "memoryPolicy": "auto",
+        "ephemeralTodoSeed": [{"title": "Verify docs"}],
     })
 
     assert "Action: review" in prompt
     assert "Bead: pi-test.5" in prompt
     assert "- docs/RUN-ARTIFACTS.md" in prompt
     assert "Output contract: verification-review" in prompt
+    assert "Session policy: recorded" in prompt
+    assert "Memory policy: auto" in prompt
+    assert "Archimedes todos are transient" in prompt
+    assert "durable outcomes must be recorded in Beads and run evidence" in prompt
 
 
 def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
@@ -533,6 +599,45 @@ def test_start_work_records_policy_selected_model(agnt, tmp_path):
     assert invocation["selectedModel"]
     assert invocation["thinkingLevel"]
     assert invocation["modelSelection"]["target"] == invocation["selectedModel"]
+
+
+def test_start_work_records_ticket_snapshot_and_policies(agnt, tmp_path):
+    bead = {
+        "id": "pi-test.orch",
+        "title": "Review docs",
+        "status": "open",
+        "labels": ["docs"],
+        "priority": 2,
+        "metadata": json.dumps({
+            "pi": {
+                "action": "review",
+                "routingTask": "review",
+                "allowedEffects": ["read_workspace", "write_artifacts"],
+                "sessionPolicy": "recorded",
+                "memoryPolicy": "passive",
+                "risk": "low",
+                "budget": "cheap",
+            }
+        }),
+    }
+
+    result = agnt.start_work(
+        bead,
+        action_id="review",
+        target=["docs/example.md"],
+        claim=False,
+        runs_dir=tmp_path,
+        id_value="orchestration-work",
+    )
+
+    invocation = json.loads((Path(result["bundle"]) / "invocation.yaml").read_text(encoding="utf-8"))
+    assert invocation["ticketMetadata"]["id"] == "pi-test.orch"
+    assert invocation["ticketMetadata"]["metadataValidation"]["status"] == "dispatchable"
+    assert invocation["dispatchPolicy"]["risk"] == "low"
+    assert invocation["dispatchPolicy"]["budget"] == "cheap"
+    assert invocation["sessionPolicy"] == "recorded"
+    assert invocation["memoryPolicy"] == "passive"
+    assert invocation["ephemeralTodoSeed"]
 
 
 def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):

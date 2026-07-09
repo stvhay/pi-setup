@@ -16,6 +16,8 @@ from .metrics import default_metrics_dir, git_root, write_json
 from .tasks import preferred_models
 
 VALID_STATUSES = {"succeeded", "failed", "blocked", "needs-human", "superseded"}
+VALID_SESSION_POLICIES = {"recorded", "no-session"}
+VALID_MEMORY_POLICIES = {"auto", "active", "passive", "disabled"}
 DEFAULT_ALLOWED_EFFECTS = ["read_workspace", "write_artifacts"]
 
 
@@ -67,6 +69,12 @@ def create_run_bundle(
     selected_model: str | None = None,
     thinking_level: str | None = None,
     model_selection: Dict[str, Any] | None = None,
+    ticket_metadata: Dict[str, Any] | None = None,
+    ephemeral_todo_seed: List[Dict[str, Any]] | None = None,
+    worktree: Dict[str, Any] | None = None,
+    dispatch_policy: Dict[str, Any] | None = None,
+    session_policy: str | None = None,
+    memory_policy: str | None = None,
     allowed_effects: List[str] | None = None,
     acceptance_criteria: List[str] | None = None,
     output_contract: str | None = None,
@@ -90,6 +98,12 @@ def create_run_bundle(
         "selectedModel": selected_model or model,
         "thinkingLevel": thinking_level,
         "modelSelection": model_selection,
+        "ticketMetadata": ticket_metadata,
+        "ephemeralTodoSeed": ephemeral_todo_seed or [],
+        "worktree": worktree,
+        "dispatchPolicy": dispatch_policy,
+        "sessionPolicy": session_policy or "recorded",
+        "memoryPolicy": memory_policy or "auto",
         "allowedEffects": allowed_effects or list(DEFAULT_ALLOWED_EFFECTS),
         "acceptanceCriteria": acceptance_criteria or [],
         "outputContract": output_contract,
@@ -104,6 +118,13 @@ def create_run_bundle(
         "artifacts": [str(artifacts.relative_to(bundle))],
         "followUps": [],
         "metricsRef": None,
+        "sessionRef": None,
+        "transcriptRef": None,
+        "memorySummaryRef": None,
+        "approvalRefs": [],
+        "decisionRefs": [],
+        "healthChecks": [],
+        "closeoutChecks": [],
         "completedAt": None,
     }
     write_yaml_json(bundle / "invocation.yaml", invocation)
@@ -138,6 +159,8 @@ def render_invocation_prompt(invocation: Dict[str, Any]) -> str:
         f"Role: {invocation.get('role')}",
         f"Selected model: {invocation.get('selectedModel') or invocation.get('model')}",
         f"Thinking level: {invocation.get('thinkingLevel') or 'default'}",
+        f"Session policy: {invocation.get('sessionPolicy') or 'recorded'}",
+        f"Memory policy: {invocation.get('memoryPolicy') or 'auto'}",
         f"Skills: {', '.join(str(item) for item in invocation.get('skills') or []) or 'none'}",
         f"Allowed effects: {', '.join(str(item) for item in invocation.get('allowedEffects') or []) or 'none'}",
         f"Output contract: {invocation.get('outputContract')}",
@@ -153,8 +176,18 @@ def render_invocation_prompt(invocation: Dict[str, Any]) -> str:
     if criteria:
         lines.extend(["", "Acceptance criteria:"])
         lines.extend(f"- {item}" for item in criteria)
+    todos = invocation.get("ephemeralTodoSeed") or []
+    if todos:
+        lines.extend(["", "Ephemeral todo seed:"])
+        for todo in todos:
+            if isinstance(todo, dict):
+                lines.append(f"- {todo.get('title') or todo.get('source') or todo}")
+            else:
+                lines.append(f"- {todo}")
     lines.extend([
         "",
+        "Archimedes todos are transient; durable outcomes must be recorded in Beads and run evidence.",
+        "Promote important observational-memory findings into Beads or .pi/runs before relying on them for closeout.",
         "Follow project instructions and any referenced skills/roles. Stay within allowed effects.",
         "Return a concise result with evidence and any follow-up work needed.",
     ])
@@ -251,6 +284,13 @@ def update_run_result(
     artifacts: List[str] | None = None,
     follow_ups: List[str] | None = None,
     metrics_ref: str | None = None,
+    session_ref: str | None = None,
+    transcript_ref: str | None = None,
+    memory_summary_ref: str | None = None,
+    approval_refs: List[str] | None = None,
+    decision_refs: List[str] | None = None,
+    health_checks: List[Dict[str, Any]] | None = None,
+    closeout_checks: List[Dict[str, Any]] | None = None,
     completed: bool = False,
 ) -> Dict[str, Any]:
     result_path = bundle / "result.yaml"
@@ -282,10 +322,54 @@ def update_run_result(
         result["followUps"].extend(follow_ups)
     if metrics_ref is not None:
         result["metricsRef"] = metrics_ref
+    if session_ref is not None:
+        result["sessionRef"] = session_ref
+    if transcript_ref is not None:
+        result["transcriptRef"] = transcript_ref
+    if memory_summary_ref is not None:
+        result["memorySummaryRef"] = memory_summary_ref
+    for key, values in (("approvalRefs", approval_refs), ("decisionRefs", decision_refs)):
+        if values:
+            result.setdefault(key, [])
+            if not isinstance(result[key], list):
+                die(f"result {key} must be a list: {result_path}", 1)
+            for value in values:
+                if value not in result[key]:
+                    result[key].append(value)
+    for key, checks in (("healthChecks", health_checks), ("closeoutChecks", closeout_checks)):
+        if checks:
+            result.setdefault(key, [])
+            if not isinstance(result[key], list):
+                die(f"result {key} must be a list: {result_path}", 1)
+            result[key].extend(checks)
     if completed or (status in {"succeeded", "failed", "blocked", "superseded"}):
         result["completedAt"] = utc_now()
     write_yaml_json(result_path, result)
     return result
+
+
+def _optional_object_failures(owner: str, data: Dict[str, Any], keys: List[str]) -> List[str]:
+    failures: List[str] = []
+    for key in keys:
+        if key in data and data[key] is not None and not isinstance(data[key], dict):
+            failures.append(f"{owner} {key} must be an object when present")
+    return failures
+
+
+def _optional_list_failures(owner: str, data: Dict[str, Any], keys: List[str]) -> List[str]:
+    failures: List[str] = []
+    for key in keys:
+        if key in data and data[key] is not None and not isinstance(data[key], list):
+            failures.append(f"{owner} {key} must be a list when present")
+    return failures
+
+
+def _optional_string_failures(owner: str, data: Dict[str, Any], keys: List[str]) -> List[str]:
+    failures: List[str] = []
+    for key in keys:
+        if key in data and data[key] is not None and not isinstance(data[key], str):
+            failures.append(f"{owner} {key} must be a string when present")
+    return failures
 
 
 def validate_run_bundle(bundle: Path, *, followup_checker: Callable[[str], Tuple[bool, str | None]] | None = None) -> List[str]:
@@ -308,6 +392,13 @@ def validate_run_bundle(bundle: Path, *, followup_checker: Callable[[str], Tuple
         failures.append("invocation schemaVersion must be 1")
     if not isinstance(invocation.get("allowedEffects"), list):
         failures.append("invocation allowedEffects must be a list")
+    failures.extend(_optional_object_failures("invocation", invocation, ["ticketMetadata", "worktree", "dispatchPolicy", "modelSelection"]))
+    failures.extend(_optional_list_failures("invocation", invocation, ["ephemeralTodoSeed"]))
+    failures.extend(_optional_string_failures("invocation", invocation, ["selectedModel", "thinkingLevel", "sessionPolicy", "memoryPolicy"]))
+    if invocation.get("sessionPolicy") is not None and invocation.get("sessionPolicy") not in VALID_SESSION_POLICIES:
+        failures.append(f"invocation sessionPolicy must be one of {sorted(VALID_SESSION_POLICIES)}")
+    if invocation.get("memoryPolicy") is not None and invocation.get("memoryPolicy") not in VALID_MEMORY_POLICIES:
+        failures.append(f"invocation memoryPolicy must be one of {sorted(VALID_MEMORY_POLICIES)}")
     if result.get("schemaVersion") != 1:
         failures.append("result schemaVersion must be 1")
     if result.get("invocationId") != invocation.get("id"):
@@ -315,6 +406,8 @@ def validate_run_bundle(bundle: Path, *, followup_checker: Callable[[str], Tuple
     status = result.get("status")
     if status not in VALID_STATUSES:
         failures.append(f"result status must be one of {sorted(VALID_STATUSES)}")
+    failures.extend(_optional_string_failures("result", result, ["sessionRef", "transcriptRef", "memorySummaryRef"]))
+    failures.extend(_optional_list_failures("result", result, ["approvalRefs", "decisionRefs", "healthChecks", "closeoutChecks"]))
     follow_ups = result.get("followUps")
     if not isinstance(follow_ups, list):
         failures.append("result followUps must be a list")
@@ -325,6 +418,19 @@ def validate_run_bundle(bundle: Path, *, followup_checker: Callable[[str], Tuple
                 suffix = f": {detail}" if detail else ""
                 failures.append(f"result followUp does not resolve to a bead: {follow_up}{suffix}")
     return failures
+
+
+def parse_check_arg(value: str) -> Dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        if "=" in value:
+            name, status = value.split("=", 1)
+            return {"name": name, "status": status}
+        return {"name": value, "status": "unknown"}
+    if not isinstance(parsed, dict):
+        die(f"check argument must be a JSON object or name=status: {value}", 2)
+    return parsed
 
 
 def bead_exists_checker(bead_id: str) -> Tuple[bool, str | None]:
@@ -348,6 +454,8 @@ def cmd_runs(argv: List[str]) -> int:
     create.add_argument("--role")
     create.add_argument("--bead")
     create.add_argument("--model")
+    create.add_argument("--session-policy", choices=sorted(VALID_SESSION_POLICIES), default="recorded")
+    create.add_argument("--memory-policy", choices=sorted(VALID_MEMORY_POLICIES), default="auto")
     create.add_argument("--allowed-effect", action="append", default=[])
     create.add_argument("--acceptance", action="append", default=[])
     create.add_argument("--output-contract")
@@ -365,6 +473,13 @@ def cmd_runs(argv: List[str]) -> int:
     update.add_argument("--artifact", action="append", default=[])
     update.add_argument("--follow-up", action="append", default=[])
     update.add_argument("--metrics-ref")
+    update.add_argument("--session-ref")
+    update.add_argument("--transcript-ref")
+    update.add_argument("--memory-summary-ref")
+    update.add_argument("--approval-ref", action="append", default=[])
+    update.add_argument("--decision-ref", action="append", default=[])
+    update.add_argument("--health-check", action="append", default=[], help="JSON object or name=status check")
+    update.add_argument("--closeout-check", action="append", default=[], help="JSON object or name=status check")
     update.add_argument("--completed", action="store_true")
     invoke = sub.add_parser("invoke", help="invoke a model from invocation.yaml and write output/metrics into result.yaml")
     invoke.add_argument("bundle")
@@ -384,6 +499,8 @@ def cmd_runs(argv: List[str]) -> int:
             role=args.role,
             bead=args.bead,
             model=args.model,
+            session_policy=args.session_policy,
+            memory_policy=args.memory_policy,
             allowed_effects=args.allowed_effect or None,
             acceptance_criteria=args.acceptance,
             output_contract=args.output_contract,
@@ -409,6 +526,13 @@ def cmd_runs(argv: List[str]) -> int:
             artifacts=args.artifact,
             follow_ups=args.follow_up,
             metrics_ref=args.metrics_ref,
+            session_ref=args.session_ref,
+            transcript_ref=args.transcript_ref,
+            memory_summary_ref=args.memory_summary_ref,
+            approval_refs=args.approval_ref,
+            decision_refs=args.decision_ref,
+            health_checks=[parse_check_arg(item) for item in args.health_check],
+            closeout_checks=[parse_check_arg(item) for item in args.closeout_check],
             completed=args.completed,
         )
         print(json.dumps({"schemaVersion": 1, "result": result}, indent=2, sort_keys=True))
