@@ -7,7 +7,7 @@
     {
       "name": "review-cheap-local",
       "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "olla-local/qwen3:8b", "fanoutRecommended": true}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "ollama/gemma4:31b", "fanoutRecommended": true}
     },
     {
       "name": "orchestration-high-quality",
