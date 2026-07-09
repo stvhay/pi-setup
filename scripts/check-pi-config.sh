@@ -58,11 +58,13 @@ fi
 if [ "$SOURCE_CHECK" = 1 ]; then
   check_absent "$PI_DIR/agent/auth.json"
   check_absent "$PI_DIR/agent/sessions"
+  check_absent "$PI_DIR/agent/npm"
+  check_absent "$PI_DIR/agent/git"
   check_absent "$PI_DIR/agent/mcp-cache.json"
   check_absent "$PI_DIR/agent/mcp-onboarding.json"
   check_absent "$PI_DIR/agent/trust.json"
 
-  if git -C "$ROOT" ls-files | grep -E '(^|/)auth\.json$|(^|/)sessions/|mcp-cache\.json|mcp-onboarding\.json|trust\.json' >/dev/null; then
+  if git -C "$ROOT" ls-files | grep -E '(^|/)auth\.json$|(^|/)sessions/|(^|/)npm/|(^|/)git/|mcp-cache\.json|mcp-onboarding\.json|trust\.json' >/dev/null; then
     fail "private/generated state is tracked"
   fi
 

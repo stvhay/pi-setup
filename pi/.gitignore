@@ -1,6 +1,8 @@
 # Pi runtime/private state
 agent/auth.json
 agent/sessions/
+agent/npm/
+agent/git/
 agent/mcp-cache.json
 agent/mcp-onboarding.json
 agent/trust.json
