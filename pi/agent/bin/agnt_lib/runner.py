@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Tuple
 from .approvals import create_beads_approval_request
 from .orchestration import validate_bead_orchestration_metadata
 from .runs import default_runs_dir, update_run_result
+from .maintenance import maintenance_create_beads, maintenance_due_report
 from .worktree_policy import worktree_snapshot_for_bead, write_conflict_for
 
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
@@ -216,6 +217,8 @@ def runner_tick(
     runs_dir: Path | None = None,
     metrics_dir: Path | None = None,
     worktree_resolver: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]] = worktree_snapshot_for_bead,
+    maintenance_due_provider: Callable[..., Dict[str, Any]] = maintenance_due_report,
+    maintenance_creator: Callable[..., Dict[str, Any]] = maintenance_create_beads,
 ) -> Dict[str, Any]:
     if limit < 1:
         raise ValueError("limit must be positive")
@@ -225,6 +228,15 @@ def runner_tick(
 
     items = _ready_items(beads_runner)[:limit]
     actions: List[Dict[str, Any]] = []
+    if not items:
+        due_report = maintenance_due_provider(root=root, runs_dir=runs_dir, beads_runner=beads_runner)
+        if due_report.get("due"):
+            if dry_run:
+                maintenance = maintenance_creator(due_report, dry_run=True, beads_runner=beads_runner)
+                actions.append({"action": "would_create_maintenance", "maintenance": maintenance, "due": due_report})
+            else:
+                maintenance = maintenance_creator(due_report, dry_run=False, beads_runner=beads_runner)
+                actions.append({"action": "created_maintenance", "maintenance": maintenance, "due": due_report})
     active_writes: List[Dict[str, Any]] = []
     for bead in items:
         validation = validate_bead_orchestration_metadata(bead)
