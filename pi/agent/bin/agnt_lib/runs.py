@@ -213,6 +213,9 @@ def invoke_run_bundle(
     model: str | None = None,
     metrics: bool = True,
     metrics_dir: Path | None = None,
+    record_session: bool = False,
+    session_id: str | None = None,
+    session_name: str | None = None,
 ) -> Dict[str, Any]:
     failures = validate_run_bundle(bundle)
     if failures:
@@ -231,6 +234,9 @@ def invoke_run_bundle(
         task=str(invocation.get("routingTask") or ""),
         risk_category="run-artifact",
         outcome="unknown",
+        record_session=record_session,
+        session_id=session_id,
+        session_name=session_name,
     )
     safe = safe_target_name(target)
     response_path = artifacts_dir / f"{safe}.response.md"
@@ -264,6 +270,8 @@ def invoke_run_bundle(
         evidence=evidence,
         artifacts=artifact_paths,
         metrics_ref=metrics_ref,
+        session_ref=f"pi-session-id:{session_id}" if record_session and session_id else None,
+        transcript_ref=f"pi-session-transcript:{session_id}" if record_session and session_id else None,
     )
     return {
         "target": target,

@@ -141,10 +141,10 @@ def test_gateway_request_approval_and_resolve_blocker_delegate_to_approval_core(
     assert resolve_calls[0]["decision_bead"] == "pi-decision.1"
 
 
-def test_gateway_runner_status_is_stable_without_runner(agnt):
-    result = agnt.ticket_gateway({"operation": "runner_status"})
+def test_gateway_runner_status_surfaces_runner_state(agnt, tmp_path):
+    result = agnt.ticket_gateway({"operation": "runner_status", "root": str(tmp_path)})
 
-    assert result["runner"]["status"] == "not_configured"
+    assert result["runner"]["status"] == "idle"
     assert result["runner"]["running"] is False
 
 
