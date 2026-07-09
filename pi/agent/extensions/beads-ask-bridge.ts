@@ -22,7 +22,7 @@ const PreviewSchema = Type.Object({
 	closeoutPath: Type.String({ description: "How the decision will be closed out and evidenced" }),
 });
 
-const RequestSchema = Type.Object({
+const RequestProperties = {
 	targetBead: Type.String({ description: "Bead blocked by this human decision" }),
 	question: Type.String({ description: "Question shown to the user and stored in Beads" }),
 	context: Type.String({ description: "Decision context sufficient for handoff" }),
@@ -31,14 +31,14 @@ const RequestSchema = Type.Object({
 	requestingRun: Type.Optional(Type.String({ description: "Run id requesting the decision" })),
 	runBundle: Type.Optional(Type.String({ description: "Path to .pi/runs/<id> bundle to update" })),
 	preview: PreviewSchema,
-});
+};
 
-const ApprovalSchema = Type.Composite([
-	RequestSchema,
-	Type.Object({
-		promptUser: Type.Optional(Type.Boolean({ description: "If true and UI exists, ask for confirm after creating the Beads blocker" })),
-	}),
-]);
+const RequestSchema = Type.Object(RequestProperties);
+
+const ApprovalSchema = Type.Object({
+	...RequestProperties,
+	promptUser: Type.Optional(Type.Boolean({ description: "If true and UI exists, ask for confirm after creating the Beads blocker" })),
+});
 
 const ResolveSchema = Type.Object({
 	decisionBead: Type.String({ description: "Decision/approval bead to resolve" }),
