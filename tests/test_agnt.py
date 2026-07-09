@@ -683,6 +683,152 @@ def test_cmd_work_next_selects_ready_non_epic(agnt, capsys):
     assert out["item"]["id"] == "pi-task"
 
 
+def test_work_tree_for_epic_includes_children_validation_and_blockers(agnt, tmp_path):
+    valid_meta = {
+        "pi": {
+            "action": "review",
+            "routingTask": "review",
+            "allowedEffects": ["read_workspace", "write_artifacts"],
+            "modelPolicy": {"mode": "auto"},
+        }
+    }
+    issues = {
+        "pi-epic": {
+            "id": "pi-epic",
+            "title": "Epic",
+            "issue_type": "epic",
+            "status": "open",
+            "priority": 1,
+            "dependents": [
+                {"id": "pi-approval", "dependency_type": "parent-child"},
+                {"id": "pi-task", "dependency_type": "parent-child"},
+            ],
+        },
+        "pi-approval": {
+            "id": "pi-approval",
+            "title": "Approve work",
+            "issue_type": "decision",
+            "status": "open",
+            "priority": 1,
+            "labels": ["approval", "human"],
+            "dependencies": [{"id": "pi-epic", "dependency_type": "parent-child"}],
+            "dependents": [{"id": "pi-task", "dependency_type": "blocks"}],
+        },
+        "pi-task": {
+            "id": "pi-task",
+            "title": "Review thing",
+            "issue_type": "task",
+            "status": "open",
+            "priority": 2,
+            "metadata": json.dumps(valid_meta),
+            "dependencies": [
+                {"id": "pi-epic", "dependency_type": "parent-child"},
+                {"id": "pi-approval", "dependency_type": "blocks", "status": "open"},
+            ],
+        },
+    }
+
+    def fake_beads(args):
+        assert args[0] == "show"
+        return 0, [issues[args[1]]], ""
+
+    with patch.dict(agnt.build_work_tree.__globals__, {"run_beads_json": fake_beads}):
+        tree = agnt.build_work_tree("pi-epic", runs_dir=tmp_path)
+
+    assert tree["root"] == "pi-epic"
+    assert set(tree["nodes"]) == {"pi-epic", "pi-approval", "pi-task"}
+    task = tree["nodes"]["pi-task"]
+    assert task["metadataValidation"]["status"] == "dispatchable"
+    assert task["approvalRefs"] == ["pi-approval"]
+    assert task["blockerRefs"] == ["pi-approval"]
+    assert {edge["from"] + "->" + edge["to"] for edge in tree["edges"]} >= {
+        "pi-approval->pi-task",
+        "pi-epic->pi-task",
+    }
+
+
+def test_work_tree_does_not_treat_approval_labeled_tasks_as_approval_records(agnt, tmp_path):
+    issues = {
+        "pi-root": {
+            "id": "pi-root",
+            "title": "Root task",
+            "issue_type": "task",
+            "status": "open",
+            "priority": 2,
+            "dependents": [{"id": "pi-flow", "dependency_type": "blocks"}],
+        },
+        "pi-flow": {
+            "id": "pi-flow",
+            "title": "Implement approval flow",
+            "issue_type": "task",
+            "status": "open",
+            "priority": 2,
+            "labels": ["approval"],
+            "dependencies": [{"id": "pi-root", "dependency_type": "blocks"}],
+        },
+    }
+
+    def fake_beads(args):
+        assert args[0] == "show"
+        return 0, [issues[args[1]]], ""
+
+    with patch.dict(agnt.build_work_tree.__globals__, {"run_beads_json": fake_beads}):
+        tree = agnt.build_work_tree("pi-root", runs_dir=tmp_path)
+
+    assert tree["nodes"]["pi-root"]["approvalRefs"] == []
+
+
+def test_work_tree_scans_active_run_refs(agnt, tmp_path):
+    bundle = tmp_path / "run-1"
+    bundle.mkdir()
+    (bundle / "invocation.yaml").write_text(json.dumps({"id": "run-1", "bead": "pi-task"}), encoding="utf-8")
+    (bundle / "result.yaml").write_text(json.dumps({"status": "needs-human", "completedAt": None}), encoding="utf-8")
+    done = tmp_path / "run-2"
+    done.mkdir()
+    (done / "invocation.yaml").write_text(json.dumps({"id": "run-2", "bead": "pi-task"}), encoding="utf-8")
+    (done / "result.yaml").write_text(json.dumps({"status": "succeeded", "completedAt": "2026-07-09T00:00:00Z"}), encoding="utf-8")
+
+    refs = agnt.run_refs_by_bead(tmp_path)
+
+    assert refs["pi-task"][0]["id"] == "run-1"
+    assert refs["pi-task"][0]["active"] is True
+    assert refs["pi-task"][1]["id"] == "run-2"
+    assert refs["pi-task"][1]["active"] is False
+
+
+def test_cmd_work_tree_json_outputs_valid_tree(agnt, tmp_path, capsys):
+    issues = {
+        "pi-epic": {
+            "id": "pi-epic",
+            "title": "Epic",
+            "issue_type": "epic",
+            "status": "open",
+            "priority": 1,
+            "dependents": [{"id": "pi-task", "dependency_type": "parent-child"}],
+        },
+        "pi-task": {
+            "id": "pi-task",
+            "title": "Task",
+            "issue_type": "task",
+            "status": "open",
+            "priority": 2,
+            "dependencies": [{"id": "pi-epic", "dependency_type": "parent-child"}],
+        },
+    }
+
+    def fake_beads(args):
+        assert args[0] == "show"
+        return 0, [issues[args[1]]], ""
+
+    with patch.dict(agnt.cmd_work.__globals__, {"run_beads_json": fake_beads, "default_runs_dir": lambda: tmp_path}):
+        assert agnt.cmd_work(["tree", "--epic", "pi-epic", "--json"]) == 0
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["schemaVersion"] == 1
+    assert out["tree"]["root"] == "pi-epic"
+    assert "pi-task" in out["tree"]["nodes"]
+
+
 def test_metrics_record_includes_family(agnt):
     record = agnt.metrics_record(
         target="ollama/gemma4:31b",
