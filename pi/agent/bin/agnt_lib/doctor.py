@@ -297,8 +297,30 @@ def check_catalog_parse() -> Dict[str, Any]:
     return check_result("catalog.parse", PASS, "Core agnt JSON config parsed", evidence={"parsed": parsed})
 
 
+def resolve_project_root() -> Path:
+    """Resolve the project checkout for repo-scoped verification commands."""
+    cwd = Path.cwd()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5.0,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return Path(proc.stdout.strip()).resolve()
+    except Exception:
+        pass
+
+    source_layout_root = ROOT.parent.parent
+    if (source_layout_root / "scripts" / "check-pi-config.sh").is_file():
+        return source_layout_root
+    return cwd
+
+
 def check_verification_commands() -> Dict[str, Any]:
-    repo = ROOT.parent.parent
+    repo = resolve_project_root()
     evidence: Dict[str, Any] = {
         "bash": shutil.which("bash") or "missing",
         "python": sys.executable,
