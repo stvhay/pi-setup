@@ -93,13 +93,13 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
   - Renders an action template into an invocation artifact bundle under `.pi/runs/` unless `--dry-run` is supplied.
 
 - `agnt runs create ...`
-  - Creates a generic invocation/result run bundle. See [Run Artifacts](../../../docs/RUN-ARTIFACTS.md) for schema details.
+  - Creates a generic invocation/result run bundle. Optional orchestration fields include selected model/thinking, ticket metadata, ephemeral todo seed, worktree, dispatch policy, session policy, and memory policy. See [Run Artifacts](../../../docs/RUN-ARTIFACTS.md) for schema details.
 
 - `agnt runs invoke .pi/runs/<run-id> [--model provider/model] [--no-metrics]`
   - Reads `invocation.yaml`, invokes a worker, writes prompt/response/stderr/metrics artifacts, and updates `result.yaml`.
 
-- `agnt runs update .pi/runs/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--artifact PATH ...] [--follow-up ID ...] [--metrics-ref PATH]`
-  - Enriches `result.yaml` with evidence, artifacts, follow-up beads, metrics refs, and terminal statuses.
+- `agnt runs update .pi/runs/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--artifact PATH ...] [--follow-up ID ...] [--metrics-ref PATH] [--session-ref REF] [--approval-ref ID] [--decision-ref ID] [--health-check name=passed] [--closeout-check name=passed]`
+  - Enriches `result.yaml` with evidence, artifacts, follow-up beads, metrics refs, session/transcript/memory refs, approval/decision refs, health/closeout checks, and terminal statuses.
 
 - `agnt runs validate .pi/runs/<run-id> [--require-followups-exist]`
   - Validates required `invocation.yaml` and `result.yaml` fields. With `--require-followups-exist`, every `result.yaml.followUps[]` id must resolve to a Beads item.
@@ -110,18 +110,45 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
 - `agnt work plan [BEAD_ID] --action ACTION --target REF --dry-run`
   - Builds a dry-run dispatch plan from a bead plus action template. It does not invoke a model or mutate Beads.
 
-- `agnt work start [BEAD_ID] [--action ACTION] [--target REF ...] [--claim]`
-  - Creates a run bundle for a bead/action and copies bead acceptance criteria into `invocation.yaml`. It mutates Beads only when `--claim` is supplied.
+- `agnt work tree [BEAD_ID|--epic EPIC_ID] [--json] [--runs-dir DIR]`
+  - Builds a Beads plan/dependency tree with metadata validation, blocker refs, approval refs, active run refs, and run context.
 
-- `agnt work run [BEAD_ID] [--action ACTION] [--target REF ...] [--model provider/model] [--preflight] [--claim] [--close-bead]`
-  - Creates a run bundle, invokes a worker from `invocation.yaml`, updates `result.yaml`, and closes the bead only when `--close-bead` is supplied, invocation succeeds, evidence exists, and follow-up ids resolve to Beads.
+- `agnt work start [BEAD_ID] [--action ACTION] [--target REF ...] [--claim]`
+  - Creates a run bundle for a bead/action and copies bead acceptance criteria into `invocation.yaml`. It records ticket metadata, dispatch policy, selected model/thinking, session/memory policy, todo seed, and worktree snapshot. It mutates Beads only when `--claim` is supplied.
+
+- `agnt work run [BEAD_ID] [--action ACTION] [--target REF ...] [--preflight] [--claim] [--close-bead]`
+  - Creates a run bundle, invokes a policy-selected worker from `invocation.yaml`, updates `result.yaml`, and closes the bead only when `--close-bead` is supplied, invocation succeeds, evidence exists, approval/decision refs are resolved, health/closeout checks pass, and follow-up ids resolve to Beads.
+  - Direct `--model` overrides are rejected for work dispatch; tune routing with Beads metadata policy instead.
   - `--preflight` runs a focused operational doctor before dispatch.
+
+- `agnt work runner status|pause|resume|tick|loop [--json]`
+  - Manages the project-local singleton runner under `.pi/runner/`. `tick --dry-run --json` explains planned dispatch/blocker/maintenance actions without mutation. Live ticks record worker sessions by default, refuse unsafe worktrees, and create Beads-backed blockers for invalid dispatch.
 
 - `agnt work audit [--json] [--scan-root PATH ...]`
   - Reports Beads queue counts and required-work signals in docs/run artifacts; fails when the queue is empty but required future work appears unresolved.
 
+- `agnt work health [--json] [--strict-checkout] [--runs-dir DIR]`
+  - Runs read-only rail-guard checks over run artifacts, Beads refs, approvals, decisions, follow-ups, stale sessions, stale runner locks, dirty current/epic worktrees, raw-tool bypass markers, orphaned runs, and failed health/closeout checks.
+
+- `agnt work maintenance due --json`
+  - Reports self-improvement modes due from durable signals: Beads, git commits, runs, health/context warnings, human blockers, and recorded session volume.
+
+- `agnt work maintenance create-beads --dry-run --json | --apply --json`
+  - Previews or explicitly creates maintenance checkpoint Beads. Dry-run is non-mutating. `--apply` is required for live Beads creation. Simplification/refactor implementation specs are created with `approved: false`.
+
 - `agnt work finish .pi/runs/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--close-bead]`
-  - Updates `result.yaml`; closes the invocation bead only when `--close-bead` is supplied and status is `succeeded` with evidence and reconciled follow-up ids.
+  - Updates `result.yaml`; closes the invocation bead only when `--close-bead` is supplied and status is `succeeded` with evidence, reconciled follow-up ids, resolved approval/decision refs, and passing health/closeout checks.
+
+## Approvals and ticket gateway
+
+- `agnt approvals request --target-bead ID --question TEXT --context TEXT --option TEXT ... --preview-* ...`
+  - Creates a durable Beads decision/approval record, adds a blocking dependency to the target bead, and records approval/decision refs in the requesting run when supplied.
+
+- `agnt approvals resolve DECISION_ID --outcome approved|answered|rejected|cancelled|timed-out [--note TEXT]`
+  - Records the human outcome in Beads metadata/notes and updates run refs. Approved/answered decisions close the decision bead; rejected/cancelled/timed-out decisions keep visible blockers.
+
+- `agnt gateway --payload-json JSON`
+  - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `request_approval`, `resolve_blocker`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields.
 
 ## Operational health
 

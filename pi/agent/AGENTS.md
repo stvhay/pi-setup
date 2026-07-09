@@ -39,7 +39,9 @@ When practical, commands read stdin if no filename is supplied, write primary re
 - Capture/sync lessons learned: `agnt lessons capture ...`, `agnt lessons push`, `agnt lessons triage`
 - List/validate action templates: `agnt action list` and `agnt action validate`
 - Create/validate run artifacts: `agnt runs create` and `agnt runs validate`
-- Inspect beads-backed work: `agnt work next --json` and `agnt work plan --dry-run`
+- Inspect beads-backed work: `agnt work next --json`, `agnt work tree --json`, and `agnt work plan --dry-run`
+- Check orchestration health: `agnt work health --json` and `agnt work audit --json`
+- Manage runner/maintenance: `agnt work runner status --json`, `agnt work runner tick --dry-run --json`, and `agnt work maintenance due --json`
 - Emit communication preferences: `agnt soul`
 - Resolve plans dir: `agnt plans-dir`
 
@@ -94,7 +96,7 @@ Keep these concepts separate:
 
 Tasks answer “what model/tool default should I use?” Skills answer “what method/capability should I load?” Roles answer “how should this peer behave and report?” Work should produce durable artifacts when downstream agents, tools, or humans need to inspect or continue it. Task routing, prompts, and roles do not replace skill instructions or project safety gates.
 
-When a project has `.beads/`, treat Beads as the agent-facing work graph: use `bd prime` for current workflow context, `bd ready` to find unblocked work, and `bd show <id>` to inspect work. Do not delete beads, rewrite Beads/Dolt history, change Beads remotes, or install Beads hooks without explicit approval.
+When a project has `.beads/`, treat Beads as the agent-facing work graph: use `bd prime` for current workflow context, `bd ready` to find unblocked work, and `bd show <id>` to inspect work. Archimedes/Pi todos are transient projections; durable decisions, blockers, follow-ups, approvals, closeout, and maintenance checkpoints belong in Beads and `.pi/runs`. Do not delete beads, rewrite Beads/Dolt history, change Beads remotes, or install Beads hooks without explicit approval.
 
 # Research
 
@@ -107,7 +109,7 @@ agnt web-fetch URL
 
 # Development workflow conventions
 
-- Prefer filesystem artifacts over chat-only state. Keep designs/plans in project-local `.pi/plans/` unless instructed otherwise.
+- Prefer filesystem artifacts over chat-only state. Keep designs/plans in project-local `.pi/plans/` unless instructed otherwise. Worker sessions may be recorded for execution history; observational memory is advisory recall only until promoted into Beads, lessons, or run evidence.
 - When you encounter a reusable lesson about Pi config, skills, tools, routing, provider setup, or agent workflow, capture it with `agnt lessons capture --kind friction|improvement|bug|success --area <area> --summary "..." --evidence "..."`. Keep evidence concise and non-secret; `agnt lessons` applies best-effort redaction but you remain responsible for not pasting secrets.
 - To trickle lessons up to the central server, use `agnt lessons push` when `AGNT_LESSONS_URL` is configured. In this repository, use `agnt lessons pull` and `agnt lessons triage --draft-beads` to convert useful lessons into Beads follow-up work; only create Beads with explicit approval/flags.
 - Use `agnt plans-dir` to resolve/create the plans directory.

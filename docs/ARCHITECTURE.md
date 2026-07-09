@@ -63,12 +63,16 @@ rationale.
 
 - **Work item / bead**: durable task-graph node. Answers "what unit of work is
   scheduled, blocked, or complete?" Beads is the canonical agent-facing work
-  queue. GitHub issues are not mirrored now; any future integration should
+  queue for dependencies, approvals, blockers, closeout, and maintenance
+  checkpoints. GitHub issues are not mirrored now; any future integration should
   follow the [GitHub Adapter Decision](GITHUB-ADAPTER.md) and remain an adapter
   rather than a second source of truth.
 - **Invocation/result message**: structured interface between orchestration and
   workers. Answers "what should run now?" and "what happened with what
-  evidence?"
+  evidence?" Invocation v1 records ticket metadata, selected model/thinking,
+  dispatch/session/memory policy, todo seeds, and worktree snapshots. Result v1
+  records evidence, follow-ups, session/transcript/memory refs, approval/decision
+  refs, health checks, and closeout checks.
 - **Task** (`pi/agent/tasks/*.md`): operational routing label (`review`,
   `orchestration`, …) with preferred/qualified/avoid target lists in
   frontmatter. Answers "which model or execution default?" A task named
@@ -109,7 +113,8 @@ task/risk/budget, JSON with explicit reasons and rejected candidates),
 `invoke` (single or `--fanout` parallel peers, metrics on by default),
 `metrics` (status/annotate/consolidate/import-session), `eval`
 (filesystem-defined deterministic evals), `instructions`, `prompt`, `action`,
-`runs`, `work`, `benchmark`, `web-search`/`web-fetch`, `plans-dir`, `risk`.
+`runs`, `work`, `approvals`, `gateway`, `benchmark`, `web-search`/`web-fetch`,
+`plans-dir`, `risk`.
 
 Design constraint: `agnt` is a front controller, not the home for subsystem
 logic. Command implementations live under `pi/agent/bin/agnt_lib/` (`routing`,
@@ -117,7 +122,11 @@ logic. Command implementations live under `pi/agent/bin/agnt_lib/` (`routing`,
 `benchmark`) and share catalog/frontmatter helpers through `_agnt_common.py`.
 New shared behavior should move into those importable modules, or a new
 `agnt_lib` module when the seam is clear; avoid adding another independent
-model/catalog/parser table inside the executable.
+model/catalog/parser table inside the executable. The orchestration additions
+follow that seam: metadata validation in `orchestration.py`, approval flow in
+`approvals.py`, ticket gateway in `gateway.py`, runner lifecycle in `runner.py`,
+worktree policy in `worktree_policy.py`, health checks in `health.py`, and
+maintenance cadence in `maintenance.py`.
 
 ### Inspectable work backbone
 
@@ -134,11 +143,14 @@ verify, or continue the work. Current pieces are: `.beads/` for work graph
 export/config, `.pi/plans/` for plans, `.pi/runs/` for invocation/result
 artifacts, `.pi/metrics/` for runtime telemetry, `agnt action render` and
 `agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch plans,
-`agnt invoke` for peer dispatch, `agnt runs invoke` / `agnt work run` for
-invocation-backed worker execution, `agnt context-health` for context entropy
-checks, and `pi/agent/evals/` for gates. See the
+plan trees, runner lifecycle, health checks, and maintenance checkpoints,
+`agnt approvals` for durable human decisions, `agnt gateway` for constrained Pi
+extension access, `agnt invoke` for peer dispatch, `agnt runs invoke` / `agnt
+work run` for invocation-backed worker execution, `agnt context-health` for
+context entropy checks, and `pi/agent/evals/` for gates. See the
 [Orchestration Loop Decision](ORCHESTRATION-LOOP.md) for why the production loop
-is a gated command loop rather than an always-on daemon.
+uses a gated command loop and explicit project-local runner rather than an
+installed service.
 
 ### Metrics and feedback
 
@@ -147,8 +159,10 @@ Raw per-invocation records land in `<git-root>/.pi/metrics/invocations/`
 to the durable global store `~/.pi/metrics/agent-invocations.jsonl`; run it
 manually or from a locally installed hook. `agnt route` aggregates outcomes by
 family across pending and consolidated metrics and demotes families with
-negative track records. Git never tracks telemetry; it tracks the policy changes
-the telemetry justifies.
+negative track records. `agnt work maintenance due` derives self-improvement
+triggers from Beads, git, run artifacts, health reports, context-health warnings,
+and recorded session volume. Git never tracks telemetry; it tracks the policy
+changes and maintenance checkpoint Beads the telemetry justifies.
 
 ## Quality gates
 
@@ -164,13 +178,15 @@ Three test tiers, cheapest first:
    calls; smoke subset by default.
 
 Layout/safety checks: `scripts/check-pi-config.sh` (required files present,
-no secrets/submodule regression, action validation, context-health strict
-check), `agent-instructions --check`.
+no secrets/submodule regression, action validation, context-health strict check,
+and cheap read-only work health), `agent-instructions --check`.
 
 ## Safety model
 
 Layered gates, none overridable by overlays or `SOUL.md` (communication style
-only): approval before implementation in design workflows, fresh shell
-evidence before completion claims, read-only-by-default peer work, worktree
-isolation for parallel writes, explicit approval for destructive/remote git
-actions, and the suspicious-phrase scan on composed instructions.
+only): approval before implementation in design workflows, Beads-backed human
+decisions for ask/approval flows, fresh shell evidence before completion claims,
+read-only-by-default peer work, recorded worker sessions, one worktree per epic
+for implementation dispatch, explicit approval for destructive/remote git
+actions, health/closeout checks before closure, and the suspicious-phrase scan
+on composed instructions.

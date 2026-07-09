@@ -17,10 +17,10 @@ This project pushes that state into files and tools:
 
 - **Pi config** defines reusable instructions, skills, roles, settings, providers, and model catalog data.
 - **`agnt`** acts as a small orchestration/control CLI around Pi.
-- **Beads** records durable work items and dependencies.
-- **Action templates and run artifacts** turn “ask a worker” into inspectable invocation/result files.
+- **Beads** records durable work items, dependencies, blockers, approvals, closeout, and maintenance checkpoints.
+- **Action templates and run artifacts** turn “ask a worker” into inspectable invocation/result files with session, approval, health, and evidence refs.
 - **Tasks, skills, and roles** separate model routing, reusable methods, and delegated-worker behavior.
-- **Metrics and evals** let routing and prompts improve from evidence without tracking runtime telemetry in git.
+- **Metrics, health checks, maintenance cadence, and evals** let routing and prompts improve from evidence without tracking runtime telemetry in git.
 
 For the narrative overview, read [The agnt System](docs/AGNT-SYSTEM.md). For implementation structure, read [Architecture](docs/ARCHITECTURE.md).
 
@@ -35,10 +35,9 @@ tracked pi/ config ──deploy──▶ ~/.pi runtime
 Beads work graph ──▶ agnt route/invoke/runs/work ──▶ Pi worker runs
        ▲                         │                         │
        │                         ▼                         ▼
-       └──── state transitions ◀─ run artifacts ◀── results + evidence
-                                 │
-                                 ▼
-                         metrics + eval-gated policy updates
+       └──── approvals/blockers ◀ run artifacts ◀── results + evidence
+       ▲                         │                         │
+       └──── maintenance beads ◀─ health + metrics + recorded sessions
 ```
 
 ## Choose your path
@@ -85,8 +84,8 @@ Start with [The agnt System](docs/AGNT-SYSTEM.md). Then use the documentation ma
 
 ### Start here
 
-- [The agnt System](docs/AGNT-SYSTEM.md) — conceptual overview of the orchestration/control layer: problem, design thesis, primitives, work lifecycle, safety model, and feedback loop.
-- [Architecture](docs/ARCHITECTURE.md) — implementation map: repository/runtime separation, routing, invocation, metrics, instruction composition, quality gates, and safety gates.
+- [The agnt System](docs/AGNT-SYSTEM.md) — conceptual overview of the orchestration/control layer: problem, design thesis, primitives, work lifecycle, safety model, approvals, runner, health, and feedback loop.
+- [Architecture](docs/ARCHITECTURE.md) — implementation map: repository/runtime separation, routing, invocation, metrics, instruction composition, Beads-first orchestration, quality gates, and safety gates.
 - [agnt command reference](pi/agent/bin/README.md) — command families and common flows.
 
 ### Operate the system
@@ -97,8 +96,8 @@ Start with [The agnt System](docs/AGNT-SYSTEM.md). Then use the documentation ma
 
 ### Understand design decisions
 
-- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — why the current production path is a gated command loop rather than an always-on daemon.
-- [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how metrics inform routing and prompt-policy changes while telemetry stays untracked.
+- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — why the current production path is a gated command loop plus explicit project-local runner rather than an installed service.
+- [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how metrics, health, Beads, and recorded sessions trigger maintenance while telemetry stays untracked.
 - [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) — design principles for context architecture, tasks, skills, roles, prompts, tools, artifacts, and evals.
 - [GitHub Adapter Decision](docs/GITHUB-ADAPTER.md) — why Beads remains canonical and GitHub issues are treated as a future adapter surface.
 
@@ -155,6 +154,8 @@ pi/agent/bin/agnt eval run role-context-smoke
 pi/agent/bin/agent-instructions --check
 pi/agent/bin/agnt action validate
 pi/agent/bin/agnt context-health --strict
+pi/agent/bin/agnt work health --json
+pi/agent/bin/agnt work maintenance due --json
 pi/agent/bin/agnt prompt inventory >/tmp/agnt-prompt-inventory.json
 python -m json.tool /tmp/agnt-prompt-inventory.json >/dev/null
 git diff --check

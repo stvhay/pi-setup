@@ -12,7 +12,7 @@
     {
       "name": "implementation-worker-role",
       "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-5.4-mini"],
-      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "# Project Instructions"]
+      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "Archimedes/Pi todos are transient projections", "# Project Instructions"]
     },
     {
       "name": "verifier-role",

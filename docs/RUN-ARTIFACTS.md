@@ -35,6 +35,15 @@ skills:
   - documentation-standards
 role: documentation-reviewer
 model: null
+selectedModel: null
+thinkingLevel: null
+modelSelection: null
+ticketMetadata: null
+ephemeralTodoSeed: []
+worktree: null
+dispatchPolicy: null
+sessionPolicy: recorded
+memoryPolicy: auto
 allowedEffects:
   - read_workspace
   - write_artifacts
@@ -51,6 +60,13 @@ Fields:
 - `inputRefs`: file paths, bead ids, URLs, or other inspectable inputs.
 - `skills`: reusable capability packages the worker should use.
 - `role`: delegated-worker output contract.
+- `selectedModel`, `thinkingLevel`, and `modelSelection`: policy-selected model, thinking level, score, and reasons. `agnt work run` rejects direct model overrides.
+- `ticketMetadata`: snapshot of source bead identity and metadata validation.
+- `ephemeralTodoSeed`: optional live-UX todo seed. Archimedes todos are transient; durable outcomes belong in Beads and `.pi/runs`.
+- `worktree`: dispatch worktree snapshot. Implementation work uses one worktree per epic: `.worktrees/epic/<epic-id>-<slug>` on branch `epic/<epic-id>-<slug>`.
+- `dispatchPolicy`: action, routing task, role, allowed effects, risk, budget, model policy, session policy, memory policy, and closeout policy.
+- `sessionPolicy`: `recorded` by default for worker sessions, or `no-session` when explicitly allowed.
+- `memoryPolicy`: `auto` by default. Observational memory is advisory recall/context; promote important findings into Beads or `.pi/runs` before closeout.
 - `allowedEffects`: declared side-effect budget for the run.
 - `outputContract`: concise result shape name or path.
 - `acceptanceCriteria`: criteria copied from the source bead when the bundle is
@@ -69,6 +85,13 @@ artifacts:
   - artifacts
 followUps: []
 metricsRef: null
+sessionRef: null
+transcriptRef: null
+memorySummaryRef: null
+approvalRefs: []
+decisionRefs: []
+healthChecks: []
+closeoutChecks: []
 completedAt: null
 ```
 
@@ -79,6 +102,14 @@ Allowed statuses:
 - `blocked`
 - `needs-human`
 - `superseded`
+
+Closeout-related fields:
+
+- `sessionRef` / `transcriptRef`: recorded Pi worker session references.
+- `memorySummaryRef`: optional promoted observational-memory summary reference.
+- `approvalRefs` / `decisionRefs`: Beads decisions that must be resolved before closeout.
+- `healthChecks` / `closeoutChecks`: named checks with passing statuses before bead closure.
+- `followUps`: Beads ids for downstream work. Follow-up text in chat or memory is not reconciled until it becomes a Beads item.
 
 ## Commands
 
@@ -122,7 +153,12 @@ agnt runs update .pi/runs/<run-id> \
   --evidence "pytest tests/ → PASS" \
   --artifact artifacts/report.md \
   --follow-up pi-next.1 \
-  --metrics-ref .pi/metrics/example.metrics.json
+  --metrics-ref .pi/metrics/example.metrics.json \
+  --session-ref pi-session-id:run-123 \
+  --approval-ref pi-decision.1 \
+  --decision-ref pi-decision.1 \
+  --health-check pytest=passed \
+  --closeout-check followups=passed
 
 agnt runs validate .pi/runs/<run-id>
 agnt runs validate .pi/runs/<run-id> --require-followups-exist
@@ -137,15 +173,13 @@ Run bead-backed work through the gated work surface:
 agnt work run pi-e4t.1 \
   --action verify \
   --target docs/RUN-ARTIFACTS.md \
-  --model olla-cloud/gpt-4.1-mini \
   --claim \
   --close-bead
 ```
 
 `agnt work run` creates a run bundle, invokes a worker from `invocation.yaml`,
 writes output/metrics artifacts, updates `result.yaml`, and closes the bead only
-when `--close-bead` is supplied, the invocation succeeds, result evidence is
-present, and any `followUps` resolve to Beads.
+when `--close-bead` is supplied, the invocation succeeds, result evidence is present, health/closeout checks pass, approval/decision refs are resolved, and any `followUps` resolve to Beads.
 
 Start and finish bead-backed work manually through the gated work surface:
 
@@ -161,20 +195,27 @@ agnt work finish .pi/runs/<run-id> \
 `agnt work plan` remains dry-run only. `agnt work start` writes run artifacts;
 `--claim` is required to mutate the bead. `agnt work finish` updates
 `result.yaml`; `--close-bead` is required to close the bead and only works for
-`succeeded` results that include evidence and have reconciled follow-up bead ids.
-`agnt work run` combines start + invoke + optional close while preserving those
-gates.
+`succeeded` results that include evidence, have reconciled follow-up bead ids,
+resolved approval/decision refs, and passing health/closeout checks. `agnt work
+run` combines start + invoke + optional close while preserving those gates.
 
-Audit queue health before trusting an empty queue as complete:
+Audit queue and rail-guard health before trusting closeout:
 
 ```bash
 agnt work audit --json
+agnt work health --json
 ```
 
 The audit reports Beads open/ready/deferred counts and scans docs/run artifacts
 for required future-work signals. It fails when Beads has no open/deferred work
 while those signals remain, which prevents “0 ready” from being mistaken for
 production readiness.
+
+The health report checks run artifacts, Beads refs, approvals, decisions,
+follow-ups, stale sessions, stale runner locks, dirty current/epic worktrees,
+raw-tool bypass markers, orphaned runs, and failed health/closeout checks.
+Legacy completed v1 artifacts may warn on historical missing refs; current
+format closeout blockers fail.
 
 ## Side-effect convention
 
@@ -192,8 +233,9 @@ Those effects require explicit approval and stronger verification gates.
 
 ## Relationship to beads and plans
 
-- Beads hold work state and dependencies.
+- Beads hold work state, dependencies, approvals, blockers, maintenance checkpoints, and closeout.
 - `.pi/plans/` holds larger design/implementation plans.
-- `.pi/runs/` holds per-run invocation/result evidence.
+- `.pi/runs/` holds per-run invocation/result evidence and recorded session refs.
+- Observational-memory ledgers are session-local recall aids; promote important findings into Beads or `.pi/runs` before relying on them.
 - Beads should reference relevant plan/run paths in notes, metadata, or issue
   descriptions when downstream work depends on them.
