@@ -43,7 +43,7 @@ ALLOWED_KEYS = {
         "runBundle",
     },
     "resolve_blocker": {"operation", "decisionBead", "outcome", "answer", "runBundle"},
-    "runner_status": {"operation"},
+    "runner_status": {"operation", "root"},
 }
 
 
@@ -230,17 +230,13 @@ def _resolve_blocker_gateway(payload: Dict[str, Any], *, approval_resolver: Call
     return {"schemaVersion": 1, "operation": "resolve_blocker", "resolution": result}
 
 
-def _runner_status_gateway() -> Dict[str, Any]:
-    return {
-        "schemaVersion": 1,
-        "operation": "runner_status",
-        "runner": {
-            "status": "not_configured",
-            "running": False,
-            "paused": False,
-            "message": "Continuous runner is not implemented until Task 7; gateway surface is reserved and stable.",
-        },
-    }
+def _runner_status_gateway(payload: Dict[str, Any]) -> Dict[str, Any]:
+    from .runner import runner_status
+
+    root = payload.get("root")
+    if root is not None and not isinstance(root, str):
+        raise ValueError("root must be a string when present")
+    return {"schemaVersion": 1, "operation": "runner_status", "runner": runner_status(root=Path(root).expanduser() if root else None)}
 
 
 def ticket_gateway(
@@ -267,7 +263,7 @@ def ticket_gateway(
     if operation == "resolve_blocker":
         return _resolve_blocker_gateway(data, approval_resolver=approval_resolver)
     if operation == "runner_status":
-        return _runner_status_gateway()
+        return _runner_status_gateway(data)
     raise ValueError(f"unsupported operation: {operation}")
 
 

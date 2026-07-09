@@ -95,13 +95,24 @@ def invoke_one(
     outcome: str = "unknown",
     human_override: bool = False,
     fallback_used: bool = False,
+    record_session: bool = False,
+    session_id: str | None = None,
+    session_name: str | None = None,
 ) -> Tuple[int, str, str, Dict[str, Any] | None]:
     provider, model = split_target(target)
     started_at = utc_now()
     started = time.monotonic()
+    session_args: List[str] = []
+    if record_session:
+        if session_id:
+            session_args.extend(["--session-id", session_id])
+        if session_name:
+            session_args.extend(["--name", session_name])
+    else:
+        session_args.append("--no-session")
     if metrics:
         proc = subprocess.run(
-            ["pi", "--mode", "json", "--no-session", "--provider", provider, "--model", model, prompt],
+            ["pi", "--mode", "json", *session_args, "--provider", provider, "--model", model, prompt],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -109,7 +120,7 @@ def invoke_one(
         out, usage, usage_source = parse_pi_json_output(proc.stdout)
     else:
         proc = subprocess.run(
-            ["pi", "--print", "--no-session", "--provider", provider, "--model", model, prompt],
+            ["pi", "--print", *session_args, "--provider", provider, "--model", model, prompt],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

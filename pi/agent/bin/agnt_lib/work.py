@@ -545,6 +545,9 @@ def run_work(
     runs_dir: Path | None,
     id_value: str | None,
     metrics_dir: Path | None = None,
+    record_session: bool = False,
+    session_id: str | None = None,
+    session_name: str | None = None,
 ) -> Dict[str, Any]:
     if model:
         return {"modelOverrideError": "agnt work run uses policy-selected models; pass risk/budget/local/modelPolicy constraints instead of a direct model override"}
@@ -559,7 +562,14 @@ def run_work(
     if started.get("beadUpdateError"):
         return {"started": started}
     bundle = Path(str(started["bundle"]))
-    invoked = invoke_run_bundle(bundle, model=None, metrics_dir=metrics_dir)
+    invoked = invoke_run_bundle(
+        bundle,
+        model=None,
+        metrics_dir=metrics_dir,
+        record_session=record_session,
+        session_id=session_id,
+        session_name=session_name,
+    )
     closed = None
     if close_bead and invoked.get("exitCode") == 0:
         summary = str(invoked.get("result", {}).get("summary") or "Run succeeded")
@@ -626,6 +636,17 @@ def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str],
     return {"result": result, "beadClose": close_result}
 
 
+def _runner_symbol(name: str):
+    value = globals().get(name)
+    if value is not None:
+        return value
+    from . import runner as runner_mod
+
+    value = getattr(runner_mod, name)
+    globals()[name] = value
+    return value
+
+
 def cmd_work(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt work", description="Inspect beads-backed ready work and construct gated dispatch/run artifacts.")
     sub = parser.add_subparsers(dest="command")
@@ -662,6 +683,32 @@ def cmd_work(argv: List[str]) -> int:
     run.add_argument("--preflight", action="store_true", help="run agnt doctor dispatch preflight before invoking the worker")
     run.add_argument("--id")
     run.add_argument("--dry-run", action="store_true", help="show dispatch plan without invoking")
+    runner = sub.add_parser("runner", help="manage the project singleton work runner")
+    runner_sub = runner.add_subparsers(dest="runner_command", required=True)
+    runner_status_cmd = runner_sub.add_parser("status", help="show runner singleton status")
+    runner_status_cmd.add_argument("--root")
+    runner_status_cmd.add_argument("--json", action="store_true")
+    runner_pause_cmd = runner_sub.add_parser("pause", help="pause accepting new runner work")
+    runner_pause_cmd.add_argument("--root")
+    runner_pause_cmd.add_argument("--reason")
+    runner_pause_cmd.add_argument("--json", action="store_true")
+    runner_resume_cmd = runner_sub.add_parser("resume", help="resume accepting runner work")
+    runner_resume_cmd.add_argument("--root")
+    runner_resume_cmd.add_argument("--json", action="store_true")
+    runner_tick_cmd = runner_sub.add_parser("tick", help="process one bounded runner tick")
+    runner_tick_cmd.add_argument("--root")
+    runner_tick_cmd.add_argument("--dry-run", action="store_true", help="explain actions without starting/blocking work")
+    runner_tick_cmd.add_argument("--json", action="store_true")
+    runner_tick_cmd.add_argument("--limit", type=int, default=1)
+    runner_tick_cmd.add_argument("--runs-dir")
+    runner_tick_cmd.add_argument("--metrics-dir")
+    loop = sub.add_parser("loop", help="run the singleton work runner loop")
+    loop.add_argument("--root")
+    loop.add_argument("--interval", type=float, default=30.0)
+    loop.add_argument("--max-ticks", type=int, default=None)
+    loop.add_argument("--limit", type=int, default=1)
+    loop.add_argument("--dry-run", action="store_true")
+    loop.add_argument("--json", action="store_true")
     audit = sub.add_parser("audit", help="audit Beads queue health against unresolved required-work signals")
     audit.add_argument("--json", action="store_true")
     audit.add_argument("--scan-root", action="append", default=[], help="file or directory to scan; defaults to docs, README, AGENTS, and .pi/runs")
@@ -782,6 +829,38 @@ def cmd_work(argv: List[str]) -> int:
             return 2
         invoked = result.get("invoked") if isinstance(result, dict) else None
         return int(invoked.get("exitCode") or 0) if isinstance(invoked, dict) else 1
+    if args.command == "runner":
+        root = Path(args.root).expanduser() if getattr(args, "root", None) else None
+        if args.runner_command == "status":
+            result = _runner_symbol("runner_status")(root=root)
+        elif args.runner_command == "pause":
+            result = _runner_symbol("runner_pause")(root=root, reason=args.reason)
+        elif args.runner_command == "resume":
+            result = _runner_symbol("runner_resume")(root=root)
+        elif args.runner_command == "tick":
+            result = _runner_symbol("runner_tick")(
+                root=root,
+                dry_run=args.dry_run,
+                limit=args.limit,
+                runs_dir=Path(args.runs_dir).expanduser() if args.runs_dir else None,
+                metrics_dir=Path(args.metrics_dir).expanduser() if args.metrics_dir else None,
+            )
+        else:
+            parser.print_help(sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True) if getattr(args, "json", False) else json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "loop":
+        root = Path(args.root).expanduser() if args.root else None
+        result = _runner_symbol("runner_loop")(
+            root=root,
+            interval=args.interval,
+            max_ticks=args.max_ticks,
+            dry_run=args.dry_run,
+            limit=args.limit,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("started", True) else 2
     if args.command == "audit":
         roots = [Path(item).expanduser() for item in args.scan_root] if args.scan_root else None
         report = work_audit_report(scan_roots=roots)
