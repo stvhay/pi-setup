@@ -14,6 +14,7 @@ from .doctor import doctor_report
 from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
+from .worktree_policy import worktree_snapshot_for_bead
 
 
 def beads_bin() -> str | None:
@@ -503,6 +504,7 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
     if model_selection.get("routeStatus") != "selected":
         return {"dispatch": dispatch, "modelSelection": model_selection, "modelSelectionError": "no policy-compatible model candidate"}
     selection = model_selection["selection"]
+    worktree_snapshot = worktree_snapshot_for_bead(bead, validation)
     bundle = create_run_bundle(
         action=str(dispatch["action"]),
         routing_task=str(dispatch["routingTask"]),
@@ -515,7 +517,7 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         model_selection=selection,
         ticket_metadata=ticket_metadata_snapshot(bead, validation),
         ephemeral_todo_seed=ephemeral_todo_seed(bead, dispatch, target),
-        worktree={"policy": "none", "path": str(Path.cwd())},
+        worktree=worktree_snapshot,
         dispatch_policy=dispatch_policy_snapshot(dispatch, policy),
         session_policy=str(policy.get("sessionPolicy") or "recorded"),
         memory_policy=str(policy.get("memoryPolicy") or "auto"),

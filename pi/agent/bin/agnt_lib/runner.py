@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Tuple
 from .approvals import create_beads_approval_request
 from .orchestration import validate_bead_orchestration_metadata
 from .runs import default_runs_dir, update_run_result
+from .worktree_policy import worktree_snapshot_for_bead, write_conflict_for
 
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
 RunnerStart = Callable[..., Dict[str, Any]]
@@ -214,6 +215,7 @@ def runner_tick(
     blocker_creator: BlockerCreator = create_beads_approval_request,
     runs_dir: Path | None = None,
     metrics_dir: Path | None = None,
+    worktree_resolver: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]] = worktree_snapshot_for_bead,
 ) -> Dict[str, Any]:
     if limit < 1:
         raise ValueError("limit must be positive")
@@ -223,6 +225,7 @@ def runner_tick(
 
     items = _ready_items(beads_runner)[:limit]
     actions: List[Dict[str, Any]] = []
+    active_writes: List[Dict[str, Any]] = []
     for bead in items:
         validation = validate_bead_orchestration_metadata(bead)
         normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
@@ -236,8 +239,41 @@ def runner_tick(
             "memoryPolicy": normalized.get("memoryPolicy") or "auto",
         }
         if validation.get("status") == "dispatchable":
+            worktree = worktree_resolver(bead, validation)
+            if not bool(worktree.get("dispatchable", False)):
+                context = f"Runner could not dispatch {bead_id}: worktree status {worktree.get('status')}. {worktree.get('reason') or ''}".strip()
+                if dry_run:
+                    actions.append({**base, "action": "would_block", "context": context, "worktree": worktree})
+                    continue
+                blocker = blocker_creator(
+                    kind="question",
+                    target_bead=bead_id,
+                    question=f"Resolve runner worktree blocker for {bead_id}",
+                    context=context,
+                    options=["resolved", "defer"],
+                    default="defer",
+                    requesting_run=None,
+                    preview=_blocker_preview(bead, {"status": worktree.get("status"), "blockers": [context]}),
+                    run_bundle=None,
+                )
+                actions.append({**base, "action": "blocked", "context": context, "worktree": worktree, "blocker": blocker})
+                continue
+            conflict = write_conflict_for(bead, validation, active_writes)
+            if conflict:
+                context = f"Runner serialized overlapping writeSet in epic {conflict.get('epicId')}: {', '.join(conflict.get('overlap') or [])}"
+                if dry_run:
+                    actions.append({**base, "action": "would_add_dependency", "context": context, "worktree": worktree, **conflict})
+                    continue
+                dep_code, dep_data, dep_err = beads_runner(["dep", str(conflict.get("blockedBy")), "--blocks", bead_id])
+                if dep_code != 0:
+                    actions.append({**base, "action": "dependency_failed", "context": dep_err, "worktree": worktree, **conflict})
+                else:
+                    actions.append({**base, "action": "dependency_added", "dependency": dep_data, "context": context, "worktree": worktree, **conflict})
+                continue
             if dry_run:
-                actions.append({**base, "action": "would_start", "dispatch": normalized, "session": _session_refs("dry-run", bead_id, action)})
+                actions.append({**base, "action": "would_start", "dispatch": normalized, "session": _session_refs("dry-run", bead_id, action), "worktree": worktree})
+                if normalized.get("action") == "implement":
+                    active_writes.append({"bead": bead_id, "epicId": normalized.get("epicId"), "writeSet": normalized.get("writeSet") or []})
                 continue
             run_id = f"runner-{bead_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
             refs = _session_refs(run_id, bead_id, action)
@@ -273,7 +309,9 @@ def runner_tick(
                         session_ref=refs["sessionRef"],
                         transcript_ref=refs["transcriptRef"],
                     )
-            actions.append({**base, "action": "started", "result": started})
+            actions.append({**base, "action": "started", "result": started, "worktree": worktree})
+            if normalized.get("action") == "implement":
+                active_writes.append({"bead": bead_id, "epicId": normalized.get("epicId"), "writeSet": normalized.get("writeSet") or []})
         else:
             context = _validation_context(bead, validation)
             if dry_run:
