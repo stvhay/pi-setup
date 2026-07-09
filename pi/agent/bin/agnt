@@ -34,6 +34,7 @@ from agnt_lib.runs import *  # noqa: E402,F401,F403
 from agnt_lib.work import *  # noqa: E402,F401,F403
 from agnt_lib.orchestration import *  # noqa: E402,F401,F403
 from agnt_lib.approvals import *  # noqa: E402,F401,F403
+from agnt_lib.gateway import *  # noqa: E402,F401,F403
 from agnt_lib.context_health import *  # noqa: E402,F401,F403
 from agnt_lib.doctor import *  # noqa: E402,F401,F403
 from agnt_lib.lessons import *  # noqa: E402,F401,F403
@@ -96,6 +97,7 @@ def main(argv: List[str]) -> int:
         "runs": "create and validate invocation/result run artifacts",
         "work": "inspect beads-backed ready work and dispatch/run artifacts",
         "approvals": "create and resolve Beads-backed questions/approval gates",
+        "gateway": "execute strict ticket gateway operations",
         "context-health": "check active context for stale terms and entropy signals",
         "doctor": "check local Pi/agnt operational readiness",
         "lessons": "capture, sync, and triage lessons learned",
@@ -141,6 +143,8 @@ def main(argv: List[str]) -> int:
         return cmd_work(rest)
     if command == "approvals":
         return cmd_approvals(rest)
+    if command == "gateway":
+        return cmd_gateway(rest)
     if command == "context-health":
         return cmd_context_health(rest)
     if command == "doctor":
