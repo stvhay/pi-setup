@@ -15,6 +15,7 @@ from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
+from .maintenance import maintenance_create_beads, maintenance_due_report
 from .worktree_policy import worktree_snapshot_for_bead
 
 
@@ -765,6 +766,20 @@ def cmd_work(argv: List[str]) -> int:
     health.add_argument("--stale-after-hours", type=float, default=24.0)
     health.add_argument("--strict-checkout", action="store_true", help="treat dirty current checkout as a failure instead of a warning")
     health.add_argument("--no-beads", action="store_true", help="skip bd blocked inspection; run artifact refs are still resolved")
+    maintenance = sub.add_parser("maintenance", help="inspect and create self-improvement maintenance checkpoints")
+    maintenance_sub = maintenance.add_subparsers(dest="maintenance_command", required=True)
+    maintenance_due = maintenance_sub.add_parser("due", help="show maintenance modes due from durable project signals")
+    maintenance_due.add_argument("--json", action="store_true")
+    maintenance_due.add_argument("--root")
+    maintenance_due.add_argument("--runs-dir")
+    maintenance_due.add_argument("--no-beads", action="store_true", help="do not inspect Beads list; useful for isolated tests")
+    maintenance_create = maintenance_sub.add_parser("create-beads", help="create or preview maintenance checkpoint Beads")
+    maintenance_create.add_argument("--dry-run", action="store_true", help="preview bead specs without mutating Beads")
+    maintenance_create.add_argument("--apply", action="store_true", help="explicitly create Beads; never implied")
+    maintenance_create.add_argument("--json", action="store_true")
+    maintenance_create.add_argument("--root")
+    maintenance_create.add_argument("--runs-dir")
+    maintenance_create.add_argument("--no-beads", action="store_true", help="compute due report without Beads list before preview")
     finish = sub.add_parser("finish", help="update a run result and optionally close its bead")
     finish.add_argument("bundle")
     finish.add_argument("--status", required=True, choices=["succeeded", "failed", "blocked", "needs-human", "superseded"])
@@ -923,6 +938,32 @@ def cmd_work(argv: List[str]) -> int:
             print("PASS" if report["passed"] else "FAIL")
             print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 1
+    if args.command == "maintenance":
+        root_arg = Path(args.root).expanduser() if getattr(args, "root", None) else None
+        runs_arg = Path(args.runs_dir).expanduser() if getattr(args, "runs_dir", None) else None
+        if args.maintenance_command == "due":
+            report = maintenance_due_report(
+                root=root_arg,
+                runs_dir=runs_arg,
+                beads=[] if args.no_beads else None,
+            )
+            print(json.dumps(report, indent=2, sort_keys=True) if args.json else json.dumps(report, indent=2, sort_keys=True))
+            return 0
+        if args.maintenance_command == "create-beads":
+            if args.apply and args.dry_run:
+                print("choose either --dry-run or --apply, not both", file=sys.stderr)
+                return 2
+            if not args.apply and not args.dry_run:
+                print("agnt work maintenance create-beads is dry-run by default; pass --dry-run or explicit --apply", file=sys.stderr)
+                return 2
+            report = maintenance_due_report(
+                root=root_arg,
+                runs_dir=runs_arg,
+                beads=[] if args.no_beads else None,
+            )
+            result = maintenance_create_beads(report, dry_run=not args.apply)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
+            return 0 if not result.get("failures") else 1
     if args.command == "health":
         report = work_health_report(
             root=Path(args.root).expanduser() if args.root else None,
