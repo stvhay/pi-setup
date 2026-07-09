@@ -32,6 +32,7 @@ from agnt_lib.prompt import *  # noqa: E402,F401,F403
 from agnt_lib.actions import *  # noqa: E402,F401,F403
 from agnt_lib.runs import *  # noqa: E402,F401,F403
 from agnt_lib.work import *  # noqa: E402,F401,F403
+from agnt_lib.orchestration import *  # noqa: E402,F401,F403
 from agnt_lib.context_health import *  # noqa: E402,F401,F403
 from agnt_lib.doctor import *  # noqa: E402,F401,F403
 from agnt_lib.lessons import *  # noqa: E402,F401,F403
