@@ -11,7 +11,8 @@ from typing import Any, Dict, List
 
 from .actions import load_action
 from .doctor import doctor_report
-from .runs import create_run_bundle, invoke_run_bundle, load_yaml_json, update_run_result
+from .orchestration import validate_bead_orchestration_metadata
+from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 
 
 def beads_bin() -> str | None:
@@ -44,6 +45,243 @@ def normalize_bead(data: Any) -> Dict[str, Any] | None:
     if isinstance(data, dict):
         return data
     return None
+
+
+def ref_id(ref: Any) -> str | None:
+    if not isinstance(ref, dict):
+        return None
+    for key in ("id", "depends_on_id", "issue_id"):
+        value = ref.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def ref_type(ref: Any) -> str:
+    if not isinstance(ref, dict):
+        return "blocks"
+    value = ref.get("dependency_type") or ref.get("type")
+    return str(value or "blocks")
+
+
+def is_closed_status(value: Any) -> bool:
+    return str(value or "").lower() == "closed"
+
+
+def is_approval_like(node: Dict[str, Any] | None) -> bool:
+    if not node:
+        return False
+    labels = {str(label) for label in node.get("labels") or []}
+    # A plain "approval" label can describe feature work about approvals. Treat
+    # durable human gates as decision beads or explicit human/human-gate labels.
+    return node.get("type") == "decision" or bool(labels.intersection({"human", "human-gate"}))
+
+
+def load_run_artifact(path: Path) -> Dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+TERMINAL_RUN_STATUSES = {"succeeded", "failed", "blocked", "superseded"}
+
+
+def run_refs_by_bead(runs_dir: Path | None = None) -> Dict[str, List[Dict[str, Any]]]:
+    """Return run artifact references grouped by Beads id.
+
+    This is intentionally read-only and tolerant of partial/old run bundles so a
+    plan view never fails merely because one run artifact is stale or malformed.
+    """
+    root = runs_dir or default_runs_dir()
+    refs: Dict[str, List[Dict[str, Any]]] = {}
+    if not root.is_dir():
+        return refs
+    for bundle in sorted(path for path in root.iterdir() if path.is_dir()):
+        invocation = load_run_artifact(bundle / "invocation.yaml")
+        if not invocation:
+            continue
+        bead = invocation.get("bead")
+        if not bead:
+            continue
+        result = load_run_artifact(bundle / "result.yaml") or {}
+        status = str(result.get("status") or "unknown")
+        active = not result.get("completedAt") and status not in TERMINAL_RUN_STATUSES
+        refs.setdefault(str(bead), []).append({
+            "id": str(invocation.get("id") or bundle.name),
+            "bundle": str(bundle),
+            "status": status,
+            "active": active,
+            "completedAt": result.get("completedAt"),
+        })
+    return refs
+
+
+def fetch_bead(bead_id: str) -> tuple[Dict[str, Any] | None, str | None]:
+    code, data, err = run_beads_json(["show", bead_id])
+    if code != 0:
+        return None, err or f"bd show {bead_id} failed"
+    bead = normalize_bead(data)
+    if not bead:
+        return None, f"bd show {bead_id} returned no bead"
+    return bead, None
+
+
+def collect_ref_ids(bead: Dict[str, Any]) -> List[str]:
+    ids: List[str] = []
+    for key in ("dependencies", "dependents"):
+        for ref in bead.get(key) or []:
+            rid = ref_id(ref)
+            if rid and rid not in ids:
+                ids.append(rid)
+    return ids
+
+
+def edge_key(edge: Dict[str, str]) -> tuple[str, str, str]:
+    return edge["from"], edge["to"], edge["type"]
+
+
+def normalized_node(bead: Dict[str, Any], run_refs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    dependencies = [ref_id(ref) for ref in bead.get("dependencies") or []]
+    dependents = [ref_id(ref) for ref in bead.get("dependents") or []]
+    validation = validate_bead_orchestration_metadata(bead)
+    return {
+        "id": bead.get("id"),
+        "title": bead.get("title"),
+        "type": bead.get("issue_type") or bead.get("type"),
+        "status": bead.get("status"),
+        "priority": bead.get("priority"),
+        "labels": bead.get("labels") or [],
+        "dependencies": [item for item in dependencies if item],
+        "dependents": [item for item in dependents if item],
+        "dependencyRefs": [
+            {"id": rid, "type": ref_type(ref), "status": ref.get("status") if isinstance(ref, dict) else None}
+            for ref in bead.get("dependencies") or []
+            if (rid := ref_id(ref))
+        ],
+        "dependentRefs": [
+            {"id": rid, "type": ref_type(ref), "status": ref.get("status") if isinstance(ref, dict) else None}
+            for ref in bead.get("dependents") or []
+            if (rid := ref_id(ref))
+        ],
+        "metadataValidation": {
+            "status": validation.get("status"),
+            "dispatchable": validation.get("dispatchable"),
+            "failures": validation.get("failures") or [],
+            "blockers": validation.get("blockers") or [],
+            "humanActions": validation.get("humanActions") or [],
+        },
+        "runRefs": run_refs,
+        "activeRunRefs": [ref for ref in run_refs if ref.get("active")],
+        "approvalRefs": [],
+        "blockerRefs": [],
+    }
+
+
+def build_work_tree(root_id: str, *, runs_dir: Path | None = None, max_depth: int = 50) -> Dict[str, Any]:
+    """Build a durable Beads plan/dependency tree through the Beads CLI.
+
+    The function uses `bd show --json` for every visited issue rather than
+    reading `.beads/issues.jsonl` directly. The returned structure is stable JSON
+    for later gateway/UI code and includes metadata validation and run refs.
+    """
+    run_refs = run_refs_by_bead(runs_dir)
+    nodes: Dict[str, Dict[str, Any]] = {}
+    raw_beads: Dict[str, Dict[str, Any]] = {}
+    errors: List[Dict[str, str]] = []
+    queue: List[tuple[str, int]] = [(root_id, 0)]
+    seen = set()
+
+    while queue:
+        bead_id, depth = queue.pop(0)
+        if bead_id in seen or depth > max_depth:
+            continue
+        seen.add(bead_id)
+        bead, error = fetch_bead(bead_id)
+        if error or bead is None:
+            errors.append({"id": bead_id, "error": str(error)})
+            continue
+        bid = str(bead.get("id") or bead_id)
+        raw_beads[bid] = bead
+        nodes[bid] = normalized_node(bead, run_refs.get(bid, []))
+        if depth < max_depth:
+            for rid in collect_ref_ids(bead):
+                if rid not in seen:
+                    queue.append((rid, depth + 1))
+
+    edges: List[Dict[str, str]] = []
+    edge_keys: set[tuple[str, str, str]] = set()
+    for bead_id, bead in raw_beads.items():
+        for ref in bead.get("dependencies") or []:
+            rid = ref_id(ref)
+            if not rid:
+                continue
+            edge = {"from": rid, "to": bead_id, "type": ref_type(ref)}
+            key = edge_key(edge)
+            if key not in edge_keys:
+                edge_keys.add(key)
+                edges.append(edge)
+        for ref in bead.get("dependents") or []:
+            rid = ref_id(ref)
+            if not rid:
+                continue
+            edge = {"from": bead_id, "to": rid, "type": ref_type(ref)}
+            key = edge_key(edge)
+            if key not in edge_keys:
+                edge_keys.add(key)
+                edges.append(edge)
+
+    for node_id, node in nodes.items():
+        related = node["dependencies"] + node["dependents"]
+        node["approvalRefs"] = sorted({rid for rid in related if is_approval_like(nodes.get(rid))})
+        blockers: List[str] = []
+        for ref in node["dependencyRefs"]:
+            rid = ref["id"]
+            if ref["type"] == "parent-child":
+                continue
+            ref_status = ref.get("status") or (nodes.get(rid) or {}).get("status")
+            if not is_closed_status(ref_status):
+                blockers.append(rid)
+        node["blockerRefs"] = sorted(set(blockers))
+
+    return {
+        "schemaVersion": 1,
+        "root": root_id,
+        "nodes": nodes,
+        "edges": sorted(edges, key=lambda edge: (edge["from"], edge["to"], edge["type"])),
+        "errors": errors,
+        "summary": {
+            "nodeCount": len(nodes),
+            "edgeCount": len(edges),
+            "activeRunCount": sum(len(node["activeRunRefs"]) for node in nodes.values()),
+            "blockedNodeCount": sum(1 for node in nodes.values() if node["blockerRefs"]),
+            "invalidMetadataCount": sum(1 for node in nodes.values() if node["metadataValidation"]["status"] == "invalid"),
+        },
+    }
+
+
+def render_work_tree_text(tree: Dict[str, Any]) -> str:
+    nodes = tree.get("nodes") if isinstance(tree.get("nodes"), dict) else {}
+    root = tree.get("root")
+    lines = [f"Work tree: {root}"]
+    for node_id in sorted(nodes):
+        node = nodes[node_id]
+        marker = "!" if node.get("blockerRefs") else "*" if node.get("activeRunRefs") else "-"
+        lines.append(
+            f"{marker} {node_id} [{node.get('type') or '?'} {node.get('status') or '?'} P{node.get('priority')}] "
+            f"{node.get('title') or ''} metadata={node.get('metadataValidation', {}).get('status')}"
+        )
+        if node.get("blockerRefs"):
+            lines.append(f"    blocked by: {', '.join(node['blockerRefs'])}")
+        if node.get("approvalRefs"):
+            lines.append(f"    approvals: {', '.join(node['approvalRefs'])}")
+        if node.get("activeRunRefs"):
+            lines.append("    active runs: " + ", ".join(str(ref.get("id")) for ref in node["activeRunRefs"]))
+    if tree.get("errors"):
+        lines.append("Errors:")
+        lines.extend(f"- {item.get('id')}: {item.get('error')}" for item in tree["errors"])
+    return "\n".join(lines)
 
 
 def get_bead(bead_id: str | None) -> tuple[int, Dict[str, Any] | None, str]:
@@ -317,6 +555,12 @@ def cmd_work(argv: List[str]) -> int:
     plan.add_argument("--action")
     plan.add_argument("--target", action="append", default=[])
     plan.add_argument("--dry-run", action="store_true", help="required; this command does not dispatch workers")
+    tree = sub.add_parser("tree", help="show a Beads plan/dependency tree with metadata validation and run refs")
+    tree.add_argument("bead_id", nargs="?", help="root bead id; defaults to first ready non-epic bead")
+    tree.add_argument("--epic", help="root epic id; alias for bead_id when viewing an epic")
+    tree.add_argument("--json", action="store_true")
+    tree.add_argument("--max-depth", type=int, default=50)
+    tree.add_argument("--runs-dir")
     start = sub.add_parser("start", help="create a run bundle for a bead/action, optionally claiming the bead")
     start.add_argument("bead_id", nargs="?", help="bead id; defaults to first ready non-epic bead")
     start.add_argument("--action")
@@ -375,6 +619,25 @@ def cmd_work(argv: List[str]) -> int:
             return 1
         print(json.dumps({"schemaVersion": 1, "dryRun": True, "dispatch": dispatch_plan(bead, args.action, args.target)}, indent=2, sort_keys=True))
         return 0
+    if args.command == "tree":
+        root_id = args.epic or args.bead_id
+        if not root_id:
+            code, bead, err = get_bead(None)
+            if code != 0:
+                print(err, file=sys.stderr)
+                return code
+            if not bead or not bead.get("id"):
+                print("No bead found", file=sys.stderr)
+                return 1
+            root_id = str(bead["id"])
+        tree_result = build_work_tree(
+            str(root_id),
+            runs_dir=Path(args.runs_dir).expanduser() if args.runs_dir else default_runs_dir(),
+            max_depth=args.max_depth,
+        )
+        output = {"schemaVersion": 1, "tree": tree_result}
+        print(json.dumps(output, indent=2, sort_keys=True) if args.json else render_work_tree_text(tree_result))
+        return 1 if tree_result.get("errors") else 0
     if args.command == "start":
         code, bead, err = get_bead(args.bead_id)
         if code != 0:
