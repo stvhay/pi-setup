@@ -432,8 +432,8 @@ def normalize_acceptance_criteria(value: Any) -> List[str]:
     return [item.strip() for item in raw_items if item.strip()]
 
 
-def selection_policy_from_bead(bead: Dict[str, Any]) -> Dict[str, Any]:
-    validation = validate_bead_orchestration_metadata(bead)
+def selection_policy_from_bead(bead: Dict[str, Any], validation: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    validation = validation or validate_bead_orchestration_metadata(bead)
     normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
     model_policy = normalized.get("modelPolicy") if isinstance(normalized.get("modelPolicy"), dict) else {}
     return {
@@ -442,12 +442,56 @@ def selection_policy_from_bead(bead: Dict[str, Any]) -> Dict[str, Any]:
         "modelPolicy": model_policy,
         "localOk": bool(model_policy.get("localOk", False)),
         "diversity": str(model_policy.get("diversity") or "normal"),
+        "sessionPolicy": normalized.get("sessionPolicy") or "recorded",
+        "memoryPolicy": normalized.get("memoryPolicy") or "auto",
+        "closeout": normalized.get("closeout") or {},
+    }
+
+
+def ticket_metadata_snapshot(bead: Dict[str, Any], validation: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": bead.get("id"),
+        "title": bead.get("title"),
+        "type": bead.get("issue_type") or bead.get("type"),
+        "status": bead.get("status"),
+        "priority": bead.get("priority"),
+        "labels": bead.get("labels") or [],
+        "metadataValidation": {
+            "status": validation.get("status"),
+            "dispatchable": validation.get("dispatchable"),
+            "failures": validation.get("failures") or [],
+            "blockers": validation.get("blockers") or [],
+            "humanActions": validation.get("humanActions") or [],
+        },
+    }
+
+
+def ephemeral_todo_seed(bead: Dict[str, Any], dispatch: Dict[str, Any], target: List[str]) -> List[Dict[str, Any]]:
+    seed = [{"title": str(bead.get("title") or dispatch.get("title") or "Work item"), "source": str(bead.get("id") or dispatch.get("bead") or "") }]
+    for item in target:
+        seed.append({"title": f"Inspect {item}", "source": item})
+    return seed
+
+
+def dispatch_policy_snapshot(dispatch: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "action": dispatch.get("action"),
+        "routingTask": dispatch.get("routingTask"),
+        "role": dispatch.get("role"),
+        "allowedEffects": dispatch.get("allowedEffects") or [],
+        "risk": policy.get("risk"),
+        "budget": policy.get("budget"),
+        "modelPolicy": policy.get("modelPolicy") or {},
+        "sessionPolicy": policy.get("sessionPolicy") or "recorded",
+        "memoryPolicy": policy.get("memoryPolicy") or "auto",
+        "closeout": policy.get("closeout") or {},
     }
 
 
 def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str], claim: bool, runs_dir: Path | None, id_value: str | None) -> Dict[str, Any]:
     dispatch = dispatch_plan(bead, action_id, target)
-    policy = selection_policy_from_bead(bead)
+    validation = validate_bead_orchestration_metadata(bead)
+    policy = selection_policy_from_bead(bead, validation)
     model_selection = select_model(
         str(dispatch["routingTask"]),
         risk=str(policy["risk"]),
@@ -469,6 +513,12 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         selected_model=str(selection["target"]),
         thinking_level=str(selection["thinkingLevel"]),
         model_selection=selection,
+        ticket_metadata=ticket_metadata_snapshot(bead, validation),
+        ephemeral_todo_seed=ephemeral_todo_seed(bead, dispatch, target),
+        worktree={"policy": "none", "path": str(Path.cwd())},
+        dispatch_policy=dispatch_policy_snapshot(dispatch, policy),
+        session_policy=str(policy.get("sessionPolicy") or "recorded"),
+        memory_policy=str(policy.get("memoryPolicy") or "auto"),
         allowed_effects=[str(item) for item in dispatch["allowedEffects"]],
         acceptance_criteria=normalize_acceptance_criteria(bead.get("acceptance_criteria") or bead.get("acceptanceCriteria")),
         output_contract=str(dispatch["outputContract"]),
