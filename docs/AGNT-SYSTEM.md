@@ -26,7 +26,7 @@ Agent work becomes safer and more useful when orchestration is explicit:
 work graph -> invocation artifact -> worker run -> result artifact -> state transition
 ```
 
-The system favors small, inspectable primitives over one large autonomous daemon. The current production path is a gated command loop: humans or orchestrating agents choose when to plan, start, run, finish, close work, deploy, or mutate external systems.
+The system favors small, inspectable primitives over one opaque daemon. The current production path is Beads-first and gated: Beads stores durable work, approvals, blockers, closeout, and follow-ups; `.pi/runs` stores execution evidence; Archimedes/Pi surfaces live UX such as todos, subagents, and ask dialogs as ephemeral projections.
 
 ## Core primitives
 
@@ -52,7 +52,7 @@ An action template is a verb-like invocation pattern. It binds routing task, ski
 
 ### Run artifacts
 
-Run artifacts live under `.pi/runs/<run-id>/` and contain `invocation.yaml`, `result.yaml`, and output files. They answer: **what was requested, what happened, and what evidence supports it?**
+Run artifacts live under `.pi/runs/<run-id>/` and contain `invocation.yaml`, `result.yaml`, and output files. They answer: **what was requested, what happened, and what evidence supports it?** Worker sessions are recorded by default for inspectable execution history. Observational memory may provide session-local recall, but it is advisory until promoted into Beads or `.pi/runs` evidence.
 
 ### Metrics and evals
 
@@ -67,7 +67,9 @@ Metrics record best-effort model usage and outcomes. Evals check routing, instru
 - `agnt instructions` composes global, project, model, and role context packages.
 - `agnt action` lists, validates, and renders action templates.
 - `agnt runs` creates, validates, invokes, and updates invocation/result bundles.
-- `agnt work` connects Beads work items to action/run artifacts and gated state transitions.
+- `agnt work` connects Beads work items to action/run artifacts, plan/tree views, runner lifecycle, health checks, and maintenance checkpoints.
+- `agnt approvals` creates and resolves Beads-backed questions and approval gates.
+- `agnt gateway` exposes a constrained ticket control surface for Pi extensions without raw shell/Beads passthrough.
 - `agnt metrics` annotates, consolidates, prunes, and reports invocation metrics.
 - `agnt eval` runs deterministic or model-backed checks.
 - `agnt doctor` checks local operational readiness before agents rely on tools, providers, Beads, Node, or project config.
@@ -82,20 +84,21 @@ A typical delegated run looks like this:
 
 ```bash
 bd ready
+agnt work tree --epic <epic-id> --json
 agnt work plan <bead-id> --action review --target <path> --dry-run
-agnt work run <bead-id> --action review --target <path> --model <provider/model> --claim
+agnt work run <bead-id> --action review --target <path> --claim
 ```
 
 Behind that flow, `agnt`:
 
 1. reads the Beads work item;
-2. selects or renders an action template;
-3. creates a run bundle under `.pi/runs/`;
-4. writes an invocation artifact with task, role, skills, inputs, allowed effects, and acceptance criteria;
-5. invokes a Pi worker from that artifact;
-6. captures response, stderr, metrics, and evidence;
-7. updates the result artifact; and
-8. mutates Beads only when the caller supplied explicit flags such as `--claim` or `--close-bead`.
+2. validates `metadata.pi` and dispatch policy;
+3. selects a model/thinking level through routing policy, not ad hoc override;
+4. creates a run bundle under `.pi/runs/` with ticket, worktree, session, memory, and todo-seed snapshots;
+5. invokes a recorded Pi worker session from that artifact;
+6. captures response, stderr, metrics, session refs, and evidence;
+7. updates the result artifact with approvals, decisions, health checks, closeout checks, follow-ups, and artifacts; and
+8. mutates Beads only when the caller supplied explicit flags such as `--claim`, `--close-bead`, or explicit maintenance/approval commands.
 
 This makes retries, review, and handoff possible without reconstructing intent from chat.
 
@@ -109,6 +112,9 @@ Important gates include:
 - declared allowed effects in action/run artifacts;
 - read-only-by-default peer review patterns;
 - explicit flags for Beads mutation;
+- Beads-backed approval/decision records for human gates;
+- one worktree per epic for implementation dispatch, with dirty/protected-branch refusal;
+- health and closeout checks for missing evidence, unresolved approvals, stale sessions, orphaned runs, raw-tool bypass markers, and dirty worktrees;
 - explicit approval for destructive git actions, remote writes, deployments, hook installation, and other irreversible changes;
 - fresh verification evidence before completion claims;
 - instruction checks that reject safety-gate weakening phrases.
@@ -124,7 +130,7 @@ capture metrics -> annotate outcomes -> consolidate summaries -> adjust routing/
 capture lessons -> push to lesson server -> triage into Beads -> implement/eval -> commit policy
 ```
 
-Raw metrics, lesson inboxes, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals.
+Raw metrics, lesson inboxes, observational-memory ledgers, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals. Maintenance due signals are derived from Beads, git, `.pi/runs`, health reports, context-health warnings, and recorded session volume rather than hidden counters.
 
 This means the system can learn from observed model behavior while preserving an auditable source-of-truth boundary.
 
@@ -134,8 +140,9 @@ Pi provides the agent runtime, providers, sessions, extensions, and normal inter
 
 - choosing a model;
 - composing context;
-- launching no-session peers;
-- capturing artifacts and metrics;
+- launching peers or recorded worker sessions;
+- bridging ask/approval UI to durable Beads decisions;
+- capturing artifacts, metrics, transcripts, and session refs;
 - validating workflow invariants.
 
 Use Pi directly for ordinary interactive work. Use `agnt` when the work should be routed, delegated, measured, replayed, reviewed, or connected to Beads.
@@ -151,11 +158,10 @@ Relatively stable:
 
 Still evolving:
 
-- richer result integration from workers;
-- automated work-loop behavior beyond the gated command loop;
-- context-health checks;
+- stronger idempotency and budget enforcement for the singleton runner;
+- richer result extraction from worker transcripts;
 - GitHub or other external adapters;
-- conventions for larger multi-worker runs.
+- conventions for larger multi-worker runs and production soak operation.
 
 ## Where to read next
 

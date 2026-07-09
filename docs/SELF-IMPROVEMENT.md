@@ -20,6 +20,7 @@ metrics justify changing:
 ```text
 capture -> annotate -> consolidate -> route hints/demotion
                                    -> overlay or task-policy edit -> eval -> commit
+Beads/git/runs/health/session signals -> maintenance due -> checkpoint bead -> evidence -> closeout
 ```
 
 ### 1. Capture (automatic metrics, deliberate lessons)
@@ -42,6 +43,11 @@ Lessons are JSONL runtime state, not tracked policy. The default local inbox is
 `~/.pi/lessons/inbox.jsonl` (`AGNT_LESSONS_INBOX` overrides). Records include a
 UUID, UTC date, hostname, project name, and project directory. Evidence is
 best-effort redacted before it is written.
+
+Worker sessions are recorded by default when dispatched by the runner. Session
+and transcript refs in `.pi/runs` are inspectable execution history. Observational
+memory can help recall long-session context, but important findings must be
+promoted into Beads, run evidence, or lessons before they affect durable policy.
 
 ### 2. Annotate (the human/orchestrator signal)
 
@@ -105,7 +111,46 @@ agnt lessons triage --file /tmp/lessons.jsonl --create-beads
 lesson is specific enough to become work with context, problem, suggested
 improvement, and evidence.
 
-### 6. Prompt feedback (deliberate, eval-gated)
+### 6. Maintenance cadence from durable signals
+
+Use maintenance commands to decide when self-improvement work is due:
+
+```bash
+agnt work maintenance due --json
+agnt work maintenance create-beads --dry-run --json
+# after reviewing the proposed checkpoint beads:
+agnt work maintenance create-beads --apply --json
+```
+
+The due report derives signals from durable project state: closed implementation
+beads since the last maintenance checkpoint, commits since that checkpoint,
+failed/blocked run artifacts, repeated human blockers, context-health warnings,
+rail-guard health warnings/failures, and recorded session volume. It suppresses
+modes that already have open maintenance beads.
+
+Maintenance labels include:
+
+- `maintenance:design-review`
+- `maintenance:architecture-review`
+- `maintenance:simplification`
+- `maintenance:workflow-retro`
+- `maintenance:context-health`
+- `maintenance:lessons-harvest`
+
+Read-only maintenance reviews use `action: maintenance` and may be auto-created
+by an idle runner. Simplification/refactor implementation beads use
+`action: implement` with `approved: false`; creating the checkpoint does not
+authorize edits. Close maintenance checkpoints like normal Beads: record evidence,
+represent follow-ups as Beads, and pass closeout checks.
+
+### 7. Lessons harvest from runs and sessions
+
+A lessons-harvest maintenance checkpoint reviews closed Beads, `.pi/runs`,
+recorded session/transcript refs, memory-summary refs, and optional
+observational-memory recall ids. It should extract reusable lessons or create
+follow-up Beads. It should not treat chat-only memory as canonical state.
+
+### 8. Prompt feedback (deliberate, eval-gated)
 
 When a model family shows a repeatable behavioral failure:
 
@@ -133,8 +178,7 @@ discipline, from review smoke tests).
 
 ## Rules
 
-- Never tracked: metric records, the global store, session data. Never
-  deployed over: `~/.pi/metrics/` is rsync-excluded by the bootstrap script.
+- Never tracked: metric records, the global store, raw session data, and observational-memory ledgers. Never deployed over: `~/.pi/metrics/` is rsync-excluded by the bootstrap script.
 - Overlays specialize behavior; they must not weaken approval, verification,
   git, or security gates (`agent-instructions --check` scans for this).
 - Edit prompts in this repo and deploy; do not hand-edit deployed `~/.pi`
