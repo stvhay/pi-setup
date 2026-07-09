@@ -14,6 +14,7 @@ from .doctor import doctor_report
 from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
+from .health import check_status_passed, work_health_report
 from .worktree_policy import worktree_snapshot_for_bead
 
 
@@ -595,10 +596,53 @@ def bead_followup_checker(bead_id: str) -> tuple[bool, str | None]:
     return True, None
 
 
-def close_readiness_failures(result: Dict[str, Any], *, followup_checker=bead_followup_checker) -> List[str]:
+def bead_ref_closed_checker(bead_id: str) -> tuple[bool, str | None]:
+    code, data, err = run_beads_json(["show", bead_id])
+    if code != 0:
+        return False, (err or "not found").strip()
+    bead = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else None
+    if not isinstance(bead, dict):
+        return False, "not found"
+    if str(bead.get("status") or "").lower() != "closed":
+        return False, f"status is {bead.get('status') or 'unknown'}"
+    return True, None
+
+
+def _result_check_failures(result: Dict[str, Any], key: str) -> List[str]:
+    value = result.get(key) or []
+    if not isinstance(value, list):
+        return [f"result {key} must be a list"]
+    failures: List[str] = []
+    for check in value:
+        if not isinstance(check, dict):
+            failures.append(f"result {key} entry must be an object")
+            continue
+        if not check_status_passed(check.get("status")):
+            failures.append(f"result {key} entry {check.get('name') or '<unnamed>'} is not passed: {check.get('status')}")
+    return failures
+
+
+def close_readiness_failures(
+    result: Dict[str, Any],
+    *,
+    followup_checker=bead_followup_checker,
+    ref_checker=bead_ref_closed_checker,
+) -> List[str]:
     failures: List[str] = []
     if result.get("status") == "succeeded" and not result.get("evidence"):
         failures.append("succeeded bead closure requires at least one evidence entry")
+    for key in ("healthChecks", "closeoutChecks"):
+        failures.extend(_result_check_failures(result, key))
+    for key in ("approvalRefs", "decisionRefs"):
+        refs = result.get(key) or []
+        if not isinstance(refs, list):
+            failures.append(f"result {key} must be a list")
+            continue
+        for ref in refs:
+            ok, detail = ref_checker(str(ref))
+            if not ok:
+                suffix = f": {detail}" if detail else ""
+                failures.append(f"{key} bead is unresolved: {ref}{suffix}")
     follow_ups = result.get("followUps") or []
     if not isinstance(follow_ups, list):
         failures.append("result followUps must be a list")
@@ -714,6 +758,13 @@ def cmd_work(argv: List[str]) -> int:
     audit = sub.add_parser("audit", help="audit Beads queue health against unresolved required-work signals")
     audit.add_argument("--json", action="store_true")
     audit.add_argument("--scan-root", action="append", default=[], help="file or directory to scan; defaults to docs, README, AGENTS, and .pi/runs")
+    health = sub.add_parser("health", help="run read-only rail-guard checks over runs, runner state, Beads refs, and worktrees")
+    health.add_argument("--json", action="store_true")
+    health.add_argument("--root")
+    health.add_argument("--runs-dir")
+    health.add_argument("--stale-after-hours", type=float, default=24.0)
+    health.add_argument("--strict-checkout", action="store_true", help="treat dirty current checkout as a failure instead of a warning")
+    health.add_argument("--no-beads", action="store_true", help="skip bd blocked inspection; run artifact refs are still resolved")
     finish = sub.add_parser("finish", help="update a run result and optionally close its bead")
     finish.add_argument("bundle")
     finish.add_argument("--status", required=True, choices=["succeeded", "failed", "blocked", "needs-human", "superseded"])
@@ -866,6 +917,20 @@ def cmd_work(argv: List[str]) -> int:
     if args.command == "audit":
         roots = [Path(item).expanduser() for item in args.scan_root] if args.scan_root else None
         report = work_audit_report(scan_roots=roots)
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            print("PASS" if report["passed"] else "FAIL")
+            print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["passed"] else 1
+    if args.command == "health":
+        report = work_health_report(
+            root=Path(args.root).expanduser() if args.root else None,
+            runs_dir=Path(args.runs_dir).expanduser() if args.runs_dir else None,
+            stale_after_hours=args.stale_after_hours,
+            strict_checkout=args.strict_checkout,
+            include_beads=not args.no_beads,
+        )
         if args.json:
             print(json.dumps(report, indent=2, sort_keys=True))
         else:
