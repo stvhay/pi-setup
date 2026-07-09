@@ -64,6 +64,9 @@ def create_run_bundle(
     role: str | None = None,
     bead: str | None = None,
     model: str | None = None,
+    selected_model: str | None = None,
+    thinking_level: str | None = None,
+    model_selection: Dict[str, Any] | None = None,
     allowed_effects: List[str] | None = None,
     acceptance_criteria: List[str] | None = None,
     output_contract: str | None = None,
@@ -83,7 +86,10 @@ def create_run_bundle(
         "inputRefs": input_refs or [],
         "skills": skills or [],
         "role": role,
-        "model": model,
+        "model": model or selected_model,
+        "selectedModel": selected_model or model,
+        "thinkingLevel": thinking_level,
+        "modelSelection": model_selection,
         "allowedEffects": allowed_effects or list(DEFAULT_ALLOWED_EFFECTS),
         "acceptanceCriteria": acceptance_criteria or [],
         "outputContract": output_contract,
@@ -130,6 +136,8 @@ def render_invocation_prompt(invocation: Dict[str, Any]) -> str:
         f"Routing task: {invocation.get('routingTask')}",
         f"Bead: {invocation.get('bead')}",
         f"Role: {invocation.get('role')}",
+        f"Selected model: {invocation.get('selectedModel') or invocation.get('model')}",
+        f"Thinking level: {invocation.get('thinkingLevel') or 'default'}",
         f"Skills: {', '.join(str(item) for item in invocation.get('skills') or []) or 'none'}",
         f"Allowed effects: {', '.join(str(item) for item in invocation.get('allowedEffects') or []) or 'none'}",
         f"Output contract: {invocation.get('outputContract')}",
@@ -156,7 +164,7 @@ def render_invocation_prompt(invocation: Dict[str, Any]) -> str:
 def choose_invocation_model(invocation: Dict[str, Any], override: str | None) -> str:
     if override:
         return override
-    model = invocation.get("model")
+    model = invocation.get("selectedModel") or invocation.get("model")
     if model:
         return str(model)
     task = str(invocation.get("routingTask") or "cheap-peer")
@@ -360,7 +368,7 @@ def cmd_runs(argv: List[str]) -> int:
     update.add_argument("--completed", action="store_true")
     invoke = sub.add_parser("invoke", help="invoke a model from invocation.yaml and write output/metrics into result.yaml")
     invoke.add_argument("bundle")
-    invoke.add_argument("--model", help="provider/model override; defaults to invocation model or first preferred routing-task model")
+    invoke.add_argument("--model", help="manual provider/model override for direct run invocation; work/runner dispatch uses policy-selected models")
     invoke.add_argument("--no-metrics", action="store_true")
     invoke.add_argument("--metrics-dir")
     if not argv:

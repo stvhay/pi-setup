@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from .actions import load_action
 from .doctor import doctor_report
 from .orchestration import validate_bead_orchestration_metadata
+from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 
 
@@ -431,8 +432,33 @@ def normalize_acceptance_criteria(value: Any) -> List[str]:
     return [item.strip() for item in raw_items if item.strip()]
 
 
+def selection_policy_from_bead(bead: Dict[str, Any]) -> Dict[str, Any]:
+    validation = validate_bead_orchestration_metadata(bead)
+    normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
+    model_policy = normalized.get("modelPolicy") if isinstance(normalized.get("modelPolicy"), dict) else {}
+    return {
+        "risk": normalized.get("risk") or "medium",
+        "budget": normalized.get("budget") or "balanced",
+        "modelPolicy": model_policy,
+        "localOk": bool(model_policy.get("localOk", False)),
+        "diversity": str(model_policy.get("diversity") or "normal"),
+    }
+
+
 def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str], claim: bool, runs_dir: Path | None, id_value: str | None) -> Dict[str, Any]:
     dispatch = dispatch_plan(bead, action_id, target)
+    policy = selection_policy_from_bead(bead)
+    model_selection = select_model(
+        str(dispatch["routingTask"]),
+        risk=str(policy["risk"]),
+        budget=str(policy["budget"]),
+        local_ok=bool(policy["localOk"]),
+        model_policy=policy["modelPolicy"],
+        diversity=str(policy["diversity"]),
+    )
+    if model_selection.get("routeStatus") != "selected":
+        return {"dispatch": dispatch, "modelSelection": model_selection, "modelSelectionError": "no policy-compatible model candidate"}
+    selection = model_selection["selection"]
     bundle = create_run_bundle(
         action=str(dispatch["action"]),
         routing_task=str(dispatch["routingTask"]),
@@ -440,6 +466,9 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         skills=[str(item) for item in dispatch["skills"]],
         role=str(dispatch["role"]) if dispatch["role"] else None,
         bead=str(dispatch["bead"]) if dispatch["bead"] else None,
+        selected_model=str(selection["target"]),
+        thinking_level=str(selection["thinkingLevel"]),
+        model_selection=selection,
         allowed_effects=[str(item) for item in dispatch["allowedEffects"]],
         acceptance_criteria=normalize_acceptance_criteria(bead.get("acceptance_criteria") or bead.get("acceptanceCriteria")),
         output_contract=str(dispatch["outputContract"]),
@@ -450,9 +479,9 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
     if claim and dispatch.get("bead"):
         code, data, err = run_beads_json(["update", str(dispatch["bead"]), "--claim"])
         if code != 0:
-            return {"bundle": str(bundle), "dispatch": dispatch, "beadUpdateError": err, "beadUpdateCode": code}
+            return {"bundle": str(bundle), "dispatch": dispatch, "modelSelection": model_selection, "beadUpdateError": err, "beadUpdateCode": code}
         bead_update = {"code": code, "result": data}
-    return {"bundle": str(bundle), "invocation": str(bundle / "invocation.yaml"), "result": str(bundle / "result.yaml"), "dispatch": dispatch, "beadUpdate": bead_update}
+    return {"bundle": str(bundle), "invocation": str(bundle / "invocation.yaml"), "result": str(bundle / "result.yaml"), "dispatch": dispatch, "modelSelection": model_selection, "beadUpdate": bead_update}
 
 
 def run_work(
@@ -467,6 +496,8 @@ def run_work(
     id_value: str | None,
     metrics_dir: Path | None = None,
 ) -> Dict[str, Any]:
+    if model:
+        return {"modelOverrideError": "agnt work run uses policy-selected models; pass risk/budget/local/modelPolicy constraints instead of a direct model override"}
     started = start_work(
         bead,
         action_id=action_id,
@@ -478,7 +509,7 @@ def run_work(
     if started.get("beadUpdateError"):
         return {"started": started}
     bundle = Path(str(started["bundle"]))
-    invoked = invoke_run_bundle(bundle, model=model, metrics_dir=metrics_dir)
+    invoked = invoke_run_bundle(bundle, model=None, metrics_dir=metrics_dir)
     closed = None
     if close_bead and invoked.get("exitCode") == 0:
         summary = str(invoked.get("result", {}).get("summary") or "Run succeeded")
@@ -573,7 +604,7 @@ def cmd_work(argv: List[str]) -> int:
     run.add_argument("bead_id", nargs="?", help="bead id; defaults to first ready non-epic bead")
     run.add_argument("--action")
     run.add_argument("--target", action="append", default=[])
-    run.add_argument("--model")
+    run.add_argument("--model", help="rejected for work dispatch; use routing policy constraints instead")
     run.add_argument("--claim", action="store_true", help="mark the bead in_progress before invoking")
     run.add_argument("--close-bead", action="store_true", help="close bead only if invocation succeeds")
     run.add_argument("--runs-dir")
@@ -660,6 +691,12 @@ def cmd_work(argv: List[str]) -> int:
         print(json.dumps({"schemaVersion": 1, **result}, indent=2, sort_keys=True))
         return 1 if result.get("beadUpdateError") else 0
     if args.command == "run":
+        if args.model:
+            print(json.dumps({
+                "schemaVersion": 1,
+                "modelOverrideError": "agnt work run uses policy-selected models; pass risk/budget/local/modelPolicy constraints instead of a direct model override",
+            }, indent=2, sort_keys=True))
+            return 2
         if args.preflight:
             report = doctor_report(check_names=["command.pi", "command.bd", "provider.env", "catalog.parse"])
             if report.get("failures"):
@@ -691,6 +728,8 @@ def cmd_work(argv: List[str]) -> int:
             metrics_dir=Path(args.metrics_dir).expanduser() if args.metrics_dir else None,
         )
         print(json.dumps({"schemaVersion": 1, **result}, indent=2, sort_keys=True))
+        if result.get("modelOverrideError") or result.get("modelSelectionError"):
+            return 2
         invoked = result.get("invoked") if isinstance(result, dict) else None
         return int(invoked.get("exitCode") or 0) if isinstance(invoked, dict) else 1
     if args.command == "audit":
