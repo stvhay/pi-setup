@@ -48,6 +48,30 @@ def test_doctor_checks_olla_host_used_by_olla_provider(agnt, monkeypatch):
     assert "OLLA_API_KEY" not in check["evidence"]
 
 
+def test_verification_commands_use_current_git_root(agnt, monkeypatch, tmp_path):
+    repo = tmp_path / "project"
+    scripts = repo / "scripts"
+    scripts.mkdir(parents=True)
+    check_script = scripts / "check-pi-config.sh"
+    check_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    (repo / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(agnt.shutil, "which", lambda name: f"/bin/{name}")
+
+    def fake_run(argv, **kwargs):
+        if argv[:3] == ["git", "-C", str(repo)] and argv[3:] == ["rev-parse", "--show-toplevel"]:
+            return FakeProc(returncode=0, stdout=f"{repo}\n")
+        return FakeProc(returncode=1)
+
+    monkeypatch.setattr(agnt.subprocess, "run", fake_run)
+    report = agnt.doctor_report(check_names=["verification.commands"])
+    check = report["checks"][0]
+
+    assert check["status"] == "pass"
+    assert check["evidence"]["checkPiConfig"] == str(check_script)
+
+
 def test_node_non_lts_with_nvm_suggests_lts_without_mutation(agnt, monkeypatch, tmp_path):
     home = tmp_path / "home"
     nvm = home / ".nvm"
