@@ -17,8 +17,9 @@ import _agnt_common as common
 
 from .core import BIN, EVALS, ROOT, die
 from .invoke import invoke_one, safe_target_name
-from .metrics import git_root, write_json
+from .metrics import git_root, write_json, write_metric_record
 from .routing import cmd_route
+from .tasks import preferred_models
 
 def slugify(value: str) -> str:
     cleaned = []

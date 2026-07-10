@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, List, Tuple
 from .approvals import create_beads_approval_request, resolve_beads_approval_request
 from .core import die
 from .orchestration import validate_bead_orchestration_metadata
+from .runner_client import RunnerClientError, runner_client_status
+from .runner_protocol import DEFAULT_BUDGET, active_run_summary, redact_service_metadata
 from .runs import default_runs_dir
 from .work import build_work_tree, normalize_bead, run_beads_json, run_refs_by_bead
 
@@ -34,6 +36,7 @@ ALLOWED_KEYS = {
     "request_approval": {
         "operation",
         "targetBead",
+        "target_bead",
         "question",
         "context",
         "options",
@@ -85,6 +88,14 @@ def _require_string(payload: Dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{key} is required")
+    return value.strip()
+
+
+def _require_target_bead(payload: Dict[str, Any]) -> str:
+    """Accept the canonical wire key and legacy snake_case gateway payloads."""
+    value = payload.get("targetBead", payload.get("target_bead"))
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("targetBead/target_bead is required")
     return value.strip()
 
 
@@ -199,6 +210,9 @@ def _create_draft_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner)
     if metadata is not None:
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be an object when present")
+        pi_metadata = metadata.get("pi")
+        if isinstance(pi_metadata, dict) and pi_metadata.get("approved") is True:
+            raise ValueError("model gateway must not set metadata.pi.approved; resolve a human approval through the UI")
         args.extend(["--metadata", json.dumps(metadata, sort_keys=True, separators=(",", ":"))])
     code, data, err = beads_runner(args)
     created = _require_beads_success(code, data, err, "create draft")
@@ -208,7 +222,7 @@ def _create_draft_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner)
 def _request_approval_gateway(payload: Dict[str, Any], *, approval_creator: Callable[..., Dict[str, Any]]) -> Dict[str, Any]:
     result = approval_creator(
         kind="approval",
-        target_bead=_require_string(payload, "targetBead"),
+        target_bead=_require_target_bead(payload),
         question=_require_string(payload, "question"),
         context=_require_string(payload, "context"),
         options=payload.get("options"),
@@ -221,22 +235,76 @@ def _request_approval_gateway(payload: Dict[str, Any], *, approval_creator: Call
 
 
 def _resolve_blocker_gateway(payload: Dict[str, Any], *, approval_resolver: Callable[..., Dict[str, Any]]) -> Dict[str, Any]:
+    outcome = _require_string(payload, "outcome")
+    if outcome in {"approved", "answered"}:
+        raise ValueError("model gateway cannot resolve approved or answered outcomes; use the human UI")
     result = approval_resolver(
         decision_bead=_require_string(payload, "decisionBead"),
-        outcome=_require_string(payload, "outcome"),
+        outcome=outcome,
         answer=payload.get("answer"),
         run_bundle=_optional_path(payload.get("runBundle")),
     )
     return {"schemaVersion": 1, "operation": "resolve_blocker", "resolution": result}
 
 
-def _runner_status_gateway(payload: Dict[str, Any]) -> Dict[str, Any]:
-    from .runner import runner_status
+def _compact_lease(lease: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "leaseId": lease.get("leaseId"),
+        "sessionId": lease.get("sessionId"),
+        "client": lease.get("client"),
+        "attachedAt": lease.get("attachedAt"),
+        "lastSeenAt": lease.get("lastSeenAt"),
+    }
 
+
+def _normalize_runner_visibility(status: Dict[str, Any], *, service_state: str) -> Dict[str, Any]:
+    leases_raw = status.get("leases") if isinstance(status.get("leases"), dict) else {}
+    active_runs = [active_run_summary(item) for item in status.get("activeRuns") or [] if isinstance(item, dict)]
+    budget = status.get("budget") if isinstance(status.get("budget"), dict) else dict(DEFAULT_BUDGET)
+    service_metadata = status.get("service") if isinstance(status.get("service"), dict) else {}
+    result = {
+        "schemaVersion": 1,
+        "status": status.get("status") or ("running" if status.get("running") else "not-running"),
+        "running": bool(status.get("running")),
+        "connected": bool(status.get("connected", service_state == "present")),
+        "paused": bool(status.get("paused")),
+        "draining": bool(status.get("draining")),
+        "acceptingNewWork": bool(status.get("acceptingNewWork", False)),
+        "schedulerEnabled": bool(status.get("schedulerEnabled", False)),
+        "schedulerAlive": status.get("schedulerAlive") if isinstance(status.get("schedulerAlive"), bool) else None,
+        "scheduler": status.get("scheduler") if isinstance(status.get("scheduler"), dict) else {},
+        "root": status.get("root"),
+        "heartbeatAt": status.get("heartbeatAt"),
+        "updatedAt": status.get("updatedAt"),
+        "leaseCount": len(leases_raw),
+        "leases": [_compact_lease(lease) for lease in leases_raw.values() if isinstance(lease, dict)],
+        "activeCount": len(active_runs),
+        "activeRuns": active_runs,
+        "firstActive": active_runs[0] if active_runs else None,
+        "budget": budget,
+        "service": {
+            "state": service_state,
+            "metadata": redact_service_metadata(service_metadata),
+        },
+    }
+    if status.get("suggestedAction"):
+        result["suggestedAction"] = status.get("suggestedAction")
+    if status.get("detail"):
+        result["detail"] = status.get("detail")
+    return result
+
+
+def _runner_status_gateway(payload: Dict[str, Any]) -> Dict[str, Any]:
     root = payload.get("root")
     if root is not None and not isinstance(root, str):
         raise ValueError("root must be a string when present")
-    return {"schemaVersion": 1, "operation": "runner_status", "runner": runner_status(root=Path(root).expanduser() if root else None)}
+    normalized_root = Path(root).expanduser() if root else None
+    try:
+        status = runner_client_status(root=normalized_root)
+        runner = _normalize_runner_visibility(status, service_state="present")
+    except RunnerClientError as exc:
+        runner = _normalize_runner_visibility(exc.payload, service_state="absent")
+    return {"schemaVersion": 1, "operation": "runner_status", "runner": runner}
 
 
 def ticket_gateway(

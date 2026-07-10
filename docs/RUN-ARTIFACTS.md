@@ -199,6 +199,20 @@ agnt work finish .pi/runs/<run-id> \
 resolved approval/decision refs, and passing health/closeout checks. `agnt work
 run` combines start + invoke + optional close while preserving those gates.
 
+Run the same dispatch path through the project-local service:
+
+```bash
+agnt work daemon start --json --concurrency 1
+agnt work runner status --json
+agnt work runner tick --dry-run --json --limit 1
+agnt work daemon stop --json --drain
+```
+
+`agnt work daemon start|stop|status` owns the service lifecycle.
+`agnt work runner status|pause|resume|tick` calls the service REST API. The
+service writes transient coordination state under `.pi/runner/`; run evidence
+still belongs in `.pi/runs/<run-id>/`.
+
 Audit queue and rail-guard health before trusting closeout:
 
 ```bash
@@ -212,10 +226,10 @@ while those signals remain, which prevents “0 ready” from being mistaken for
 production readiness.
 
 The health report checks run artifacts, Beads refs, approvals, decisions,
-follow-ups, stale sessions, stale runner locks, dirty current/epic worktrees,
-raw-tool bypass markers, orphaned runs, and failed health/closeout checks.
-Legacy completed v1 artifacts may warn on historical missing refs; current
-format closeout blockers fail.
+follow-ups, stale sessions, stale runner locks and heartbeats, active run
+snapshots, dirty current/epic worktrees, raw-tool bypass markers, orphaned runs,
+and failed health/closeout checks. Legacy completed v1 artifacts may warn on
+historical missing refs; current format closeout blockers fail.
 
 ## Side-effect convention
 

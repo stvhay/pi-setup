@@ -17,6 +17,7 @@ import _agnt_common as common
 
 from .core import ACTIONS, EVALS, PROMPT_PATTERNS, ROOT, die
 from .evals import cmd_eval, split_models
+from .metrics import utc_now
 
 def slugify(value: str) -> str:
     chars: List[str] = []

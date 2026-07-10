@@ -12,7 +12,7 @@
     {
       "name": "orchestration-high-quality",
       "args": ["--task", "orchestration", "--risk", "high", "--budget", "quality"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.5", "thinkingLevel": "high"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high"}
     },
     {
       "name": "research-long-context",

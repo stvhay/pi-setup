@@ -13,7 +13,7 @@ bin/agnt tasks >/tmp/agnt-tasks.txt
 rg -n "orchestration|review|research" /tmp/agnt-tasks.txt >/dev/null
 
 bin/agnt tasks --models >/tmp/agnt-task-models.txt
-rg -n "openai-codex/gpt-5\.5|openrouter-localish/google/gemma-4-31b-it|olla-cloud/gemini-flash" /tmp/agnt-task-models.txt >/dev/null
+rg -n "openai-codex/gpt-5\.6-sol|openrouter-localish/google/gemma-4-31b-it|olla-cloud/gemini-flash" /tmp/agnt-task-models.txt >/dev/null
 
 bin/agnt invoke -h >/tmp/agnt-invoke-help.txt
 rg -n -- "--fanout|--list|--task|--no-metrics|--metrics-dir" /tmp/agnt-invoke-help.txt >/dev/null

@@ -11,8 +11,8 @@
     },
     {
       "name": "implementation-worker-role",
-      "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-5.4-mini"],
-      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "Archimedes/Pi todos are transient projections", "# Project Instructions"]
+      "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-5.6-luna"],
+      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "Archimedes/Pi todos are transient projections", "main Pi thread is orchestrator-only", "Durable implementation should go through Beads plus the project-local runner service", "# Project Instructions"]
     },
     {
       "name": "verifier-role",

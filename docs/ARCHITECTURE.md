@@ -124,9 +124,12 @@ New shared behavior should move into those importable modules, or a new
 `agnt_lib` module when the seam is clear; avoid adding another independent
 model/catalog/parser table inside the executable. The orchestration additions
 follow that seam: metadata validation in `orchestration.py`, approval flow in
-`approvals.py`, ticket gateway in `gateway.py`, runner lifecycle in `runner.py`,
-worktree policy in `worktree_policy.py`, health checks in `health.py`, and
-maintenance cadence in `maintenance.py`.
+`approvals.py`, ticket gateway in `gateway.py`, runner compatibility wrappers in
+`runner.py`, runner protocol/state contracts in `runner_protocol.py`, the
+loopback service in `runner_service.py`, REST clients and daemon lifecycle in
+`runner_client.py`, scheduling in `runner_scheduler.py`, startup policy in
+`startup_policy.py`, worktree policy in `worktree_policy.py`, health checks in
+`health.py`, and maintenance cadence in `maintenance.py`.
 
 ### Inspectable work backbone
 
@@ -143,14 +146,15 @@ verify, or continue the work. Current pieces are: `.beads/` for work graph
 export/config, `.pi/plans/` for plans, `.pi/runs/` for invocation/result
 artifacts, `.pi/metrics/` for runtime telemetry, `agnt action render` and
 `agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch plans,
-plan trees, runner lifecycle, health checks, and maintenance checkpoints,
-`agnt approvals` for durable human decisions, `agnt gateway` for constrained Pi
-extension access, `agnt invoke` for peer dispatch, `agnt runs invoke` / `agnt
+plan trees, daemon lifecycle, service-backed runner client operations, health
+checks, and maintenance checkpoints, `agnt approvals` for durable human
+decisions, `agnt gateway` for constrained Pi extension access and service-backed
+runner visibility, `agnt invoke` for peer dispatch, `agnt runs invoke` / `agnt
 work run` for invocation-backed worker execution, `agnt context-health` for
 context entropy checks, and `pi/agent/evals/` for gates. See the
-[Orchestration Loop Decision](ORCHESTRATION-LOOP.md) for why the production loop
-uses a gated command loop and explicit project-local runner rather than an
-installed service.
+[Orchestration Loop Decision](ORCHESTRATION-LOOP.md) and
+[Project-Local Runner Service](RUNNER-SERVICE.md) for why the production loop
+uses a Beads-first gated workflow with a project-local loopback service boundary.
 
 ### Metrics and feedback
 
@@ -186,7 +190,7 @@ and cheap read-only work health), `agent-instructions --check`.
 Layered gates, none overridable by overlays or `SOUL.md` (communication style
 only): approval before implementation in design workflows, Beads-backed human
 decisions for ask/approval flows, fresh shell evidence before completion claims,
-read-only-by-default peer work, recorded worker sessions, one worktree per epic
-for implementation dispatch, explicit approval for destructive/remote git
-actions, health/closeout checks before closure, and the suspicious-phrase scan
-on composed instructions.
+read-only-by-default peer work, an orchestrator-only main Pi thread for durable
+work, recorded worker sessions, one worktree per epic for implementation
+dispatch, explicit approval for destructive/remote git actions, health/closeout
+checks before closure, and the suspicious-phrase scan on composed instructions.

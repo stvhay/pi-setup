@@ -5,7 +5,7 @@ preferred:
   - olla-cloud/gemini-flash
   - olla-cloud/gpt-4.1-mini
 qualified:
-  - openai-codex/gpt-5.4-mini
+  - openai-codex/gpt-5.6-luna
   - openrouter-localish/qwen/qwen3.5-9b
 ---
 

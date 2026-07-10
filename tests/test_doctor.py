@@ -48,6 +48,16 @@ def test_doctor_checks_olla_host_used_by_olla_provider(agnt, monkeypatch):
     assert "OLLA_API_KEY" not in check["evidence"]
 
 
+def test_doctor_provider_env_ignores_unused_api_key_providers(agnt, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    report = agnt.doctor_report(check_names=["provider.env"])
+
+    check = report["checks"][0]
+    assert "ANTHROPIC_API_KEY" not in check["evidence"]
+    assert "OPENAI_API_KEY" not in check["evidence"]
+
+
 def test_verification_commands_use_current_git_root(agnt, monkeypatch, tmp_path):
     repo = tmp_path / "project"
     scripts = repo / "scripts"
@@ -115,3 +125,36 @@ def test_node_lts_passes(agnt, monkeypatch, tmp_path):
     report = agnt.doctor_report(check_names=["node.version"])
 
     assert report["checks"][0]["status"] == "pass"
+
+
+def test_doctor_orchestrator_startup_profile_strict_blocks_on_warning(agnt, capsys):
+    calls = []
+
+    def fake_doctor_report(*, check_names=None, skip=None, profile=None):
+        calls.append({"check_names": check_names, "skip": skip, "profile": profile})
+        return {
+            "schemaVersion": 1,
+            "profile": profile,
+            "status": "degraded",
+            "passed": True,
+            "summary": {"checkCount": 1, "failureCount": 0, "warningCount": 1, "acknowledgedWarningCount": 0},
+            "checks": [],
+            "failures": [],
+            "warnings": [{"id": "node.version", "status": "warning"}],
+            "acknowledgedWarnings": [],
+            "startup": {"backgroundDispatchAllowed": False},
+            "suggestedActions": [],
+        }
+
+    with patch.dict(agnt.cmd_doctor.__globals__, {"doctor_report": fake_doctor_report}):
+        assert agnt.cmd_doctor(["--profile", "orchestrator-startup", "--strict", "--json"]) == 1
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["profile"] == "orchestrator-startup"
+    assert output["startup"]["backgroundDispatchAllowed"] is False
+    assert calls == [{"check_names": None, "skip": [], "profile": "orchestrator-startup"}]
+
+
+def test_doctor_unknown_profile_is_cli_error(agnt, capsys):
+    assert agnt.cmd_doctor(["--profile", "not-a-profile"]) == 2
+    assert "unknown profile" in capsys.readouterr().err

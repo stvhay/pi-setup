@@ -229,7 +229,7 @@ Example dispatch:
 ```bash
 (
   cd .worktrees/<topic>-task-N
-  ~/.pi/agent/bin/agnt invoke openai-codex/gpt-5.4-mini "<worker prompt>"
+  ~/.pi/agent/bin/agnt invoke openai-codex/gpt-5.6-luna "<worker prompt>"
 ) > .pi/peer-runs/<topic>/task-N-worker.md
 ```
 

@@ -1,6 +1,6 @@
 # agnt command reference
 
-`agnt` is the primary command surface for Pi orchestration helpers: routing, peer invocation, context composition, action templates, run artifacts, Beads-backed work, metrics, evals, and context-health checks. For the conceptual overview, see [The agnt System](../../../docs/AGNT-SYSTEM.md).
+`agnt` is the primary command surface for Pi orchestration helpers: routing, peer invocation, context composition, action templates, run artifacts, Beads-backed work, the project-local runner service, metrics, evals, and context-health checks. For the conceptual overview, see [The agnt System](../../../docs/AGNT-SYSTEM.md); for service lifecycle and API details, see [Project-Local Runner Service](../../../docs/RUNNER-SERVICE.md).
 
 Commands are designed to compose with normal Unix idioms: stdin when no file is supplied, stdout for primary output, stderr for diagnostics, and `-o` for files/directories when needed.
 
@@ -121,8 +121,11 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
   - Direct `--model` overrides are rejected for work dispatch; tune routing with Beads metadata policy instead.
   - `--preflight` runs a focused operational doctor before dispatch.
 
-- `agnt work runner status|pause|resume|tick|loop [--json]`
-  - Manages the project-local singleton runner under `.pi/runner/`. `tick --dry-run --json` explains planned dispatch/blocker/maintenance actions without mutation. Live ticks record worker sessions by default, refuse unsafe worktrees, and create Beads-backed blockers for invalid dispatch.
+- `agnt work daemon start|stop|status --json`
+  - Manages the project-local runner service lifecycle. `start` launches one loopback service for the project root; `stop --drain` asks it to finish active work and stop accepting new work; `stop --force` is explicit operator-only shutdown.
+
+- `agnt work runner status|pause|resume|tick [--json]`
+  - Calls the project-local runner service REST API. If no service is running, these commands return a JSON error suggesting `agnt work daemon start --json`. `tick --dry-run --json` explains planned dispatch/blocker/maintenance actions without mutation.
 
 - `agnt work audit [--json] [--scan-root PATH ...]`
   - Reports Beads queue counts and required-work signals in docs/run artifacts; fails when the queue is empty but required future work appears unresolved.
@@ -149,13 +152,16 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
 
 - `agnt gateway --payload-json JSON`
   - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `request_approval`, `resolve_blocker`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields.
+  - `runner_status` is the stable model-facing service status surface. It returns absent-service state when no service is running, and redacted running/paused/draining state, leases, active work, budget, model/thinking, context, and cost when connected.
 
 ## Operational health
 
-- `agnt doctor [--json] [--strict] [--check CHECK ...] [--skip CHECK ...]`
+- `agnt doctor [--json] [--strict] [--profile PROFILE] [--check CHECK ...] [--skip CHECK ...]`
   - Checks local Pi/agnt operational readiness: core binaries, Python, git root, Beads, Node LTS policy, provider env vars, and core config parsing.
-  - Reports JSON with check status, evidence, redacted env-var presence, and suggested actions.
-  - `--strict` exits nonzero when required checks fail. Warnings describe degraded optional capabilities.
+  - `--profile orchestrator-startup` adds the strict Pi startup gate used before background runner dispatch: `SEARXNG_URL` and a Beads workspace are required, provider env warnings are scoped to configured/enabled providers, and background dispatch is allowed only with zero failures and zero unacknowledged warnings.
+  - Reports JSON with check status, evidence, redacted env-var presence, acknowledged warnings, and suggested actions.
+  - Non-secret intent acknowledgements may live in project `.pi/doctor-intent.json` or global `~/.pi/agent/doctor-intent.json`, for example `{ "intentionallyAbsentEnv": { "ANTHROPIC_API_KEY": "not used" } }`.
+  - `--strict` exits nonzero when required checks fail; with `orchestrator-startup`, it also exits nonzero for unacknowledged warnings. The doctor is read-only and never edits shell startup files.
   - After repeated tool, provider, or environment failures, run `agnt doctor` and fix the environment instead of retrying blindly.
 
 - `agnt doctor node [--json]`

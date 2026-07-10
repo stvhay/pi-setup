@@ -82,6 +82,16 @@ def test_maintenance_due_report_derives_signals_and_suppresses_open_duplicates(a
     assert report["signals"]["recordedSessions"] == 3
 
 
+def test_read_only_maintenance_specs_use_a_dispatchable_review_action(agnt):
+    report = {"due": [{"mode": "workflow-retro", "label": "maintenance:workflow-retro", "reason": "human blockers"}]}
+
+    spec = agnt.maintenance_bead_specs(report)[0]
+    metadata = json.loads(spec["metadata"])
+
+    assert metadata["pi"]["action"] == "review"
+    assert agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "report findings"})["status"] == "dispatchable"
+
+
 def test_maintenance_create_beads_dry_run_outputs_specs_and_approval_gates_refactors(agnt):
     report = {
         "schemaVersion": 1,

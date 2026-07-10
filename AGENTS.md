@@ -36,7 +36,8 @@ Current known commands:
 scripts/check-pi-config.sh
 bash -n scripts/*.sh
 
-# unit tests for agnt/agent-instructions internals
+# deterministic Python checks (also enforced in .github/workflows/ci.yml)
+.venv/bin/python -m ruff check pi/agent/bin/agnt_lib tests
 .venv/bin/python -m pytest tests/
 
 # deterministic agnt evals (no model calls)

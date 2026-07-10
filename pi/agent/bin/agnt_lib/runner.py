@@ -11,6 +11,7 @@ from .approvals import create_beads_approval_request
 from .orchestration import validate_bead_orchestration_metadata
 from .runs import default_runs_dir, update_run_result
 from .maintenance import maintenance_create_beads, maintenance_due_report
+from .runner_protocol import DEFAULT_BUDGET, read_runner_state, normalize_runner_state, runner_paths, update_runner_state, utc_now as protocol_utc_now, write_runner_state
 from .worktree_policy import worktree_snapshot_for_bead, write_conflict_for
 
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
@@ -19,20 +20,19 @@ BlockerCreator = Callable[..., Dict[str, Any]]
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return protocol_utc_now()
 
 
 def runner_dir(root: Path | str | None = None) -> Path:
-    base = Path(root).expanduser() if root is not None else Path.cwd()
-    return base / ".pi" / "runner"
+    return runner_paths(root)["runnerDir"]
 
 
 def state_path(root: Path | str | None = None) -> Path:
-    return runner_dir(root) / "state.json"
+    return runner_paths(root)["statePath"]
 
 
 def lock_path(root: Path | str | None = None) -> Path:
-    return runner_dir(root) / "lock.json"
+    return runner_paths(root)["lockPath"]
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
@@ -61,18 +61,13 @@ def _pid_running(pid: Any) -> bool:
 
 
 def load_runner_state(root: Path | str | None = None) -> Dict[str, Any]:
-    state = _read_json(state_path(root))
-    state.setdefault("schemaVersion", 1)
-    state.setdefault("paused", False)
-    state.setdefault("budget", {"mode": "placeholder", "limitsEnforced": False})
-    return state
+    return read_runner_state(root)
 
 
 def save_runner_state(root: Path | str | None, state: Dict[str, Any]) -> Dict[str, Any]:
-    state = {"schemaVersion": 1, **state, "updatedAt": utc_now()}
-    state.setdefault("budget", {"mode": "placeholder", "limitsEnforced": False})
-    _write_json(state_path(root), state)
-    return state
+    saved = normalize_runner_state({"schemaVersion": 1, **state, "updatedAt": utc_now()})
+    saved.setdefault("budget", dict(DEFAULT_BUDGET))
+    return write_runner_state(root, saved)
 
 
 def runner_status(root: Path | str | None = None) -> Dict[str, Any]:
@@ -92,26 +87,37 @@ def runner_status(root: Path | str | None = None) -> Dict[str, Any]:
         "statePath": str(state_path(root)),
         "lockPath": str(lock_path(root)),
         "lock": lock or None,
-        "budget": state.get("budget") or {"mode": "placeholder", "limitsEnforced": False},
+        "budget": state.get("budget") or dict(DEFAULT_BUDGET),
         "updatedAt": state.get("updatedAt"),
     }
 
 
 def runner_pause(root: Path | str | None = None, *, reason: str | None = None) -> Dict[str, Any]:
-    state = load_runner_state(root)
-    state["paused"] = True
-    state["pauseReason"] = reason or "paused by operator"
-    state["pausedAt"] = utc_now()
-    saved = save_runner_state(root, state)
+    def pause(state: Dict[str, Any]) -> Dict[str, Any]:
+        state["paused"] = True
+        state["acceptingNewWork"] = False
+        state["pauseReason"] = reason or "paused by operator"
+        state["pausedAt"] = utc_now()
+        state["updatedAt"] = utc_now()
+        return state
+
+    saved = update_runner_state(root, pause)
     return {"schemaVersion": 1, "paused": True, "state": saved}
 
 
 def runner_resume(root: Path | str | None = None) -> Dict[str, Any]:
-    state = load_runner_state(root)
-    state["paused"] = False
-    state.pop("pauseReason", None)
-    state["resumedAt"] = utc_now()
-    saved = save_runner_state(root, state)
+    def resume(state: Dict[str, Any]) -> Dict[str, Any]:
+        state["paused"] = False
+        state["draining"] = False
+        state["acceptingNewWork"] = True
+        state.pop("pauseReason", None)
+        state.pop("drainReason", None)
+        state.pop("drainRequestedAt", None)
+        state["resumedAt"] = utc_now()
+        state["updatedAt"] = utc_now()
+        return state
+
+    saved = update_runner_state(root, resume)
     return {"schemaVersion": 1, "paused": False, "state": saved}
 
 
@@ -220,129 +226,22 @@ def runner_tick(
     maintenance_due_provider: Callable[..., Dict[str, Any]] = maintenance_due_report,
     maintenance_creator: Callable[..., Dict[str, Any]] = maintenance_create_beads,
 ) -> Dict[str, Any]:
-    if limit < 1:
-        raise ValueError("limit must be positive")
-    status = runner_status(root)
-    if status.get("paused"):
-        return {"schemaVersion": 1, "dryRun": dry_run, "status": status, "actions": [], "skippedReason": "runner paused"}
+    from .runner_scheduler import runner_scheduler_tick
 
-    items = _ready_items(beads_runner)[:limit]
-    actions: List[Dict[str, Any]] = []
-    if not items:
-        due_report = maintenance_due_provider(root=root, runs_dir=runs_dir, beads_runner=beads_runner)
-        if due_report.get("due"):
-            if dry_run:
-                maintenance = maintenance_creator(due_report, dry_run=True, beads_runner=beads_runner)
-                actions.append({"action": "would_create_maintenance", "maintenance": maintenance, "due": due_report})
-            else:
-                maintenance = maintenance_creator(due_report, dry_run=False, beads_runner=beads_runner)
-                actions.append({"action": "created_maintenance", "maintenance": maintenance, "due": due_report})
-    active_writes: List[Dict[str, Any]] = []
-    for bead in items:
-        validation = validate_bead_orchestration_metadata(bead)
-        normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
-        bead_id = str(bead.get("id") or "")
-        action = str(normalized.get("action") or "")
-        base = {
-            "bead": bead_id,
-            "title": bead.get("title"),
-            "validationStatus": validation.get("status"),
-            "sessionPolicy": normalized.get("sessionPolicy") or "recorded",
-            "memoryPolicy": normalized.get("memoryPolicy") or "auto",
-        }
-        if validation.get("status") == "dispatchable":
-            worktree = worktree_resolver(bead, validation)
-            if not bool(worktree.get("dispatchable", False)):
-                context = f"Runner could not dispatch {bead_id}: worktree status {worktree.get('status')}. {worktree.get('reason') or ''}".strip()
-                if dry_run:
-                    actions.append({**base, "action": "would_block", "context": context, "worktree": worktree})
-                    continue
-                blocker = blocker_creator(
-                    kind="question",
-                    target_bead=bead_id,
-                    question=f"Resolve runner worktree blocker for {bead_id}",
-                    context=context,
-                    options=["resolved", "defer"],
-                    default="defer",
-                    requesting_run=None,
-                    preview=_blocker_preview(bead, {"status": worktree.get("status"), "blockers": [context]}),
-                    run_bundle=None,
-                )
-                actions.append({**base, "action": "blocked", "context": context, "worktree": worktree, "blocker": blocker})
-                continue
-            conflict = write_conflict_for(bead, validation, active_writes)
-            if conflict:
-                context = f"Runner serialized overlapping writeSet in epic {conflict.get('epicId')}: {', '.join(conflict.get('overlap') or [])}"
-                if dry_run:
-                    actions.append({**base, "action": "would_add_dependency", "context": context, "worktree": worktree, **conflict})
-                    continue
-                dep_code, dep_data, dep_err = beads_runner(["dep", str(conflict.get("blockedBy")), "--blocks", bead_id])
-                if dep_code != 0:
-                    actions.append({**base, "action": "dependency_failed", "context": dep_err, "worktree": worktree, **conflict})
-                else:
-                    actions.append({**base, "action": "dependency_added", "dependency": dep_data, "context": context, "worktree": worktree, **conflict})
-                continue
-            if dry_run:
-                actions.append({**base, "action": "would_start", "dispatch": normalized, "session": _session_refs("dry-run", bead_id, action), "worktree": worktree})
-                if normalized.get("action") == "implement":
-                    active_writes.append({"bead": bead_id, "epicId": normalized.get("epicId"), "writeSet": normalized.get("writeSet") or []})
-                continue
-            run_id = f"runner-{bead_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-            refs = _session_refs(run_id, bead_id, action)
-            started = runner_start(
-                bead,
-                action_id=None,
-                target=[],
-                claim=True,
-                close_bead=False,
-                model=None,
-                runs_dir=runs_dir,
-                id_value=run_id,
-                metrics_dir=metrics_dir,
-                record_session=True,
-                session_id=refs["sessionId"],
-                session_name=refs["sessionName"],
-            )
-            bundle = None
-            if isinstance(started.get("started"), dict):
-                bundle = started["started"].get("bundle")
-            elif isinstance(started.get("bundle"), str):
-                bundle = started.get("bundle")
-            if bundle:
-                result_data = None
-                invoked = started.get("invoked") if isinstance(started, dict) else None
-                if isinstance(invoked, dict) and isinstance(invoked.get("result"), dict):
-                    result_data = invoked["result"]
-                if result_data:
-                    update_run_result(
-                        Path(str(bundle)),
-                        status=str(result_data.get("status") or "succeeded"),
-                        summary=str(result_data.get("summary") or "Runner invocation recorded session refs."),
-                        session_ref=refs["sessionRef"],
-                        transcript_ref=refs["transcriptRef"],
-                    )
-            actions.append({**base, "action": "started", "result": started, "worktree": worktree})
-            if normalized.get("action") == "implement":
-                active_writes.append({"bead": bead_id, "epicId": normalized.get("epicId"), "writeSet": normalized.get("writeSet") or []})
-        else:
-            context = _validation_context(bead, validation)
-            if dry_run:
-                actions.append({**base, "action": "would_block", "context": context})
-                continue
-            blocker = blocker_creator(
-                kind="question",
-                target_bead=bead_id,
-                question=f"Resolve runner dispatch blocker for {bead_id}",
-                context=context,
-                options=["resolved", "defer"],
-                default="defer",
-                requesting_run=None,
-                preview=_blocker_preview(bead, validation),
-                run_bundle=None,
-            )
-            actions.append({**base, "action": "blocked", "context": context, "blocker": blocker})
-    return {"schemaVersion": 1, "dryRun": dry_run, "status": status, "actions": actions}
-
+    return runner_scheduler_tick(
+        root=root,
+        dry_run=dry_run,
+        limit=limit,
+        beads_runner=beads_runner,
+        runner_start=runner_start,
+        blocker_creator=blocker_creator,
+        runs_dir=runs_dir,
+        metrics_dir=metrics_dir,
+        worktree_resolver=worktree_resolver,
+        maintenance_due_provider=maintenance_due_provider,
+        maintenance_creator=maintenance_creator,
+        status_provider=runner_status,
+    )
 
 def runner_loop(
     *,

@@ -217,6 +217,8 @@ def create_beads_approval_request(
 
 def _metadata_from_bead(data: Any) -> Dict[str, Any]:
     raw: Any = {}
+    if isinstance(data, list) and data:
+        data = data[0]
     if isinstance(data, dict):
         raw = data.get("metadata") or {}
     if isinstance(raw, str):
@@ -242,12 +244,16 @@ def resolve_beads_approval_request(
     decision_bead: str,
     outcome: str,
     answer: str | None = None,
+    resolver: Dict[str, str] | None = None,
     run_bundle: Path | None = None,
     beads_runner: BeadsRunner = run_beads_json,
 ) -> Dict[str, Any]:
     decision = _require_nonempty("decision_bead", decision_bead)
     if outcome not in VALID_OUTCOMES:
         raise ValueError(f"outcome must be one of {sorted(VALID_OUTCOMES)}")
+    if outcome in CLOSING_OUTCOMES:
+        if not isinstance(resolver, dict) or resolver.get("kind") != "human-ui" or not isinstance(resolver.get("sessionId"), str) or not resolver["sessionId"].strip():
+            raise ValueError("approved or answered outcomes require human-ui resolver provenance")
     answer_text = answer.strip() if isinstance(answer, str) and answer.strip() else outcome
 
     show_code, show_data, show_err = beads_runner(["show", decision])
@@ -260,6 +266,8 @@ def resolve_beads_approval_request(
         "answer": answer_text,
         "resolvedAt": utc_now(),
     })
+    if resolver is not None:
+        approval["resolver"] = dict(resolver)
 
     note = f"Beads-backed {kind} resolved as {outcome}: {answer_text}"
     update_args = ["update", decision, "--metadata", _json_arg(metadata), "--append-notes", note]
@@ -267,6 +275,26 @@ def resolve_beads_approval_request(
     _require_beads_success(update_code, update_data, update_err, "update approval resolution")
 
     blocker_visible = outcome in BLOCKED_OUTCOMES
+    target_update_result = None
+    if kind == "approval" and outcome == "approved":
+        target_bead = _require_nonempty("target_bead", approval.get("targetBead"))
+        target_code, target_data, target_err = beads_runner(["show", target_bead])
+        target = _require_beads_success(target_code, target_data, target_err, "show approval target")
+        target_metadata = _metadata_from_bead(target)
+        target_pi = target_metadata.setdefault("pi", {})
+        if not isinstance(target_pi, dict):
+            target_metadata["pi"] = target_pi = {}
+        target_pi["approved"] = True
+        target_pi["humanApproval"] = {
+            "decisionBead": decision,
+            "resolver": dict(resolver or {}),
+        }
+        target_update_code, target_update_data, target_update_err = beads_runner([
+            "update", target_bead, "--metadata", _json_arg(target_metadata),
+            "--append-notes", f"Human approval {decision} recorded with UI resolver provenance.",
+        ])
+        target_update_result = _require_beads_success(target_update_code, target_update_data, target_update_err, "update approval target")
+
     close_result = None
     if not blocker_visible:
         close_code, close_data, close_err = beads_runner(["close", decision, "--reason", note])
@@ -290,6 +318,7 @@ def resolve_beads_approval_request(
         "blockerVisible": blocker_visible,
         "metadata": metadata,
         "closeResult": close_result,
+        "targetUpdateResult": target_update_result,
         "runResult": run_result,
     }
 
@@ -328,6 +357,8 @@ def cmd_approvals(argv: List[str]) -> int:
     resolve.add_argument("decision_bead")
     resolve.add_argument("--outcome", choices=sorted(VALID_OUTCOMES), required=True)
     resolve.add_argument("--answer")
+    resolve.add_argument("--resolver-kind")
+    resolve.add_argument("--resolver-session")
     resolve.add_argument("--run-bundle", type=Path)
     resolve.add_argument("--json", action="store_true")
 
@@ -346,10 +377,14 @@ def cmd_approvals(argv: List[str]) -> int:
                 run_bundle=args.run_bundle,
             )
         else:
+            resolver = None
+            if args.resolver_kind is not None or args.resolver_session is not None:
+                resolver = {"kind": args.resolver_kind or "", "sessionId": args.resolver_session or ""}
             result = resolve_beads_approval_request(
                 decision_bead=args.decision_bead,
                 outcome=args.outcome,
                 answer=args.answer,
+                resolver=resolver,
                 run_bundle=args.run_bundle,
             )
     except ValueError as exc:

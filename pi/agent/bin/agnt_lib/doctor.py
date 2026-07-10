@@ -12,6 +12,15 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List
 
 from .core import ROOT
+from .startup_policy import (
+    KNOWN_PROFILES,
+    ORCHESTRATOR_STARTUP_PROFILE,
+    build_startup_report,
+    check_beads_workspace,
+    check_searxng_url,
+    load_intent_config,
+    profile_check_names,
+)
 
 PASS = "pass"
 WARNING = "warning"
@@ -250,19 +259,29 @@ def redact_env_value(name: str) -> str:
 
 
 def configured_providers() -> set[str]:
-    providers: set[str] = set(PROVIDER_ENV_VARS)
-    for path in [ROOT / "settings.json", ROOT / "models.json"]:
-        if not path.is_file():
-            continue
+    providers: set[str] = set()
+    settings_path = ROOT / "settings.json"
+    if settings_path.is_file():
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            continue
-        text = json.dumps(data)
-        for provider in PROVIDER_ENV_VARS:
-            if provider in text:
-                providers.add(provider)
-    return providers
+            settings = {}
+        default_provider = settings.get("defaultProvider")
+        if isinstance(default_provider, str):
+            providers.add(default_provider)
+        for target in settings.get("enabledModels") or []:
+            if isinstance(target, str) and "/" in target:
+                providers.add(target.split("/", 1)[0])
+    models_path = ROOT / "models.json"
+    if models_path.is_file():
+        try:
+            models = json.loads(models_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            models = {}
+        configured = models.get("providers") if isinstance(models, dict) else None
+        if isinstance(configured, dict):
+            providers.update(str(name) for name in configured)
+    return providers.intersection(PROVIDER_ENV_VARS) or set(PROVIDER_ENV_VARS)
 
 
 def check_provider_env() -> Dict[str, Any]:
@@ -355,6 +374,8 @@ CHECKS: Dict[str, Callable[[], Dict[str, Any]]] = {
     "provider.env": check_provider_env,
     "catalog.parse": check_catalog_parse,
     "verification.commands": check_verification_commands,
+    "env.SEARXNG_URL": check_searxng_url,
+    "beads.workspace": lambda: check_beads_workspace(resolve_project_root()),
 }
 
 
@@ -367,8 +388,21 @@ def selected_checks(check_names: Iterable[str] | None = None, skip: Iterable[str
     return [name for name in names if name in CHECKS and name not in skipped]
 
 
-def doctor_report(check_names: Iterable[str] | None = None, skip: Iterable[str] | None = None) -> Dict[str, Any]:
-    checks = [CHECKS[name]() for name in selected_checks(check_names, skip)]
+def doctor_report(
+    check_names: Iterable[str] | None = None,
+    skip: Iterable[str] | None = None,
+    *,
+    profile: str | None = None,
+) -> Dict[str, Any]:
+    if profile:
+        if profile not in KNOWN_PROFILES:
+            raise ValueError(f"unknown profile: {profile}")
+        names = list(check_names or profile_check_names(profile))
+    else:
+        names = list(check_names) if check_names is not None else None
+    checks = [CHECKS[name]() for name in selected_checks(names, skip)]
+    if profile == ORCHESTRATOR_STARTUP_PROFILE:
+        return build_startup_report(checks, intent=load_intent_config(project_root=resolve_project_root()), profile=profile)
     failures = [check for check in checks if check["status"] == FAIL]
     warnings = [check for check in checks if check["status"] == WARNING]
     status = "failed" if failures else ("degraded" if warnings else "passed")
@@ -392,14 +426,21 @@ def cmd_doctor(argv: List[str]) -> int:
     parser.add_argument("topic", nargs="?", choices=["node"], help="run a focused doctor topic")
     parser.add_argument("--json", action="store_true", help="emit JSON (default for now)")
     parser.add_argument("--strict", action="store_true", help="exit nonzero when required checks fail")
+    parser.add_argument("--profile", help="run a named readiness profile such as orchestrator-startup")
     parser.add_argument("--check", action="append", default=[], help="run a specific check id; may be repeated")
     parser.add_argument("--skip", action="append", default=[], help="skip a check id; may be repeated")
     args = parser.parse_args(argv)
+    if args.profile and args.profile not in KNOWN_PROFILES:
+        print(f"agnt doctor: unknown profile: {args.profile}", file=sys.stderr)
+        return 2
     checks = args.check or (["node.version"] if args.topic == "node" else None)
     unknown = [name for name in checks or [] if name not in CHECKS]
     if unknown:
         print(f"agnt doctor: unknown check(s): {', '.join(unknown)}", file=sys.stderr)
         return 2
-    report = doctor_report(check_names=checks, skip=args.skip)
+    report = doctor_report(check_names=checks, skip=args.skip, profile=args.profile)
     print(json.dumps(report, indent=2, sort_keys=True))
-    return 1 if args.strict and report["failures"] else 0
+    strict_failed = bool(report["failures"])
+    if args.profile == ORCHESTRATOR_STARTUP_PROFILE:
+        strict_failed = strict_failed or not bool((report.get("startup") or {}).get("backgroundDispatchAllowed"))
+    return 1 if args.strict and strict_failed else 0

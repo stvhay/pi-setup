@@ -149,6 +149,7 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
         decision_bead="pi-decision.1",
         outcome="approved",
         answer="Approved for the stated write set.",
+        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
         run_bundle=bundle,
         beads_runner=fake,
     )
@@ -160,11 +161,47 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
     updated_metadata = json.loads(update_call[update_call.index("--metadata") + 1])
     assert updated_metadata["pi"]["approval"]["status"] == "approved"
     assert updated_metadata["pi"]["approval"]["answer"] == "Approved for the stated write set."
+    assert updated_metadata["pi"]["approval"]["resolver"] == {"kind": "human-ui", "sessionId": "pi-session-1"}
     assert any(call[:2] == ["close", "pi-decision.1"] for call in fake.calls)
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert run_result["status"] == "succeeded"
     assert run_result["approvalRefs"] == ["pi-decision.1"]
     assert run_result["decisionRefs"] == ["pi-decision.1"]
+
+
+def test_resolve_approved_decision_accepts_bd_show_list_shape_and_preserves_target(agnt):
+    fake = FakeBeads()
+    original = fake.__call__
+
+    def list_shaped_show(args: list[str]):
+        code, data, err = original(args)
+        if args[0] == "show":
+            return code, [data], err
+        return code, data, err
+
+    result = agnt.resolve_beads_approval_request(
+        decision_bead="pi-decision.1",
+        outcome="approved",
+        answer="Approved through the human UI.",
+        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+        beads_runner=list_shaped_show,
+    )
+
+    assert result["targetUpdateResult"] == {"id": "pi-work.1"}
+    decision_update = next(call for call in fake.calls if call[:2] == ["update", "pi-decision.1"])
+    updated_metadata = json.loads(decision_update[decision_update.index("--metadata") + 1])
+    assert updated_metadata["pi"]["approval"]["targetBead"] == "pi-work.1"
+    assert updated_metadata["pi"]["approval"]["status"] == "approved"
+
+
+def test_approved_resolution_requires_human_ui_provenance(agnt):
+    with pytest.raises(ValueError, match="human-ui resolver provenance"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            answer="Not enough: no human UI provenance.",
+            beads_runner=FakeBeads(),
+        )
 
 
 def test_timeout_keeps_decision_bead_open_as_visible_blocker(agnt, tmp_path):
@@ -200,3 +237,8 @@ def test_beads_ask_bridge_extension_registers_ticket_tools():
     assert "ticket_approval" in text
     assert "agnt" in text and "approvals" in text and "request" in text and "resolve" in text
     assert "ctx.hasUI" in text
+    assert "ctx.ui.select" in text
+    assert "Approved in Pi UI" in text
+    assert "Answered in Pi UI" in text
+    assert "Human confirmation required" in text
+    assert "decision resolution requires an interactive human UI" in text

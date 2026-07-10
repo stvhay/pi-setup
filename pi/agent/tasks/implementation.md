@@ -2,9 +2,10 @@
 id: implementation
 summary: Code editing after approval, usually with tests and focused verification.
 preferred:
-  - openai-codex/gpt-5.5
+  - openai-codex/gpt-5.6-sol
 qualified:
-  - openai-codex/gpt-5.4-mini
+  - openai-codex/gpt-5.6-terra
+  - openai-codex/gpt-5.6-luna
   - olla-cloud/glm-5.2
   - claude-sonnet-4-6
   - claude-opus-4-7

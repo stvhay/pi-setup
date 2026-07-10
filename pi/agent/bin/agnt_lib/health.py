@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 from .runs import default_runs_dir
+from .runner_protocol import runner_paths
 from .worktree_policy import list_git_worktrees
 
 StatusRunner = Callable[[str], Tuple[int, str, str]]
@@ -450,7 +451,7 @@ def _append_known_epic_worktree_findings(findings: List[Dict[str, Any]], *, root
             )
 
 
-def _append_runner_findings(findings: List[Dict[str, Any]], *, root: Path) -> None:
+def _append_runner_findings(findings: List[Dict[str, Any]], *, root: Path, now: datetime, stale_after: timedelta) -> None:
     try:
         from .runner import runner_status
 
@@ -467,6 +468,56 @@ def _append_runner_findings(findings: List[Dict[str, Any]], *, root: Path) -> No
             path=str(status.get("lockPath")),
             detail=status,
         ))
+
+    paths = runner_paths(root)
+    state, state_error = _read_json_object(paths["statePath"])
+    if state_error and paths["statePath"].exists():
+        findings.append(_finding(
+            "invalid-runner-state",
+            "failure",
+            f"runner state is invalid: {state_error}",
+            category="runner",
+            path=str(paths["statePath"]),
+        ))
+    if state:
+        heartbeat = _parse_time(state.get("heartbeatAt"))
+        if state.get("running") and heartbeat and now - heartbeat > stale_after:
+            findings.append(_finding(
+                "stale-runner-heartbeat",
+                "failure",
+                f"runner heartbeat is older than {stale_after}",
+                category="runner",
+                path=str(paths["statePath"]),
+                detail={"heartbeatAt": state.get("heartbeatAt"), "ageSeconds": int((now - heartbeat).total_seconds())},
+            ))
+
+    active_dir = paths["activeDir"]
+    if active_dir.is_dir():
+        for snapshot_path in sorted(active_dir.glob("*.json")):
+            snapshot, snapshot_error = _read_json_object(snapshot_path)
+            if snapshot_error:
+                findings.append(_finding(
+                    "invalid-active-run-snapshot",
+                    "failure",
+                    f"active run snapshot is invalid: {snapshot_error}",
+                    category="runner",
+                    path=str(snapshot_path),
+                ))
+                continue
+            if not snapshot:
+                continue
+            started_at = _parse_time(snapshot.get("startedAt"))
+            if started_at and now - started_at > stale_after:
+                findings.append(_finding(
+                    "stale-active-run-snapshot",
+                    "failure",
+                    f"active run snapshot is older than {stale_after}",
+                    category="runner",
+                    run_id=str(snapshot.get("runId") or snapshot_path.stem),
+                    ref=str(snapshot.get("bead")) if snapshot.get("bead") else None,
+                    path=str(snapshot_path),
+                    detail={"startedAt": snapshot.get("startedAt"), "ageSeconds": int((now - started_at).total_seconds())},
+                ))
 
 
 def _append_blocked_bead_findings(findings: List[Dict[str, Any]], *, beads_runner: BeadsRunner) -> None:
@@ -516,7 +567,7 @@ def work_health_report(
 
     _append_current_checkout_finding(findings, root=repo_root, status_runner=status_runner, strict=strict_checkout)
     _append_known_epic_worktree_findings(findings, root=repo_root, status_runner=status_runner, seen_paths=seen_worktrees)
-    _append_runner_findings(findings, root=repo_root)
+    _append_runner_findings(findings, root=repo_root, now=timestamp, stale_after=stale_after)
 
     bundles = iter_run_bundles(run_root)
     for bundle in bundles:

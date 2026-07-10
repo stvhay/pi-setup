@@ -16,6 +16,17 @@ from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
 from .maintenance import maintenance_create_beads, maintenance_due_report
+from .runner_client import (
+    RunnerClientError,
+    daemon_serve,
+    daemon_start,
+    daemon_status,
+    daemon_stop,
+    runner_client_pause,
+    runner_client_resume,
+    runner_client_status,
+    runner_client_tick,
+)
 from .worktree_policy import worktree_snapshot_for_bead
 
 
@@ -400,19 +411,43 @@ def infer_action(bead: Dict[str, Any]) -> str:
     return "review"
 
 
+def _deduplicated_strings(*groups: Any) -> List[str]:
+    result: List[str] = []
+    for group in groups:
+        if not isinstance(group, list):
+            continue
+        for value in group:
+            if isinstance(value, str) and value and value not in result:
+                result.append(value)
+    return result
+
+
 def dispatch_plan(bead: Dict[str, Any], action_id: str | None, target: List[str]) -> Dict[str, Any]:
-    action = action_id or infer_action(bead)
+    validation = validate_bead_orchestration_metadata(bead)
+    normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
+    metadata_action = normalized.get("action") if isinstance(normalized.get("action"), str) else None
+    action_mismatch = bool(action_id and metadata_action and action_id != metadata_action)
+    action = action_id or metadata_action or infer_action(bead)
     _path, meta, _body = load_action(action)
+    requested_role = normalized.get("role") if isinstance(normalized.get("role"), str) else None
+    requested_skills = normalized.get("skills") if isinstance(normalized.get("skills"), list) else []
+    effective_role = meta.get("defaultRole")
+    effective_skills = meta.get("skills") or []
+    overrides_requested_context = (requested_role is not None and requested_role != effective_role) or (requested_skills and requested_skills != effective_skills)
     return {
         "bead": bead.get("id"),
         "title": bead.get("title"),
         "status": bead.get("status"),
         "action": meta.get("id") or action,
+        "dispatchError": f"explicit action {action_id!r} does not match metadata.pi.action {metadata_action!r}" if action_mismatch else None,
         "routingTask": meta.get("routingTask"),
-        "skills": meta.get("skills") or [],
-        "role": meta.get("defaultRole"),
+        "skills": effective_skills,
+        "role": effective_role,
+        "requestedSkills": requested_skills,
+        "requestedRole": requested_role,
+        "overrideReason": "action-template defaults override requested worker context" if overrides_requested_context else None,
         "allowedEffects": meta.get("allowedEffects") or [],
-        "inputRefs": target,
+        "inputRefs": _deduplicated_strings(normalized.get("inputRefs"), target),
         "outputContract": meta.get("outputContract"),
         "dryRunCommand": [
             "agnt",
@@ -455,6 +490,7 @@ def ticket_metadata_snapshot(bead: Dict[str, Any], validation: Dict[str, Any]) -
     return {
         "id": bead.get("id"),
         "title": bead.get("title"),
+        "description": bead.get("description"),
         "type": bead.get("issue_type") or bead.get("type"),
         "status": bead.get("status"),
         "priority": bead.get("priority"),
@@ -481,6 +517,9 @@ def dispatch_policy_snapshot(dispatch: Dict[str, Any], policy: Dict[str, Any]) -
         "action": dispatch.get("action"),
         "routingTask": dispatch.get("routingTask"),
         "role": dispatch.get("role"),
+        "requestedRole": dispatch.get("requestedRole"),
+        "requestedSkills": dispatch.get("requestedSkills") or [],
+        "overrideReason": dispatch.get("overrideReason"),
         "allowedEffects": dispatch.get("allowedEffects") or [],
         "risk": policy.get("risk"),
         "budget": policy.get("budget"),
@@ -494,6 +533,15 @@ def dispatch_policy_snapshot(dispatch: Dict[str, Any], policy: Dict[str, Any]) -
 def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str], claim: bool, runs_dir: Path | None, id_value: str | None) -> Dict[str, Any]:
     dispatch = dispatch_plan(bead, action_id, target)
     validation = validate_bead_orchestration_metadata(bead)
+    normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
+    if dispatch.get("dispatchError"):
+        return {"dispatch": dispatch, "validation": validation, "dispatchError": str(dispatch["dispatchError"])}
+    if dispatch.get("action") == "implement" and (normalized.get("action") != "implement" or not validation.get("dispatchable")):
+        return {
+            "dispatch": dispatch,
+            "validation": validation,
+            "dispatchError": "implement dispatch requires dispatchable implementation metadata with recorded human approval provenance",
+        }
     policy = selection_policy_from_bead(bead, validation)
     model_selection = select_model(
         str(dispatch["routingTask"]),
@@ -513,6 +561,9 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         input_refs=[str(item) for item in dispatch["inputRefs"]],
         skills=[str(item) for item in dispatch["skills"]],
         role=str(dispatch["role"]) if dispatch["role"] else None,
+        requested_skills=[str(item) for item in dispatch.get("requestedSkills") or []],
+        requested_role=str(dispatch["requestedRole"]) if dispatch.get("requestedRole") else None,
+        override_reason=str(dispatch["overrideReason"]) if dispatch.get("overrideReason") else None,
         bead=str(dispatch["bead"]) if dispatch["bead"] else None,
         selected_model=str(selection["target"]),
         thinking_level=str(selection["thinkingLevel"]),
@@ -526,6 +577,10 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         allowed_effects=[str(item) for item in dispatch["allowedEffects"]],
         acceptance_criteria=normalize_acceptance_criteria(bead.get("acceptance_criteria") or bead.get("acceptanceCriteria")),
         output_contract=str(dispatch["outputContract"]),
+        approval_refs=[str(item) for item in normalized.get("approvalRefs") or []],
+        decision_refs=[str(item) for item in normalized.get("decisionRefs") or []],
+        human_approval=normalized.get("humanApproval") if isinstance(normalized.get("humanApproval"), dict) else None,
+        continuation=normalized.get("continuation") if isinstance(normalized.get("continuation"), dict) else None,
         runs_dir=runs_dir,
         id_value=id_value,
     )
@@ -563,8 +618,8 @@ def run_work(
         runs_dir=runs_dir,
         id_value=id_value,
     )
-    if started.get("beadUpdateError"):
-        return {"started": started}
+    if started.get("beadUpdateError") or started.get("dispatchError") or started.get("modelSelectionError"):
+        return {"started": started, **({"dispatchError": started["dispatchError"]} if started.get("dispatchError") else {})}
     bundle = Path(str(started["bundle"]))
     invoked = invoke_run_bundle(
         bundle,
@@ -749,7 +804,32 @@ def cmd_work(argv: List[str]) -> int:
     runner_tick_cmd.add_argument("--limit", type=int, default=1)
     runner_tick_cmd.add_argument("--runs-dir")
     runner_tick_cmd.add_argument("--metrics-dir")
-    loop = sub.add_parser("loop", help="run the singleton work runner loop")
+    daemon = sub.add_parser("daemon", help="manage the project-local runner service lifecycle")
+    daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
+    daemon_status_cmd = daemon_sub.add_parser("status", help="show project-local runner service status")
+    daemon_status_cmd.add_argument("--root")
+    daemon_status_cmd.add_argument("--json", action="store_true")
+    daemon_start_cmd = daemon_sub.add_parser("start", help="start the project-local runner service")
+    daemon_start_cmd.add_argument("--root")
+    daemon_start_cmd.add_argument("--host", default="127.0.0.1")
+    daemon_start_cmd.add_argument("--port", type=int, default=0)
+    daemon_start_cmd.add_argument("--concurrency", type=int)
+    daemon_start_cmd.add_argument("--interval", type=float)
+    daemon_start_cmd.add_argument("--json", action="store_true")
+    daemon_stop_cmd = daemon_sub.add_parser("stop", help="drain or force-stop the project-local runner service")
+    daemon_stop_cmd.add_argument("--root")
+    daemon_stop_cmd.add_argument("--drain", action="store_true", help="request graceful drain; this is the default")
+    daemon_stop_cmd.add_argument("--force", action="store_true", help="force service shutdown through the service API")
+    daemon_stop_cmd.add_argument("--reason")
+    daemon_stop_cmd.add_argument("--json", action="store_true")
+    daemon_serve_cmd = daemon_sub.add_parser("serve", help=argparse.SUPPRESS)
+    daemon_serve_cmd.add_argument("--root")
+    daemon_serve_cmd.add_argument("--host", default="127.0.0.1")
+    daemon_serve_cmd.add_argument("--port", type=int, default=0)
+    daemon_serve_cmd.add_argument("--concurrency", type=int)
+    daemon_serve_cmd.add_argument("--interval", type=float)
+    daemon_serve_cmd.add_argument("--json", action="store_true")
+    loop = sub.add_parser("loop", help="deprecated; use agnt work daemon start")
     loop.add_argument("--root")
     loop.add_argument("--interval", type=float, default=30.0)
     loop.add_argument("--max-ticks", type=int, default=None)
@@ -854,7 +934,7 @@ def cmd_work(argv: List[str]) -> int:
             id_value=args.id,
         )
         print(json.dumps({"schemaVersion": 1, **result}, indent=2, sort_keys=True))
-        return 1 if result.get("beadUpdateError") else 0
+        return 1 if result.get("beadUpdateError") or result.get("dispatchError") or result.get("modelSelectionError") else 0
     if args.command == "run":
         if args.model:
             print(json.dumps({
@@ -899,36 +979,61 @@ def cmd_work(argv: List[str]) -> int:
         return int(invoked.get("exitCode") or 0) if isinstance(invoked, dict) else 1
     if args.command == "runner":
         root = Path(args.root).expanduser() if getattr(args, "root", None) else None
-        if args.runner_command == "status":
-            result = _runner_symbol("runner_status")(root=root)
-        elif args.runner_command == "pause":
-            result = _runner_symbol("runner_pause")(root=root, reason=args.reason)
-        elif args.runner_command == "resume":
-            result = _runner_symbol("runner_resume")(root=root)
-        elif args.runner_command == "tick":
-            result = _runner_symbol("runner_tick")(
-                root=root,
-                dry_run=args.dry_run,
-                limit=args.limit,
-                runs_dir=Path(args.runs_dir).expanduser() if args.runs_dir else None,
-                metrics_dir=Path(args.metrics_dir).expanduser() if args.metrics_dir else None,
-            )
-        else:
-            parser.print_help(sys.stderr)
+        try:
+            if args.runner_command == "status":
+                result = runner_client_status(root=root)
+            elif args.runner_command == "pause":
+                result = runner_client_pause(root=root, reason=args.reason)
+            elif args.runner_command == "resume":
+                result = runner_client_resume(root=root)
+            elif args.runner_command == "tick":
+                result = runner_client_tick(
+                    root=root,
+                    dry_run=args.dry_run,
+                    limit=args.limit,
+                    runs_dir=Path(args.runs_dir).expanduser() if args.runs_dir else None,
+                    metrics_dir=Path(args.metrics_dir).expanduser() if args.metrics_dir else None,
+                )
+            else:
+                parser.print_help(sys.stderr)
+                return 2
+        except RunnerClientError as exc:
+            print(json.dumps(exc.payload, indent=2, sort_keys=True))
             return 2
         print(json.dumps(result, indent=2, sort_keys=True) if getattr(args, "json", False) else json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "daemon":
+        root = Path(args.root).expanduser() if getattr(args, "root", None) else None
+        if args.daemon_command == "status":
+            result = daemon_status(root=root)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.daemon_command == "start":
+            result = daemon_start(root=root, host=args.host, port=args.port, concurrency=args.concurrency, interval=args.interval)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
+            return 0 if result.get("started") or result.get("alreadyRunning") else 1
+        if args.daemon_command == "stop":
+            if args.drain and args.force:
+                print("choose either --drain or --force, not both", file=sys.stderr)
+                return 2
+            result = daemon_stop(root=root, drain=not args.force, force=args.force, reason=args.reason)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
+            return 0 if result.get("draining") or result.get("stopping") else 1
+        if args.daemon_command == "serve":
+            result = daemon_serve(root=root, host=args.host, port=args.port, concurrency=args.concurrency, interval=args.interval)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
+            return 0 if result.get("served") else 1
+        parser.print_help(sys.stderr)
+        return 2
     if args.command == "loop":
-        root = Path(args.root).expanduser() if args.root else None
-        result = _runner_symbol("runner_loop")(
-            root=root,
-            interval=args.interval,
-            max_ticks=args.max_ticks,
-            dry_run=args.dry_run,
-            limit=args.limit,
-        )
+        result = {
+            "schemaVersion": 1,
+            "deprecated": True,
+            "error": "agnt work loop has been replaced by the project-local runner service lifecycle",
+            "suggestedAction": "agnt work daemon start --json",
+        }
         print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
-        return 0 if result.get("started", True) else 2
+        return 2
     if args.command == "audit":
         roots = [Path(item).expanduser() for item in args.scan_root] if args.scan_root else None
         report = work_audit_report(scan_roots=roots)

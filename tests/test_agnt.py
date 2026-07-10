@@ -32,7 +32,7 @@ def test_route_cost_rank_cheap_budget_orders_local_cheap_frontier(agnt):
         "olla-cloud/gpt-4.1-mini", info["olla-cloud/gpt-4.1-mini"], "cheap"
     )
     frontier = agnt.route_cost_rank(
-        "openai-codex/gpt-5.5", info["openai-codex/gpt-5.5"], "cheap"
+        "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "cheap"
     )
     assert local < cheap < frontier
 
@@ -40,7 +40,7 @@ def test_route_cost_rank_cheap_budget_orders_local_cheap_frontier(agnt):
 def test_route_cost_rank_quality_budget_prefers_frontier(agnt):
     info = agnt.configured_model_info()
     frontier = agnt.route_cost_rank(
-        "openai-codex/gpt-5.5", info["openai-codex/gpt-5.5"], "quality"
+        "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "quality"
     )
     cheap = agnt.route_cost_rank(
         "olla-cloud/gpt-4.1-mini", info["olla-cloud/gpt-4.1-mini"], "quality"
@@ -50,10 +50,10 @@ def test_route_cost_rank_quality_budget_prefers_frontier(agnt):
 
 def test_configured_model_info_merges_catalog_and_models_json(agnt):
     info = agnt.configured_model_info()
-    codex = info["openai-codex/gpt-5.5"]
+    codex = info["openai-codex/gpt-5.6-sol"]
     assert codex["costClass"] == "frontier"
     assert codex["reasoning"] is True
-    assert codex["family"] == "gpt-5.5"
+    assert codex["family"] == "gpt-5.6-sol"
     openrouter = info["openrouter-localish/google/gemma-4-31b-it"]
     assert openrouter["family"] == "gemma4-31b"
     assert isinstance(openrouter.get("cost"), dict)  # pricing from models.json
@@ -63,7 +63,7 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     info = agnt.configured_model_info()
     assert (
         agnt.choose_thinking_level(
-            "high", "balanced", "openai-codex/gpt-5.5", info["openai-codex/gpt-5.5"]
+            "high", "balanced", "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"]
         )
         == "high"
     )
@@ -71,8 +71,8 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
         agnt.choose_thinking_level(
             "medium",
             "balanced",
-            "openai-codex/gpt-5.4-mini",
-            info["openai-codex/gpt-5.4-mini"],
+            "openai-codex/gpt-5.6-luna",
+            info["openai-codex/gpt-5.6-luna"],
         )
         == "medium"
     )
@@ -441,6 +441,38 @@ def test_update_run_result_records_orchestration_refs_and_checks(agnt, tmp_path)
     assert agnt.validate_run_bundle(bundle) == []
 
 
+def test_update_run_result_preserves_failed_terminal_status_and_provenance(agnt, tmp_path):
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        bead="pi-test.failed-terminal",
+        decision_refs=["pi-existing-decision"],
+        runs_dir=tmp_path,
+        id_value="failed-terminal-run",
+    )
+    invocation_before = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
+    failed = agnt.update_run_result(
+        bundle,
+        status="failed",
+        summary="Worker returned explicit ERROR.",
+        evidence=["semanticOutcome=error"],
+    )
+
+    resolved = agnt.update_run_result(
+        bundle,
+        status="succeeded",
+        summary="Failure decision was answered.",
+        decision_refs=["pi-retry-decision"],
+    )
+
+    assert resolved["status"] == "failed"
+    assert resolved["summary"] == failed["summary"]
+    assert resolved["completedAt"] == failed["completedAt"]
+    assert resolved["decisionRefs"] == ["pi-existing-decision", "pi-retry-decision"]
+    invocation_after = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
+    assert invocation_after["provenance"] == invocation_before["provenance"]
+
+
 def test_update_run_result_adds_evidence_and_terminal_status(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="verify",
@@ -513,13 +545,14 @@ def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
         assert target == "olla-cloud/gpt-4.1-mini"
         assert "Action: verify" in prompt
         assert kwargs["task"] == "review"
-        return 0, "worker output", "", record
+        assert "explicit line-level terminal marker" in prompt
+        return 0, "OK: worker output", "", record
 
     with patch.dict(agnt.invoke_run_bundle.__globals__, {"invoke_one": fake_invoke_one}):
         result = agnt.invoke_run_bundle(bundle, metrics_dir=tmp_path / "metrics")
 
     assert result["exitCode"] == 0
-    assert Path(result["response"]).read_text(encoding="utf-8") == "worker output"
+    assert Path(result["response"]).read_text(encoding="utf-8") == "OK: worker output"
     updated = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert updated["status"] == "succeeded"
     assert updated["metricsRef"].endswith(".metrics.json")
@@ -564,6 +597,21 @@ def test_select_model_honors_avoid_family_policy(agnt):
     assert any(item.get("diversityGroup") == avoided and "avoidFamilies" in item.get("reason", "") for item in result["rejectedCandidates"])
 
 
+def test_review_quality_budget_uses_gpt_56_sol_qualified_fallback(agnt):
+    review_meta, _ = agnt.task_meta("review")
+    target = "openai-codex/gpt-5.6-sol"
+
+    assert target not in review_meta["preferred"]
+    assert target in review_meta["qualified"]
+
+    with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
+        result = agnt.select_model("review", risk="medium", budget="quality")
+
+    assert result["routeStatus"] == "selected"
+    assert result["selected"] == target
+    assert result["thinkingLevel"] == "high"
+
+
 def test_cmd_route_includes_selection_and_fanout_json(agnt, capsys):
     assert agnt.cmd_route(["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok", "--fanout-size", "3"]) == 0
 
@@ -581,6 +629,73 @@ def test_work_dispatch_plan_uses_action_template(agnt):
     assert plan["routingTask"] == "review"
     assert plan["role"] == "documentation-reviewer"
     assert plan["inputRefs"] == ["docs/example.md"]
+
+
+def test_start_work_rejects_explicit_implement_override_of_read_only_metadata(agnt, tmp_path):
+    bead = {
+        "id": "pi-test.no-action-override",
+        "title": "Review docs",
+        "status": "open",
+        "metadata": json.dumps({
+            "pi": {
+                "action": "review",
+                "routingTask": "review",
+                "allowedEffects": ["read_workspace", "write_artifacts"],
+            }
+        }),
+    }
+
+    result = agnt.start_work(
+        bead,
+        action_id="implement",
+        target=[],
+        claim=False,
+        runs_dir=tmp_path,
+        id_value="rejected-action-override",
+    )
+
+    assert "dispatchError" in result
+    assert "does not match metadata.pi.action" in result["dispatchError"]
+    assert not (tmp_path / "rejected-action-override").exists()
+
+
+def test_start_work_rejects_implement_without_dispatchable_human_approval(agnt, tmp_path):
+    bead = {
+        "id": "pi-test.no-human-approval",
+        "title": "Implement feature",
+        "status": "open",
+        "acceptance_criteria": "Implement safely",
+        "metadata": json.dumps({
+            "pi": {
+                "action": "implement",
+                "routingTask": "implementation",
+                "approved": True,
+                "allowedEffects": ["read_workspace", "write_artifacts", "edit_files"],
+                "epicId": "pi-6yg",
+                "worktreePolicy": "epic-worktree",
+                "writeSet": ["src/feature.py"],
+                "closeout": {
+                    "requiresEvidence": True,
+                    "requiresResolvedApprovals": True,
+                    "requiresFollowUpsReconciled": True,
+                },
+            }
+        }),
+    }
+
+    result = agnt.start_work(
+        bead,
+        action_id="implement",
+        target=[],
+        claim=False,
+        runs_dir=tmp_path,
+        id_value="rejected-human-gate",
+    )
+
+    assert "dispatchError" in result
+    assert "dispatchable implementation metadata" in result["dispatchError"]
+    assert result["validation"]["status"] == "needs-human"
+    assert not (tmp_path / "rejected-human-gate").exists()
 
 
 def test_start_work_records_policy_selected_model(agnt, tmp_path):
@@ -640,8 +755,145 @@ def test_start_work_records_ticket_snapshot_and_policies(agnt, tmp_path):
     assert invocation["ephemeralTodoSeed"]
 
 
+def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path):
+    bead = {
+        "id": "pi-test.provenance",
+        "title": "Preserve run provenance",
+        "status": "open",
+        "acceptance_criteria": "Provenance is immutable and complete",
+        "metadata": json.dumps({
+            "pi": {
+                "action": "implement",
+                "routingTask": "implementation",
+                "role": "implementation-worker",
+                "skills": ["test-driven-development"],
+                "approved": True,
+                "humanApproval": {
+                    "decisionBead": "pi-human.1",
+                    "resolver": {"kind": "human-ui", "sessionId": "pi-session-1"},
+                },
+                "inputRefs": ["pi-predecessor.1", "shared-ref"],
+                "approvalRefs": ["pi-declared-approval.1"],
+                "decisionRefs": ["pi-decision.1"],
+                "continuation": {
+                    "mode": "checkpoint",
+                    "predecessor": "pi-predecessor.1",
+                    "approvalRef": "pi-checkpoint-approval.1",
+                },
+                "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
+                "risk": "high",
+                "budget": "quality",
+                "epicId": "pi-6yg",
+                "worktreePolicy": "epic-worktree",
+                "writeSet": ["pi/agent/bin/agnt_lib/work.py"],
+                "closeout": {
+                    "requiresEvidence": True,
+                    "requiresResolvedApprovals": True,
+                    "requiresFollowUpsReconciled": True,
+                },
+            }
+        }),
+    }
+
+    result = agnt.start_work(
+        bead,
+        action_id="implement",
+        target=["shared-ref", "cli-plan-ref"],
+        claim=False,
+        runs_dir=tmp_path,
+        id_value="provenance-work",
+    )
+
+    bundle = Path(result["bundle"])
+    invocation = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
+    run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
+    provenance = invocation["provenance"]
+    assert invocation["inputRefs"] == ["pi-predecessor.1", "shared-ref", "cli-plan-ref"]
+    assert provenance["inputRefs"] == invocation["inputRefs"]
+    assert provenance["approvalRefs"] == [
+        "pi-declared-approval.1",
+        "pi-human.1",
+        "pi-checkpoint-approval.1",
+    ]
+    assert provenance["decisionRefs"] == ["pi-decision.1"]
+    assert provenance["humanApproval"] == {
+        "decisionBead": "pi-human.1",
+        "resolver": {"kind": "human-ui", "sessionId": "pi-session-1"},
+    }
+    assert provenance["continuation"]["predecessor"] == "pi-predecessor.1"
+    assert provenance["requestedWorkerContext"]["role"] == "implementation-worker"
+    assert provenance["effectiveWorkerContext"]["role"] == "implementation-worker"
+    assert provenance["selectedModel"] == invocation["selectedModel"]
+    assert provenance["thinkingLevel"] == invocation["thinkingLevel"]
+    assert provenance["allowedEffects"] == invocation["allowedEffects"]
+    assert provenance["worktree"] == invocation["worktree"]
+    assert run_result["approvalRefs"] == provenance["approvalRefs"]
+    assert run_result["decisionRefs"] == provenance["decisionRefs"]
+
+
+def test_start_work_records_requested_and_effective_worker_context_with_override_reason(agnt, tmp_path):
+    bead = {
+        "id": "pi-test.worker-context",
+        "title": "Compare worker artifacts",
+        "status": "open",
+        "metadata": json.dumps({
+            "pi": {
+                "action": "verify",
+                "routingTask": "review",
+                "role": "quality-reviewer",
+                "skills": ["verification-before-completion", "writing-clearly-and-concisely"],
+                "allowedEffects": ["read_workspace", "write_artifacts"],
+            }
+        }),
+    }
+
+    result = agnt.start_work(
+        bead,
+        action_id="verify",
+        target=[],
+        claim=False,
+        runs_dir=tmp_path,
+        id_value="worker-context",
+    )
+
+    invocation = json.loads((Path(result["bundle"]) / "invocation.yaml").read_text(encoding="utf-8"))
+    assert invocation["requestedRole"] == "quality-reviewer"
+    assert invocation["requestedSkills"] == ["verification-before-completion", "writing-clearly-and-concisely"]
+    assert invocation["effectiveRole"] == "verifier"
+    assert invocation["effectiveSkills"] == ["verification-before-completion"]
+    assert invocation["overrideReason"] == "action-template defaults override requested worker context"
+    assert invocation["role"] == invocation["effectiveRole"]
+    assert invocation["skills"] == invocation["effectiveSkills"]
+
+
 def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
-    bead = {"id": "pi-test.3", "title": "Implement feature", "status": "open", "labels": ["implementation"]}
+    bead = {
+        "id": "pi-test.3",
+        "title": "Implement feature",
+        "status": "open",
+        "labels": ["implementation"],
+        "acceptance_criteria": "Create the approved bundle",
+        "metadata": json.dumps({
+            "pi": {
+                "action": "implement",
+                "routingTask": "implementation",
+                "approved": True,
+                "humanApproval": {
+                    "decisionBead": "pi-approval.3",
+                    "resolver": {"kind": "human-ui", "sessionId": "pi-session-3"},
+                },
+                "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
+                "epicId": "pi-6yg",
+                "worktreePolicy": "epic-worktree",
+                "writeSet": [".pi/plans/example.md"],
+                "closeout": {
+                    "requiresEvidence": True,
+                    "requiresResolvedApprovals": True,
+                    "requiresFollowUpsReconciled": True,
+                },
+            }
+        }),
+    }
     calls = []
 
     def fake_beads(args):
@@ -834,6 +1086,44 @@ def test_run_work_starts_invokes_and_optionally_closes(agnt, tmp_path):
         ["update", "pi-test.7", "--claim"],
         ["close", "pi-test.7", "--reason", "Invoked successfully."],
     ]
+
+
+def test_run_work_does_not_close_semantic_error(agnt, tmp_path):
+    bead = {"id": "pi-test.semantic-error", "title": "Review thing", "status": "open", "labels": ["review"]}
+    bead_calls = []
+
+    def fake_beads(args):
+        bead_calls.append(args)
+        return 0, {"ok": True}, ""
+
+    def fake_invoke(bundle, **kwargs):
+        agnt.update_run_result(
+            bundle,
+            status="failed",
+            summary="Worker produced an explicit ERROR terminal response.",
+            evidence=["worker semantic outcome was ERROR"],
+        )
+        return {
+            "exitCode": 2,
+            "semanticOutcome": "error",
+            "result": {"status": "failed", "summary": "Worker produced an explicit ERROR terminal response."},
+        }
+
+    with patch.dict(agnt.run_work.__globals__, {"run_beads_json": fake_beads, "invoke_run_bundle": fake_invoke}):
+        result = agnt.run_work(
+            bead,
+            action_id="review",
+            target=[],
+            claim=True,
+            close_bead=True,
+            model=None,
+            runs_dir=tmp_path,
+            id_value="work-semantic-error",
+        )
+
+    assert result["invoked"]["semanticOutcome"] == "error"
+    assert "closed" not in result or result["closed"] is None
+    assert bead_calls == [["update", "pi-test.semantic-error", "--claim"]]
 
 
 def test_run_work_rejects_direct_model_override(agnt, tmp_path):

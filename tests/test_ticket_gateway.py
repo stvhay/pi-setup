@@ -98,6 +98,55 @@ def test_gateway_create_draft_uses_structured_beads_create(agnt):
     assert "--metadata" in create_call
 
 
+def test_gateway_create_draft_rejects_caller_supplied_implementation_approval(agnt):
+    with pytest.raises(ValueError, match="must not set metadata.pi.approved"):
+        agnt.ticket_gateway(
+            {
+                "operation": "create_draft",
+                "title": "Bypass approval",
+                "description": "Attempt to make implementation dispatchable without a human gate.",
+                "metadata": {"pi": {"action": "implement", "approved": True}},
+            },
+            beads_runner=FakeBeads(),
+        )
+
+
+def test_gateway_model_resolution_rejects_approval_outcomes(agnt):
+    with pytest.raises(ValueError, match="cannot resolve approved or answered"):
+        agnt.ticket_gateway(
+            {"operation": "resolve_blocker", "decisionBead": "pi-decision.1", "outcome": "approved"},
+            approval_resolver=lambda **_kwargs: {},
+        )
+
+
+def test_gateway_request_approval_accepts_legacy_snake_case_target_bead(agnt):
+    calls = []
+
+    def fake_approval(**kwargs):
+        calls.append(kwargs)
+        return {"decisionBead": "pi-decision.1", "blockerCreated": True}
+
+    agnt.ticket_gateway(
+        {
+            "operation": "request_approval",
+            "target_bead": "pi-task.1",
+            "question": "Approve?",
+            "context": "Need approval.",
+            "options": ["approve", "reject"],
+            "preview": {
+                "action": "Edit files",
+                "scope": "one file",
+                "consequences": "writes change",
+                "reversibility": "git revert",
+                "closeoutPath": "tests pass",
+            },
+        },
+        approval_creator=fake_approval,
+    )
+
+    assert calls[0]["target_bead"] == "pi-task.1"
+
+
 def test_gateway_request_approval_and_resolve_blocker_delegate_to_approval_core(agnt):
     approval_calls = []
     resolve_calls = []
@@ -108,7 +157,7 @@ def test_gateway_request_approval_and_resolve_blocker_delegate_to_approval_core(
 
     def fake_resolve(**kwargs):
         resolve_calls.append(kwargs)
-        return {"decisionBead": "pi-decision.1", "outcome": "approved", "blockerVisible": False}
+        return {"decisionBead": "pi-decision.1", "outcome": "cancelled", "blockerVisible": True}
 
     request = agnt.ticket_gateway(
         {
@@ -130,22 +179,33 @@ def test_gateway_request_approval_and_resolve_blocker_delegate_to_approval_core(
         approval_creator=fake_approval,
     )
     resolved = agnt.ticket_gateway(
-        {"operation": "resolve_blocker", "decisionBead": "pi-decision.1", "outcome": "approved", "answer": "Approved."},
+        {"operation": "resolve_blocker", "decisionBead": "pi-decision.1", "outcome": "cancelled", "answer": "Cancelled."},
         approval_resolver=fake_resolve,
     )
 
     assert request["approval"]["decisionBead"] == "pi-decision.1"
     assert approval_calls[0]["kind"] == "approval"
     assert approval_calls[0]["target_bead"] == "pi-task.1"
-    assert resolved["resolution"]["outcome"] == "approved"
+    assert resolved["resolution"]["outcome"] == "cancelled"
     assert resolve_calls[0]["decision_bead"] == "pi-decision.1"
 
 
 def test_gateway_runner_status_surfaces_runner_state(agnt, tmp_path):
     result = agnt.ticket_gateway({"operation": "runner_status", "root": str(tmp_path)})
 
-    assert result["runner"]["status"] == "idle"
+    assert result["runner"]["service"]["state"] == "absent"
+    assert result["runner"]["status"] == "not-running"
     assert result["runner"]["running"] is False
+    assert result["runner"]["activeRuns"] == []
+    assert result["runner"]["suggestedAction"] == "agnt work daemon start --json"
+
+
+def test_ticket_gateway_approval_requests_prompt_the_interactive_human():
+    text = Path("pi/agent/extensions/ticket-gateway.ts").read_text(encoding="utf-8")
+    assert 'params.operation === "request_approval"' in text
+    assert 'ctx.ui.confirm("Approval requested"' in text
+    assert '["approvals", "resolve"' in text
+    assert '"--resolver-kind", "human-ui"' in text
 
 
 def test_ticket_gateway_extension_registers_tool_and_work_command():

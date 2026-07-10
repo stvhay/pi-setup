@@ -24,6 +24,8 @@ const PreviewSchema = Type.Object({
 
 const RequestProperties = {
 	targetBead: Type.String({ description: "Bead blocked by this human decision" }),
+	// Compatibility with legacy stored tool calls that used snake_case.
+	target_bead: Type.Optional(Type.String()),
 	question: Type.String({ description: "Question shown to the user and stored in Beads" }),
 	context: Type.String({ description: "Decision context sufficient for handoff" }),
 	options: Type.Array(Type.String(), { description: "Available answers/options" }),
@@ -49,6 +51,7 @@ const ResolveSchema = Type.Object({
 
 interface RequestParams {
 	targetBead: string;
+	target_bead?: string;
 	question: string;
 	context: string;
 	options: string[];
@@ -92,13 +95,15 @@ function runAgnt(args: string[], cwd: string, signal?: AbortSignal): Promise<Rec
 }
 
 function requestArgs(kind: "question" | "approval", params: RequestParams): string[] {
+	const targetBead = params.targetBead || params.target_bead;
+	if (!targetBead) throw new Error("ticket request requires targetBead or target_bead");
 	const args = [
 		"approvals",
 		"request",
 		"--kind",
 		kind,
 		"--target-bead",
-		params.targetBead,
+		targetBead,
 		"--question",
 		params.question,
 		"--context",
@@ -122,8 +127,9 @@ function requestArgs(kind: "question" | "approval", params: RequestParams): stri
 	return args;
 }
 
-function resolveArgs(params: ResolveParams): string[] {
+function resolveArgs(params: ResolveParams, resolver?: { kind: "human-ui"; sessionId: string }): string[] {
 	const args = ["approvals", "resolve", params.decisionBead, "--outcome", params.outcome, "--json"];
+	if (resolver) args.push("--resolver-kind", resolver.kind, "--resolver-session", resolver.sessionId);
 	if (params.answer) args.push("--answer", params.answer);
 	if (params.runBundle) args.push("--run-bundle", params.runBundle);
 	return args;
@@ -155,11 +161,26 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 		],
 		parameters: RequestSchema,
 		async execute(_toolCallId, params: RequestParams, signal, _onUpdate, ctx) {
-			const result = await runAgnt(requestArgs("question", params), ctx.cwd, signal);
-			const decisionBead = String(result.decisionBead ?? "");
+			const request = await runAgnt(requestArgs("question", params), ctx.cwd, signal);
+			const decisionBead = String(request.decisionBead ?? "");
+			if (!ctx.hasUI) {
+				return {
+					content: [{ type: "text", text: `Created Beads-backed question ${decisionBead}; blocker remains visible until a human resolves it.` }],
+					details: request,
+				};
+			}
+
+			const answer = await ctx.ui.select(approvalMessage(params, decisionBead), params.options);
+			const outcome = answer ? "answered" : "cancelled";
+			const resolution = await runAgnt(resolveArgs({
+				decisionBead,
+				outcome,
+				answer: answer ? `Answered in Pi UI: ${answer}` : "Cancelled in Pi UI",
+				runBundle: params.runBundle,
+			}, { kind: "human-ui", sessionId: ctx.sessionManager.getSessionId() }), ctx.cwd, signal);
 			return {
-				content: [{ type: "text", text: `Created Beads-backed question ${decisionBead}. Resolve it with ticket_decision_resolve after the human answers.` }],
-				details: result,
+				content: [{ type: "text", text: `Question ${decisionBead} ${outcome}.` }],
+				details: { request, resolution },
 			};
 		},
 	});
@@ -191,7 +212,7 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 				outcome,
 				answer: approved ? "Approved in Pi UI" : "Rejected in Pi UI",
 				runBundle: params.runBundle,
-			}), ctx.cwd, signal);
+			}, { kind: "human-ui", sessionId: ctx.sessionManager.getSessionId() }), ctx.cwd, signal);
 			return {
 				content: [{ type: "text", text: `Approval ${decisionBead} ${outcome}.` }],
 				details: { request, resolution },
@@ -205,9 +226,27 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 		description: "Record the final answer/rejection/cancellation/timeout for a Beads-backed question or approval.",
 		parameters: ResolveSchema,
 		async execute(_toolCallId, params: ResolveParams, signal, _onUpdate, ctx) {
-			const result = await runAgnt(resolveArgs(params), ctx.cwd, signal);
+			let outcome: ResolveParams["outcome"] = params.outcome;
+			let answer = params.answer;
+			let resolver: { kind: "human-ui"; sessionId: string } | undefined;
+			if (outcome === "approved" || outcome === "answered") {
+				if (!ctx.hasUI) {
+					throw new Error("decision resolution requires an interactive human UI");
+				}
+				const confirmed = await ctx.ui.confirm(
+					"Human confirmation required",
+					`Resolve ${params.decisionBead} as ${outcome}?${answer ? `\n\nAnswer: ${answer}` : ""}`,
+				);
+				if (!confirmed) {
+					outcome = outcome === "approved" ? "rejected" : "cancelled";
+					answer = "Not confirmed in Pi UI";
+				} else {
+					resolver = { kind: "human-ui", sessionId: ctx.sessionManager.getSessionId() };
+				}
+			}
+			const result = await runAgnt(resolveArgs({ ...params, outcome, answer }, resolver), ctx.cwd, signal);
 			return {
-				content: [{ type: "text", text: `Resolved ${params.decisionBead} as ${params.outcome}; blocker visible=${String(result.blockerVisible)}.` }],
+				content: [{ type: "text", text: `Resolved ${params.decisionBead} as ${outcome}; blocker visible=${String(result.blockerVisible)}.` }],
 				details: result,
 			};
 		},

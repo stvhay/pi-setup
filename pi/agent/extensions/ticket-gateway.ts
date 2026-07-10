@@ -48,6 +48,8 @@ const GatewayParamsSchema = Type.Object({
 	parent: Type.Optional(Type.String()),
 	acceptance: Type.Optional(Type.String()),
 	targetBead: Type.Optional(Type.String()),
+	// Compatibility with legacy stored gateway payloads that used snake_case.
+	target_bead: Type.Optional(Type.String()),
 	question: Type.Optional(Type.String()),
 	context: Type.Optional(Type.String()),
 	options: Type.Optional(Type.Array(Type.String())),
@@ -84,6 +86,40 @@ function runGateway(payload: GatewayParams, cwd: string, signal?: AbortSignal): 
 	});
 }
 
+function runAgnt(args: string[], cwd: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+	return new Promise((resolve, reject) => {
+		const proc = execFile(AGNT_BIN, args, { cwd, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024, signal }, (err, stdout, stderr) => {
+			if (err) {
+				reject(new Error((stderr || stdout || err.message).trim()));
+				return;
+			}
+			try {
+				resolve(JSON.parse(stdout || "{}") as Record<string, unknown>);
+			} catch (parseErr) {
+				reject(new Error(`agnt did not return JSON: ${(parseErr as Error).message}; output=${stdout}`));
+			}
+		});
+		if (signal) signal.addEventListener("abort", () => proc.kill(), { once: true });
+	});
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function summarizeRunnerStatus(runnerValue: unknown): string {
+	const runner = asRecord(runnerValue);
+	const firstActive = asRecord(runner.firstActive);
+	const activeCount = Number(runner.activeCount ?? 0);
+	const state = String(runner.status ?? "unknown");
+	const flags = [runner.paused ? "paused" : "", runner.draining ? "draining" : ""]
+		.filter(Boolean)
+		.join("/");
+	const slug = String(firstActive.slug || firstActive.bead || "").slice(0, 80);
+	const work = slug ? ` first=${slug}` : "";
+	return `ticket_gateway runner_status: ${state}${flags ? ` ${flags}` : ""} active=${activeCount}${work}`;
+}
+
 function summarize(result: Record<string, unknown>): string {
 	const operation = String(result.operation ?? "gateway");
 	if (operation === "list" && Array.isArray(result.items)) {
@@ -98,10 +134,28 @@ function summarize(result: Record<string, unknown>): string {
 		return `ticket_gateway tree: ${tree?.root ?? "unknown"} (${Object.keys(tree?.nodes ?? {}).length} node(s))`;
 	}
 	if (operation === "runner_status") {
-		const runner = result.runner as { status?: string } | undefined;
-		return `ticket_gateway runner_status: ${runner?.status ?? "unknown"}`;
+		return summarizeRunnerStatus(result.runner);
 	}
 	return `ticket_gateway ${operation}: ok`;
+}
+
+function widgetLines(result: Record<string, unknown>): string[] {
+	const operation = String(result.operation ?? "gateway");
+	if (operation === "runner_status") {
+		return [summarizeRunnerStatus(result.runner)];
+	}
+	if (operation === "list" && Array.isArray(result.items)) {
+		return [summarize(result), ...result.items.slice(0, 8).map((item) => {
+			const row = asRecord(item);
+			return `• ${String(row.id ?? "?")} ${String(row.title ?? "").slice(0, 80)}`.trim();
+		})];
+	}
+	if (operation === "tree") {
+		const tree = asRecord(result.tree);
+		const nodes = asRecord(tree.nodes);
+		return [summarize(result), ...Object.keys(nodes).slice(0, 8).map((id) => `• ${id}`)];
+	}
+	return [summarize(result)];
 }
 
 export default function ticketGateway(pi: ExtensionAPI) {
@@ -117,6 +171,34 @@ export default function ticketGateway(pi: ExtensionAPI) {
 		parameters: GatewayParamsSchema,
 		async execute(_toolCallId, params: GatewayParams, signal, _onUpdate, ctx) {
 			const result = await runGateway(params, ctx.cwd, signal);
+			if (params.operation === "request_approval" && ctx.hasUI) {
+				const approval = asRecord(result.approval);
+				const decisionBead = String(approval.decisionBead ?? "");
+				if (!decisionBead) throw new Error("approval request did not return a decision bead");
+				const approved = await ctx.ui.confirm("Approval requested", [
+					String(params.question ?? "Approve this action?"),
+					"",
+					`Decision bead: ${decisionBead}`,
+					`Target bead: ${String(params.targetBead ?? "")}`,
+					"",
+					`Action: ${String(asRecord(params.preview).action ?? "")}`,
+					`Scope: ${String(asRecord(params.preview).scope ?? "")}`,
+					`Consequences: ${String(asRecord(params.preview).consequences ?? "")}`,
+					`Reversibility: ${String(asRecord(params.preview).reversibility ?? "")}`,
+					`Closeout path: ${String(asRecord(params.preview).closeoutPath ?? "")}`,
+				].join("\n"));
+				const outcome = approved ? "approved" : "rejected";
+				const resolveArgs = ["approvals", "resolve", decisionBead, "--outcome", outcome,
+					"--answer", approved ? "Approved in Pi UI" : "Rejected in Pi UI",
+					"--resolver-kind", "human-ui", "--resolver-session", ctx.sessionManager.getSessionId(), "--json"];
+				const runBundle = typeof params.runBundle === "string" ? params.runBundle : "";
+				if (runBundle) resolveArgs.push("--run-bundle", runBundle);
+				const resolution = await runAgnt(resolveArgs, ctx.cwd, signal);
+				return {
+					content: [{ type: "text", text: `Approval ${decisionBead} ${outcome}.` }],
+					details: { request: result, resolution },
+				};
+			}
 			return {
 				content: [{ type: "text", text: summarize(result) }],
 				details: result,
@@ -134,7 +216,7 @@ export default function ticketGateway(pi: ExtensionAPI) {
 			try {
 				const result = await runGateway(payload, ctx.cwd);
 				ctx.ui.notify(summarize(result), "info");
-				ctx.ui.setWidget("ticket-gateway-work", JSON.stringify(result, null, 2).split("\n").slice(0, 20));
+				ctx.ui.setWidget("ticket-gateway-work", widgetLines(result));
 			} catch (err) {
 				ctx.ui.notify(`ticket_gateway /work failed: ${(err as Error).message}`, "warning");
 			}

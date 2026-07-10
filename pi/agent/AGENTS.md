@@ -41,7 +41,7 @@ When practical, commands read stdin if no filename is supplied, write primary re
 - Create/validate run artifacts: `agnt runs create` and `agnt runs validate`
 - Inspect beads-backed work: `agnt work next --json`, `agnt work tree --json`, and `agnt work plan --dry-run`
 - Check orchestration health: `agnt work health --json` and `agnt work audit --json`
-- Manage runner/maintenance: `agnt work runner status --json`, `agnt work runner tick --dry-run --json`, and `agnt work maintenance due --json`
+- Manage runner/maintenance: `agnt work daemon status --json`, `agnt work daemon start --json`, `agnt work runner status --json`, `agnt work runner tick --dry-run --json`, and `agnt work maintenance due --json`
 - Emit communication preferences: `agnt soul`
 - Resolve plans dir: `agnt plans-dir`
 
@@ -69,6 +69,8 @@ Escalation order:
 4. Switch the primary orchestrator only for sustained high-stakes work.
 
 Cost policy: OpenAI/Codex models benefit from the active subscription/discount and should be preferred when capability is comparable. Anthropic is still available when needed, but treat Claude usage as retail-priced extra usage rather than subscription-backed capacity.
+
+The main Pi thread is orchestrator-only for durable work: use it to inspect Beads, plan, ask/approve, monitor runner status, and dispatch through structured `agnt`/gateway surfaces. Durable implementation should go through Beads plus the project-local runner service or explicit `agnt work` run artifacts, not raw main-thread `bash`, `edit`, `write`, or ad hoc subagent calls.
 
 For strict workflow orchestration with gates—approval before edits, planning without implementation, verification before completion, PR/merge readiness—prefer models listed under:
 
