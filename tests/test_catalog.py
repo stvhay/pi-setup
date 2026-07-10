@@ -8,7 +8,7 @@ def test_family_resolution_across_venues(common):
         common.family_for_target("openrouter-localish/google/gemma-4-31b-it")
         == "gemma4-31b"
     )
-    assert common.family_for_target("openai-codex/gpt-5.5") == "gpt-5.5"
+    assert common.family_for_target("openai-codex/gpt-5.6-sol") == "gpt-5.6-sol"
     assert common.family_for_target("olla-cloud/glm-5.2") == "glm-5.2"
     assert common.family_for_target("unknown/model") is None
 
@@ -38,7 +38,7 @@ def test_subscription_opportunity_rates(common):
     assert rates["input"] == 0.4
     assert rates["output"] == 1.6
 
-    rates = common.opportunity_rates("openai-codex/gpt-5.4-mini")
+    rates = common.opportunity_rates("openai-codex/gpt-5.6-luna")
     assert rates["input"] == 0.75
     assert rates["output"] == 4.5
 

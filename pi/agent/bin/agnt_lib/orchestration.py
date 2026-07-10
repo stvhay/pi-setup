@@ -99,6 +99,30 @@ def _validate_model_policy(pi_meta: Mapping[str, Any], failures: List[str]) -> D
     return normalized
 
 
+def _validate_continuation(pi_meta: Mapping[str, Any], failures: List[str], *, action: str | None) -> Dict[str, str] | None:
+    raw = pi_meta.get("continuation")
+    if raw is None:
+        return None
+    if action != "implement":
+        failures.append("metadata.pi.continuation is allowed only for implement actions")
+        return None
+    if not isinstance(raw, dict):
+        failures.append("metadata.pi.continuation must be an object")
+        return None
+    mode = raw.get("mode")
+    predecessor = raw.get("predecessor")
+    approval_ref = raw.get("approvalRef")
+    if mode != "checkpoint":
+        failures.append("metadata.pi.continuation.mode must be 'checkpoint'")
+    if not isinstance(predecessor, str) or not predecessor:
+        failures.append("metadata.pi.continuation.predecessor must be a non-empty string")
+    if not isinstance(approval_ref, str) or not approval_ref:
+        failures.append("metadata.pi.continuation.approvalRef must be a non-empty string")
+    if mode != "checkpoint" or not isinstance(predecessor, str) or not predecessor or not isinstance(approval_ref, str) or not approval_ref:
+        return None
+    return {"mode": mode, "predecessor": predecessor, "approvalRef": approval_ref}
+
+
 def _validate_closeout(pi_meta: Mapping[str, Any], blockers: List[str], *, required: bool) -> Dict[str, Any]:
     raw = pi_meta.get("closeout")
     if raw is None and not required:
@@ -198,6 +222,20 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         failures.append("metadata.pi.role must be a string when present")
         role = None
 
+    skills = pi_meta.get("skills", [])
+    if _string_list(skills) is None:
+        failures.append("metadata.pi.skills must be a list of strings when present")
+        skills = []
+
+    reference_lists: Dict[str, List[str]] = {}
+    for key in ("inputRefs", "approvalRefs", "decisionRefs"):
+        raw_refs = pi_meta.get(key, [])
+        refs = _string_list(raw_refs)
+        if refs is None:
+            failures.append(f"metadata.pi.{key} must be a list of strings when present")
+            refs = []
+        reference_lists[key] = refs
+
     allowed_effects = _string_list(pi_meta.get("allowedEffects"))
     if allowed_effects is None:
         blockers.append("metadata.pi.allowedEffects must be a non-empty list of strings")
@@ -235,14 +273,27 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         memory_policy = "auto"
 
     approved = bool(pi_meta.get("approved", False))
+    human_approval = pi_meta.get("humanApproval")
+    human_approval_valid = (
+        isinstance(human_approval, dict)
+        and isinstance(human_approval.get("decisionBead"), str)
+        and bool(human_approval["decisionBead"].strip())
+        and isinstance(human_approval.get("resolver"), dict)
+        and human_approval["resolver"].get("kind") == "human-ui"
+        and isinstance(human_approval["resolver"].get("sessionId"), str)
+        and bool(human_approval["resolver"]["sessionId"].strip())
+    )
     epic_id = pi_meta.get("epicId")
     worktree_policy = pi_meta.get("worktreePolicy")
     write_set = _string_list(pi_meta.get("writeSet"))
     closeout = _validate_closeout(pi_meta, blockers, required=action == "implement")
+    continuation = _validate_continuation(pi_meta, failures, action=action)
 
     if action == "implement":
         if approved is not True:
             human_actions.append("metadata.pi.approved must be true before implement dispatch")
+        elif not human_approval_valid:
+            human_actions.append("metadata.pi.humanApproval with human-ui resolver provenance is required before implement dispatch")
         if not isinstance(epic_id, str) or not epic_id:
             blockers.append("metadata.pi.epicId is required for implement dispatch")
             epic_id = None
@@ -267,7 +318,12 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         "action": action,
         "routingTask": routing_task,
         "role": role,
+        "skills": list(skills),
         "approved": approved,
+        "humanApproval": human_approval if human_approval_valid else None,
+        "inputRefs": reference_lists["inputRefs"],
+        "approvalRefs": reference_lists["approvalRefs"],
+        "decisionRefs": reference_lists["decisionRefs"],
         "allowedEffects": allowed_effects,
         "risk": risk,
         "budget": budget,
@@ -277,6 +333,7 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         "worktreePolicy": worktree_policy,
         "writeSet": write_set or [],
         "closeout": closeout,
+        "continuation": continuation,
         "sessionPolicy": session_policy,
         "memoryPolicy": memory_policy,
     }

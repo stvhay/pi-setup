@@ -142,10 +142,13 @@ def choose_thinking_level(risk: str, budget: str, target: str, model_info: Dict[
     if not model_info.get("reasoning"):
         return "default"
     if risk == "high" or budget == "quality":
-        return "high"
-    if budget == "cheap" and risk == "low":
-        return "low"
-    return "medium"
+        generic = "high"
+    elif budget == "cheap" and risk == "low":
+        generic = "low"
+    else:
+        generic = "medium"
+    level_map = model_info.get("thinkingLevelMap") if isinstance(model_info.get("thinkingLevelMap"), dict) else {}
+    return str(level_map.get(generic) or generic)
 
 
 def diversity_group_for_target(target: str, info: Dict[str, Any] | None = None) -> str:

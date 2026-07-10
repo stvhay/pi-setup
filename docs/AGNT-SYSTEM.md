@@ -26,7 +26,7 @@ Agent work becomes safer and more useful when orchestration is explicit:
 work graph -> invocation artifact -> worker run -> result artifact -> state transition
 ```
 
-The system favors small, inspectable primitives over one opaque daemon. The current production path is Beads-first and gated: Beads stores durable work, approvals, blockers, closeout, and follow-ups; `.pi/runs` stores execution evidence; Archimedes/Pi surfaces live UX such as todos, subagents, and ask dialogs as ephemeral projections.
+The system favors small, inspectable primitives over hidden automation. The current production path is Beads-first and gated: Beads stores durable work, approvals, blockers, closeout, and follow-ups; `.pi/runs` stores execution evidence; a project-local loopback runner service owns scheduling/executor lifecycle; Archimedes/Pi surfaces live UX such as todos, subagents, and ask dialogs as ephemeral projections.
 
 ## Core primitives
 
@@ -67,7 +67,7 @@ Metrics record best-effort model usage and outcomes. Evals check routing, instru
 - `agnt instructions` composes global, project, model, and role context packages.
 - `agnt action` lists, validates, and renders action templates.
 - `agnt runs` creates, validates, invokes, and updates invocation/result bundles.
-- `agnt work` connects Beads work items to action/run artifacts, plan/tree views, runner lifecycle, health checks, and maintenance checkpoints.
+- `agnt work` connects Beads work items to action/run artifacts, plan/tree views, daemon lifecycle, service-backed runner clients, health checks, and maintenance checkpoints.
 - `agnt approvals` creates and resolves Beads-backed questions and approval gates.
 - `agnt gateway` exposes a constrained ticket control surface for Pi extensions without raw shell/Beads passthrough.
 - `agnt metrics` annotates, consolidates, prunes, and reports invocation metrics.
@@ -80,13 +80,22 @@ See the [agnt command reference](../pi/agent/bin/README.md) for syntax and examp
 
 ## Work lifecycle
 
-A typical delegated run looks like this:
+A typical delegated run can be manual and gated:
 
 ```bash
 bd ready
 agnt work tree --epic <epic-id> --json
 agnt work plan <bead-id> --action review --target <path> --dry-run
 agnt work run <bead-id> --action review --target <path> --claim
+```
+
+The project-local service path adds startup health and a REST client boundary:
+
+```bash
+agnt doctor --profile orchestrator-startup --json
+agnt work daemon start --json --concurrency 1
+agnt work runner status --json
+agnt work runner tick --dry-run --json --limit 1
 ```
 
 Behind that flow, `agnt`:
@@ -145,7 +154,7 @@ Pi provides the agent runtime, providers, sessions, extensions, and normal inter
 - capturing artifacts, metrics, transcripts, and session refs;
 - validating workflow invariants.
 
-Use Pi directly for ordinary interactive work. Use `agnt` when the work should be routed, delegated, measured, replayed, reviewed, or connected to Beads.
+Use Pi directly for ordinary interactive conversation and orchestration. For durable implementation work, the main Pi thread is orchestrator-only: route the work through Beads, `agnt work` run artifacts, and the project-local runner service rather than raw main-thread implementation tools. Use `agnt` when work should be routed, delegated, measured, replayed, reviewed, or connected to Beads.
 
 ## Stable vs experimental
 
@@ -154,19 +163,21 @@ Relatively stable:
 - repository/runtime separation;
 - `agnt route`, `invoke`, `instructions`, `metrics`, and basic evals;
 - Beads as the repository’s canonical agent-facing work graph;
-- action/run artifact schemas at their current v1 level.
+- action/run artifact schemas at their current v1 level;
+- the single-user project-local runner service boundary, CLI client commands, and orchestrator startup gate.
 
 Still evolving:
 
-- stronger idempotency and budget enforcement for the singleton runner;
+- explicit idempotency keys and richer duplicate-run detection;
 - richer result extraction from worker transcripts;
 - GitHub or other external adapters;
-- conventions for larger multi-worker runs and production soak operation.
+- conventions for larger multi-worker runs, production soak operation, notifications, and remote/multi-project dashboards.
 
 ## Where to read next
 
 - [Architecture](ARCHITECTURE.md) — implementation map and subsystem boundaries.
+- [Project-Local Runner Service](RUNNER-SERVICE.md) — service lifecycle, REST API, leases, drain, and status/security model.
 - [Run Artifacts](RUN-ARTIFACTS.md) — invocation/result schemas and commands.
-- [Orchestration Loop Decision](ORCHESTRATION-LOOP.md) — why the system currently uses a gated command loop.
+- [Orchestration Loop Decision](ORCHESTRATION-LOOP.md) — why the system uses a Beads-first gated workflow plus project-local service boundary.
 - [Self-Improvement Loop](SELF-IMPROVEMENT.md) — metrics, routing feedback, prompt overlays, and eval-gated policy changes.
 - [agnt command reference](../pi/agent/bin/README.md) — command syntax and examples.

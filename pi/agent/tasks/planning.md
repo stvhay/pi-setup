@@ -2,8 +2,8 @@
 id: planning
 summary: Convert approved designs into concrete filesystem-first implementation plans.
 preferred:
-  - openai-codex/gpt-5.4-mini
-  - openai-codex/gpt-5.5
+  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-5.6-sol
 qualified:
   - claude-sonnet-4-6
   - olla-cloud/glm-5.2

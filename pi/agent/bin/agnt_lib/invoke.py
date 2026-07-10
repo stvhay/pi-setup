@@ -98,6 +98,9 @@ def invoke_one(
     record_session: bool = False,
     session_id: str | None = None,
     session_name: str | None = None,
+    cwd: Path | str | None = None,
+    pi_args: List[str] | None = None,
+    timeout_seconds: int | float | None = None,
 ) -> Tuple[int, str, str, Dict[str, Any] | None]:
     provider, model = split_target(target)
     started_at = utc_now()
@@ -110,22 +113,56 @@ def invoke_one(
             session_args.extend(["--name", session_name])
     else:
         session_args.append("--no-session")
-    if metrics:
-        proc = subprocess.run(
-            ["pi", "--mode", "json", *session_args, "--provider", provider, "--model", model, prompt],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        out, usage, usage_source = parse_pi_json_output(proc.stdout)
-    else:
-        proc = subprocess.run(
-            ["pi", "--print", *session_args, "--provider", provider, "--model", model, prompt],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        out, usage, usage_source = proc.stdout, None, "not_requested"
+    extra_args = list(pi_args or [])
+    run_kwargs = {
+        "text": True,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "cwd": str(Path(cwd).expanduser()) if cwd is not None else None,
+        "timeout": timeout_seconds,
+    }
+    try:
+        if metrics:
+            proc = subprocess.run(
+                ["pi", "--mode", "json", *session_args, *extra_args, "--provider", provider, "--model", model, prompt],
+                **run_kwargs,
+            )
+            out, usage, usage_source = parse_pi_json_output(proc.stdout)
+        else:
+            proc = subprocess.run(
+                ["pi", "--print", *session_args, *extra_args, "--provider", provider, "--model", model, prompt],
+                **run_kwargs,
+            )
+            out, usage, usage_source = proc.stdout, None, "not_requested"
+    except subprocess.TimeoutExpired as exc:
+        ended_at = utc_now()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        out = exc.output.decode("utf-8", errors="replace") if isinstance(exc.output, bytes) else str(exc.output or "")
+        stderr_text = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        err = f"pi invocation timed out after {timeout_seconds}s"
+        if stderr_text:
+            err = f"{err}\n{stderr_text}"
+        record = None
+        if metrics:
+            record = metrics_record(
+                target=target,
+                task=task,
+                started_at=started_at,
+                ended_at=ended_at,
+                elapsed_ms=elapsed_ms,
+                code=124,
+                prompt=prompt,
+                out=out,
+                err=err,
+                usage=None,
+                usage_source="timeout",
+                risk_category=risk_category,
+                thinking_level=thinking_level,
+                outcome=outcome,
+                human_override=human_override,
+                fallback_used=fallback_used,
+            )
+        return 124, out, err, record
     ended_at = utc_now()
     elapsed_ms = int((time.monotonic() - started) * 1000)
     record = None

@@ -32,11 +32,11 @@ tracked pi/ config ──deploy──▶ ~/.pi runtime
        ├── tasks / skills / roles / actions
        │          │
        │          ▼
-Beads work graph ──▶ agnt route/invoke/runs/work ──▶ Pi worker runs
-       ▲                         │                         │
-       │                         ▼                         ▼
-       └──── approvals/blockers ◀ run artifacts ◀── results + evidence
-       ▲                         │                         │
+Beads work graph ──▶ agnt route/runs/work ──▶ project runner service ──▶ Pi worker runs
+       ▲                         │                    │                         │
+       │                         ▼                    ▼                         ▼
+       └──── approvals/blockers ◀ run artifacts ◀ service status/events ◀ results + evidence
+       ▲                         │
        └──── maintenance beads ◀─ health + metrics + recorded sessions
 ```
 
@@ -87,16 +87,18 @@ Start with [The agnt System](docs/AGNT-SYSTEM.md). Then use the documentation ma
 - [The agnt System](docs/AGNT-SYSTEM.md) — conceptual overview of the orchestration/control layer: problem, design thesis, primitives, work lifecycle, safety model, approvals, runner, health, and feedback loop.
 - [Architecture](docs/ARCHITECTURE.md) — implementation map: repository/runtime separation, routing, invocation, metrics, instruction composition, Beads-first orchestration, quality gates, and safety gates.
 - [agnt command reference](pi/agent/bin/README.md) — command families and common flows.
+- [Project-Local Runner Service](docs/RUNNER-SERVICE.md) — service lifecycle, runtime files, REST API, leases, drain, startup health, status, and security model.
 
 ### Operate the system
 
 - [Pi Config](pi/README.md) — deployable config contents, deployment behavior, provider credentials, and excluded runtime state.
 - [Run Artifacts](docs/RUN-ARTIFACTS.md) — invocation/result artifact schema and the `agnt runs` / `agnt work` workflow.
+- [Project-Local Runner Service](docs/RUNNER-SERVICE.md) — operator commands for `agnt work daemon` and service-backed `agnt work runner` clients.
 - [Contributing](CONTRIBUTING.md) — repository workflow, test commands, and development environment.
 
 ### Understand design decisions
 
-- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — why the current production path is a gated command loop plus explicit project-local runner rather than an installed service.
+- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — why the current production path is a Beads-first gated workflow with a project-local loopback runner service, not a global host service.
 - [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how metrics, health, Beads, and recorded sessions trigger maintenance while telemetry stays untracked.
 - [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) — design principles for context architecture, tasks, skills, roles, prompts, tools, artifacts, and evals.
 - [GitHub Adapter Decision](docs/GITHUB-ADAPTER.md) — why Beads remains canonical and GitHub issues are treated as a future adapter surface.
@@ -154,6 +156,8 @@ pi/agent/bin/agnt eval run role-context-smoke
 pi/agent/bin/agent-instructions --check
 pi/agent/bin/agnt action validate
 pi/agent/bin/agnt context-health --strict
+pi/agent/bin/agnt work daemon status --json
+pi/agent/bin/agnt work runner status --json || true
 pi/agent/bin/agnt work health --json
 pi/agent/bin/agnt work maintenance due --json
 pi/agent/bin/agnt prompt inventory >/tmp/agnt-prompt-inventory.json

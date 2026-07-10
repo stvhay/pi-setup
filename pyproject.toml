@@ -7,3 +7,8 @@ dependencies = []
 
 [tool.uv]
 package = false
+
+[tool.ruff.lint]
+# F821 catches runtime unresolved-name regressions without treating the
+# repository's deliberate script-style imports as a mass formatting migration.
+select = ["F821"]

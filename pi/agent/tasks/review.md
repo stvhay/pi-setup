@@ -7,6 +7,7 @@ preferred:
   - ollama/gemma4:31b
   - olla-local/qwen3:8b
 qualified:
+  - openai-codex/gpt-5.6-sol
   - olla-cloud/gpt-4.1-mini
   - olla-cloud/gemini-flash
 ---

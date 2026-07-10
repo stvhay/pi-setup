@@ -22,3 +22,5 @@ graphify-out/
 .pi/metrics/
 .pi/eval-runs/
 .pi/runs/
+.pi/runner/
+.pi/doctor-intent.json

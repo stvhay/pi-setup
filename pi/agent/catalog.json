@@ -9,26 +9,61 @@
     }
   },
   "families": {
-    "gpt-5.5": {
+    "gpt-5.6-sol": {
       "venues": [
         {
-          "target": "openai-codex/gpt-5.5",
+          "target": "openai-codex/gpt-5.6-sol",
           "costClass": "frontier",
           "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "low": "instant",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "extra high"
+          },
           "input": ["text", "image", "audio"],
-          "contextWindow": 400000
+          "contextWindow": 272000,
+          "maxTokens": 128000
         }
       ]
     },
-    "gpt-5.4-mini": {
+    "gpt-5.6-terra": {
+      "venues": [
+        {
+          "target": "openai-codex/gpt-5.6-terra",
+          "costClass": "frontier",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "low": "instant",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "extra high"
+          },
+          "input": ["text", "image", "audio"],
+          "contextWindow": 272000,
+          "maxTokens": 128000
+        }
+      ]
+    },
+    "gpt-5.6-luna": {
       "openrouterRates": {"input": 0.75, "output": 4.5},
       "venues": [
         {
-          "target": "openai-codex/gpt-5.4-mini",
+          "target": "openai-codex/gpt-5.6-luna",
           "costClass": "balanced",
           "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "low": "instant",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "extra high"
+          },
           "input": ["text", "image", "audio"],
-          "contextWindow": 400000
+          "contextWindow": 272000,
+          "maxTokens": 128000
         }
       ]
     },

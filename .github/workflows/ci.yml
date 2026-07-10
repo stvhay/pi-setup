@@ -1,0 +1,20 @@
+name: deterministic-checks
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - run: uv run --with pytest --with ruff python -m ruff check pi/agent/bin/agnt_lib tests
+      - run: uv run --with pytest python -m pytest tests/
+      - run: bash -n scripts/*.sh
+      - run: scripts/check-pi-config.sh
+      - run: pi/agent/bin/agnt eval run routing-smoke
+      - run: pi/agent/bin/agnt eval run role-context-smoke

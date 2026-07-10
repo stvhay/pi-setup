@@ -18,14 +18,14 @@ MAINTENANCE_MODES: Dict[str, Dict[str, Any]] = {
         "title": "Maintenance: design review",
         "routingTask": "review",
         "role": "quality-reviewer",
-        "action": "maintenance",
+        "action": "review",
     },
     "architecture-review": {
         "label": "maintenance:architecture-review",
         "title": "Maintenance: architecture review",
         "routingTask": "review",
         "role": "quality-reviewer",
-        "action": "maintenance",
+        "action": "review",
     },
     "simplification": {
         "label": "maintenance:simplification",
@@ -39,21 +39,21 @@ MAINTENANCE_MODES: Dict[str, Dict[str, Any]] = {
         "title": "Maintenance: workflow retrospective",
         "routingTask": "review",
         "role": "planner",
-        "action": "maintenance",
+        "action": "review",
     },
     "context-health": {
         "label": "maintenance:context-health",
         "title": "Maintenance: context health review",
         "routingTask": "review",
         "role": "verifier",
-        "action": "maintenance",
+        "action": "review",
     },
     "lessons-harvest": {
         "label": "maintenance:lessons-harvest",
         "title": "Maintenance: lessons harvest",
         "routingTask": "research",
         "role": "planner",
-        "action": "maintenance",
+        "action": "review",
     },
 }
 

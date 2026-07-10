@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Tuple
 import _agnt_common as common
 
 from .core import die
-from .invoke import invoke_one
+from .invoke import invoke_one, safe_target_name
+from .metrics import default_metrics_dir, run_check, utc_now, write_metric_record
 
 def pong_prompt(path: Path) -> str:
     return f"""You are running a fresh-context implementation benchmark. Implement a basic terminal Pong game as a single Python file at exactly:

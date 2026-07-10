@@ -4,7 +4,7 @@
   "summary": "Smoke-test workflow-gate prompt shape without embedding gate logic in instructions.",
   "kind": "invoke",
   "task": "orchestration",
-  "defaultModels": ["openai-codex/gpt-5.4-mini"],
+  "defaultModels": ["openai-codex/gpt-5.6-luna"],
   "prompt": "prompt.md",
   "assert": {"nonEmptyOutput": true}
 }

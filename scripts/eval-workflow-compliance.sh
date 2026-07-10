@@ -6,7 +6,7 @@ set -euo pipefail
 # focus on observable filesystem effects and key evidence strings.
 
 MODEL_PROVIDER=${MODEL_PROVIDER:-openai-codex}
-MODEL=${MODEL:-gpt-5.4-mini}
+MODEL=${MODEL:-gpt-5.6-luna}
 OUT_ROOT=${OUT_ROOT:-/tmp/pi-workflow-evals}
 RUN_ID=$(date +%Y%m%d-%H%M%S)
 RUN_DIR="$OUT_ROOT/$RUN_ID"
@@ -31,7 +31,7 @@ Options:
 
 Environment:
   MODEL_PROVIDER   Pi provider. Default: openai-codex
-  MODEL            Pi model. Default: gpt-5.4-mini
+  MODEL            Pi model. Default: gpt-5.6-luna
   OUT_ROOT         Output root. Default: /tmp/pi-workflow-evals
 EOF
 }

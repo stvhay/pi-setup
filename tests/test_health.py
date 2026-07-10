@@ -163,6 +163,45 @@ def test_close_readiness_blocks_failed_checks_and_unresolved_approvals(agnt):
     assert any("pi-approval.1" in item for item in failures)
 
 
+def test_work_health_report_detects_stale_runner_runtime_state(agnt, tmp_path):
+    old = datetime(2026, 7, 9, 0, 0, tzinfo=timezone.utc)
+    runner_dir = tmp_path / ".pi" / "runner"
+    active_dir = runner_dir / "active"
+    active_dir.mkdir(parents=True)
+    _write_json(
+        runner_dir / "state.json",
+        {
+            "schemaVersion": 1,
+            "running": True,
+            "heartbeatAt": old.isoformat().replace("+00:00", "Z"),
+            "activeRuns": [{"bead": "pi-task.1", "runId": "run-old", "status": "running"}],
+        },
+    )
+    _write_json(
+        active_dir / "run-old.json",
+        {
+            "schemaVersion": 1,
+            "bead": "pi-task.1",
+            "runId": "run-old",
+            "status": "running",
+            "startedAt": old.isoformat().replace("+00:00", "Z"),
+        },
+    )
+
+    report = agnt.work_health_report(
+        root=tmp_path,
+        runs_dir=tmp_path / "runs",
+        ref_resolver=_ref_resolver({"pi-task.1": "open"}),
+        status_runner=lambda _path: (0, "", ""),
+        now=old + timedelta(hours=2),
+        stale_after_hours=1,
+        include_beads=False,
+    )
+
+    assert report["passed"] is False
+    assert {"stale-runner-heartbeat", "stale-active-run-snapshot"}.issubset(_finding_ids(report))
+
+
 def test_work_health_cli_json_returns_nonzero_for_failures(agnt, tmp_path, capsys):
     report = {
         "schemaVersion": 1,

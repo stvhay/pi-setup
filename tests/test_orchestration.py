@@ -23,6 +23,7 @@ def valid_implement_metadata() -> dict:
             "routingTask": "implementation",
             "role": "implementation-worker",
             "approved": True,
+            "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui", "sessionId": "pi-session-1"}},
             "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
             "risk": "medium",
             "budget": "balanced",
@@ -64,6 +65,57 @@ def test_valid_approved_implement_metadata_is_dispatchable(agnt):
         "pi/agent/bin/agnt_lib/orchestration.py",
         "tests/test_orchestration.py",
     ]
+
+
+def test_implement_continuation_checkpoint_metadata_is_normalized(agnt):
+    metadata = valid_implement_metadata()
+    metadata["pi"]["continuation"] = {
+        "mode": "checkpoint",
+        "predecessor": "pi-6yg.1",
+        "approvalRef": "pi-5eu",
+    }
+
+    result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
+
+    assert result["dispatchable"] is True
+    assert result["normalized"]["continuation"] == metadata["pi"]["continuation"]
+
+
+def test_orchestration_reference_metadata_is_normalized(agnt):
+    metadata = valid_review_metadata()
+    metadata["pi"].update({
+        "inputRefs": ["pi-input.1", "docs/evidence.md"],
+        "approvalRefs": ["pi-approval.1"],
+        "decisionRefs": ["pi-decision.1"],
+    })
+
+    result = agnt.validate_orchestration_metadata(metadata)
+
+    assert result["dispatchable"] is True
+    assert result["normalized"]["inputRefs"] == ["pi-input.1", "docs/evidence.md"]
+    assert result["normalized"]["approvalRefs"] == ["pi-approval.1"]
+    assert result["normalized"]["decisionRefs"] == ["pi-decision.1"]
+
+
+def test_invalid_orchestration_reference_metadata_is_rejected(agnt):
+    metadata = valid_review_metadata()
+    metadata["pi"]["inputRefs"] = "pi-input.1"
+
+    result = agnt.validate_orchestration_metadata(metadata)
+
+    assert result["status"] == "invalid"
+    assert any("inputRefs" in item for item in result["failures"])
+
+
+def test_implement_with_caller_supplied_approval_without_human_provenance_needs_human(agnt):
+    metadata = valid_implement_metadata()
+    metadata["pi"].pop("humanApproval")
+
+    result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
+
+    assert result["status"] == "needs-human"
+    assert result["dispatchable"] is False
+    assert any("humanApproval" in item for item in result["humanActions"])
 
 
 def test_implement_without_approval_needs_human(agnt):
@@ -109,7 +161,7 @@ def test_implement_missing_write_set_is_blocked(agnt):
 
 def test_direct_model_override_is_invalid(agnt):
     metadata = valid_review_metadata()
-    metadata["pi"]["model"] = "openai-codex/gpt-5.5"
+    metadata["pi"]["model"] = "openai-codex/gpt-5.6-sol"
 
     result = agnt.validate_orchestration_metadata(metadata)
 
@@ -120,7 +172,7 @@ def test_direct_model_override_is_invalid(agnt):
 
 def test_model_policy_target_override_is_invalid(agnt):
     metadata = valid_review_metadata()
-    metadata["pi"]["modelPolicy"]["target"] = "openai-codex/gpt-5.5"
+    metadata["pi"]["modelPolicy"]["target"] = "openai-codex/gpt-5.6-sol"
 
     result = agnt.validate_orchestration_metadata(metadata)
 
@@ -132,7 +184,7 @@ def test_model_policy_target_override_is_invalid(agnt):
 def test_invalid_status_takes_precedence_over_human_gate(agnt):
     metadata = valid_implement_metadata()
     metadata["pi"]["approved"] = False
-    metadata["pi"]["modelPolicy"]["target"] = "openai-codex/gpt-5.5"
+    metadata["pi"]["modelPolicy"]["target"] = "openai-codex/gpt-5.6-sol"
 
     result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
 

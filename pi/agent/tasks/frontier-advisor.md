@@ -2,9 +2,10 @@
 id: frontier-advisor
 summary: Read-only deep reasoning for architecture, security, data-loss, or irreversible decisions.
 preferred:
-  - openai-codex/gpt-5.5
+  - openai-codex/gpt-5.6-sol
 qualified:
-  - openai-codex/gpt-5.4-mini
+  - openai-codex/gpt-5.6-terra
+  - openai-codex/gpt-5.6-luna
   - olla-cloud/glm-5.2
   - claude-opus-4-7
   - claude-sonnet-4-6
