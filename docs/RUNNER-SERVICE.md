@@ -1,6 +1,6 @@
 # Project-Local Runner Service
 
-The runner service is the single-user execution boundary for approved Beads work. It is project-local, loopback-only, and started by `pi` or explicit `agnt work daemon` commands. It is not a host-level launch agent, login item, global daemon, hook, or remote scheduler.
+The runner service is an optional single-user execution boundary for approved Beads work. It is project-local, loopback-only, and starts only through explicit `agnt work daemon` commands or an opted-in Pi orchestrator session. A normal Pi session does not start it. It is not a host-level launch agent, login item, global daemon, hook, or remote scheduler.
 
 ## Responsibilities
 
@@ -17,42 +17,25 @@ Beads remains the durable work graph. `.pi/runs` remains the execution evidence 
 
 ## Startup flow
 
-The primary workflow is launching `pi` from the project directory after the tracked config has been deployed.
+Direct Pi coding is the default: confirm a Bead exists before changing code, then inspect, edit, and test with the normal tools. No startup doctor, runner process, lease, status polling, or tool restriction runs in this path.
 
-1. The orchestrator extension runs:
-   ```bash
-   agnt doctor --profile orchestrator-startup --json
-   ```
-2. Background dispatch is allowed only when the startup report has no failures and no unacknowledged warnings.
-3. If healthy, the extension starts or attaches the project service:
-   ```bash
-   agnt work daemon status --json
-   agnt work daemon start --json
-   ```
-4. The extension attaches an informational client record, restricts the main Pi thread to orchestrator-safe tools, and polls service-backed status. Client departure never drains, cancels, or gates autonomous queued work.
-5. `ticket_gateway({"operation":"runner_status"})`, `/runner`, and the TUI widget expose the same service-backed state.
-
-The main Pi thread is orchestrator-only for durable work. Durable implementation should go through Beads plus the runner or explicit `agnt work` run artifacts, not raw main-thread `bash`, `edit`, `write`, or ad hoc subagent calls.
-
-### Temporary repair-tools mode
-
-During bootstrap stabilization only, use the tracked launcher when the runner itself is broken and direct repair is explicitly approved:
+To select the orchestration path, start Pi with the extension flag or environment variable:
 
 ```bash
-scripts/pi-bootstrap-repair-mode.sh
+pi --orchestrator-service
+# or
+PI_ORCHESTRATOR_SERVICE=1 pi
 ```
 
-This sets `PI_ORCHESTRATOR_REPAIR_TOOLS=1` and launches Pi with edit tooling while still loading `orchestrator-service`. The extension continues to run startup doctor, daemon attach/start, informational client attachment, and status polling; it only skips the normal safe-tool restriction and visibly marks the session as `orch repair-tools`. Session shutdown detaches the client but does not drain autonomous work.
+The opted-in extension then:
 
-Interactive command support:
+1. runs `agnt doctor --profile orchestrator-startup --json`;
+2. requires a ready report before background dispatch;
+3. starts or attaches the service with `agnt work daemon status|start`;
+4. attaches an informational client record, restricts the session to orchestrator tools, and polls service status; and
+5. exposes status through `ticket_gateway`, `/runner`, and the TUI widget.
 
-```text
-/runner repair-tools status
-/runner repair-tools on
-/runner repair-tools off
-```
-
-Do not use repair-tools mode for normal implementation once runner-dispatched implementation workers are stable.
+The legacy `scripts/pi-bootstrap-repair-mode.sh`, `PI_ORCHESTRATOR_REPAIR_TOOLS=1`, and `/runner repair-tools` controls remain available for explicit recovery of the optional orchestration path. They are not needed for normal direct implementation.
 
 ## Shutdown and drain
 

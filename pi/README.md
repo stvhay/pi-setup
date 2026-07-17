@@ -36,6 +36,8 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 For the conceptual overview, see [The agnt System](../docs/AGNT-SYSTEM.md). For the implementation map, see [Architecture](../docs/ARCHITECTURE.md).
 
+Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must have a Bead before editing. The runner and `agnt work` artifact workflow are preserved as explicit opt-in orchestration paths; deploying this config does not require or automatically start the runner.
+
 ## Provider credentials
 
 Provider credentials belong in the shell environment or ignored local env files, not in git. For OpenRouter:

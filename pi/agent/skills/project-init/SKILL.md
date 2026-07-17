@@ -212,7 +212,8 @@ If creating `AGENTS.md`, include concise project-specific sections:
 
 - Use Pi skills for design, planning, verification, review, docs, and branch finishing.
 - Keep implementation plans under `.pi/plans/`.
-- Use Beads (`bd`/`beads`) for persistent agent-facing work tracking.
+- Use Beads (`bd`/`beads`) for persistent agent-facing work tracking. Require a Bead before every code-changing task begins.
+- Work directly in the current Pi session by default; select runner/run-artifact orchestration explicitly when useful.
 - Treat GitHub issues as optional external adapters/exports, not a second source of truth.
 - Do not push, merge, delete branches, remove worktrees, delete beads, change Beads remotes/history, or install hooks without explicit approval.
 

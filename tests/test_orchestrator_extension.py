@@ -49,7 +49,19 @@ def test_orchestrator_extension_file_exists_and_registers_lifecycle_hooks():
     assert "idempotent" in text.lower()
 
 
-def test_orchestrator_extension_runs_startup_health_and_daemon_lifecycle():
+def test_orchestrator_extension_defaults_to_direct_pi_without_startup_or_tool_gating():
+    text = source()
+
+    assert 'pi.registerFlag("orchestrator-service"' in text
+    assert "default: false" in text
+    assert "orchestrationEnabled" in text
+    session_start = text.split('pi.on("session_start"', 1)[1].split("// idempotent shutdown", 1)[0]
+    assert "if (!orchestrationEnabled(pi)) return;" in session_start
+    assert session_start.index("if (!orchestrationEnabled(pi)) return;") < session_start.index("applyToolMode(pi, ctx, state)")
+    assert session_start.index("if (!orchestrationEnabled(pi)) return;") < session_start.index('"doctor", "--profile", "orchestrator-startup"')
+
+
+def test_orchestrator_extension_runs_startup_health_and_daemon_lifecycle_when_selected():
     text = source()
 
     assert '"doctor", "--profile", "orchestrator-startup", "--json"' in text
@@ -204,6 +216,7 @@ def test_orchestrator_extension_does_not_shell_to_raw_beads_or_mutating_tools():
         assert not re.search(pattern, text), pattern
 
 
-def test_orchestrator_extension_is_project_configured_by_autodiscovery():
+def test_orchestrator_extension_is_project_configured_by_autodiscovery_but_opt_in():
     assert SETTINGS.is_file()
     assert EXTENSION.parent == ROOT / "pi" / "agent" / "extensions"
+    assert 'pi.registerFlag("orchestrator-service"' in source()

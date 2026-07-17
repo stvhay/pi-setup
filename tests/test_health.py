@@ -218,7 +218,8 @@ def test_work_health_cli_json_returns_nonzero_for_failures(agnt, tmp_path, capsy
     assert json.loads(captured.out)["findings"][0]["id"] == "missing-verification-evidence"
 
 
-def test_check_pi_config_runs_work_health():
+def test_check_pi_config_does_not_gate_direct_config_checks_on_optional_orchestration_state():
     script = Path("scripts/check-pi-config.sh").read_text(encoding="utf-8")
 
-    assert "work health --json" in script
+    assert "work health --json" not in script
+    assert "work audit --json" not in script

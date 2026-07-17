@@ -1,8 +1,8 @@
-// Strict ticket gateway for Beads-first orchestration.
+// Optional structured ticket gateway for Beads-backed orchestration.
 //
-// The main orchestrator should not receive raw bash, raw Beads, raw subagent,
-// edit, or write surfaces. This extension exposes one structured tool and a
-// compact /work command that delegate to the deterministic `agnt gateway` core.
+// Direct Pi sessions retain normal workspace tools. When structured
+// orchestration is explicitly selected, this extension provides a constrained
+// ticket tool and compact /work command backed by `agnt gateway`.
 
 import { execFile } from "node:child_process";
 import { join } from "node:path";
@@ -162,10 +162,11 @@ export default function ticketGateway(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "ticket_gateway",
 		label: "Ticket Gateway",
-		description: "Structured Beads-first ticket gateway. Supports list, show, tree, create_draft, request_approval, resolve_blocker, and runner_status without raw shell/Beads access.",
-		promptSnippet: "Use ticket_gateway for durable Beads work operations instead of raw bash, raw bd, edit, write, or raw subagent calls.",
+		description: "Optional structured Beads ticket gateway. Supports list, show, tree, create_draft, request_approval, resolve_blocker, and runner_status.",
+		promptSnippet: "Use ticket_gateway when the structured orchestration workflow is explicitly selected; direct Pi coding remains the default.",
 		promptGuidelines: [
-			"Use ticket_gateway for work listing, ticket details, tree views, draft creation, approval requests, blocker resolution, and runner status.",
+			"For direct coding, confirm a Bead exists before code edits; use normal workspace tools for inspection, editing, and verification.",
+			"Use ticket_gateway for structured work listing, ticket details, tree views, draft creation, approval requests, blocker resolution, and runner status when orchestration is selected.",
 			"Do not send shell commands or raw Beads commands to ticket_gateway; choose one enum operation and structured fields only.",
 		],
 		parameters: GatewayParamsSchema,
