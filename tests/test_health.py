@@ -134,6 +134,7 @@ def test_work_health_report_happy_path_passes(agnt, tmp_path):
             }
         ),
         status_runner=lambda _path: (0, "", ""),
+        beads_runner=lambda _args: (0, [], ""),
     )
 
     assert report["passed"] is True

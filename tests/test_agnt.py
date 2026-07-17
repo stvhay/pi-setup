@@ -85,6 +85,12 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
         )
         == "default"
     )
+    assert (
+        agnt.choose_thinking_level(
+            "medium", "balanced", "olla-cloud/kimi-k3", info["olla-cloud/kimi-k3"]
+        )
+        == "max"
+    )
 
 
 def test_glm_52_routing_policy_is_frontier_advisor_not_default_orchestrator(agnt):

@@ -7,8 +7,10 @@ qualified:
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-5.6-luna
   - olla-cloud/glm-5.2
+  - olla-cloud/kimi-k2.7-code
+  - olla-cloud/kimi-k3
   - claude-sonnet-4-6
   - claude-opus-4-7
 ---
 
-Use only after the relevant workflow approval gate. Keep changes small and verifiable. Prefer OpenAI/Codex when capability is comparable; Anthropic is retail-priced extra usage and should be reserved for work where it is likely to outperform the discounted default. Use GLM-5.2 only for approved large refactors or long-horizon agentic coding where its 1M-context reasoning is relevant, with strict TDD and verification gates.
+Use only after the relevant workflow approval gate. Keep changes small and verifiable. Prefer OpenAI/Codex when capability is comparable; Anthropic is retail-priced extra usage and should be reserved for work where it is likely to outperform the discounted default. Use Kimi K2.7 Code for coding-focused, long-horizon agent work and Kimi K3 for repository-scale or visual engineering work; keep both behind strict TDD and verification gates until project evals establish autonomy.

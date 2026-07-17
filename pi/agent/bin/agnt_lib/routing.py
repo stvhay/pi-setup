@@ -148,7 +148,19 @@ def choose_thinking_level(risk: str, budget: str, target: str, model_info: Dict[
     else:
         generic = "medium"
     level_map = model_info.get("thinkingLevelMap") if isinstance(model_info.get("thinkingLevelMap"), dict) else {}
-    return str(level_map.get(generic) or generic)
+    if generic not in level_map:
+        return generic
+    mapped = level_map[generic]
+    if mapped is not None:
+        return str(mapped)
+
+    levels = ["minimal", "low", "medium", "high", "xhigh", "max"]
+    desired = levels.index(generic)
+    for level in levels[desired + 1 :] + list(reversed(levels[:desired])):
+        fallback = level_map.get(level)
+        if fallback is not None:
+            return str(fallback)
+    return generic
 
 
 def diversity_group_for_target(target: str, info: Dict[str, Any] | None = None) -> str:
