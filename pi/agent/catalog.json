@@ -132,6 +132,40 @@
         }
       ]
     },
+    "kimi-k2.7-code": {
+      "venues": [
+        {
+          "target": "olla-cloud/kimi-k2.7-code",
+          "costClass": "balanced",
+          "reasoning": true,
+          "thinkingLevelMap": {"off": null},
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 32768
+        }
+      ]
+    },
+    "kimi-k3": {
+      "venues": [
+        {
+          "target": "olla-cloud/kimi-k3",
+          "costClass": "frontier",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": null,
+            "medium": null,
+            "high": null,
+            "xhigh": null,
+            "max": "max"
+          },
+          "input": ["text", "image"],
+          "contextWindow": 1048576,
+          "maxTokens": 131072
+        }
+      ]
+    },
     "gemma4-31b": {
       "venues": [
         {

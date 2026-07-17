@@ -28,6 +28,7 @@ const VISION_PATTERNS: RegExp[] = [
   /^gemini-/,
   /^gemma3:/,
   /^gemma4:/,
+  /^kimi-k(?:2\.7-code|3)$/,
   /^llava/,
   /^moondream/,
   /^granite3\.3-vision/,
@@ -40,7 +41,7 @@ const KNOWN_OLLA_CLOUD_MODEL_IDS = ["glm-5.2"];
 
 // Keep this conservative: Pi maps this to reasoning-effort compatibility, which
 // is not the same as a model having a native "thinking" capability in Ollama.
-const REASONING_PATTERNS: RegExp[] = [/^deepseek-r1/, /^glm-5\.2$/];
+const REASONING_PATTERNS: RegExp[] = [/^deepseek-r1/, /^glm-5\.2$/, /^kimi-k(?:2\.7-code|3)$/];
 
 // Excluded from registration (not chat-capable through openai-completions).
 const SKIP_PATTERNS: RegExp[] = [
@@ -108,6 +109,8 @@ const CLOUD_METADATA: Array<[RegExp, ModelMetadata]> = [
   [/^claude-(?:sonnet|haiku)$/, { contextWindow: 200000, maxTokens: 16384 }],
   [/^deepseek-(?:r1|v3\.2)$/, { contextWindow: 128000, maxTokens: 16384 }],
   [/^glm-5\.2$/, { contextWindow: 999424, maxTokens: 131072 }],
+  [/^kimi-k2\.7-code$/, { contextWindow: 262144, maxTokens: 32768 }],
+  [/^kimi-k3$/, { contextWindow: 1048576, maxTokens: 131072 }],
   [/^llama-3\.3-70b$/, { contextWindow: 128000, maxTokens: 8192 }],
 ];
 
@@ -143,6 +146,14 @@ function getThinkingLevelMap(id: string): ThinkingLevelMap | null {
   if (id === "glm-5.2") {
     return { minimal: null, low: null, medium: null, high: "high", xhigh: "xhigh" };
   }
+  if (id === "kimi-k2.7-code") {
+    // K2.7 Code always thinks and does not expose effort levels.
+    return { off: null };
+  }
+  if (id === "kimi-k3") {
+    // K3 always thinks and currently exposes only max effort.
+    return { off: null, minimal: null, low: null, medium: null, high: null, xhigh: null, max: "max" };
+  }
   return null;
 }
 
@@ -151,10 +162,16 @@ function getCompat(id: string, reasoning: boolean) {
     return {
       supportsStore: false,
       supportsDeveloperRole: false,
-      // Olla routes GLM 5.2 through OpenRouter; use OpenRouter's nested
-      // `reasoning: { effort }` control, not ZAI top-level `thinking`.
+      // Olla accepts OpenRouter-compatible nested reasoning controls for GLM.
       supportsReasoningEffort: true,
       thinkingFormat: "openrouter",
+    };
+  }
+  if (id === "kimi-k2.7-code" || id === "kimi-k3") {
+    return {
+      supportsDeveloperRole: false,
+      // Olla enables Kimi thinking upstream but rejects reasoning_effort.
+      supportsReasoningEffort: false,
     };
   }
   return {
@@ -172,7 +189,7 @@ function isKnownOllaCloudModel(id: string): boolean {
   return KNOWN_OLLA_CLOUD_MODEL_IDS.includes(id);
 }
 
-function buildModels(ids: string[], surface: ProviderSurface) {
+export function buildModels(ids: string[], surface: ProviderSurface) {
   const models = [];
   const skipped: string[] = [];
   for (const id of ids) {
