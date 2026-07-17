@@ -57,7 +57,9 @@ agnt doctor --json
 
 Use the report to distinguish broken environment from task failure. Fix or report failed checks before continuing high-effect work. For model dispatches where environment drift would be costly, prefer `agnt invoke --preflight ...` or `agnt work run --preflight ...`. `agnt doctor` is read-only: it may suggest Node LTS/nvm/home-environment remedies, but it must not edit shell startup files or home-managed config without explicit user approval through a separate repair action.
 
-# Orchestration
+# Default development workflow
+
+Pi sessions work directly by default: inspect with `read`/`bash`, edit tracked project files, and run focused verification in the current session. Before changing code, confirm that a Bead exists for the task and inspect it with `bd show <id>`; create or request one before the first code edit if none exists. Documentation-only and read-only work may proceed without a Bead unless project instructions require one.
 
 Delegate difficult tasks to stronger models, easy tasks to cheaper models, and independent critique/review to diverse peers. Prefer local or low-cost models when they are fast enough. Verify peer output against files, tests, and primary sources before acting.
 
@@ -70,7 +72,7 @@ Escalation order:
 
 Cost policy: OpenAI/Codex models benefit from the active subscription/discount and should be preferred when capability is comparable. Anthropic is still available when needed, but treat Claude usage as retail-priced extra usage rather than subscription-backed capacity.
 
-The main Pi thread is orchestrator-only for durable work: use it to inspect Beads, plan, ask/approve, monitor runner status, and dispatch through structured `agnt`/gateway surfaces. Durable implementation should go through Beads plus the project-local runner service or explicit `agnt work` run artifacts, not raw main-thread `bash`, `edit`, `write`, or ad hoc subagent calls.
+The runner, ticket gateway, run artifacts, and worktree-per-epic dispatch remain available as optional orchestration tools. Use them only when the user, a Bead, or an explicit command selects that workflow; ordinary coding does not require runner startup, orchestrator safe mode, run artifacts, a dedicated worktree, or repeated Beads-backed approvals.
 
 For strict workflow orchestration with gates—approval before edits, planning without implementation, verification before completion, PR/merge readiness—prefer models listed under:
 
@@ -98,7 +100,7 @@ Keep these concepts separate:
 
 Tasks answer “what model/tool default should I use?” Skills answer “what method/capability should I load?” Roles answer “how should this peer behave and report?” Work should produce durable artifacts when downstream agents, tools, or humans need to inspect or continue it. Task routing, prompts, and roles do not replace skill instructions or project safety gates.
 
-When a project has `.beads/`, treat Beads as the agent-facing work graph: use `bd prime` for current workflow context, `bd ready` to find unblocked work, and `bd show <id>` to inspect work. Archimedes/Pi todos are transient projections; durable decisions, blockers, follow-ups, approvals, closeout, and maintenance checkpoints belong in Beads and `.pi/runs`. Do not delete beads, rewrite Beads/Dolt history, change Beads remotes, or install Beads hooks without explicit approval.
+When a project has `.beads/`, treat Beads as the agent-facing work graph: use `bd prime` for current workflow context, `bd ready` to find unblocked work, and `bd show <id>` to inspect work. Every code-changing task requires a Bead before edits begin. Archimedes/Pi todos are transient projections; durable decisions, blockers, follow-ups, approvals, closeout, and maintenance checkpoints belong in Beads; `.pi/runs` is additional evidence only when the optional orchestration workflow is selected. Do not delete beads, rewrite Beads/Dolt history, change Beads remotes, or install Beads hooks without explicit approval.
 
 # Research
 
@@ -111,7 +113,7 @@ agnt web-fetch URL
 
 # Development workflow conventions
 
-- Prefer filesystem artifacts over chat-only state. Keep designs/plans in project-local `.pi/plans/` unless instructed otherwise. Worker sessions may be recorded for execution history; observational memory is advisory recall only until promoted into Beads, lessons, or run evidence.
+- Prefer filesystem artifacts over chat-only state. Keep designs/plans in project-local `.pi/plans/` unless instructed otherwise. Worker sessions and run artifacts are optional execution history; observational memory is advisory recall only until promoted into Beads, lessons, or other durable evidence.
 - When you encounter a reusable lesson about Pi config, skills, tools, routing, provider setup, or agent workflow, capture it with `agnt lessons capture --kind friction|improvement|bug|success --area <area> --summary "..." --evidence "..."`. Keep evidence concise and non-secret; `agnt lessons` applies best-effort redaction but you remain responsible for not pasting secrets.
 - To trickle lessons up to the central server, use `agnt lessons push` when `AGNT_LESSONS_URL` is configured. In this repository, use `agnt lessons pull` and `agnt lessons triage --draft-beads` to convert useful lessons into Beads follow-up work; only create Beads with explicit approval/flags.
 - Use `agnt plans-dir` to resolve/create the plans directory.

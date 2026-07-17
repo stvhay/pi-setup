@@ -139,12 +139,14 @@ The orchestration shape is a transparent work pipeline:
 work graph -> invocation messages -> worker runs -> result messages -> artifacts -> state transitions
 ```
 
-Chat is a UI, not the system of record. Nontrivial work should leave durable
-artifacts — plans, reports, patches, metrics, verification logs, or run records
-— with enough structure for a human, tool, or later agent to inspect, retry,
-verify, or continue the work. Current pieces are: `.beads/` for work graph
-export/config, `.pi/plans/` for plans, `.pi/runs/` for invocation/result
-artifacts, `.pi/metrics/` for runtime telemetry, `agnt action render` and
+Chat is a UI, not the system of record. Every code-changing task requires a
+Bead before edits begin. The default execution path is direct Pi inspection,
+editing, and verification in the current session. Nontrivial work should leave
+durable artifacts — plans, reports, patches, metrics, verification logs, or
+optional run records — with enough structure for a human, tool, or later agent
+to inspect, retry, verify, or continue the work. Current pieces are: `.beads/`
+for work graph export/config, `.pi/plans/` for plans, optional `.pi/runs/` for
+invocation/result artifacts, `.pi/metrics/` for runtime telemetry, `agnt action render` and
 `agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch plans,
 plan trees, daemon lifecycle, service-backed runner client operations, health
 checks, and maintenance checkpoints, `agnt approvals` for durable human
@@ -153,8 +155,8 @@ runner visibility, `agnt invoke` for peer dispatch, `agnt runs invoke` / `agnt
 work run` for invocation-backed worker execution, `agnt context-health` for
 context entropy checks, and `pi/agent/evals/` for gates. See the
 [Orchestration Loop Decision](ORCHESTRATION-LOOP.md) and
-[Project-Local Runner Service](RUNNER-SERVICE.md) for why the production loop
-uses a Beads-first gated workflow with a project-local loopback service boundary.
+[Project-Local Runner Service](RUNNER-SERVICE.md) for the explicitly selected
+Beads-first gated workflow and its project-local loopback service boundary.
 
 ### Metrics and feedback
 
@@ -183,14 +185,15 @@ Three test tiers, cheapest first:
 
 Layout/safety checks: `scripts/check-pi-config.sh` (required files present,
 no secrets/submodule regression, action validation, context-health strict check,
-and cheap read-only work health), `agent-instructions --check`.
+and prompt inventory), `agent-instructions --check`. Optional orchestration
+state is checked separately with `agnt work audit|health` when that path is used.
 
 ## Safety model
 
 Layered gates, none overridable by overlays or `SOUL.md` (communication style
-only): approval before implementation in design workflows, Beads-backed human
-decisions for ask/approval flows, fresh shell evidence before completion claims,
-read-only-by-default peer work, an orchestrator-only main Pi thread for durable
-work, recorded worker sessions, one worktree per epic for implementation
-dispatch, explicit approval for destructive/remote git actions, health/closeout
-checks before closure, and the suspicious-phrase scan on composed instructions.
+only): a Bead before every code-changing task, approval before implementation in
+design workflows, fresh shell evidence before completion claims, read-only-by-
+default peer work, explicit approval for destructive/remote git actions, and the
+suspicious-phrase scan on composed instructions. When orchestration is explicitly
+selected, Beads-backed human decisions, recorded worker sessions, one worktree
+per epic, and run health/closeout checks add stricter optional gates.

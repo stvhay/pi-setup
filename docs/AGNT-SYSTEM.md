@@ -26,7 +26,7 @@ Agent work becomes safer and more useful when orchestration is explicit:
 work graph -> invocation artifact -> worker run -> result artifact -> state transition
 ```
 
-The system favors small, inspectable primitives over hidden automation. The current production path is Beads-first and gated: Beads stores durable work, approvals, blockers, closeout, and follow-ups; `.pi/runs` stores execution evidence; a project-local loopback runner service owns scheduling/executor lifecycle; Archimedes/Pi surfaces live UX such as todos, subagents, and ask dialogs as ephemeral projections.
+The system favors small, inspectable primitives over hidden automation. The default development path is a direct Pi session: establish a Bead before changing code, then inspect, edit, and verify in the current session. For work that benefits from delegation or strict dispatch gates, the preserved optional path uses Beads for durable work state, `.pi/runs` for execution evidence, and a project-local loopback runner for scheduling/executor lifecycle.
 
 ## Core primitives
 
@@ -80,7 +80,14 @@ See the [agnt command reference](../pi/agent/bin/README.md) for syntax and examp
 
 ## Work lifecycle
 
-A typical delegated run can be manual and gated:
+The normal coding lifecycle is:
+
+```bash
+bd show <bead-id>  # a Bead must exist before code edits
+# inspect, edit, and run focused tests directly in Pi
+```
+
+A delegated run is an explicit optional workflow and can be manual and gated:
 
 ```bash
 bd ready
@@ -89,7 +96,7 @@ agnt work plan <bead-id> --action review --target <path> --dry-run
 agnt work run <bead-id> --action review --target <path> --claim
 ```
 
-The project-local service path adds startup health and a REST client boundary:
+The explicitly selected project-local service path adds startup health and a REST client boundary:
 
 ```bash
 agnt doctor --profile orchestrator-startup --json
@@ -154,7 +161,7 @@ Pi provides the agent runtime, providers, sessions, extensions, and normal inter
 - capturing artifacts, metrics, transcripts, and session refs;
 - validating workflow invariants.
 
-Use Pi directly for ordinary interactive conversation and orchestration. For durable implementation work, the main Pi thread is orchestrator-only: route the work through Beads, `agnt work` run artifacts, and the project-local runner service rather than raw main-thread implementation tools. Use `agnt` when work should be routed, delegated, measured, replayed, reviewed, or connected to Beads.
+Use Pi directly for ordinary interactive work, including implementation and verification, after confirming a Bead exists for any code-changing task. Use `agnt` when work should be routed, delegated, measured, replayed, reviewed, or connected to run artifacts. The runner and orchestrator-only tool surface are opt-in rather than startup requirements.
 
 ## Stable vs experimental
 
@@ -164,7 +171,7 @@ Relatively stable:
 - `agnt route`, `invoke`, `instructions`, `metrics`, and basic evals;
 - Beads as the repository’s canonical agent-facing work graph;
 - action/run artifact schemas at their current v1 level;
-- the single-user project-local runner service boundary, CLI client commands, and orchestrator startup gate.
+- the single-user project-local runner service boundary, CLI client commands, and opt-in orchestrator startup gate.
 
 Still evolving:
 

@@ -48,8 +48,8 @@ check_exists "$PI_DIR/agent/mcp.json"
 if [ -x "$PI_DIR/agent/bin/agnt" ]; then
   "$PI_DIR/agent/bin/agnt" action validate >/dev/null
   "$PI_DIR/agent/bin/agnt" context-health --strict >/dev/null
-  "$PI_DIR/agent/bin/agnt" work audit --json >/dev/null
-  "$PI_DIR/agent/bin/agnt" work health --json --no-beads >/dev/null
+  # Runner/work health is an explicit orchestration check, not a prerequisite
+  # for validating the default direct Pi configuration.
   prompt_inventory=$(mktemp)
   "$PI_DIR/agent/bin/agnt" prompt inventory >"$prompt_inventory"
   python3 -m json.tool "$prompt_inventory" >/dev/null

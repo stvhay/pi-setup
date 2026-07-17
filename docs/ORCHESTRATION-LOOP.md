@@ -1,8 +1,8 @@
 # Orchestration Loop Decision
 
 **Date:** 2026-06-27
-**Updated:** 2026-07-09
-**Status:** Implemented as a Beads-first gated workflow with a project-local loopback runner service. The service is started or attached by `pi`/`agnt`; it is not a global daemon, launch agent, hook, or remote scheduler.
+**Updated:** 2026-07-17
+**Status:** Direct Pi coding is the default. The Beads-first gated workflow and project-local loopback runner remain implemented as explicit opt-in orchestration; the service is not started by a normal Pi session and is not a global daemon, launch agent, hook, or remote scheduler.
 
 ## Context
 
@@ -19,13 +19,15 @@ The repository now has the pieces needed for a production-safe Beads-first loop:
 - `agnt action` renders action semantics.
 - `agnt runs` creates, invokes, validates, and updates run artifacts.
 - `agnt work` plans, starts, runs, finishes, audits, checks health, manages the project-local runner service, and creates maintenance checkpoint Beads only through explicit commands.
-- The Pi orchestrator extension gates startup, narrows main-thread tools, attaches a service lease, displays status, and asks the service to drain on session shutdown.
+- When explicitly enabled with `--orchestrator-service` or `PI_ORCHESTRATOR_SERVICE=1`, the Pi orchestrator extension gates startup, narrows main-thread tools, attaches a service lease, and displays status.
 
 ## Decision
 
-Use a **gated command workflow** backed by a **project-local loopback runner service**. The service creates an architectural boundary between the orchestrator/client main thread and worker execution without installing host-level background infrastructure.
+Use **direct Pi coding as the default workflow**. Before any code edit, confirm that the task has a Bead; then inspect, edit, and verify directly in the current Pi session. Normal work does not require runner startup, startup safe-mode health, orchestrator-only tool narrowing, run artifacts, worktree-per-epic dispatch, or repeated Beads-backed approvals.
 
-Manual dispatch remains available and explicit:
+Preserve the **gated command workflow** and **project-local loopback runner service** as explicit options for delegated, scheduled, or unusually strict work. They create an architectural boundary between an orchestrator/client thread and worker execution without installing host-level background infrastructure.
+
+Manual artifact-backed dispatch remains available and explicit:
 
 ```bash
 bd ready
@@ -34,7 +36,7 @@ agnt work plan <bead-id> --action <action> --target <ref> --dry-run
 agnt work run <bead-id> --action <action> --target <ref> --claim --close-bead
 ```
 
-The service path is project-local and REST-mediated:
+The optional service path is project-local and REST-mediated. Start Pi with `--orchestrator-service` (or set `PI_ORCHESTRATOR_SERVICE=1`) if the TUI should attach to it:
 
 ```bash
 agnt doctor --profile orchestrator-startup --json
@@ -69,7 +71,9 @@ agnt work daemon stop --json --drain
 - `agnt work audit` checks that an empty queue is not hiding documented production-readiness or remaining-work signals.
 - `agnt approvals` creates Beads-backed human decision records; timeout, reject, or cancel states leave visible blockers.
 - Implementation dispatch requires approved metadata, write sets, closeout policy, and a clean non-main epic worktree.
-- The main Pi thread is orchestrator-only for durable work: status, planning, review, questions, approvals, and gateway operations are allowed; raw main-thread implementation paths are not the normal route.
+- Every code-changing task requires an existing Bead before edits begin.
+- Direct main-thread inspection, editing, and verification are the normal route.
+- Orchestrator-only tools, run closeout gates, and worktree policy apply only when that optional workflow is explicitly selected.
 - Remote/destructive git operations, deployments, hook installs, Beads deletion, Beads remote changes, and Dolt history rewrites still require explicit approval.
 
 ## Idempotency model
@@ -98,7 +102,7 @@ A failed worker run does not close the bead. The operator/agent should inspect `
 
 ## Runner service and maintenance cadence
 
-The runner service schedules ready work through the same validators and run artifacts as manual dispatch. It records worker sessions by default, respects pause/resume/drain state, refuses unsafe worktrees, creates durable blockers for invalid dispatch or enforced budget limits, prevents duplicate active bead dispatch, serializes overlapping implementation write sets, and can create due maintenance checkpoint Beads when the queue is idle.
+When explicitly started, the runner service schedules ready work through the same validators and run artifacts as manual dispatch. It records worker sessions by default, respects pause/resume/drain state, refuses unsafe worktrees, creates durable blockers for invalid dispatch or enforced budget limits, prevents duplicate active bead dispatch, serializes overlapping implementation write sets, and can create due maintenance checkpoint Beads when the queue is idle.
 
 Maintenance cadence is derived from durable signals: closed implementation beads, commits since the last maintenance checkpoint, failed/blocked runs, human blockers, context-health warnings, health warnings/failures, stale artifacts, and recorded session volume. Use:
 
@@ -111,6 +115,6 @@ agnt work maintenance create-beads --dry-run --json
 
 ## Service boundary rationale
 
-The service provides production-grade single-user separation without broad host lifecycle commitments. It is project-local, authenticated on loopback, and stores pid/port/token/state under `.pi/runner/`. This yields deterministic scheduling and status visibility while preserving explicit gates and avoiding hidden startup behavior outside Pi/agnt.
+The optional service provides production-grade single-user separation without broad host lifecycle commitments. It is project-local, authenticated on loopback, and stores pid/port/token/state under `.pi/runner/`. This yields deterministic scheduling and status visibility while preserving explicit gates and avoiding hidden startup behavior outside Pi/agnt.
 
 Remaining expansion areas are deliberate future work: production soak evidence, notification policy, richer remote dashboard support, multi-project views, remote daemon streaming, and stronger host lifecycle management. See [Project-Local Runner Service](RUNNER-SERVICE.md) for operator details.

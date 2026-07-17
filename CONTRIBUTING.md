@@ -4,10 +4,10 @@
 
 Every meaningful change follows this process:
 
-1. Use Beads (`bd`/`beads`) for persistent work tracking. Start with `bd ready`, inspect work with `bd show <id>`, and claim active work with `bd update <id> --claim`.
+1. Use Beads (`bd`/`beads`) for persistent work tracking. Every code-changing task must have a Bead before edits begin. Start with `bd ready`, inspect work with `bd show <id>`, and claim active work with `bd update <id> --claim`.
 2. Use `/skill:brainstorming` for non-trivial design choices.
 3. Use `/skill:writing-plans` to create an implementation plan under `.pi/plans/`.
-4. Implement in small, reviewable steps.
+4. Implement directly in the current Pi session by default, in small reviewable steps. Select runner/run-artifact orchestration explicitly only when it adds value.
 5. Use `/skill:verification-before-completion` before claiming done.
 6. Use `/skill:documentation-standards` to validate docs when behavior, APIs, architecture, or workflows change.
 7. Use `/skill:requesting-code-review` for non-trivial diffs.

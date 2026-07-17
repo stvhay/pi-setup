@@ -1,6 +1,6 @@
 # Pi Setup
 
-Pi Setup is configuration-as-code for a Pi coding-agent environment, plus an experimental orchestration layer called `agnt`.
+Pi Setup is configuration-as-code for a Pi coding-agent environment, plus an optional orchestration layer called `agnt`.
 
 The repository has two jobs:
 
@@ -32,12 +32,11 @@ tracked pi/ config ──deploy──▶ ~/.pi runtime
        ├── tasks / skills / roles / actions
        │          │
        │          ▼
-Beads work graph ──▶ agnt route/runs/work ──▶ project runner service ──▶ Pi worker runs
-       ▲                         │                    │                         │
-       │                         ▼                    ▼                         ▼
-       └──── approvals/blockers ◀ run artifacts ◀ service status/events ◀ results + evidence
-       ▲                         │
-       └──── maintenance beads ◀─ health + metrics + recorded sessions
+Bead required ──▶ direct Pi session ──▶ inspect / edit / test
+       │
+       └── explicit opt-in ──▶ agnt runs/work ──▶ project runner ──▶ Pi workers
+                                      │                  │               │
+                                      └──── run artifacts/status/evidence┘
 ```
 
 ## Choose your path
@@ -74,7 +73,7 @@ bd ready      # unblocked work
 bd show <id>  # inspect one bead
 ```
 
-Then follow [Contributing](CONTRIBUTING.md) for planning, verification, review, and branch-readiness expectations.
+Every code-changing task needs a Bead before edits begin. Work directly in the current Pi session by default, then follow [Contributing](CONTRIBUTING.md) for planning, verification, review, and branch-readiness expectations. Select `agnt work` or the project runner explicitly only when orchestration is useful.
 
 ### I want to understand or extend the agent system
 
@@ -98,7 +97,7 @@ Start with [The agnt System](docs/AGNT-SYSTEM.md). Then use the documentation ma
 
 ### Understand design decisions
 
-- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — why the current production path is a Beads-first gated workflow with a project-local loopback runner service, not a global host service.
+- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — why direct Pi coding is the default and the preserved Beads-first runner workflow is an explicit project-local option.
 - [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how metrics, health, Beads, and recorded sessions trigger maintenance while telemetry stays untracked.
 - [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) — design principles for context architecture, tasks, skills, roles, prompts, tools, artifacts, and evals.
 - [GitHub Adapter Decision](docs/GITHUB-ADAPTER.md) — why Beads remains canonical and GitHub issues are treated as a future adapter surface.
@@ -156,13 +155,18 @@ pi/agent/bin/agnt eval run role-context-smoke
 pi/agent/bin/agent-instructions --check
 pi/agent/bin/agnt action validate
 pi/agent/bin/agnt context-health --strict
+pi/agent/bin/agnt prompt inventory >/tmp/agnt-prompt-inventory.json
+python -m json.tool /tmp/agnt-prompt-inventory.json >/dev/null
+git diff --check
+```
+
+When the optional orchestration path is selected, also run its state checks:
+
+```bash
 pi/agent/bin/agnt work daemon status --json
 pi/agent/bin/agnt work runner status --json || true
 pi/agent/bin/agnt work health --json
 pi/agent/bin/agnt work maintenance due --json
-pi/agent/bin/agnt prompt inventory >/tmp/agnt-prompt-inventory.json
-python -m json.tool /tmp/agnt-prompt-inventory.json >/dev/null
-git diff --check
 ```
 
 Workflow compliance evals run real models:

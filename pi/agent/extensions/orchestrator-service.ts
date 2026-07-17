@@ -1,9 +1,8 @@
-// Project-local runner service orchestration for the main Pi thread.
+// Optional project-local runner service orchestration for Pi.
 //
-// This extension keeps the interactive Pi session in an orchestrator/client role:
-// it gates startup through `agnt doctor --profile orchestrator-startup`, narrows
-// active tools to safe orchestration surfaces, starts or attaches the project
-// runner service, and records/detaches its interactive client session on exit.
+// Normal Pi sessions retain direct coding tools and do not start or health-gate
+// the runner. Explicit `--orchestrator-service` or environment opt-in enables
+// the preserved orchestrator/client workflow and its restricted tool surface.
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -322,9 +321,19 @@ function enableRepairTools(pi: ExtensionAPI): void {
 	pi.setActiveTools(ORCHESTRATOR_REPAIR_TOOLS as unknown as string[]);
 }
 
+function getBooleanFlag(pi: ExtensionAPI, name: string): boolean {
+	const getFlag = (pi as unknown as { getFlag?: (flagName: string) => unknown }).getFlag;
+	return getFlag?.(name) === true;
+}
+
+function orchestrationEnabled(pi: ExtensionAPI): boolean {
+	return getBooleanFlag(pi, "orchestrator-service")
+		|| process.env.PI_ORCHESTRATOR_SERVICE === "1"
+		|| process.env.PI_ORCHESTRATOR_REPAIR_TOOLS === "1";
+}
+
 function repairToolsEnabled(pi: ExtensionAPI): boolean {
-	const getFlag = (pi as unknown as { getFlag?: (name: string) => unknown }).getFlag;
-	return getFlag?.("orchestrator-repair-tools") === true || process.env.PI_ORCHESTRATOR_REPAIR_TOOLS === "1";
+	return getBooleanFlag(pi, "orchestrator-repair-tools") || process.env.PI_ORCHESTRATOR_REPAIR_TOOLS === "1";
 }
 
 async function applyToolMode(pi: ExtensionAPI, ctx: ExtensionContext, state: SessionState): Promise<void> {
@@ -351,6 +360,12 @@ function startStatusPolling(ctx: ExtensionContext, state: SessionState): void {
 }
 
 export default function orchestratorService(pi: ExtensionAPI) {
+	pi.registerFlag("orchestrator-service", {
+		description: "Opt in to the project-local runner and orchestrator-only tool surface",
+		type: "boolean",
+		default: false,
+	});
+
 	pi.registerFlag("orchestrator-repair-tools", {
 		description: "Keep orchestrator-service running but enable write tools for temporary bootstrap repair",
 		type: "boolean",
@@ -360,6 +375,7 @@ export default function orchestratorService(pi: ExtensionAPI) {
 	const state: SessionState = { shutdownStarted: false, repairToolsActive: false };
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (!orchestrationEnabled(pi)) return;
 		state.shutdownStarted = false;
 		const startupAbort = new AbortController();
 		state.startupAbort = startupAbort;
@@ -393,6 +409,7 @@ export default function orchestratorService(pi: ExtensionAPI) {
 
 	// idempotent shutdown: Pi may emit shutdown during reload/session replacement/quit.
 	pi.on("session_shutdown", async (_event, ctx) => {
+		if (!orchestrationEnabled(pi)) return;
 		if (state.shutdownStarted) return;
 		state.shutdownStarted = true;
 		await abortStartup(state);
@@ -410,7 +427,7 @@ export default function orchestratorService(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("runner", {
-		description: "Refresh project runner service status or manage repair-tools mode",
+		description: "Inspect the optional project runner or manage explicit repair-tools mode",
 		handler: async (args, ctx) => {
 			const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
 			if (parts[0] === "repair-tools") {

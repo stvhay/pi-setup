@@ -158,7 +158,7 @@ agnt invoke --task review --risk-category medium --thinking-level default <selec
 
 - `agnt doctor [--json] [--strict] [--profile PROFILE] [--check CHECK ...] [--skip CHECK ...]`
   - Checks local Pi/agnt operational readiness: core binaries, Python, git root, Beads, Node LTS policy, provider env vars, and core config parsing.
-  - `--profile orchestrator-startup` adds the strict Pi startup gate used before background runner dispatch: `SEARXNG_URL` and a Beads workspace are required, provider env warnings are scoped to configured/enabled providers, and background dispatch is allowed only with zero failures and zero unacknowledged warnings.
+  - `--profile orchestrator-startup` adds the strict opt-in gate used before background runner dispatch: `SEARXNG_URL` and a Beads workspace are required, provider env warnings are scoped to configured/enabled providers, and background dispatch is allowed only with zero failures and zero unacknowledged warnings. Normal direct Pi sessions do not run this profile.
   - Reports JSON with check status, evidence, redacted env-var presence, acknowledged warnings, and suggested actions.
   - Non-secret intent acknowledgements may live in project `.pi/doctor-intent.json` or global `~/.pi/agent/doctor-intent.json`, for example `{ "intentionallyAbsentEnv": { "ANTHROPIC_API_KEY": "not used" } }`.
   - `--strict` exits nonzero when required checks fail; with `orchestrator-startup`, it also exits nonzero for unacknowledged warnings. The doctor is read-only and never edits shell startup files.

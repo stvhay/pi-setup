@@ -1,8 +1,10 @@
 # Invocation and Result Artifacts
 
-Pi agent work uses durable run artifacts for nontrivial delegated or scheduled
-work. Chat remains a UI; these files are the inspectable handoff between a work
-item, a worker, verification, and downstream work.
+Pi agent work may use durable run artifacts for delegated or scheduled work.
+They are optional in the default direct Pi workflow, where a Bead is required
+before code edits but a run bundle is not. When selected, these files are the
+inspectable handoff between a work item, a worker, verification, and downstream
+work.
 
 Runtime run bundles live under `.pi/runs/<run-id>/` and are gitignored by
 default. Curated examples may be documented elsewhere, but ordinary run records
@@ -167,7 +169,7 @@ agnt runs validate .pi/runs/<run-id> --require-followups-exist
 Use `--require-followups-exist` before treating follow-up refs as reconciled;
 it fails when any `result.yaml.followUps[]` id is not present in Beads.
 
-Run bead-backed work through the gated work surface:
+Optionally run bead-backed work through the gated work surface:
 
 ```bash
 agnt work run pi-e4t.1 \
@@ -199,7 +201,7 @@ agnt work finish .pi/runs/<run-id> \
 resolved approval/decision refs, and passing health/closeout checks. `agnt work
 run` combines start + invoke + optional close while preserving those gates.
 
-Run the same dispatch path through the project-local service:
+Explicitly start the optional project-local service to run the same dispatch path:
 
 ```bash
 agnt work daemon start --json --concurrency 1

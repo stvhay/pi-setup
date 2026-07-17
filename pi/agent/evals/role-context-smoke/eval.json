@@ -12,7 +12,7 @@
     {
       "name": "implementation-worker-role",
       "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-5.6-luna"],
-      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "Archimedes/Pi todos are transient projections", "main Pi thread is orchestrator-only", "Durable implementation should go through Beads plus the project-local runner service", "# Project Instructions"]
+      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "Every code-changing task requires a Bead before edits begin", "Pi sessions work directly by default", "runner, ticket gateway, run artifacts, and worktree-per-epic dispatch remain available as optional orchestration tools", "# Project Instructions"]
     },
     {
       "name": "verifier-role",
