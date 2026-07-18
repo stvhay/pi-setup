@@ -187,4 +187,7 @@ Do not track runtime secrets, sessions, caches, onboarding state, trust state, A
 - `agent/sessions/`
 - `agent/mcp-cache.json`
 - `agent/mcp-onboarding.json`
+- `agent/models-store.json`
 - `agent/trust.json`
+
+The deploy helper also carries Pi's `lastChangelogVersion` marker forward while replacing the rest of `agent/settings.json` from tracked configuration.

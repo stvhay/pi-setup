@@ -75,4 +75,7 @@ Do not commit credentials, sessions, caches, trust state, onboarding state, API 
 - `agent/sessions/`
 - `agent/mcp-cache.json`
 - `agent/mcp-onboarding.json`
+- `agent/models-store.json`
 - `agent/trust.json`
+
+Deployment preserves Pi's runtime-managed `lastChangelogVersion` marker while replacing the remaining settings from tracked `agent/settings.json`.

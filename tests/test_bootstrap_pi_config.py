@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -45,3 +46,43 @@ def test_bootstrap_refuses_non_pi_basename_before_creating_parent(tmp_path):
     assert "destination basename must be .pi" in proc.stderr
     assert not dest.exists()
     assert not dest.parent.exists()
+
+
+def test_bootstrap_preserves_pi_managed_mutable_state(tmp_path):
+    dest = tmp_path / ".pi"
+    agent = dest / "agent"
+    agent.mkdir(parents=True)
+    runtime_settings = {
+        "lastChangelogVersion": "99.0.0",
+        "runtimeOnly": "must not survive",
+    }
+    (agent / "settings.json").write_text(json.dumps(runtime_settings), encoding="utf-8")
+    models_store = '{"openrouter":{"models":[{"id":"cached-model"}]}}\n'
+    (agent / "models-store.json").write_text(models_store, encoding="utf-8")
+
+    proc = run_bootstrap(dest, "--apply")
+
+    assert proc.returncode == 0, proc.stderr
+    deployed_settings = json.loads((agent / "settings.json").read_text(encoding="utf-8"))
+    source_settings = json.loads(
+        (ROOT / "pi" / "agent" / "settings.json").read_text(encoding="utf-8")
+    )
+    assert deployed_settings["lastChangelogVersion"] == "99.0.0"
+    assert deployed_settings["packages"] == source_settings["packages"]
+    assert "runtimeOnly" not in deployed_settings
+    assert (agent / "models-store.json").read_text(encoding="utf-8") == models_store
+
+
+def test_bootstrap_dry_run_excludes_models_store(tmp_path):
+    proc = run_bootstrap(tmp_path / ".pi")
+
+    assert proc.returncode == 0, proc.stderr
+    assert "--exclude=agent/models-store.json" in proc.stdout
+
+
+def test_tracked_settings_omit_pi_managed_changelog_version():
+    settings = json.loads(
+        (ROOT / "pi" / "agent" / "settings.json").read_text(encoding="utf-8")
+    )
+
+    assert "lastChangelogVersion" not in settings
