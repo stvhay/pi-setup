@@ -19,6 +19,8 @@ The deploy helper preserves runtime secrets/state and installs helper commands i
 agnt --help
 ```
 
+Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes the pinned `@mariozechner/clipboard` native addon required by the Archimedes image-paste extension.
+
 Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, verify them, then deploy.
 
 ## Contents
