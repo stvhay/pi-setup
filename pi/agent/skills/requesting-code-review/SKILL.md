@@ -28,8 +28,10 @@ Use `agnt route --task review --risk <level> --budget <cheap|balanced|quality>` 
 - **Small/fast second perspective:** `olla-local/gemma4:e4b` when available.
 - **Reasoning reviewer when useful:** `olla-local/deepseek-r1:14b` or `openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b` for tricky logic/security/root-cause reviews.
 - **Cheap cloud tie-breaker when useful:** `olla-cloud/gpt-4.1-mini` for external diversity or disagreement.
+- **Coding-focused independent reviewer:** `olla-cloud/kimi-k2.7-code` for ordinary GPT-authored changes.
+- **Frontier independent reviewer:** `olla-cloud/kimi-k3` at max effort for high-risk, repository-scale, visual, or cross-domain changes.
 
-Prefer local models when fast enough; prefer OpenRouter localish equivalents when they are materially faster or local models are unavailable. Do not run every reviewer every time. Use 2 peers for small diffs, 3-4 for substantial/risky diffs.
+Prefer reviewer independence from the authoring model family over diversity for its own sake. Use GPT-5.6 Sol for Kimi-authored changes; use Kimi K2.7 Code for medium-risk GPT-authored changes; and pair GPT-5.6 Sol with Kimi K3 for high-risk changes. For low-risk work, one cheap/local reviewer is enough. Prefer local models when fast enough and use OpenRouter localish equivalents when materially faster or local models are unavailable. Do not run every reviewer every time. Opportunistically include Kimi in real reviews and annotate its outcomes, but do not create synthetic review work solely to generate metrics.
 
 ## Inputs
 
@@ -84,7 +86,7 @@ A reusable template remains at `code-reviewer.md`, but the role package is the s
 
 ## Small/local review
 
-For small diffs, run two local/near-local reviewers:
+For low-risk diffs, one local/near-local reviewer is sufficient. Add a second reviewer when the change is medium-risk or an independent family would materially reduce correlated blind spots:
 
 ```bash
 mkdir -p .pi/reviews/current
@@ -95,25 +97,22 @@ Review scope: local working-tree diff.
 Diff artifacts: .pi/reviews/current/diff.patch if present.
 EOF
 )"
-~/.pi/agent/bin/agnt invoke openrouter-localish/google/gemma-4-31b-it "$PROMPT" > .pi/reviews/current/gemma4-31b.md &
-~/.pi/agent/bin/agnt invoke openrouter-localish/qwen/qwen3.5-9b "$PROMPT" > .pi/reviews/current/qwen3-9b.md &
-wait
+~/.pi/agent/bin/agnt invoke openrouter-localish/google/gemma-4-31b-it "$PROMPT" > .pi/reviews/current/gemma4-31b.md
 ```
 
-If OpenRouter is unavailable, use `ollama/gemma4:31b` plus `olla-local/qwen3:8b` or `olla-local/gemma4:e4b`.
+For medium-risk GPT-authored changes, add `olla-cloud/kimi-k2.7-code`; for Kimi-authored changes, add `openai-codex/gpt-5.6-sol`. If OpenRouter is unavailable, use `ollama/gemma4:31b`, `olla-local/qwen3:8b`, or `olla-local/gemma4:e4b`.
 
 ## Larger/riskier review
 
-For larger or riskier diffs, use fan-out:
+For larger or riskier diffs, use fan-out. Ensure at least one reviewer family differs from the author; for high-risk work, include both GPT-5.6 Sol and Kimi K3 when available, then add cheap/local perspectives as useful:
 
 ```bash
 printf '%s\n' "<generated code-reviewer role context plus exact diff artifact paths>" > .pi/reviews/<topic>/prompt.md
 ~/.pi/agent/bin/agnt invoke --fanout \
   -o .pi/reviews/<topic> \
-  openrouter-localish/google/gemma-4-31b-it .pi/reviews/<topic>/prompt.md \
-  openrouter-localish/qwen/qwen3.5-9b .pi/reviews/<topic>/prompt.md \
-  openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b .pi/reviews/<topic>/prompt.md \
-  olla-cloud/gpt-4.1-mini .pi/reviews/<topic>/prompt.md
+  openai-codex/gpt-5.6-sol .pi/reviews/<topic>/prompt.md \
+  olla-cloud/kimi-k3 .pi/reviews/<topic>/prompt.md \
+  openrouter-localish/google/gemma-4-31b-it .pi/reviews/<topic>/prompt.md
 ```
 
 For tricky algorithmic/security issues, add:

@@ -14,4 +14,4 @@ qualified:
   - olla-cloud/gemini-flash
 ---
 
-Use several cheap/local reviewers, then verify findings against files and tests before acting. Kimi K2.7 Code adds a coding-focused review perspective; Kimi K3 is reserved for repository-scale, visual, or cross-domain review.
+Prefer reviewer independence from the authoring model family over diversity for its own sake, then verify findings against files and tests before acting. For low-risk work, one cheap/local reviewer is enough. For medium-risk work, add a reviewer from a different family than the author: normally Kimi K2.7 Code for GPT-authored code, or GPT-5.6 Sol for Kimi-authored code. For high-risk, repository-scale, visual, or cross-domain work, use GPT-5.6 Sol and Kimi K3, optionally with a cheap/local reviewer. Opportunistically include Kimi in real reviews and annotate outcomes so routing accumulates evidence; do not create synthetic review work solely to generate metrics.
