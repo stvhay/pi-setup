@@ -112,6 +112,22 @@ if [ -e "$DEST/.git" ]; then
   run mv "$DEST/.git" "$backup"
 fi
 
+# Preserve the Pi-managed changelog marker while replacing the rest of the
+# repository-managed settings file. The temporary copy is mode 0600 and is
+# removed on exit.
+RUNTIME_SETTINGS_BACKUP=
+cleanup() {
+  if [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
+    rm -f "$RUNTIME_SETTINGS_BACKUP"
+  fi
+}
+trap cleanup EXIT
+
+if [ "$MODE" = apply ] && [ -f "$DEST/agent/settings.json" ]; then
+  RUNTIME_SETTINGS_BACKUP=$(mktemp "${TMPDIR:-/tmp}/pi-settings.XXXXXX")
+  cp "$DEST/agent/settings.json" "$RUNTIME_SETTINGS_BACKUP"
+fi
+
 # Preserve runtime secrets/state and project-local caches while deleting stale
 # managed files. Excluded paths are not deleted by rsync --delete.
 RSYNC_EXCLUDES=(
@@ -123,6 +139,7 @@ RSYNC_EXCLUDES=(
   --exclude='agent/git/'
   --exclude='agent/mcp-cache.json'
   --exclude='agent/mcp-onboarding.json'
+  --exclude='agent/models-store.json'
   --exclude='agent/trust.json'
   --exclude='.pi/'
   --exclude='metrics/'
@@ -137,6 +154,38 @@ RSYNC_EXCLUDES=(
 )
 
 run rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+
+if [ "$MODE" = apply ] && [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
+  python3 - "$RUNTIME_SETTINGS_BACKUP" "$DEST/agent/settings.json" <<'PY'
+import json
+import os
+import pathlib
+import sys
+import tempfile
+
+runtime_path = pathlib.Path(sys.argv[1])
+deployed_path = pathlib.Path(sys.argv[2])
+runtime_settings = json.loads(runtime_path.read_text(encoding="utf-8"))
+if "lastChangelogVersion" in runtime_settings:
+    deployed_settings = json.loads(deployed_path.read_text(encoding="utf-8"))
+    deployed_settings["lastChangelogVersion"] = runtime_settings["lastChangelogVersion"]
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=deployed_path.parent,
+        prefix=f".{deployed_path.name}.",
+        delete=False,
+    ) as output:
+        json.dump(deployed_settings, output, indent=2)
+        output.write("\n")
+        temporary_path = pathlib.Path(output.name)
+    temporary_path.chmod(deployed_path.stat().st_mode)
+    os.replace(temporary_path, deployed_path)
+PY
+elif [ "$MODE" = dry-run ] && [ -f "$DEST/agent/settings.json" ]; then
+  echo "DRY-RUN: preserve Pi-managed lastChangelogVersion in $DEST/agent/settings.json"
+fi
+
 run touch "$DEST/.managed-by-pi-setup"
 
 echo "Done. Verify with: PI_CONFIG_DIR=$DEST scripts/check-pi-config.sh"
