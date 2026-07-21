@@ -626,6 +626,19 @@ def test_select_model_returns_risk_specific_review_policy_without_automatic_k3(a
     assert "--one-shot" in result["invokeExample"]
 
 
+def test_select_model_review_cheap_prefers_active_policy_without_metrics(agnt):
+    with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
+        result = agnt.select_model(
+            "review",
+            risk="medium",
+            budget="cheap",
+            local_ok=True,
+            paid_review_spend_usd=0.0,
+        )
+
+    assert result["selected"] == "openrouter-localish/google/gemma-4-31b-it"
+
+
 def test_select_model_review_hard_cap_forces_local_fallback(agnt):
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
         result = agnt.select_model(

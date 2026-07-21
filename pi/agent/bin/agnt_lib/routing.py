@@ -194,6 +194,7 @@ def route_metric_stats() -> Dict[str, Dict[str, int]]:
 
 
 ROUTE_DEMOTION_MIN_INVOCATIONS = 5
+REVIEW_POLICY_TIER_WEIGHT = 6_000
 
 
 def choose_thinking_level(risk: str, budget: str, target: str, model_info: Dict[str, Any]) -> str:
@@ -257,6 +258,9 @@ def score_candidate(
     if risk == "high" and task in {"orchestration", "implementation", "frontier-advisor"}:
         policy_score = (0 if preferred else 1_000) + base_rank
         policy_reason = "high-risk preferred ordering"
+    elif task == "review" and budget == "cheap":
+        policy_score = (0 if preferred else REVIEW_POLICY_TIER_WEIGHT) + cost_key[0] * 1_000 + base_rank
+        policy_reason = "review policy then cheap cost-class ordering"
     elif budget in {"cheap", "quality"}:
         policy_score = cost_key[0] * 1_000 + base_rank
         policy_reason = f"{budget} budget cost-class ordering"
