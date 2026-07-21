@@ -171,6 +171,60 @@ def test_invoke_one_reports_timeout(agnt, monkeypatch):
     assert record is None
 
 
+def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(agnt, monkeypatch):
+    calls = []
+
+    class Proc:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "reviewed"}],
+                    "usage": {
+                        "input": 100,
+                        "output": 20,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                        "totalTokens": 120,
+                    },
+                },
+            }
+        )
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return Proc()
+
+    monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
+
+    code, out, err, record = agnt.invoke_one(
+        "openrouter-localish/google/gemma-4-31b-it",
+        "complete review packet",
+        metrics=True,
+        task="review",
+        one_shot=True,
+    )
+
+    assert code == 0
+    assert out == "reviewed"
+    assert err == ""
+    assert record["invocationMode"] == "one-shot"
+    assert record["providerRequests"] == 1
+    cmd, _kwargs = calls[0]
+    for flag in (
+        "--no-tools",
+        "--no-skills",
+        "--no-context-files",
+        "--no-prompt-templates",
+        "--no-session",
+    ):
+        assert flag in cmd
+    assert cmd[cmd.index("--system-prompt") + 1]
+
+
 def test_invoke_one_can_record_named_session(agnt, monkeypatch, tmp_path):
     calls = []
 

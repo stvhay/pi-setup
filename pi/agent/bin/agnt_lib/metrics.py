@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Tuple
 import _agnt_common as common
 
 from .core import ROOT, VALID_OUTCOMES, capture, die, split_target
+from .review import load_review_document, review_annotation_fields
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -168,6 +169,25 @@ def estimate_tokens(text: str) -> int:
     return max(1, (len(text) + 3) // 4) if text else 0
 
 
+def empty_review_finding_stats() -> Dict[str, Any]:
+    return {
+        "total": 0,
+        "unverified": 0,
+        "confirmed": 0,
+        "refuted": 0,
+        "unresolved": 0,
+        "bySeverity": {},
+    }
+
+
+def add_review_finding_stats(total: Dict[str, Any], value: Dict[str, Any]) -> None:
+    for key in ("total", "unverified", "confirmed", "refuted", "unresolved"):
+        total[key] += int(value.get(key) or 0)
+    severities = value.get("bySeverity") if isinstance(value.get("bySeverity"), dict) else {}
+    for severity, count in severities.items():
+        total["bySeverity"][str(severity)] = int(total["bySeverity"].get(str(severity)) or 0) + int(count or 0)
+
+
 def record_id(started_at: str, target: str, task: str | None) -> str:
     raw = f"{started_at}|{target}|{task or ''}"
     import hashlib
@@ -192,6 +212,7 @@ def metrics_record(
     outcome: str = "unknown",
     human_override: bool = False,
     fallback_used: bool = False,
+    invocation_mode: str = "agentic",
 ) -> Dict[str, Any]:
     provider, model = split_target(target)
     usage = apply_assumed_cost(usage, target, elapsed_ms)
@@ -207,6 +228,8 @@ def metrics_record(
         "family": common.family_for_target(target),
         "riskCategory": risk_category,
         "thinkingLevel": thinking_level,
+        "invocationMode": invocation_mode,
+        "providerRequests": int(usage.get("providerRequests") or 0) if isinstance(usage, dict) else 0,
         "contextChars": len(prompt),
         "estimatedInputTokens": estimate_tokens(prompt),
         "outcome": outcome,
@@ -290,7 +313,18 @@ def annotation_matches(record: Dict[str, Any], annotation: Dict[str, Any]) -> bo
 
 
 def apply_annotations(records: List[Dict[str, Any]], annotations: List[Dict[str, Any]]) -> None:
-    mutable_fields = {"outcome", "humanOverride", "fallbackUsed", "riskCategory", "thinkingLevel", "notes"}
+    mutable_fields = {
+        "outcome",
+        "humanOverride",
+        "fallbackUsed",
+        "riskCategory",
+        "thinkingLevel",
+        "notes",
+        "reviewId",
+        "reviewScope",
+        "reviewFindings",
+        "reviewFindingStats",
+    }
     for record in records:
         applied: List[Dict[str, Any]] = []
         for annotation in annotations:
@@ -351,6 +385,8 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     outcome_counts: Dict[str, int] = {}
     risk_counts: Dict[str, int] = {}
     thinking_counts: Dict[str, int] = {}
+    review_scope_counts: Dict[str, int] = {}
+    review_finding_counts = empty_review_finding_stats()
     benchmark_counts: Dict[str, int] = {}
     kind_counts: Dict[str, int] = {}
     human_overrides = 0
@@ -382,6 +418,13 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         if thinking:
             thinking_key = str(thinking)
             thinking_counts[thinking_key] = thinking_counts.get(thinking_key, 0) + 1
+        review_scope = record.get("reviewScope")
+        if review_scope:
+            scope_key = str(review_scope)
+            review_scope_counts[scope_key] = review_scope_counts.get(scope_key, 0) + 1
+        review_stats = record.get("reviewFindingStats")
+        if isinstance(review_stats, dict):
+            add_review_finding_stats(review_finding_counts, review_stats)
         if record.get("humanOverride"):
             human_overrides += 1
         if record.get("fallbackUsed"):
@@ -406,11 +449,24 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                 else:
                     verification["failed"] += 1
         for bucket, key in ((by_model, target), (by_task, task)):
-            item = bucket.setdefault(key, {"invocations": 0, "elapsedMs": 0, "responseChars": 0, "stderrChars": 0, "usage": empty_usage(), "usageSeen": False})
+            item = bucket.setdefault(
+                key,
+                {
+                    "invocations": 0,
+                    "elapsedMs": 0,
+                    "responseChars": 0,
+                    "stderrChars": 0,
+                    "usage": empty_usage(),
+                    "usageSeen": False,
+                    "reviewFindings": empty_review_finding_stats(),
+                },
+            )
             item["invocations"] += 1
             item["elapsedMs"] += elapsed
             item["responseChars"] += response_chars
             item["stderrChars"] += stderr_chars
+            if isinstance(review_stats, dict):
+                add_review_finding_stats(item["reviewFindings"], review_stats)
             usage = record.get("usage")
             if isinstance(usage, dict):
                 add_usage(item["usage"], usage)
@@ -419,6 +475,12 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         for item in bucket.values():
             if not item.pop("usageSeen"):
                 item["usage"] = None
+            usage = item.get("usage")
+            cost = float(((usage or {}).get("cost") or {}).get("total") or 0.0)
+            confirmed = int(item["reviewFindings"].get("confirmed") or 0)
+            item["confirmedFindingsPerUsd"] = confirmed / cost if cost > 0 else None
+            item["reviewFindings"]["bySeverity"] = dict(sorted(item["reviewFindings"]["bySeverity"].items()))
+    review_finding_counts["bySeverity"] = dict(sorted(review_finding_counts["bySeverity"].items()))
     return {
         "invocations": len(records),
         "elapsedMs": sum(int(record.get("elapsedMs") or 0) for record in records),
@@ -429,6 +491,8 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "outcomes": outcome_counts,
         "riskCategories": risk_counts,
         "thinkingLevels": thinking_counts,
+        "reviewScopes": review_scope_counts,
+        "reviewFindings": review_finding_counts,
         "humanOverrides": human_overrides,
         "fallbackUses": fallback_uses,
         "contextChars": context_chars,
@@ -460,12 +524,18 @@ def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "task": record.get("task"),
         "riskCategory": record.get("riskCategory"),
         "thinkingLevel": record.get("thinkingLevel"),
+        "invocationMode": record.get("invocationMode"),
+        "providerRequests": record.get("providerRequests"),
         "contextChars": record.get("contextChars"),
         "estimatedInputTokens": record.get("estimatedInputTokens"),
         "outcome": record.get("outcome"),
         "humanOverride": record.get("humanOverride"),
         "fallbackUsed": record.get("fallbackUsed"),
         "annotations": record.get("annotations"),
+        "reviewId": record.get("reviewId"),
+        "reviewScope": record.get("reviewScope"),
+        "reviewFindings": record.get("reviewFindings"),
+        "reviewFindingStats": record.get("reviewFindingStats"),
         "provider": record.get("provider"),
         "model": record.get("model"),
         "target": record.get("target"),
@@ -715,6 +785,7 @@ def cmd_metrics(argv: List[str]) -> int:
         p.add_argument("--fallback-used", action="store_true")
         p.add_argument("--no-fallback-used", action="store_true")
         p.add_argument("--notes")
+        p.add_argument("--findings-file", help="validated structured review findings JSON")
         args = p.parse_args(rest)
         metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
         record, source_file, warnings = resolve_metric_selector(args.selector, metrics_dir)
@@ -749,6 +820,20 @@ def cmd_metrics(argv: List[str]) -> int:
             annotation["fallbackUsed"] = False
         if args.notes is not None:
             annotation["notes"] = args.notes
+        if args.findings_file is not None:
+            try:
+                document = load_review_document(args.findings_file)
+                annotation.update(
+                    review_annotation_fields(
+                        document,
+                        expected_record_id=str(record.get("recordId") or "") or None,
+                        expected_target=str(record.get("target") or "") or None,
+                        expected_family=str(record.get("family") or "") or None,
+                    )
+                )
+            except ValueError as exc:
+                print(f"agnt metrics: {exc}", file=sys.stderr)
+                return 1
         if len(annotation) <= 4:
             p.error("provide at least one annotation field")
         annotations_file = Path(args.annotations_file) if args.annotations_file else default_annotations_file()

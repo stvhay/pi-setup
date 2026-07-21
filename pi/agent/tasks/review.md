@@ -3,15 +3,34 @@ id: review
 summary: Independent code, design, or plan review with model diversity.
 preferred:
   - openrouter-localish/google/gemma-4-31b-it
-  - openrouter-localish/qwen/qwen3.5-9b
+  - openrouter-localish/deepseek/deepseek-v4-flash
   - ollama/gemma4:31b
-  - olla-local/qwen3:8b
 qualified:
-  - openai-codex/gpt-5.6-sol
   - olla-cloud/kimi-k2.7-code
-  - olla-cloud/kimi-k3
+  - openai-codex/gpt-5.6-sol
+  - openrouter-localish/qwen/qwen3.5-9b
+  - olla-local/qwen3:8b
   - olla-cloud/gpt-4.1-mini
   - olla-cloud/gemini-flash
+reviewLow:
+  - openrouter-localish/google/gemma-4-31b-it
+reviewMedium:
+  - openrouter-localish/google/gemma-4-31b-it
+  - olla-cloud/kimi-k2.7-code
+reviewHigh:
+  - openrouter-localish/google/gemma-4-31b-it
+  - olla-cloud/kimi-k2.7-code
+  - openrouter-localish/deepseek/deepseek-v4-flash
+reserveReview:
+  - ollama/gemma4:31b
+  - openrouter-localish/deepseek/deepseek-v4-flash
+hardCapReview:
+  - ollama/gemma4:31b
+escalationTarget: olla-cloud/kimi-k3
 ---
 
-Prefer reviewer independence from the authoring model family over diversity for its own sake, then verify findings against files and tests before acting. For low-risk work, one cheap/local reviewer is enough. For medium-risk work, add a reviewer from a different family than the author: normally Kimi K2.7 Code for GPT-authored code, or GPT-5.6 Sol for Kimi-authored code. For high-risk, repository-scale, visual, or cross-domain work, use GPT-5.6 Sol and Kimi K3, optionally with a cheap/local reviewer. Opportunistically include Kimi in real reviews and annotate outcomes so routing accumulates evidence; do not create synthetic review work solely to generate metrics.
+Prefer reviewer independence from the authoring model family, then verify findings against files, tests, specifications, or profiling before acting. Run discovery peers as cold one-shot reviews with complete embedded packets; model confidence never triggers escalation.
+
+OpenRouter Gemma 4 31B is the fast cheap default, with local Gemma as the zero-marginal-cost fallback and control. Medium-risk GPT-authored work adds one scoped Kimi K2.7 Code pass. High-risk work adds DeepSeek V4 Flash as a cheap independent boundary reviewer. Kimi K3 is not an automatic review candidate: use it only for a concrete unresolved critical finding after fresh adversarial verification and a budget check.
+
+Review spend uses deterministic monthly gates. Below the reserve threshold, use the risk-specific sets above. At the reserve threshold, remove Kimi and prefer local Gemma plus DeepSeek. At the hard cap, use only local Gemma and surface the exhausted paid budget. Annotate real review and verification outcomes so routing accumulates evidence; do not manufacture review work solely to generate metrics.

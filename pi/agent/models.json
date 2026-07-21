@@ -53,6 +53,15 @@
           "cost": { "input": 0.10, "output": 0.32, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
+          "id": "deepseek/deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash via OpenRouter",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 1048576,
+          "maxTokens": 131072,
+          "cost": { "input": 0.0938, "output": 0.1876, "cacheRead": 0.01876, "cacheWrite": 0 }
+        },
+        {
           "id": "deepseek/deepseek-r1-distill-qwen-32b",
           "name": "DeepSeek R1 Distill Qwen 32B via OpenRouter",
           "reasoning": true,

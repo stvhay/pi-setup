@@ -133,10 +133,12 @@
       ]
     },
     "kimi-k2.7-code": {
+      "openrouterRates": {"input": 0.82, "output": 3.75},
       "venues": [
         {
           "target": "olla-cloud/kimi-k2.7-code",
           "costClass": "balanced",
+          "billingClass": "metered",
           "reasoning": true,
           "thinkingLevelMap": {"off": null},
           "input": ["text", "image"],
@@ -146,10 +148,12 @@
       ]
     },
     "kimi-k3": {
+      "openrouterRates": {"input": 3.0, "output": 15.0},
       "venues": [
         {
           "target": "olla-cloud/kimi-k3",
           "costClass": "frontier",
+          "billingClass": "metered",
           "reasoning": true,
           "thinkingLevelMap": {
             "off": null,
@@ -226,6 +230,17 @@
           "equivalence": "approximate-family",
           "input": ["text"],
           "contextWindow": 262144
+        }
+      ]
+    },
+    "deepseek-v4-flash": {
+      "venues": [
+        {
+          "target": "openrouter-localish/deepseek/deepseek-v4-flash",
+          "costClass": "cheap",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 1048576
         }
       ]
     },

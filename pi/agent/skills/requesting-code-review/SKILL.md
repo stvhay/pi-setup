@@ -1,11 +1,11 @@
 ---
 name: requesting-code-review
-description: Use when completing tasks, implementing major features, before merging, or reviewing a diff/PR. Runs model-diverse Pi peer reviews with emphasis on local models such as gemma4 and qwen, then synthesizes actionable findings.
+description: Use when completing tasks, implementing major features, before merging, or reviewing a diff/PR. Runs cold, cost-bounded, model-diverse review and verifies concrete findings against executable evidence.
 ---
 
 # Requesting Code Review
 
-Request a model-diverse review of local changes or a PR. Prefer concrete diffs and filesystem paths over pasted context.
+Run model-diverse review without turning every reviewer into a long autonomous tool loop. Discovery peers receive complete embedded packets in cold one-shot calls; fresh verifiers inspect serious findings against the actual repository and tests.
 
 At start, read shared conventions if needed:
 
@@ -13,187 +13,209 @@ At start, read shared conventions if needed:
 ~/.pi/agent/skills/dev-workflow-common/SKILL.md
 ```
 
-## Core idea
+## Non-negotiable rules
 
-Use multiple reviewers with different failure modes. Generate reviewer prompt context from the shared role package instead of duplicating reviewer instructions in this skill:
+- Treat findings as hypotheses, not instructions.
+- Do not use reviewer confidence, `NOT_SURE`, or reviewer consensus as an escalation trigger.
+- Require a concrete location, violated behavior/invariant, failure scenario, and evidence.
+- Verify Critical and Important findings against code plus a focused test, reproducer, specification, or profile.
+- Use profiling for performance claims.
+- Keep cloud packets free of secrets, credentials, private customer data, and unrelated proprietary context.
+- Kimi K3 is never an automatic review target.
+
+## Models and measured cost policy
+
+Use `agnt route --task review` rather than inventing a fanout. Review task policy currently uses:
+
+- **Fast cheap default:** `openrouter-localish/google/gemma-4-31b-it`.
+- **Zero-marginal fallback/control:** `ollama/gemma4:31b`.
+- **Coding-focused independent reviewer:** `olla-cloud/kimi-k2.7-code`, scoped and one-shot.
+- **Cheap challenger/boundary reviewer:** `openrouter-localish/deepseek/deepseek-v4-flash`.
+- **Manual unresolved-critical escalation only:** `olla-cloud/kimi-k3`.
+
+Local repository evidence for OpenRouter Gemma is 43 invocations, $0.232 provider-reported total cost, 52-second median latency. Treat this as a local operating observation, not a universal benchmark. Gemma remains a diverse default; DeepSeek is measured as a challenger because code-generation benchmarks do not establish code-review quality.
+
+`agnt route` measures month-to-date marginal review spend from OpenRouter plus catalog venues marked `billingClass: metered`; it excludes local compute and subscription-backed GPT opportunity cost. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
 
 ```bash
-~/.pi/agent/bin/agnt instructions --role code-reviewer --context provider/model
+agnt route --task review --risk medium --budget balanced \
+  --fanout-size 3 --monthly-paid-spend 7.40
 ```
 
-Use `agnt route --task review --risk <level> --budget <cheap|balanced|quality>` to select candidates, or use these curated defaults:
+Budget states:
 
-- **Large reviewer:** `ollama/gemma4:31b` or faster `openrouter-localish/google/gemma-4-31b-it`.
-- **Fast pragmatic reviewer:** `olla-local/qwen3:8b` or faster `openrouter-localish/qwen/qwen3.5-9b`.
-- **Small/fast second perspective:** `olla-local/gemma4:e4b` when available.
-- **Reasoning reviewer when useful:** `olla-local/deepseek-r1:14b` or `openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b` for tricky logic/security/root-cause reviews.
-- **Cheap cloud tie-breaker when useful:** `olla-cloud/gpt-4.1-mini` for external diversity or disagreement.
-- **Coding-focused independent reviewer:** `olla-cloud/kimi-k2.7-code` for ordinary GPT-authored changes.
-- **Frontier independent reviewer:** `olla-cloud/kimi-k3` at max effort for high-risk, repository-scale, visual, or cross-domain changes.
+- **Below $12:** normal risk policy; challenger sampling is allowed.
+- **$12–$17.99:** stop optional shadow sampling.
+- **$18–$19.99:** reserve mode; remove Kimi and use local Gemma plus DeepSeek as risk requires.
+- **$20 or more:** hard cap; route only to local Gemma and report paid-budget exhaustion.
 
-Prefer reviewer independence from the authoring model family over diversity for its own sake. Use GPT-5.6 Sol for Kimi-authored changes; use Kimi K2.7 Code for medium-risk GPT-authored changes; and pair GPT-5.6 Sol with Kimi K3 for high-risk changes. For low-risk work, one cheap/local reviewer is enough. Prefer local models when fast enough and use OpenRouter localish equivalents when materially faster or local models are unavailable. Do not run every reviewer every time. Opportunistically include Kimi in real reviews and annotate its outcomes, but do not create synthetic review work solely to generate metrics.
+Set a provider-side cap as a backstop when the provider supports one.
 
-## Inputs
+## Determine scope and risk
 
-Determine review scope:
-
-1. If user gives a PR number, inspect it with `gh pr view <N>` and `gh pr diff <N>` if available.
-2. Else review local changes:
-   ```bash
-   git status --short
-   git diff --stat
-   git diff
-   ```
-3. If no working-tree diff exists, review the most recent commit or a requested range:
-   ```bash
-   git show --stat --oneline HEAD
-   git show HEAD
-   ```
-
-For large diffs, write artifacts instead of pasting huge text:
+Inspect a PR, working tree, or requested range:
 
 ```bash
-mkdir -p .pi/reviews
-ReviewDir=.pi/reviews/$(date +%Y%m%d-%H%M%S)
+git status --short
+git diff --stat
+git diff
+```
+
+If no working-tree diff exists, use the requested range or `git show HEAD`.
+
+Classify risk from observable change facts before asking a model. High-risk triggers include:
+
+- authentication, authorization, credentials, cryptography, or remote execution;
+- billing, money, destructive data changes, migrations, backups, or persistence;
+- concurrency, distributed state, retries, idempotency, or state machines;
+- public APIs, protocols, schemas, installers, deployment, or user-environment mutation;
+- changed behavior without focused tests; or
+- a behavior segment too coupled to keep below roughly 150 changed lines.
+
+Large line count is first a segmentation trigger, not proof that a frontier model is needed.
+
+## Build complete behavior packets
+
+Create one review directory:
+
+```bash
+ReviewId=$(date +%Y%m%d-%H%M%S)
+ReviewDir=.pi/reviews/$ReviewId
 mkdir -p "$ReviewDir"
+git status --short > "$ReviewDir/status.txt"
 git diff --stat > "$ReviewDir/diffstat.txt"
 git diff > "$ReviewDir/diff.patch"
-git status --short > "$ReviewDir/status.txt"
 ```
 
-If `graphify-out/graph.json` exists, also generate structural impact context: small local peers will not reliably query the graph themselves, so run the queries here and ship the result as an artifact. For each significant changed function/file (use short keyword labels):
+Segment by behavior, not file. Each packet should contain only what its reviewer needs:
+
+1. review ID, scope, reviewer target, and family;
+2. requirement, Bead, design, or plan excerpt;
+3. exact relevant diff hunks;
+4. changed function/class context and important callers/dependents;
+5. relevant tests and verification output; and
+6. the compact `finding-discoverer` contract plus required JSON schema path.
+
+If `graphify-out/graph.json` exists, query significant changed symbols before packet assembly and paste the useful caller/dependent evidence into the packet. The graph reflects the last commit, so do not treat absence of newly added symbols as a finding.
+
+A one-shot reviewer cannot read artifact paths. **Embed file contents in the packet**; do not merely say `diff: .pi/reviews/.../diff.patch`.
+
+Use two scopes:
+
+- **Behavioral:** requirements, preservation, errors, edge cases, and tests.
+- **Boundary:** callers, dependencies, interfaces, schemas, persistence, concurrency, and security.
+
+The tracked schema and example are:
+
+```text
+~/.pi/agent/skills/requesting-code-review/review-findings.schema.json
+~/.pi/agent/skills/requesting-code-review/review-findings.example.json
+```
+
+## Run cold discovery passes
+
+`--one-shot` disables tools, skills, context-file discovery, prompt templates, and session persistence. It also defaults to a 180-second subprocess timeout. This makes the packet the complete context, bounds stalled calls, and prevents tool-loop request multiplication.
+
+Policy by risk:
+
+- **Low:** OpenRouter Gemma behavioral pass.
+- **Medium:** OpenRouter Gemma behavioral pass plus Kimi K2.7 boundary pass.
+- **High:** Gemma behavioral, Kimi K2.7 boundary, and DeepSeek V4 Flash independent boundary/adversarial pass.
+- **Reserve/hard cap:** use the targets returned by `agnt route`.
+
+Example:
 
 ```bash
-if [ -f graphify-out/graph.json ]; then
-  for sym in <key changed symbols/files from diffstat>; do
-    ~/.pi/agent/bin/agnt graphify explain "$sym" >> "$ReviewDir/graph-impact.txt"
-  done
-fi
+agnt invoke --one-shot --task review --risk-category medium \
+  openrouter-localish/google/gemma-4-31b-it \
+  "$ReviewDir/behavioral-packet.md" > "$ReviewDir/gemma-findings.json"
+
+agnt invoke --one-shot --task review --risk-category medium \
+  olla-cloud/kimi-k2.7-code \
+  "$ReviewDir/boundary-packet.md" > "$ReviewDir/kimi-findings.json"
 ```
 
-## Review prompt construction
+For parallel high-risk passes, use `agnt invoke --one-shot --fanout` with one complete packet per provider/model pair.
 
-Build peer prompts from three small pieces:
-
-1. Role context:
-   ```bash
-   agnt instructions --role code-reviewer --context provider/model
-   ```
-2. Review scope: repo path, diff/PR/range, requirement or plan path.
-3. Artifact paths: `diffstat.txt`, `diff.patch`, `status.txt`, `graph-impact.txt` (when generated), or PR diff files. When including `graph-impact.txt`, label it: "callers/dependents of changed code from the project knowledge graph; built at the last commit, so symbols added by this diff are absent."
-
-A reusable template remains at `code-reviewer.md`, but the role package is the source of truth for reviewer stance and output contract.
-
-## Small/local review
-
-For low-risk diffs, one local/near-local reviewer is sufficient. Add a second reviewer when the change is medium-risk or an independent family would materially reduce correlated blind spots:
+Validate every output before counting it:
 
 ```bash
-mkdir -p .pi/reviews/current
-PROMPT="$(cat <<'EOF'
-<generated code-reviewer role context>
-
-Review scope: local working-tree diff.
-Diff artifacts: .pi/reviews/current/diff.patch if present.
-EOF
-)"
-~/.pi/agent/bin/agnt invoke openrouter-localish/google/gemma-4-31b-it "$PROMPT" > .pi/reviews/current/gemma4-31b.md
+agnt review validate "$ReviewDir/gemma-findings.json"
+agnt review summary "$ReviewDir/gemma-findings.json"
 ```
 
-For medium-risk GPT-authored changes, add `olla-cloud/kimi-k2.7-code`; for Kimi-authored changes, add `openai-codex/gpt-5.6-sol`. If OpenRouter is unavailable, use `ollama/gemma4:31b`, `olla-local/qwen3:8b`, or `olla-local/gemma4:e4b`.
+Invalid JSON, stubs, generic advice, missing failure scenarios, or unsupported findings do not count as completed review. One concise format-repair retry is acceptable; do not fall back to an open-ended autonomous cloud agent merely to repair formatting.
 
-## Larger/riskier review
+## Fresh adversarial verification
 
-For larger or riskier diffs, use fan-out. Ensure at least one reviewer family differs from the author; for high-risk work, include both GPT-5.6 Sol and Kimi K3 when available, then add cheap/local perspectives as useful:
+Deduplicate discovery findings, then pass every Critical and Important candidate to a fresh GPT-family verifier using the `finding-verifier` role. The verifier may inspect the actual repository and run read-only/focused commands; it must try to refute the allegation.
+
+Verification statuses:
+
+- `confirmed` — code/spec plus executable or strong inspection evidence establishes the failure;
+- `refuted` — caller, invariant, test, reproducer, or specification disproves it;
+- `unresolved` — a concrete serious claim survives inspection but conflicting requirements or unavailable evidence prevent a decision;
+- `unverified` — discovery only; never a promotion gate.
+
+Validate the enriched artifact again. Do not implement a fix solely because several reviewers agree.
+
+## Deterministic K3 escalation gate
+
+A focused one-shot K3 call is permitted only when all conditions hold:
+
+1. the finding maps to a predefined Critical impact category;
+2. it includes a location, invariant/claim, and concrete failure scenario;
+3. fresh adversarial verification attempted a test, reproducer, profile, inspection, or specification check;
+4. the result remains `unresolved` for a stated external reason; and
+5. the paid-review ledger is below the applicable budget threshold.
+
+Send only the focused finding, relevant code/spec excerpts, and verification evidence. If budget is exhausted, record the unresolved risk and ask for a human decision rather than silently spending or silently passing.
+
+## Record verified yield
+
+Attach the structured findings to the discovery invocation metric:
 
 ```bash
-printf '%s\n' "<generated code-reviewer role context plus exact diff artifact paths>" > .pi/reviews/<topic>/prompt.md
-~/.pi/agent/bin/agnt invoke --fanout \
-  -o .pi/reviews/<topic> \
-  openai-codex/gpt-5.6-sol .pi/reviews/<topic>/prompt.md \
-  olla-cloud/kimi-k3 .pi/reviews/<topic>/prompt.md \
-  openrouter-localish/google/gemma-4-31b-it .pi/reviews/<topic>/prompt.md
+agnt metrics annotate <recordId> \
+  --findings-file "$ReviewDir/gemma-findings.json" \
+  --outcome accepted
 ```
 
-For tricky algorithmic/security issues, add:
+The annotation records review ID, scope, compact per-finding outcomes, and confirmed/refuted/unresolved counts. `agnt metrics status` reports verified findings and confirmed-findings-per-dollar by model when provider cost is available.
 
-```bash
-add `olla-local/deepseek-r1:14b .pi/reviews/<topic>/prompt.md` to the fanout pairs
-```
+Use invocation outcomes consistently:
 
-## Stub / non-substantive output fallback
+- `accepted` — substantive discovery output was retained for verification;
+- `rejected` — hallucinated, vague, malformed, or unusable output;
+- `verified-pass` — verifier refuted a candidate or established no defect;
+- `verified-fail` — verifier confirmed a defect;
+- `escalated` — a concrete unresolved serious item crossed an external gate.
 
-Before synthesis, scan peer outputs. A review is not usable if it only says it will inspect files later, cannot access artifacts, summarizes the prompt, or gives generic advice with no file/path/diff evidence.
+Do not promote a model from SWE-Bench claims or raw agreement. Compare real confirmed unique findings, false positives, verification time, latency, and actual marginal cost. Use synthetic seeded defects only as an executable non-regression eval, not as the sole promotion basis.
 
-If any peer returns a stub or other non-substantive output:
+## Report
 
-1. Do not count it as a completed review.
-2. Annotate the invocation as rejected when a metrics record is available.
-3. Rerun that peer with the diff embedded, a smaller pasted excerpt, or clearer artifact paths; or switch to another reviewer.
-4. Record the failed invocation and rerun in the review summary.
-
-For large diffs where artifact-path review fails, produce a smaller focused prompt:
-
-```bash
-sed -n '1,240p' .pi/reviews/<topic>/diff.patch > .pi/reviews/<topic>/diff-excerpt.patch
-```
-
-Then rerun with the excerpt or with a targeted `git diff -- <path>` for the risky files.
-
-## Synthesis
-
-After peer outputs complete:
-
-1. Read all peer outputs from `.pi/reviews/...`.
-2. Deduplicate findings.
-3. Verify each serious finding against the actual code/diff before reporting.
-4. Discard hallucinated findings with no file/path evidence.
-5. Record reviewer outcomes so routing learns which models give usable reviews. For each peer whose findings you kept or discarded:
-
-   ```bash
-   ~/.pi/agent/bin/agnt metrics annotate <metrics-file-basename-or-recordId> --outcome accepted   # findings verified and used
-   ~/.pi/agent/bin/agnt metrics annotate <metrics-file-basename-or-recordId> --outcome rejected   # findings hallucinated/unusable
-   ```
-
-   Metric files for the run are in `.pi/metrics/invocations/` (and the fanout `-o` directory). This is the routing self-improvement signal; do not skip it. When annotating several outputs from one review, first list recent records so each outcome is deliberate:
-
-   ```bash
-   ls -1t .pi/metrics/invocations/*.metrics.json | head -20
-   ```
-6. Produce a concise review:
+Produce a concise summary:
 
 ```markdown
 ## Code Review Summary
 
-**Reviewers:** gemma4:31b, qwen3:8b, ...
-**Scope:** <diff/range/PR>
-**Verdict:** PASS | NEEDS_WORK | NOT_SURE
+**Review ID:** ...
+**Reviewers/scopes:** ...
+**Paid spend state:** normal | soft | reserve | hard-cap
+**Verdict:** PASS | NEEDS_WORK | UNRESOLVED
 
-### Critical
-- <issue> — `file:line` — evidence/fix
+### Confirmed
+- `finding-id` — `file:line` — evidence and required action
 
-### Important
-- <issue> — `file:line` — evidence/fix
+### Refuted
+- `finding-id` — decisive counterevidence
 
-### Minor
-- <issue> — `file:line` — evidence/fix
+### Unresolved
+- `finding-id` — missing/conflicting external evidence and escalation decision
 
-### Disagreements / discarded findings
-- <finding> — discarded because <reason>
+### Cost and latency
+- model — provider requests — elapsed — provider-reported/estimated cost
 ```
 
-## GitHub PR posting
-
-If a PR exists and the user wants the review posted, use `gh pr comment` with the synthesized review. Do not auto-approve or request changes unless the user explicitly asks.
-
-```bash
-gh pr comment <N> --body-file .pi/reviews/<topic>/summary.md
-```
-
-## Rules
-
-- Model output is evidence to investigate, not truth.
-- Verify serious findings yourself before reporting them as real.
-- Prefer local model diversity first; use cloud as tie-breaker or for high-stakes review.
-- Do not paste huge diffs into chat; write diff artifacts and point peers at paths.
-- Do not block on GitHub. Local review is still useful without a PR.
+Post to GitHub only when the user asks. Do not auto-approve or request changes, and do not block local review on GitHub availability.

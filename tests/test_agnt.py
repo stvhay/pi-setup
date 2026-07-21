@@ -250,6 +250,8 @@ def test_prompt_inventory_rows_reads_frontmatter(agnt):
 
     assert by_path["AGENTS.md"]["kind"] == "root"
     assert by_path["AGENTS.d/roles/code-reviewer.md"]["id"] == "code-reviewer"
+    assert by_path["AGENTS.d/roles/finding-discoverer.md"]["id"] == "finding-discoverer"
+    assert by_path["AGENTS.d/roles/finding-verifier.md"]["id"] == "finding-verifier"
     assert by_path["skills/writing-plans/SKILL.md"]["id"] == "writing-plans"
     assert by_path["actions/review.md"]["kind"] == "action-template"
 
@@ -566,6 +568,80 @@ def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
     assert (tmp_path / "metrics").is_dir()
 
 
+def test_review_policy_targets_vary_by_risk_and_paid_spend(agnt):
+    meta, _ = agnt.task_meta("review")
+    gemma = "openrouter-localish/google/gemma-4-31b-it"
+    local_gemma = "ollama/gemma4:31b"
+    kimi = "olla-cloud/kimi-k2.7-code"
+    deepseek = "openrouter-localish/deepseek/deepseek-v4-flash"
+
+    assert agnt.review_policy_targets(meta, "low", 0.0) == ([gemma], "normal")
+    assert agnt.review_policy_targets(meta, "medium", 0.0) == ([gemma, kimi], "normal")
+    assert agnt.review_policy_targets(meta, "high", 0.0) == ([gemma, kimi, deepseek], "normal")
+    assert agnt.review_policy_targets(meta, "medium", 18.0) == ([local_gemma, deepseek], "reserve")
+    assert agnt.review_policy_targets(meta, "high", 20.0) == ([local_gemma], "hard-cap")
+
+
+def test_paid_review_spend_counts_monthly_marginal_cost_only(agnt):
+    def record(record_id, target, cost, source="provider-reported", started="2026-07-01T00:00:00Z", task="review"):
+        return {
+            "recordId": record_id,
+            "target": target,
+            "task": task,
+            "startedAt": started,
+            "usage": {"cost": {"total": cost}, "costSource": source},
+        }
+
+    records = [
+        record("gemma", "openrouter-localish/google/gemma-4-31b-it", 0.25),
+        record("kimi", "olla-cloud/kimi-k2.7-code", 4.0),
+        record("subscription", "openai-codex/gpt-5.6-sol", 8.0, source="provider-reported"),
+        record("local", "ollama/gemma4:31b", 0.0, source="local-free"),
+        record("old", "openrouter-localish/google/gemma-4-31b-it", 9.0, started="2026-06-30T23:59:59Z"),
+        record("other-task", "openrouter-localish/google/gemma-4-31b-it", 9.0, task="research"),
+        record("gemma", "openrouter-localish/google/gemma-4-31b-it", 0.25),
+    ]
+
+    assert agnt.paid_review_spend(records, month="2026-07") == pytest.approx(4.25)
+
+
+def test_select_model_returns_risk_specific_review_policy_without_automatic_k3(agnt):
+    with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
+        result = agnt.select_model(
+            "review",
+            risk="high",
+            budget="balanced",
+            paid_review_spend_usd=0.0,
+            fanout_size=3,
+        )
+
+    assert result["reviewPolicyTargets"] == [
+        "openrouter-localish/google/gemma-4-31b-it",
+        "olla-cloud/kimi-k2.7-code",
+        "openrouter-localish/deepseek/deepseek-v4-flash",
+    ]
+    assert result["reviewBudgetState"] == "normal"
+    assert "olla-cloud/kimi-k3" not in result["candidateOrder"]
+    assert [item["target"] for item in result["fanout"]] == result["reviewPolicyTargets"]
+    assert "--one-shot" in result["invokeExample"]
+
+
+def test_select_model_review_hard_cap_forces_local_fallback(agnt):
+    with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
+        result = agnt.select_model(
+            "review",
+            risk="high",
+            budget="balanced",
+            paid_review_spend_usd=20.0,
+            fanout_size=3,
+        )
+
+    assert result["selected"] == "ollama/gemma4:31b"
+    assert result["reviewPolicyTargets"] == ["ollama/gemma4:31b"]
+    assert result["reviewBudgetState"] == "hard-cap"
+    assert result["localOk"] is True
+
+
 def test_select_model_returns_scored_selection_contract(agnt):
     result = agnt.select_model(
         "review",
@@ -619,12 +695,26 @@ def test_review_quality_budget_uses_gpt_56_sol_qualified_fallback(agnt):
 
 
 def test_cmd_route_includes_selection_and_fanout_json(agnt, capsys):
-    assert agnt.cmd_route(["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok", "--fanout-size", "3"]) == 0
+    assert agnt.cmd_route([
+        "--task",
+        "review",
+        "--risk",
+        "medium",
+        "--budget",
+        "cheap",
+        "--local-ok",
+        "--fanout-size",
+        "3",
+        "--monthly-paid-spend",
+        "0",
+    ]) == 0
 
     result = json.loads(capsys.readouterr().out)
     assert result["selection"]["target"] == result["selected"]
-    assert len(result["fanout"]) == 3
+    assert [item["target"] for item in result["fanout"]] == result["reviewPolicyTargets"]
+    assert len(result["fanout"]) == 2
     assert result["candidateScores"]
+    assert result["monthlyPaidReviewSpendUsd"] == 0.0
 
 
 def test_work_dispatch_plan_uses_action_template(agnt):
@@ -1347,7 +1437,72 @@ def test_cmd_work_tree_json_outputs_valid_tree(agnt, tmp_path, capsys):
     assert "pi-task" in out["tree"]["nodes"]
 
 
-def test_metrics_record_includes_family(agnt):
+def test_parse_pi_json_output_counts_provider_requests(agnt):
+    events = [
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+                "usage": usage_tokens(input_tokens=10, output_tokens=2),
+            },
+        }
+        for text in ("first", "second")
+    ]
+
+    text, usage, source = agnt.parse_pi_json_output("\n".join(json.dumps(event) for event in events))
+
+    assert text == "firstsecond"
+    assert source == "message_end"
+    assert usage["providerRequests"] == 2
+
+
+def test_cmd_invoke_one_shot_forwards_mode(agnt, monkeypatch, capsys):
+    calls = []
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        calls.append((target, prompt, kwargs))
+        return 0, "ok", "", None
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+
+    assert agnt.cmd_invoke([
+        "--one-shot",
+        "--no-metrics",
+        "openrouter-localish/google/gemma-4-31b-it",
+        "review packet",
+    ]) == 0
+
+    assert calls[0][2]["one_shot"] is True
+    assert calls[0][2]["timeout_seconds"] == 180.0
+    assert capsys.readouterr().out == "ok"
+
+
+def test_cmd_invoke_one_shot_accepts_explicit_timeout(agnt, monkeypatch, capsys):
+    calls = []
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        calls.append((target, prompt, kwargs))
+        return 0, "ok", "", None
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+
+    assert agnt.cmd_invoke([
+        "--one-shot",
+        "--timeout-seconds",
+        "45",
+        "--no-metrics",
+        "openrouter-localish/google/gemma-4-31b-it",
+        "review packet",
+    ]) == 0
+
+    assert calls[0][2]["timeout_seconds"] == 45.0
+    assert capsys.readouterr().out == "ok"
+
+
+def test_metrics_record_includes_family_and_invocation_shape(agnt):
+    usage = usage_tokens(input_tokens=10, output_tokens=2)
+    usage["providerRequests"] = 1
     record = agnt.metrics_record(
         target="ollama/gemma4:31b",
         task="review",
@@ -1358,10 +1513,13 @@ def test_metrics_record_includes_family(agnt):
         prompt="p",
         out="o",
         err="",
-        usage=None,
-        usage_source="unavailable",
+        usage=usage,
+        usage_source="message_end",
+        invocation_mode="one-shot",
     )
     assert record["family"] == "gemma4-31b"
+    assert record["invocationMode"] == "one-shot"
+    assert record["providerRequests"] == 1
 
 
 def test_route_reports_no_candidate_when_constraints_eliminate_all_models():

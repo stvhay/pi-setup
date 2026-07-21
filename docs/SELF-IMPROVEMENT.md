@@ -62,6 +62,22 @@ skills include this step:
 Outcomes: `accepted`, `rejected`, `verified-pass`, `verified-fail`,
 `escalated`. Unlabeled records stay `unknown` and carry no routing signal.
 
+Code review also records finding-level verification instead of treating invocation
+acceptance as defect evidence:
+
+```bash
+agnt review validate .pi/reviews/<id>/findings.json
+agnt metrics annotate <recordId> \
+  --findings-file .pi/reviews/<id>/findings.json \
+  --outcome accepted
+```
+
+The tracked schema requires a concrete location, claim, failure scenario, and
+evidence. Findings start `unverified`; `confirmed`, `refuted`, and `unresolved`
+require fresh verifier method/evidence. Metrics aggregate those outcomes and
+confirmed-findings-per-dollar by model. Reviewer confidence and agreement do not
+control escalation.
+
 ### 3. Consolidate (durable, cross-project)
 
 ```bash
@@ -90,6 +106,10 @@ triaged into Beads and implemented as tracked config/docs/tooling changes.
 `agnt route` aggregates outcome history **by model family** (so evidence from
 one venue covers all venues of the same weights) and demotes any candidate
 whose family shows more negative than positive outcomes over ≥5 invocations.
+For review, risk-specific fanout and month-to-date marginal-spend gates apply
+before model output exists: Kimi is removed at the reserve threshold and paid
+review stops at the hard cap. These deterministic gates do not use model
+self-confidence.
 The demotion is visible in the `reasons` field. Persistent patterns deserve a
 policy edit: move the model in the relevant `tasks/*.md` frontmatter and
 commit with the evidence summarized in the message

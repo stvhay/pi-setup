@@ -31,15 +31,17 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
 - `agnt invoke --list [TASK]`
   - Lists preferred/qualified models for one task or all tasks.
 
-- `agnt route --task TASK [--risk low|medium|high] [--budget cheap|balanced|quality] [--context-tokens N] [--modality text|image|audio|video] [--local-ok]`
+- `agnt route --task TASK [--risk low|medium|high] [--budget cheap|balanced|quality] [--context-tokens N] [--modality text|image|audio|video] [--local-ok] [--monthly-paid-spend USD]`
   - Recommends a model, fallback models, thinking level, and whether fanout is useful.
   - Uses the existing task files as policy, filters by `agent/settings.json` `enabledModels` plus runtime constraints, and includes metrics hints when available.
+  - For `review`, emits a risk-specific `reviewPolicyTargets` fanout and a deterministic monthly spend state. It counts OpenRouter plus catalog venues marked `billingClass: metered`, while excluding local and subscription-backed GPT opportunity cost. It uses `AGNT_REVIEW_PAID_SPEND_USD` as an operator floor, accepts an authoritative `--monthly-paid-spend` override, removes Kimi at the `$18` reserve threshold, and routes only to local Gemma at the `$20` hard cap. K3 is not an automatic review candidate.
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason. Evidence gathered on one venue applies to every venue of the same weights.
   - `agnt recommend` is an alias.
 
-- `agnt invoke [--task TASK] [--risk-category LABEL] [--thinking-level LEVEL] [--outcome OUTCOME] [--human-override] [--fallback-used] [--preflight] [--no-metrics] [--metrics-dir DIR] provider/model [filename]`
+- `agnt invoke [--one-shot] [--timeout-seconds N] [--task TASK] [--risk-category LABEL] [--thinking-level LEVEL] [--outcome OUTCOME] [--human-override] [--fallback-used] [--preflight] [--no-metrics] [--metrics-dir DIR] provider/model [filename]`
   - Runs one ephemeral Pi peer. Metrics are on by default, so `agnt` uses `pi --mode json --no-session`, preserves normal stdout, and writes raw token/cost/wall-clock metrics to `DIR` or `<git-root>/.pi/metrics/invocations/`.
-  - Metrics include routing fields when supplied: task, risk category, thinking level, context size, estimated input tokens, outcome, human override, and fallback-used flags.
+  - `--one-shot` also disables tools, skills, context-file discovery, and prompt templates, supplies a compact read-only system prompt, and defaults to a 180-second subprocess timeout. Use `--timeout-seconds` to override it. Use one-shot only when `filename` embeds the complete task context; it prevents agentic tool loops from multiplying provider requests.
+  - Metrics include routing fields when supplied plus `invocationMode` and counted `providerRequests`: task, risk category, thinking level, context size, estimated input tokens, outcome, human override, and fallback-used flags.
   - Use `--no-metrics` to use the older `pi --print --no-session` path and skip metrics.
   - Reads prompt from `filename`, `@filename`, argv text, or stdin.
   - `--preflight` runs a focused `agnt doctor` check before calling the model; failures abort and warnings are printed to stderr.
@@ -65,9 +67,19 @@ Use `agnt invoke` and `agnt invoke --fanout` for all peer calls; they capture me
 Example:
 
 ```bash
-agnt route --task review --risk medium --budget cheap --local-ok
-agnt invoke --task review --risk-category medium --thinking-level default <selected-provider/model> prompt.md
+agnt route --task review --risk medium --budget balanced --fanout-size 3
+agnt invoke --one-shot --task review --risk-category medium <selected-provider/model> complete-packet.md
 ```
+
+For structured review findings:
+
+```bash
+agnt review validate .pi/reviews/<id>/findings.json
+agnt review summary .pi/reviews/<id>/findings.json
+agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json --outcome accepted
+```
+
+`agnt review` validates the tracked discovery/adjudication contract. Findings begin `unverified`; `confirmed`, `refuted`, and `unresolved` require verifier family, method, and evidence. Confidence is not part of the schema. Findings-linked metric summaries report status counts and confirmed-findings-per-dollar when cost is available.
 
 ## Prompt tooling
 
