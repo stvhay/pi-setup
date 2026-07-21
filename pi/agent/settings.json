@@ -21,6 +21,7 @@
     "openrouter-localish/qwen/qwen3.5-9b",
     "openrouter-localish/meta-llama/llama-3.1-8b-instruct",
     "openrouter-localish/meta-llama/llama-3.3-70b-instruct",
+    "openrouter-localish/deepseek/deepseek-v4-flash",
     "openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b"
   ],
   "packages": [

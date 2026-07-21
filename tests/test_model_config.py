@@ -71,12 +71,48 @@ def test_kimi_olla_metadata_matches_verified_capabilities():
     assert k3["compat"]["supportsReasoningEffort"] is False
 
 
+def test_deepseek_v4_flash_is_enabled_as_a_cheap_review_challenger():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    target = "openrouter-localish/deepseek/deepseek-v4-flash"
+    assert target in settings["enabledModels"]
+
+    models = json.loads(MODELS.read_text(encoding="utf-8"))
+    configured = {
+        f"{provider}/{model['id']}": model
+        for provider, config in models["providers"].items()
+        for model in config.get("models", [])
+    }
+    model = configured[target]
+    assert model["contextWindow"] == 1_048_576
+    assert model["reasoning"] is True
+    assert model["cost"] == {
+        "input": 0.0938,
+        "output": 0.1876,
+        "cacheRead": 0.01876,
+        "cacheWrite": 0,
+    }
+
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+    assert catalog["deepseek-v4-flash"]["venues"] == [
+        {
+            "target": target,
+            "costClass": "cheap",
+            "reasoning": True,
+            "input": ["text"],
+            "contextWindow": 1_048_576,
+        }
+    ]
+    review = (AGENT / "tasks" / "review.md").read_text(encoding="utf-8")
+    assert f"  - {target}" in review
+
+
 def test_kimi_families_and_dispatch_roles_are_cataloged():
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
     assert catalog["kimi-k2.7-code"]["venues"] == [
         {
             "target": "olla-cloud/kimi-k2.7-code",
             "costClass": "balanced",
+            "billingClass": "metered",
             "reasoning": True,
             "thinkingLevelMap": {"off": None},
             "input": ["text", "image"],
@@ -88,6 +124,7 @@ def test_kimi_families_and_dispatch_roles_are_cataloged():
         {
             "target": "olla-cloud/kimi-k3",
             "costClass": "frontier",
+            "billingClass": "metered",
             "reasoning": True,
             "thinkingLevelMap": {
                 "off": None,
@@ -106,7 +143,7 @@ def test_kimi_families_and_dispatch_roles_are_cataloged():
 
     expected_roles = {
         "kimi-k2.7-code": {"implementation", "planning", "review"},
-        "kimi-k3": {"frontier-advisor", "implementation", "planning", "research", "review"},
+        "kimi-k3": {"frontier-advisor", "implementation", "planning", "research"},
     }
     for model, roles in expected_roles.items():
         target = f"olla-cloud/{model}"
@@ -116,3 +153,6 @@ def test_kimi_families_and_dispatch_roles_are_cataloged():
 
     orchestration = (AGENT / "tasks" / "orchestration.md").read_text(encoding="utf-8")
     assert "olla-cloud/kimi-" not in orchestration
+    review = (AGENT / "tasks" / "review.md").read_text(encoding="utf-8")
+    assert "  - olla-cloud/kimi-k3" not in review
+    assert "escalationTarget: olla-cloud/kimi-k3" in review

@@ -25,6 +25,8 @@ def run_route(tmp_path, store_lines):
             "--budget",
             "cheap",
             "--local-ok",
+            "--monthly-paid-spend",
+            "0",
         ],
         capture_output=True,
         text=True,
@@ -48,8 +50,8 @@ def test_negative_history_demotes_every_venue_of_family(tmp_path):
     order = result["candidateOrder"]
     gemma_targets = {t for t in order if "gemma-4-31b" in t or "gemma4:31b" in t}
     others = [t for t in order if t not in gemma_targets]
-    # Evidence was gathered on the OpenRouter venue; the local Ollama venue of
-    # the same family must be demoted too.
+    # Evidence is aggregated by family; every currently eligible Gemma venue
+    # receives the same demotion even when the normal policy exposes only one.
     assert gemma_targets
     assert all(order.index(o) < order.index(g) for o in others for g in gemma_targets)
     assert any("demoted" in reason for reason in result["reasons"])
@@ -64,4 +66,4 @@ def test_positive_history_does_not_demote(tmp_path):
     result = run_route(tmp_path, [{"records": accepted}])
     assert not any("demoted" in reason for reason in result["reasons"])
     hints = result["metricsHints"]
-    assert hints["ollama/gemma4:31b"]["positive"] == 6
+    assert hints["openrouter-localish/google/gemma-4-31b-it"]["positive"] == 6

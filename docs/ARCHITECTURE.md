@@ -35,9 +35,11 @@ catalog.json      model families -> venues, cost classes, watt/rate facts
 tasks/*.md        routing policy per task (preferred/qualified/avoid targets)
       │
 agnt route        constraint filter (enabledModels, modality, context window,
-      │           local-ok) + budget ranking + outcome-history demotion
+      │           local-ok) + budget/risk gates + outcome-history demotion
       │
-agnt invoke       runs `pi --mode json --no-session`; emits metric records
+agnt invoke       normal peer or cold `--one-shot`; emits metric records
+      │
+agnt review       validates discovery/adjudication finding artifacts
       │
 .pi/metrics/      per-project raw records ──consolidate──▶ ~/.pi/metrics/
       │                                                       (global store)
@@ -49,7 +51,7 @@ agnt invoke       runs `pi --mode json --no-session`; emits metric records
 A **family** is one set of weights (or a close equivalent) reachable through
 several **venues**: a local Ollama host, a remote Olla-compatible GPU endpoint,
 or OpenRouter. The catalog is the single source for venue facts: cost class,
-modalities, context window, reasoning capability, GPU-watt assumptions, and
+billing class, modalities, context window, reasoning capability, GPU-watt assumptions, and
 OpenRouter opportunity-cost rates for subscription-backed models. `agnt` and
 `agent-instructions` read it via the shared `bin/_agnt_common.py`; no model
 facts live in code. OpenRouter cash pricing stays in `models.json` because Pi
@@ -110,16 +112,18 @@ for gate-weakening phrases.
 
 Front controller for: `route` (recommend model + thinking level for
 task/risk/budget, JSON with explicit reasons and rejected candidates),
-`invoke` (single or `--fanout` parallel peers, metrics on by default),
-`metrics` (status/annotate/consolidate/import-session), `eval`
+`invoke` (single or `--fanout` parallel peers, metrics on by default, with a
+no-tools `--one-shot` mode for complete packets), `review` (validate/summarize
+structured findings), `metrics` (status/annotate/consolidate/import-session), `eval`
 (filesystem-defined deterministic evals), `instructions`, `prompt`, `action`,
 `runs`, `work`, `approvals`, `gateway`, `benchmark`, `web-search`/`web-fetch`,
 `plans-dir`, `risk`.
 
 Design constraint: `agnt` is a front controller, not the home for subsystem
 logic. Command implementations live under `pi/agent/bin/agnt_lib/` (`routing`,
-`invoke`, `metrics`, `evals`, `tasks`, `prompt`, `actions`, `runs`, `work`, and
-`benchmark`) and share catalog/frontmatter helpers through `_agnt_common.py`.
+`invoke`, `review`, `metrics`, `evals`, `tasks`, `prompt`, `actions`, `runs`,
+`work`, and `benchmark`) and share catalog/frontmatter helpers through
+`_agnt_common.py`.
 New shared behavior should move into those importable modules, or a new
 `agnt_lib` module when the seam is clear; avoid adding another independent
 model/catalog/parser table inside the executable. The orchestration additions

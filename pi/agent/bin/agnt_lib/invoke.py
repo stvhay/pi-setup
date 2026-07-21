@@ -20,6 +20,12 @@ from .doctor import doctor_report
 from .tasks import list_models, preferred_models
 from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, utc_now, write_json
 
+ONE_SHOT_SYSTEM_PROMPT = (
+    "You are a read-only reviewer. Analyze only the complete packet in the user message. "
+    "Do not claim to inspect files or run tools. Return only the requested format."
+)
+
+
 def read_prompt(parts: List[str]) -> str:
     if parts:
         chunks: List[str] = []
@@ -79,6 +85,7 @@ def parse_pi_json_output(stdout: str) -> Tuple[str, Dict[str, Any] | None, str]:
     usage_total = empty_usage()
     for usage in usages:
         add_usage(usage_total, usage)
+    usage_total["providerRequests"] = len(usages)
     return "".join(texts), usage_total, ("message_end" if message_end_usages else "turn_end")
 
 
@@ -101,6 +108,7 @@ def invoke_one(
     cwd: Path | str | None = None,
     pi_args: List[str] | None = None,
     timeout_seconds: int | float | None = None,
+    one_shot: bool = False,
 ) -> Tuple[int, str, str, Dict[str, Any] | None]:
     provider, model = split_target(target)
     started_at = utc_now()
@@ -114,6 +122,17 @@ def invoke_one(
     else:
         session_args.append("--no-session")
     extra_args = list(pi_args or [])
+    if one_shot:
+        extra_args.extend(
+            [
+                "--no-tools",
+                "--no-skills",
+                "--no-context-files",
+                "--no-prompt-templates",
+                "--system-prompt",
+                ONE_SHOT_SYSTEM_PROMPT,
+            ]
+        )
     run_kwargs = {
         "text": True,
         "stdout": subprocess.PIPE,
@@ -161,6 +180,7 @@ def invoke_one(
                 outcome=outcome,
                 human_override=human_override,
                 fallback_used=fallback_used,
+                invocation_mode="one-shot" if one_shot else "agentic",
             )
         return 124, out, err, record
     ended_at = utc_now()
@@ -184,6 +204,7 @@ def invoke_one(
             outcome=outcome,
             human_override=human_override,
             fallback_used=fallback_used,
+            invocation_mode="one-shot" if one_shot else "agentic",
         )
     return proc.returncode, out, proc.stderr, record
 
@@ -193,9 +214,19 @@ def cmd_invoke(argv: List[str]) -> int:
     parser.add_argument("--task", help="task routing hint")
     parser.add_argument("--list", nargs="?", const="", metavar="TASK", help="list models for TASK or all tasks")
     parser.add_argument("--fanout", action="store_true", help="run one or more models in parallel")
+    parser.add_argument(
+        "--one-shot",
+        action="store_true",
+        help="run cold with no tools, skills, context files, prompt templates, or saved session",
+    )
     parser.add_argument("--no-metrics", action="store_true", help="disable default wall-clock, token, and cost metrics capture")
     parser.add_argument("--metrics", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--metrics-dir", help="raw metrics output directory")
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        help="terminate a peer after this many seconds (one-shot default: 180)",
+    )
     parser.add_argument("--risk-category", help="risk/category label to store in metrics")
     parser.add_argument("--thinking-level", help="thinking level label to store in metrics")
     parser.add_argument("--outcome", choices=sorted(VALID_OUTCOMES), default="unknown", help="initial outcome label for metrics")
@@ -213,6 +244,9 @@ def cmd_invoke(argv: List[str]) -> int:
         return 2
 
     use_metrics = not args.no_metrics
+    timeout_seconds = args.timeout_seconds
+    if timeout_seconds is None and args.one_shot:
+        timeout_seconds = 180.0
 
     if args.preflight:
         report = doctor_report(check_names=["command.pi", "provider.env", "catalog.parse"])
@@ -237,6 +271,8 @@ def cmd_invoke(argv: List[str]) -> int:
             outcome=args.outcome,
             human_override=args.human_override,
             fallback_used=args.fallback_used,
+            one_shot=args.one_shot,
+            timeout_seconds=timeout_seconds,
         )
         if use_metrics and record is not None:
             metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
@@ -284,6 +320,8 @@ def cmd_invoke(argv: List[str]) -> int:
                 outcome=args.outcome,
                 human_override=args.human_override,
                 fallback_used=args.fallback_used,
+                one_shot=args.one_shot,
+                timeout_seconds=timeout_seconds,
             ): target
             for target, prompt in pairs
         }

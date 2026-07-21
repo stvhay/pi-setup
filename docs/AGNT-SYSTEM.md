@@ -56,14 +56,15 @@ Run artifacts live under `.pi/runs/<run-id>/` and contain `invocation.yaml`, `re
 
 ### Metrics and evals
 
-Metrics record best-effort model usage and outcomes. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code.
+Metrics record best-effort model usage and outcomes. Code-review metrics can link a validated structured finding artifact, separating discovery from fresh-context confirmation, refutation, or unresolved evidence. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code or model confidence as ground truth.
 
 ## What agnt commands do
 
 `agnt` is a front controller for several related command families:
 
 - `agnt route` recommends a model for a task, risk level, budget, context size, and modality.
-- `agnt invoke` runs one or more ephemeral Pi peers and records metrics by default.
+- `agnt invoke` runs one or more ephemeral Pi peers and records metrics by default; `--one-shot` disables tools and ambient context expansion for complete embedded packets.
+- `agnt review` validates and summarizes structured discovery/adjudication findings.
 - `agnt instructions` composes global, project, model, and role context packages.
 - `agnt action` lists, validates, and renders action templates.
 - `agnt runs` creates, validates, invokes, and updates invocation/result bundles.
@@ -133,6 +134,8 @@ Important gates include:
 - health and closeout checks for missing evidence, unresolved approvals, stale sessions, orphaned runs, raw-tool bypass markers, and dirty worktrees;
 - explicit approval for destructive git actions, remote writes, deployments, hook installation, and other irreversible changes;
 - fresh verification evidence before completion claims;
+- risk-specific, month-to-date spend gates for paid review and no automatic K3 review route;
+- evidence-first finding adjudication that ignores reviewer confidence and consensus as escalation signals;
 - instruction checks that reject safety-gate weakening phrases.
 
 The safety model is layered: user preferences, roles, skills, prompts, and model overlays can specialize behavior, but they must not weaken project approval, verification, git, or security gates.

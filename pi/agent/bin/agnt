@@ -25,6 +25,7 @@ from agnt_lib.core import (  # noqa: E402
 )
 from agnt_lib.tasks import *  # noqa: E402,F401,F403
 from agnt_lib.metrics import *  # noqa: E402,F401,F403
+from agnt_lib.review import *  # noqa: E402,F401,F403
 from agnt_lib.invoke import *  # noqa: E402,F401,F403
 from agnt_lib.routing import *  # noqa: E402,F401,F403
 from agnt_lib.evals import *  # noqa: E402,F401,F403
@@ -95,6 +96,7 @@ def main(argv: List[str]) -> int:
         "route": "recommend a model for a task",
         "recommend": "alias for route",
         "metrics": "inspect and consolidate invocation metrics",
+        "review": "validate and summarize structured review findings",
         "eval": "run filesystem-defined agnt evals",
         "prompt": "inventory prompts and manage prompt pattern notes",
         "action": "list, validate, and render prompt/action templates",
@@ -135,6 +137,8 @@ def main(argv: List[str]) -> int:
         return cmd_route(rest)
     if command == "metrics":
         return cmd_metrics(rest)
+    if command == "review":
+        return cmd_review(rest)
     if command == "eval":
         return cmd_eval(rest)
     if command == "prompt":

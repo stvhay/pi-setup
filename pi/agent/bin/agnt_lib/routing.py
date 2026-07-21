@@ -108,6 +108,64 @@ def load_consolidated_records(path: Path | None = None) -> List[Dict[str, Any]]:
     return records
 
 
+REVIEW_SOFT_SPEND_USD = 12.0
+REVIEW_RESERVE_SPEND_USD = 18.0
+REVIEW_HARD_CAP_USD = 20.0
+
+
+def paid_review_spend(records: List[Dict[str, Any]], *, month: str | None = None) -> float:
+    """Sum month-to-date marginal review spend without counting subscription
+    opportunity-cost estimates. Duplicate records are counted once."""
+    selected_month = month or datetime.now(timezone.utc).strftime("%Y-%m")
+    seen: set[str] = set()
+    total = 0.0
+    for index, record in enumerate(records):
+        if str(record.get("task") or "") != "review":
+            continue
+        if not str(record.get("startedAt") or "").startswith(selected_month):
+            continue
+        target = str(record.get("target") or "")
+        usage = record.get("usage") if isinstance(record.get("usage"), dict) else {}
+        venue = common.venue_info(target) or {}
+        marginal = target.startswith("openrouter") or venue.get("billingClass") == "metered"
+        if is_local_route_target(target) or not marginal:
+            continue
+        key = str(
+            record.get("recordId")
+            or record.get("sourceFile")
+            or f"{index}:{record.get('startedAt')}:{target}"
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        cost = usage.get("cost") if isinstance(usage.get("cost"), dict) else {}
+        total += float(cost.get("total") or 0.0)
+    return total
+
+
+def review_monthly_paid_spend() -> float:
+    pending, _warnings = load_metric_records(metric_files(default_metrics_dir()))
+    measured = paid_review_spend([*load_consolidated_records(), *pending])
+    try:
+        operator_floor = float(os.environ.get("AGNT_REVIEW_PAID_SPEND_USD") or 0.0)
+    except ValueError:
+        operator_floor = 0.0
+    return max(measured, operator_floor)
+
+
+def review_policy_targets(meta: Dict[str, Any], risk: str, paid_spend_usd: float) -> tuple[List[str], str]:
+    if paid_spend_usd >= REVIEW_HARD_CAP_USD:
+        targets = as_list(meta.get("hardCapReview"))
+        state = "hard-cap"
+    elif paid_spend_usd >= REVIEW_RESERVE_SPEND_USD:
+        targets = as_list(meta.get("hardCapReview" if risk == "low" else "reserveReview"))
+        state = "reserve"
+    else:
+        targets = as_list(meta.get(f"review{risk.title()}")) or as_list(meta.get("preferred"))
+        state = "soft" if paid_spend_usd >= REVIEW_SOFT_SPEND_USD else "normal"
+    return list(dict.fromkeys(targets)), state
+
+
 def stats_family(record: Dict[str, Any]) -> str:
     target = str(record.get("target") or "")
     return str(record.get("family") or "") or common.family_for_target(target) or target
@@ -271,10 +329,22 @@ def select_model(
     model_policy: Dict[str, Any] | None = None,
     fanout_size: int = 0,
     diversity: str | None = None,
+    paid_review_spend_usd: float | None = None,
 ) -> Dict[str, Any]:
     meta, _body = task_meta(task)
-    preferred = as_list(meta.get("preferred"))
-    qualified = as_list(meta.get("qualified"))
+    review_budget_state: str | None = None
+    review_policy: List[str] = []
+    if task == "review":
+        if paid_review_spend_usd is None:
+            paid_review_spend_usd = review_monthly_paid_spend()
+        review_policy, review_budget_state = review_policy_targets(meta, risk, paid_review_spend_usd)
+        preferred = review_policy
+        qualified = [] if review_budget_state in {"reserve", "hard-cap"} else as_list(meta.get("qualified"))
+        if review_budget_state in {"reserve", "hard-cap"}:
+            local_ok = True
+    else:
+        preferred = as_list(meta.get("preferred"))
+        qualified = as_list(meta.get("qualified"))
     avoid = set(as_list(meta.get("avoid")))
     policy = model_policy or {}
     avoid_families = {str(item) for item in as_list(policy.get("avoidFamilies"))}
@@ -290,6 +360,10 @@ def select_model(
     enabled = enabled_models()
     stats = route_metric_stats()
     reasons: List[str] = [f"task policy loaded from {task}"]
+    if task == "review":
+        reasons.append(
+            f"review paid-spend gate: {review_budget_state} at ${float(paid_review_spend_usd or 0.0):.2f} month-to-date"
+        )
     if enabled:
         reasons.append("filtered candidates by enabledModels from settings.json")
     if avoid_families:
@@ -366,6 +440,9 @@ def select_model(
             "candidateScores": [],
             "rejectedCandidates": rejected,
             "metricsHints": {},
+            "monthlyPaidReviewSpendUsd": paid_review_spend_usd if task == "review" else None,
+            "reviewBudgetState": review_budget_state,
+            "reviewPolicyTargets": review_policy,
             "reasons": reasons,
             "invokeExample": None,
         }
@@ -373,7 +450,14 @@ def select_model(
     selected = scored[0]
     selection = selection_contract(selected, rejected, reasons)
     fanout_recommended = task == "review" or (risk == "high" and task in {"research", "frontier-advisor"})
-    fanout = [selection_contract(item, rejected, reasons) for item in diverse_fanout(scored, fanout_size, diversity)]
+    fanout_candidates = scored
+    if task == "review":
+        by_target = {item["target"]: item for item in scored}
+        fanout_candidates = [by_target[target] for target in review_policy if target in by_target]
+    fanout = [
+        selection_contract(item, rejected, reasons)
+        for item in diverse_fanout(fanout_candidates, fanout_size, diversity)
+    ]
     return {
         "schemaVersion": 1,
         "task": task,
@@ -393,8 +477,15 @@ def select_model(
         "candidateScores": scored,
         "rejectedCandidates": rejected,
         "metricsHints": {item["target"]: item["metricsHint"] for item in scored if item.get("metricsHint")},
+        "monthlyPaidReviewSpendUsd": paid_review_spend_usd if task == "review" else None,
+        "reviewBudgetState": review_budget_state,
+        "reviewPolicyTargets": review_policy,
         "reasons": reasons,
-        "invokeExample": f"agnt invoke --task {task} --risk-category {risk} --thinking-level {selected['thinkingLevel']} {selected['target']} <prompt-or-file>",
+        "invokeExample": (
+            f"agnt invoke {'--one-shot ' if task == 'review' else ''}--task {task} "
+            f"--risk-category {risk} --thinking-level {selected['thinkingLevel']} "
+            f"{selected['target']} <prompt-or-file>"
+        ),
     }
 
 
@@ -408,6 +499,11 @@ def cmd_route(argv: List[str]) -> int:
     parser.add_argument("--budget", choices=["cheap", "balanced", "quality"], default="balanced")
     parser.add_argument("--fanout-size", type=int, default=0, help="include N scored diverse fanout selections")
     parser.add_argument("--diversity", choices=["none", "normal", "high"], default="normal")
+    parser.add_argument(
+        "--monthly-paid-spend",
+        type=float,
+        help="override measured month-to-date marginal paid review spend in USD",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON (always on; kept for compatibility)")
     args = parser.parse_args(argv)
 
@@ -420,6 +516,7 @@ def cmd_route(argv: List[str]) -> int:
         local_ok=args.local_ok,
         fanout_size=args.fanout_size,
         diversity=args.diversity,
+        paid_review_spend_usd=args.monthly_paid_spend,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get("routeStatus") == "selected" else 1

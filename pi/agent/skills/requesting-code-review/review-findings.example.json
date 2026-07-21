@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "example-review",
+  "scope": "behavioral",
+  "reviewer": {
+    "target": "openrouter-localish/google/gemma-4-31b-it",
+    "family": "gemma4-31b"
+  },
+  "findings": [
+    {
+      "id": "F-001",
+      "severity": "important",
+      "category": "behavior-preservation",
+      "location": "src/example.py:42",
+      "claim": "The new timeout branch skips the existing retry path.",
+      "failureScenario": "When the first request times out, the operation exits instead of retrying once.",
+      "evidence": "The changed branch returns before call_retry().",
+      "status": "unverified"
+    }
+  ]
+}

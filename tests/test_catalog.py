@@ -10,6 +10,10 @@ def test_family_resolution_across_venues(common):
     )
     assert common.family_for_target("openai-codex/gpt-5.6-sol") == "gpt-5.6-sol"
     assert common.family_for_target("olla-cloud/glm-5.2") == "glm-5.2"
+    assert (
+        common.family_for_target("openrouter-localish/deepseek/deepseek-v4-flash")
+        == "deepseek-v4-flash"
+    )
     assert common.family_for_target("unknown/model") is None
 
 
@@ -41,6 +45,14 @@ def test_subscription_opportunity_rates(common):
     rates = common.opportunity_rates("openai-codex/gpt-5.6-luna")
     assert rates["input"] == 0.75
     assert rates["output"] == 4.5
+
+    rates = common.opportunity_rates("olla-cloud/kimi-k2.7-code")
+    assert rates["input"] == 0.82
+    assert rates["output"] == 3.75
+
+    rates = common.opportunity_rates("olla-cloud/kimi-k3")
+    assert rates["input"] == 3.0
+    assert rates["output"] == 15.0
 
     assert common.opportunity_rates("ollama/gemma4:31b") is None
 

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/pi/review-findings.schema.json",
+  "title": "Pi structured code review findings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "reviewId", "scope", "reviewer", "findings"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "reviewId": {"type": "string", "minLength": 1},
+    "scope": {"enum": ["behavioral", "boundary"]},
+    "reviewer": {"$ref": "#/$defs/reviewer"},
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finding"}
+    }
+  },
+  "$defs": {
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "family"],
+      "properties": {
+        "target": {"type": "string", "minLength": 1},
+        "family": {"type": "string", "minLength": 1},
+        "recordId": {"type": "string", "minLength": 1}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verifierFamily", "method", "evidence"],
+      "properties": {
+        "verifierFamily": {"type": "string", "minLength": 1},
+        "method": {
+          "enum": ["test", "reproducer", "inspection", "profile", "specification"]
+        },
+        "evidence": {"type": "string", "minLength": 1},
+        "command": {"type": "string", "minLength": 1}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "severity",
+        "category",
+        "location",
+        "claim",
+        "failureScenario",
+        "evidence",
+        "status"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["critical", "important", "minor"]},
+        "category": {"type": "string", "minLength": 1},
+        "location": {"type": "string", "minLength": 1},
+        "claim": {"type": "string", "minLength": 1},
+        "failureScenario": {"type": "string", "minLength": 1},
+        "evidence": {"type": "string", "minLength": 1},
+        "status": {"enum": ["unverified", "confirmed", "refuted", "unresolved"]},
+        "verification": {"$ref": "#/$defs/verification"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "unverified"}}},
+          "then": {"not": {"required": ["verification"]}},
+          "else": {"required": ["verification"]}
+        }
+      ]
+    }
+  }
+}

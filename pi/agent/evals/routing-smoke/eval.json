@@ -5,9 +5,9 @@
   "kind": "route",
   "cases": [
     {
-      "name": "review-cheap-local",
-      "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "ollama/gemma4:31b", "fanoutRecommended": true}
+      "name": "review-fast-cheap-default",
+      "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok", "--monthly-paid-spend", "0"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openrouter-localish/google/gemma-4-31b-it", "fanoutRecommended": true}
     },
     {
       "name": "orchestration-high-quality",
