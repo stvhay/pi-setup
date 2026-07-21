@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: '3.13'
       - run: uv run --with pytest --with ruff python -m ruff check pi/agent/bin/agnt_lib tests
