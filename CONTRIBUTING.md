@@ -22,7 +22,8 @@ GitHub issues may be used later through an adapter/export workflow, but Beads is
 scripts/check-pi-config.sh
 bash -n scripts/*.sh
 
-# unit tests for agnt/agent-instructions internals
+# deterministic Python checks for agnt/agent-instructions internals
+.venv/bin/python -m ruff check pi/agent/bin/agnt_lib tests
 .venv/bin/python -m pytest tests/
 
 # deterministic agnt evals (no model calls)
