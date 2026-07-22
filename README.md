@@ -1,193 +1,167 @@
 # Pi Setup
 
-Pi Setup is configuration-as-code for a Pi coding-agent environment, plus an optional orchestration layer called `agnt`.
+Pi Setup is an opinionated configuration-as-code environment for the Pi coding agent, together with `agnt`, its routing and workflow-control CLI.
 
-The repository has two jobs:
+The tracked [`pi/`](pi/README.md) tree is the deployable source of truth. It defines Pi's instructions, providers, models, skills, roles, actions, extensions, packages, and evaluation tools. The default runtime directory, `~/.pi`, contains the deployed copy plus preserved local state such as credentials and sessions.
 
-1. keep reusable Pi configuration in version control; and
-2. make agent work more inspectable, routable, and verifiable through explicit work state, context composition, run artifacts, metrics, and evals.
+Ordinary development happens directly in Pi: inspect, edit, and verify in the current session. Use `agnt` on demand to route work, compose context, launch peers, review evidence, diagnose the environment, and evaluate policy. Structured run bundles and the project-local runner are explicit opt-in paths.
 
-The tracked [`pi/`](pi/README.md) tree is the deployable source of truth. The default Pi runtime directory, `~/.pi`, is generated runtime state.
+Review the tracked settings, provider assumptions, and model policy before deploying them into your environment.
 
-## Why this exists
+## What you get
 
-Plain agent sessions are easy to start but hard to audit. Important state often lives in chat: what work was selected, which model ran, what context it saw, what evidence supports the result, and what should happen next.
+| Layer | What it provides |
+| --- | --- |
+| **Pi configuration** | Global instructions, settings, model/provider data, tasks, actions, skills, roles, extensions, packages, and evals under `pi/`. |
+| **`agnt` controls** | Model routing, context composition, peer invocation, evidence-backed review, operational health, metrics, lessons, and deterministic evals. |
+| **Durable work and evidence** | Beads for work state, `.pi/plans/` for plans, runtime metrics for outcomes, and optional `.pi/runs/` bundles for replayable execution evidence. |
+| **Optional orchestration** | Manual artifact-backed dispatch, Beads-backed approvals, constrained gateways, and a project-local runner for scheduled or unusually strict work. |
+| **Feedback loop** | Runtime metrics and lessons inform reviewed, eval-gated changes to tracked routing, prompts, tools, and policy. Telemetry does not edit policy automatically. |
 
-This project pushes that state into files and tools:
+For the narrative overview, read [The agnt System](docs/AGNT-SYSTEM.md). For subsystem boundaries and data flow, read [Architecture](docs/ARCHITECTURE.md).
 
-- **Pi config** defines reusable instructions, skills, roles, settings, providers, and model catalog data.
-- **`agnt`** acts as a small orchestration/control CLI around Pi.
-- **Beads** records durable work items, dependencies, blockers, approvals, closeout, and maintenance checkpoints.
-- **Action templates and run artifacts** turn “ask a worker” into inspectable invocation/result files with session, approval, health, and evidence refs.
-- **Tasks, skills, and roles** separate model routing, reusable methods, and delegated-worker behavior.
-- **Metrics, health checks, maintenance cadence, and evals** let routing and prompts improve from evidence without tracking runtime telemetry in git.
-
-For the narrative overview, read [The agnt System](docs/AGNT-SYSTEM.md). For implementation structure, read [Architecture](docs/ARCHITECTURE.md).
-
-## System at a glance
+## How the system fits together
 
 ```text
-tracked pi/ config ──deploy──▶ ~/.pi runtime
-       │
-       ├── tasks / skills / roles / actions
-       │          │
-       │          ▼
-Bead required ──▶ direct Pi session ──▶ inspect / edit / test
-       │
-       └── explicit opt-in ──▶ agnt runs/work ──▶ project runner ──▶ Pi workers
-                                      │                  │               │
-                                      └──── run artifacts/status/evidence┘
+tracked pi/ policy ──deploy──▶ ~/.pi runtime
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                           │
+              direct Pi work             agnt controls
+              inspect/edit/test     route/invoke/context/review/doctor
+                    │                           │
+                    └────── durable state and evidence ──────┘
+                          Beads / plans / metrics
+                                      │
+                             optional run bundles
+                               ┌──────┴──────┐
+                               │             │
+                         manual dispatch   optional runner
+
+runtime evidence and lessons ──review + eval──▶ tracked policy changes
 ```
 
-## Choose your path
+Pi is the interactive runtime. `agnt` is a front controller around Pi, not a replacement for it. Manual `agnt runs` or `agnt work run` execution does not require the runner service; the service adds an explicitly started scheduling and executor boundary.
 
-### I want to use this configuration
+Two instruction files serve different scopes:
 
-Prerequisites depend on which parts you use:
+- [`AGENTS.md`](AGENTS.md) governs work on this repository.
+- [`pi/agent/AGENTS.md`](pi/agent/AGENTS.md) becomes the global Pi instruction package after deployment.
 
-- Pi must be installed for deployment/runtime use.
-- `direnv` + Nix are optional but recommended for this repository’s development shell.
-- `bd`/Beads is required for the repository workflow.
-- Provider keys, such as OpenRouter, are needed only for providers you call.
+The global policy requires a Bead before code edits in projects that have adopted a `.beads/` work graph. This repository also uses Beads for meaningful work. Read-only and documentation-only work may proceed without one unless project instructions require it.
 
-Quick start:
+## Deploy and use the configuration
+
+Prerequisites depend on the features you use:
+
+- Pi is required for deployment and runtime use.
+- `direnv` and Nix are optional but recommended for this repository's development shell.
+- `bd`/Beads is required for this repository's workflow.
+- Provider credentials are required only for providers you call; see [Pi Config](pi/README.md#provider-credentials).
+
+From the repository root:
 
 ```bash
 direnv allow                         # optional, if using direnv
-scripts/check-pi-config.sh           # validate tracked config
+scripts/check-pi-config.sh           # validate tracked configuration
 scripts/bootstrap-pi-config.sh --dry-run
 scripts/bootstrap-pi-config.sh --apply
-agnt --help                          # after ~/.pi/agent/bin is on PATH
 ```
 
-Deployment details live in [Pi Config](pi/README.md).
+Deployment replaces the managed runtime copy from tracked `pi/` while preserving excluded credentials, sessions, trust state, metrics, and caches. Do not hand-edit managed files under `~/.pi`; edit `pi/`, verify, and deploy again. See [Pi Config](pi/README.md) for package installation, credentials, optional endpoints, and excluded-state details.
 
-### I want to work on this repository
+After `~/.pi/agent/bin` is on `PATH`, inspect the everyday control surface:
+
+```bash
+agnt doctor --json
+agnt tasks
+agnt route --task review --risk medium --budget balanced
+agnt invoke --list review
+agnt instructions --roles
+```
+
+Use the [agnt command reference](pi/agent/bin/README.md) for complete syntax and examples.
+
+## Work on this repository
 
 Use Beads as the agent-facing work graph:
 
 ```bash
-bd prime      # workflow context
-bd status     # work graph summary
-bd ready      # unblocked work
-bd show <id>  # inspect one bead
+bd prime      # load workflow context
+bd ready      # list unblocked work
+bd show <id>  # inspect one work item
 ```
 
-Every code-changing task needs a Bead before edits begin. Work directly in the current Pi session by default, then follow [Contributing](CONTRIBUTING.md) for planning, verification, review, and branch-readiness expectations. Select `agnt work` or the project runner explicitly only when orchestration is useful.
+Create or inspect a Bead before making code changes, then work directly in the current Pi session by default. Follow [Contributing](CONTRIBUTING.md) for planning, verification, review, and branch-readiness requirements.
 
-### I want to understand or extend the agent system
+## Core concepts
 
-Start with [The agnt System](docs/AGNT-SYSTEM.md). Then use the documentation map below.
+The context and work system uses small, separate primitives:
 
-## Documentation map
+| Primitive | Responsibility |
+| --- | --- |
+| **Work item / Bead** | Records what durable work is ready, blocked, approved, or complete. |
+| **Task** | Selects the model or execution policy for a class of work. |
+| **Action** | Starts a named operation with a task, skills, role, allowed effects, and output contract. |
+| **Skill** | Supplies a reusable method, workflow, domain capability, reference set, or helper tool. |
+| **Role** | Defines how a delegated peer should behave and report. |
+| **Tool / eval / gate** | Performs or verifies deterministic behavior that should not depend on prose alone. |
+| **Artifact** | Records an invocation, result, plan, finding, metric, or other evidence for inspection and handoff. |
 
-### Start here
+These concepts compose; they do not replace one another. See [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) for the design rationale.
 
-- [The agnt System](docs/AGNT-SYSTEM.md) — conceptual overview of the orchestration/control layer: problem, design thesis, primitives, work lifecycle, safety model, approvals, runner, health, and feedback loop.
-- [Architecture](docs/ARCHITECTURE.md) — implementation map: repository/runtime separation, routing, invocation, metrics, instruction composition, Beads-first orchestration, quality gates, and safety gates.
-- [agnt command reference](pi/agent/bin/README.md) — command families and common flows.
-- [Project-Local Runner Service](docs/RUNNER-SERVICE.md) — service lifecycle, runtime files, REST API, leases, drain, startup health, status, and security model.
+## Optional orchestration and integrations
 
-### Operate the system
+The default deployment does not start a runner or require structured run bundles.
 
-- [Pi Config](pi/README.md) — deployable config contents, deployment behavior, provider credentials, and excluded runtime state.
-- [Run Artifacts](docs/RUN-ARTIFACTS.md) — invocation/result artifact schema and the `agnt runs` / `agnt work` workflow.
-- [Project-Local Runner Service](docs/RUNNER-SERVICE.md) — operator commands for `agnt work daemon` and service-backed `agnt work runner` clients.
-- [Contributing](CONTRIBUTING.md) — repository workflow, test commands, and development environment.
+- [Run Artifacts](docs/RUN-ARTIFACTS.md) documents manual `agnt runs` and `agnt work` invocation/result bundles under `.pi/runs/`.
+- [Project-Local Runner Service](docs/RUNNER-SERVICE.md) documents the explicitly started, loopback-only service for scheduling and executor lifecycle.
+- [Lesson Server](lesson-server/README.md) is an optional service for aggregating and triaging lessons captured by `agnt lessons`.
+- [Knowledge graphs](pi/agent/bin/README.md#knowledge-graphs) documents the optional Graphify integration and its explicit hook-management commands.
+- [Pi Config](pi/README.md#optional-service-endpoints) documents optional search and model-provider endpoints.
 
-### Understand design decisions
-
-- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — why direct Pi coding is the default and the preserved Beads-first runner workflow is an explicit project-local option.
-- [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how metrics, health, Beads, and recorded sessions trigger maintenance while telemetry stays untracked.
-- [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) — design principles for context architecture, tasks, skills, roles, prompts, tools, artifacts, and evals.
-- [GitHub Adapter Decision](docs/GITHUB-ADAPTER.md) — why Beads remains canonical and GitHub issues are treated as a future adapter surface.
-
-### Audits and historical evaluations
-
-- [Self-Improvement Configuration Evaluation](docs/SELF-IMPROVEMENT-CONFIG-EVALUATION.md) — point-in-time audit of the configuration and recommended next improvements.
+The [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) explains why direct Pi coding remains the default.
 
 ## Repository layout
 
 ```text
 pi-setup/
-├── pi/          # deployable Pi configuration source
-├── docs/        # concepts, architecture, procedures, decisions, and audits
-├── scripts/     # checks, deployment helpers, and behavioral evals
-├── tests/       # pytest coverage for agnt/agent-instructions internals
-├── .beads/      # tracked Beads work graph export/config; local DB ignored
-└── .pi/         # project-local plans/runs/scratch; not deployable config
+├── pi/            # deployable Pi configuration source
+├── docs/          # concepts, architecture, procedures, decisions, and audits
+├── scripts/       # checks, deployment helpers, and behavioral evals
+├── tests/         # pytest coverage for agnt/agent-instructions internals
+├── lesson-server/ # optional lesson aggregation and triage service
+├── .beads/        # Beads work graph export/config; local DB ignored
+└── .pi/           # project-local plans/runs/scratch; not deployable config
 ```
 
-## Common procedures
+## Documentation map
 
-### Configure provider credentials
+### Deploy and operate
 
-Provider keys belong in the shell environment or ignored local env files, never in git. For OpenRouter:
+- [Pi Config](pi/README.md) — deployable contents, deployment behavior, credentials, endpoints, and excluded runtime state.
+- [agnt command reference](pi/agent/bin/README.md) — command families, syntax, and common flows.
+- [Contributing](CONTRIBUTING.md) — repository workflow, verification commands, and development environment.
 
-```bash
-export OPENROUTER_API_KEY=sk-or-...
-```
+### Understand the architecture
 
-With direnv, prefer an ignored file such as `.envrc.local.d/openrouter.sh`.
+- [The agnt System](docs/AGNT-SYSTEM.md) — problem, design thesis, primitives, lifecycle, safety model, feedback loop, and relationship to Pi.
+- [Architecture](docs/ARCHITECTURE.md) — implementation map for deployment, routing, invocation, context composition, evidence, quality gates, and safety gates.
+- [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) — design principles for tasks, skills, roles, prompts, tools, artifacts, and evals.
+- [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how metrics and lessons become reviewed, eval-gated policy changes.
 
-### Run Graphify
+### Optional orchestration and services
 
-This config includes the Graphify Pi skill under [`pi/agent/skills/graphify/`](pi/agent/skills/graphify/). Use `/graphify .` in Pi, or run the CLI through `agnt`:
+- [Run Artifacts](docs/RUN-ARTIFACTS.md) — invocation/result schemas and manual artifact-backed workflows.
+- [Project-Local Runner Service](docs/RUNNER-SERVICE.md) — service lifecycle, REST boundary, leases, drain, health, and security model.
+- [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — rationale for direct work by default and optional strict orchestration.
+- [Lesson Server](lesson-server/README.md) — optional lesson aggregation and triage service.
 
-```bash
-agnt graphify --help
-agnt graphify extract . --no-cluster
-agnt graphify query "How is routing implemented?"
-```
+### Decisions and historical evaluations
 
-`agnt graphify` uses an installed `graphify` binary when present and otherwise falls back to `uv tool run --from graphifyy graphify`. It never installs hooks implicitly. Manage hooks explicitly with `agnt graphify hooks install|status|uninstall`; install and uninstall require approval in agent workflows because hooks change repository behavior.
+- [GitHub Adapter Decision](docs/GITHUB-ADAPTER.md) — why Beads remains canonical and GitHub issues are a possible adapter surface.
+- [Self-Improvement Configuration Evaluation](docs/SELF-IMPROVEMENT-CONFIG-EVALUATION.md) — point-in-time audit and recommended improvements.
 
-### Verify changes
+## Security and runtime state
 
-Fast local checks:
-
-```bash
-scripts/check-pi-config.sh
-bash -n scripts/*.sh
-.venv/bin/python -m pytest tests/
-pi/agent/bin/agnt eval run routing-smoke
-pi/agent/bin/agnt eval run role-context-smoke
-pi/agent/bin/agent-instructions --check
-pi/agent/bin/agnt action validate
-pi/agent/bin/agnt context-health --strict
-pi/agent/bin/agnt prompt inventory >/tmp/agnt-prompt-inventory.json
-python -m json.tool /tmp/agnt-prompt-inventory.json >/dev/null
-git diff --check
-```
-
-When the optional orchestration path is selected, also run its state checks:
-
-```bash
-pi/agent/bin/agnt work daemon status --json
-pi/agent/bin/agnt work runner status --json || true
-pi/agent/bin/agnt work health --json
-pi/agent/bin/agnt work maintenance due --json
-```
-
-Workflow compliance evals run real models:
-
-```bash
-./scripts/eval-workflow-compliance.sh          # smoke suite
-./scripts/eval-workflow-compliance.sh --list
-./scripts/eval-workflow-compliance.sh --case writing_plans_creates_plan
-./scripts/eval-workflow-compliance.sh --full
-./scripts/eval-workflow-compliance.sh --full --parallel 3
-```
-
-## Private and generated state
-
-Do not track runtime secrets, sessions, caches, onboarding state, trust state, API keys, local metrics, or ordinary run artifacts. The deploy helper preserves runtime state such as:
-
-- `agent/auth.json`
-- `agent/sessions/`
-- `agent/mcp-cache.json`
-- `agent/mcp-onboarding.json`
-- `agent/models-store.json`
-- `agent/trust.json`
-
-The deploy helper also carries Pi's `lastChangelogVersion` marker forward while replacing the rest of `agent/settings.json` from tracked configuration.
+Keep credentials, API keys, sessions, caches, trust state, onboarding state, metrics, and ordinary run artifacts out of git. Store provider keys in the shell environment or ignored local env files. See [Excluded runtime state](pi/README.md#excluded-runtime-state) for the preserved paths and deployment behavior.
