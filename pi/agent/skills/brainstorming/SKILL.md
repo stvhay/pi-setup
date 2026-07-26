@@ -30,7 +30,7 @@ pwd
 git status --short
 git branch --show-current
 find . -maxdepth 3 -type f | sort | head -200
-rg -n "TODO|FIXME|SPEC|Architecture|Design" README.md docs .pi AGENTS.md CLAUDE.md 2>/dev/null || true
+rg -n "TODO|FIXME|SPEC|Architecture|Design" README.md docs .pi AGENTS.md 2>/dev/null || true
 git log --oneline -5 2>/dev/null || true
 ```
 
@@ -40,17 +40,23 @@ Read only the files that matter. Prefer exact paths and small excerpts.
 
 1. **Clarify the request**
    - Identify goal, users, constraints, non-goals, success criteria.
-   - Batch independent questions in one message.
-   - If enough context exists, present assumptions instead of asking obvious questions.
+   - Establish the user's thought stage and domain/codebase familiarity when either changes the help they need.
+   - Run a lightweight unknowns pass:
+     - Record explicit gaps (**known unknowns**).
+     - Surface tacit “I'll know it when I see it” criteria (**unknown knowns**) with references or contrasting options.
+     - Inspect the project and relevant domain for blind spots (**unknown unknowns**): missing questions, precedent, hidden constraints, failure modes, and what good could look like.
+   - Ask only questions whose answers could change scope, architecture, or user-facing behavior. Batch independent questions; ask one at a time when each answer should shape the next.
+   - If enough context exists, present assumptions instead of asking obvious questions. Do not recite the taxonomy to the user.
 
 2. **Check project/work state**
-   - Surface dirty work, current branch, and likely issue/PR context.
-   - If `gh` is available and the project uses GitHub, optionally find/create an issue, but do not block brainstorming on it.
+   - Surface dirty work, current branch, and likely Bead/issue/PR context.
+   - Inspect existing work state read-only. Do not create or mutate Beads, issues, or PRs before design approval.
    - If on `main`/`master`, recommend a branch or worktree before implementation. Do not force it.
 
 3. **Explore alternatives**
-   - Present 2-3 approaches.
+   - Present 2-3 meaningfully different approaches.
    - Include trade-offs and a recommendation.
+   - When words are insufficient, use existing source/reference implementations or propose the cheapest artifact that would let the user react. The pre-approval hard gate still applies.
    - Keep YAGNI pressure high.
 
 4. **Consider boundaries**
@@ -60,6 +66,7 @@ Read only the files that matter. Prefer exact paths and small excerpts.
 
 5. **Present design for approval**
    - Scale detail to complexity.
+   - Lead with decisions the user is most likely to revise; put mechanical details later.
    - Cover: approach, files/components, data/control flow, errors, tests, documentation impact.
    - Ask for approval or changes before planning/implementation.
 

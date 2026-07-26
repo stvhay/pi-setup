@@ -1,6 +1,6 @@
 ---
 name: ideate
-description: "Divergent exploration of fuzzy problem spaces. Use when problem is unclear, multiple large directions exist, or user wants to generate ideas without committing to a design."
+description: Use when a problem is unclear, multiple large directions exist, or the user wants divergent exploration without committing to a design.
 ---
 
 # Ideate
@@ -24,11 +24,17 @@ Divergent exploration for fuzzy problem spaces. Generates a network of idea arti
 
 1. **Explore** - Understand the problem space:
    - What's the opportunity or pain point?
-   - What's unclear or unknown?
-   - What constraints exist (if any are known)?
+   - Establish the user's starting point when it matters: thought stage, familiarity, and what they have tried.
+   - Run a lightweight unknowns pass without reciting the taxonomy:
+     - **Known knowns:** restate the goal and facts already supplied.
+     - **Known unknowns:** capture gaps the user already recognizes.
+     - **Unknown knowns:** surface tacit “I'll know it when I see it” criteria through references or contrasting examples.
+     - **Unknown unknowns:** do a grounded blind-spot pass for missing questions, relevant precedent, hidden constraints, and what good could look like.
+   - Ask only questions that could open materially different directions; do not turn exploration into an intake checklist.
 
 2. **Generate** - Surface multiple directions:
    - Encourage divergent thinking - quantity over quality initially
+   - Vary directions enough to expose tacit preferences and scope boundaries
    - Each distinct problem/opportunity becomes its own idea
    - Don't evaluate or pick winners yet
 
@@ -49,7 +55,9 @@ Divergent exploration for fuzzy problem spaces. Generates a network of idea arti
 
 ## Output Format
 
-Files at: `docs/plans/{date}-{slug}-idea-{status}.md`
+Resolve the project plans directory with `~/.pi/agent/bin/agnt plans-dir`.
+
+Files at: `$PLANS_DIR/{date}-{slug}-idea-{status}.md`
 
 Status levels:
 - `raw` - Just captured, minimal structure
@@ -58,9 +66,9 @@ Status levels:
 
 Example:
 ```
-docs/plans/2026-01-18-caching-layer-idea-raw.md
-docs/plans/2026-01-18-api-redesign-idea-refined.md
-docs/plans/2026-01-18-dashboard-rethink-idea-actionable.md
+.pi/plans/2026-01-18-caching-layer-idea-raw.md
+.pi/plans/2026-01-18-api-redesign-idea-refined.md
+.pi/plans/2026-01-18-dashboard-rethink-idea-actionable.md
 ```
 
 ## Idea File Content
