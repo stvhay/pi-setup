@@ -71,6 +71,8 @@ export OPENROUTER_API_KEY=sk-or-...
 
 With direnv, put that export in a private file such as `.envrc.local.d/openrouter.sh` in projects that need it, or in a shell profile for broader use.
 
+The Langfuse extension and official Langfuse skill share credentials from private `~/.pi/agent/pi-langfuse/config.json`. During Pi sessions, `langfuse-config-env.ts` exposes that config to Langfuse CLI child processes; explicit `LANGFUSE_*` environment variables still take precedence. No second credential file is needed.
+
 Example smoke test after the key is set:
 
 ```bash
