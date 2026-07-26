@@ -1463,10 +1463,11 @@ def test_parse_pi_json_output_counts_provider_requests(agnt):
         for text in ("first", "second")
     ]
 
-    text, usage, source = agnt.parse_pi_json_output("\n".join(json.dumps(event) for event in events))
+    text, usage, source, error = agnt.parse_pi_json_output("\n".join(json.dumps(event) for event in events))
 
     assert text == "firstsecond"
     assert source == "message_end"
+    assert error == ""
     assert usage["providerRequests"] == 2
 
 

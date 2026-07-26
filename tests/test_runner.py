@@ -171,6 +171,70 @@ def test_invoke_one_reports_timeout(agnt, monkeypatch):
     assert record is None
 
 
+def test_invoke_one_parses_json_stream_on_timeout(agnt, monkeypatch):
+    stdout = json.dumps(
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "toolCall", "name": "read", "arguments": {"path": "README.md"}}],
+                "usage": {"input": 100, "output": 20, "totalTokens": 120},
+            },
+        }
+    )
+
+    def fake_run(cmd, **kwargs):
+        raise agnt.invoke_one.__globals__["subprocess"].TimeoutExpired(cmd, timeout=12, output=stdout)
+
+    monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
+
+    code, out, err, record = agnt.invoke_one(
+        "openrouter-localish/google/gemma-4-31b-it",
+        "prompt",
+        metrics=True,
+        task="review",
+        timeout_seconds=12,
+    )
+
+    assert code == 124
+    assert out == ""
+    assert "timed out after 12s" in err
+    assert record["responseChars"] == 0
+    assert record["usage"]["providerRequests"] == 1
+
+
+def test_invoke_one_fails_terminal_provider_error(agnt, monkeypatch):
+    class Proc:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [],
+                    "stopReason": "error",
+                    "errorMessage": "The operation was aborted",
+                    "usage": {"input": 0, "output": 0, "totalTokens": 0},
+                },
+            }
+        )
+        stderr = ""
+
+    monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", lambda cmd, **kwargs: Proc())
+
+    code, out, err, record = agnt.invoke_one(
+        "openrouter-localish/google/gemma-4-31b-it",
+        "prompt",
+        metrics=True,
+        task="review",
+    )
+
+    assert code == 1
+    assert out == ""
+    assert "The operation was aborted" in err
+    assert record["exitCode"] == 1
+
+
 def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(agnt, monkeypatch):
     calls = []
 

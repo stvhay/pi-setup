@@ -53,10 +53,11 @@ def assistant_text(message: Dict[str, Any]) -> str:
     return "".join(chunks)
 
 
-def parse_pi_json_output(stdout: str) -> Tuple[str, Dict[str, Any] | None, str]:
+def parse_pi_json_output(stdout: str) -> Tuple[str, Dict[str, Any] | None, str, str]:
     texts: List[str] = []
     message_end_usages: List[Dict[str, Any]] = []
     turn_end_usages: List[Dict[str, Any]] = []
+    provider_error = ""
     for line in stdout.splitlines():
         if not line.strip():
             continue
@@ -69,6 +70,8 @@ def parse_pi_json_output(stdout: str) -> Tuple[str, Dict[str, Any] | None, str]:
         message = event.get("message") or {}
         if message.get("role") != "assistant":
             continue
+        if message.get("stopReason") == "error":
+            provider_error = str(message.get("errorMessage") or "provider returned a terminal error")
         usage = message.get("usage")
         if event.get("type") == "message_end":
             text = assistant_text(message)
@@ -81,12 +84,12 @@ def parse_pi_json_output(stdout: str) -> Tuple[str, Dict[str, Any] | None, str]:
 
     usages = message_end_usages or turn_end_usages
     if not usages:
-        return "".join(texts), None, "unavailable"
+        return "".join(texts), None, "unavailable", provider_error
     usage_total = empty_usage()
     for usage in usages:
         add_usage(usage_total, usage)
     usage_total["providerRequests"] = len(usages)
-    return "".join(texts), usage_total, ("message_end" if message_end_usages else "turn_end")
+    return "".join(texts), usage_total, ("message_end" if message_end_usages else "turn_end"), provider_error
 
 
 def safe_target_name(target: str) -> str:
@@ -146,19 +149,25 @@ def invoke_one(
                 ["pi", "--mode", "json", *session_args, *extra_args, "--provider", provider, "--model", model, prompt],
                 **run_kwargs,
             )
-            out, usage, usage_source = parse_pi_json_output(proc.stdout)
+            out, usage, usage_source, provider_error = parse_pi_json_output(proc.stdout)
         else:
             proc = subprocess.run(
                 ["pi", "--print", *session_args, *extra_args, "--provider", provider, "--model", model, prompt],
                 **run_kwargs,
             )
-            out, usage, usage_source = proc.stdout, None, "not_requested"
+            out, usage, usage_source, provider_error = proc.stdout, None, "not_requested", ""
     except subprocess.TimeoutExpired as exc:
         ended_at = utc_now()
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        out = exc.output.decode("utf-8", errors="replace") if isinstance(exc.output, bytes) else str(exc.output or "")
+        raw_out = exc.output.decode("utf-8", errors="replace") if isinstance(exc.output, bytes) else str(exc.output or "")
+        if metrics:
+            out, usage, _, provider_error = parse_pi_json_output(raw_out)
+        else:
+            out, usage, provider_error = raw_out, None, ""
         stderr_text = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
         err = f"pi invocation timed out after {timeout_seconds}s"
+        if provider_error:
+            err = f"{err}\n{provider_error}"
         if stderr_text:
             err = f"{err}\n{stderr_text}"
         record = None
@@ -173,7 +182,7 @@ def invoke_one(
                 prompt=prompt,
                 out=out,
                 err=err,
-                usage=None,
+                usage=usage,
                 usage_source="timeout",
                 risk_category=risk_category,
                 thinking_level=thinking_level,
@@ -185,6 +194,10 @@ def invoke_one(
         return 124, out, err, record
     ended_at = utc_now()
     elapsed_ms = int((time.monotonic() - started) * 1000)
+    code = proc.returncode or (1 if provider_error else 0)
+    err = proc.stderr
+    if provider_error:
+        err = f"{err.rstrip()}\n{provider_error}".lstrip()
     record = None
     if metrics:
         record = metrics_record(
@@ -193,10 +206,10 @@ def invoke_one(
             started_at=started_at,
             ended_at=ended_at,
             elapsed_ms=elapsed_ms,
-            code=proc.returncode,
+            code=code,
             prompt=prompt,
             out=out,
-            err=proc.stderr,
+            err=err,
             usage=usage,
             usage_source=usage_source,
             risk_category=risk_category,
@@ -206,7 +219,7 @@ def invoke_one(
             fallback_used=fallback_used,
             invocation_mode="one-shot" if one_shot else "agentic",
         )
-    return proc.returncode, out, proc.stderr, record
+    return code, out, err, record
 
 
 def cmd_invoke(argv: List[str]) -> int:
