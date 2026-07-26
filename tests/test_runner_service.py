@@ -277,6 +277,78 @@ def test_service_rejects_overlapping_ticks(monkeypatch, tmp_path):
         service.stop(force=True)
 
 
+def test_live_tick_returns_async_acceptance_and_emits_terminal_event(monkeypatch, tmp_path):
+    from agnt_lib import runner_service
+
+    entered = threading.Event()
+    release = threading.Event()
+    bundle = tmp_path / ".pi" / "runs" / "runner-pi-ready.1-20260726120000"
+
+    def blocking_tick(**_kwargs):
+        entered.set()
+        assert release.wait(timeout=2)
+        return {
+            "schemaVersion": 1,
+            "actions": [
+                {
+                    "bead": "pi-ready.1",
+                    "action": "started",
+                    "result": {"started": {"bundle": str(bundle)}},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(runner_service, "runner_tick", blocking_tick)
+    service = start_runner_service(tmp_path, host="127.0.0.1", port=0, token="secret-token")
+    try:
+        body = json.dumps({"dryRun": False, "limit": 1}).encode("utf-8")
+        request = Request(
+            f"{service.base_url}/v1/tick",
+            data=body,
+            headers={"Authorization": "Bearer secret-token", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            assert response.status == 202
+            accepted = json.loads(response.read().decode("utf-8"))
+
+        assert accepted["accepted"] is True
+        assert accepted["status"] == "accepted"
+        assert entered.wait(timeout=1)
+        with pytest.raises(HTTPError) as error:
+            request_json(
+                service.base_url,
+                "POST",
+                "/v1/tick",
+                token="secret-token",
+                payload={"dryRun": False, "limit": 1},
+            )
+        assert error.value.code == 409
+
+        drained = request_json(service.base_url, "POST", "/v1/drain", token="secret-token", payload={"reason": "test drain"})
+        assert drained["draining"] is True
+        assert service.thread.is_alive()
+
+        release.set()
+        assert wait_until(lambda: not service.thread.is_alive())
+        events = rp.read_runner_events(tmp_path)["events"]
+        finished = next(event for event in events if event["type"] == "run_finished")
+        assert finished == {
+            "schemaVersion": 1,
+            "type": "run_finished",
+            "offset": finished["offset"],
+            "timestamp": finished["timestamp"],
+            "bead": "pi-ready.1",
+            "outcome": "succeeded",
+            "runId": bundle.name,
+            "bundle": str(bundle),
+            "tickId": accepted["tickId"],
+        }
+    finally:
+        release.set()
+        service.stop(force=True)
+
+
 def test_service_auto_scheduler_ticks_without_manual_endpoint(monkeypatch, tmp_path):
     calls = []
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 
 import pytest
 from pathlib import Path
@@ -194,6 +195,32 @@ def test_active_run_snapshot_summary_is_compact_and_stable(tmp_path):
         "bundle": str(tmp_path / ".pi" / "runs" / "runner-pi-2m1.1"),
         "blockers": ["waiting for test"],
     }
+
+
+def test_runner_event_offsets_remain_unique_under_concurrent_appends(tmp_path, monkeypatch):
+    original_event_lines = rp._event_lines
+    barrier = threading.Barrier(2)
+
+    def synchronized_read(path):
+        lines = original_event_lines(path)
+        try:
+            barrier.wait(timeout=0.1)
+        except threading.BrokenBarrierError:
+            pass
+        return lines
+
+    monkeypatch.setattr(rp, "_event_lines", synchronized_read)
+    threads = [
+        threading.Thread(target=rp.append_runner_event, args=(tmp_path, {"type": f"event-{index}"}))
+        for index in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=1)
+
+    events = rp.read_runner_events(tmp_path)["events"]
+    assert sorted(event["offset"] for event in events) == [0, 1]
 
 
 def test_runner_events_append_and_read_by_line_offset(tmp_path):

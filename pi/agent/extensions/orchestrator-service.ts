@@ -50,6 +50,8 @@ interface SessionState {
 	leaseId?: string;
 	pendingLeaseId?: string;
 	pollTimer?: ReturnType<typeof setInterval>;
+	pollInFlight?: boolean;
+	eventOffset?: number;
 	startupAbort?: AbortController;
 	shutdownStarted: boolean;
 	repairToolsActive: boolean;
@@ -258,6 +260,39 @@ async function refreshRunnerStatus(ctx: ExtensionContext, signal?: AbortSignal):
 	return payload;
 }
 
+async function initializeRunnerEvents(ctx: ExtensionContext, state: SessionState, signal?: AbortSignal): Promise<void> {
+	const payload = await runnerRequest(ctx.cwd, "/v1/events?since=0", { signal });
+	const nextOffset = Number(payload.nextOffset);
+	state.eventOffset = Number.isFinite(nextOffset) ? nextOffset : 0;
+}
+
+async function refreshRunnerEvents(pi: ExtensionAPI, ctx: ExtensionContext, state: SessionState, signal?: AbortSignal): Promise<void> {
+	if (state.shutdownStarted) return;
+	const since = state.eventOffset ?? 0;
+	const payload = await runnerRequest(ctx.cwd, `/v1/events?since=${since}`, { signal });
+	if (state.shutdownStarted) return;
+	const events = Array.isArray(payload.events) ? payload.events : [];
+	for (const value of events) {
+		const event = asObject(value);
+		const offset = Number(event.offset);
+		if (event.type !== "run_finished" || !Number.isFinite(offset) || offset < since) continue;
+		const bead = String(event.bead || "unknown").replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 100) || "unknown";
+		const outcome = event.outcome === "succeeded" ? "succeeded" : "failed";
+		const runId = String(event.runId || "unknown").replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 120) || "unknown";
+		pi.sendMessage(
+			{
+				customType: "orchestrator-run-finished",
+				content: `Runner ${outcome} for ${bead}. Inspect durable run ${runId} and continue orchestration closeout.`,
+				display: true,
+				details: { eventOffset: offset, bead, outcome, runId },
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
+	}
+	const nextOffset = Number(payload.nextOffset);
+	if (Number.isFinite(nextOffset)) state.eventOffset = Math.max(since, nextOffset);
+}
+
 async function ensureDaemon(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
 	const status = await runAgnt(["work", "daemon", "status", "--json"], ctx.cwd, signal);
 	const service = asObject(status.service);
@@ -350,12 +385,21 @@ async function applyToolMode(pi: ExtensionAPI, ctx: ExtensionContext, state: Ses
 	restrictTools(pi);
 }
 
-function startStatusPolling(ctx: ExtensionContext, state: SessionState): void {
+function startStatusPolling(pi: ExtensionAPI, ctx: ExtensionContext, state: SessionState): void {
 	if (state.shutdownStarted) return;
 	if (state.pollTimer) clearInterval(state.pollTimer);
 	state.pollTimer = setInterval(() => {
-		if (state.shutdownStarted) return;
-		refreshRunnerStatus(ctx).catch((err) => handleAsyncFailure(ctx, state, err));
+		if (state.shutdownStarted || state.pollInFlight) return;
+		state.pollInFlight = true;
+		Promise.allSettled([refreshRunnerStatus(ctx), refreshRunnerEvents(pi, ctx, state)])
+			.then((results) => {
+				for (const result of results) {
+					if (result.status === "rejected") handleAsyncFailure(ctx, state, result.reason);
+				}
+			})
+			.finally(() => {
+				state.pollInFlight = false;
+			});
 	}, POLL_MS);
 }
 
@@ -390,6 +434,8 @@ export default function orchestratorService(pi: ExtensionAPI) {
 			}
 			await ensureDaemon(ctx, startupAbort.signal);
 			if (state.shutdownStarted) return;
+			await initializeRunnerEvents(ctx, state, startupAbort.signal);
+			if (state.shutdownStarted) return;
 			await attachLease(ctx, state, startupAbort.signal);
 			if (state.shutdownStarted) {
 				await releaseLease(ctx, state).catch((err) => {
@@ -399,7 +445,7 @@ export default function orchestratorService(pi: ExtensionAPI) {
 			}
 			await refreshRunnerStatus(ctx, startupAbort.signal);
 			if (state.shutdownStarted) return;
-			startStatusPolling(ctx, state);
+			startStatusPolling(pi, ctx, state);
 		} catch (err) {
 			handleAsyncFailure(ctx, state, err);
 		} finally {

@@ -40,6 +40,26 @@ def js_async_function(text: str, name: str, params: str) -> str:
     return f"async function {name}({params}) {{\n{extract_async_function_body(text, name)}\n}}"
 
 
+def extract_function_body(text: str, name: str) -> str:
+    marker = f"function {name}"
+    start = text.index(marker)
+    open_brace = text.index("{", start)
+    depth = 0
+    for index in range(open_brace, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_brace + 1 : index]
+    raise AssertionError(f"could not extract {name}")
+
+
+def js_function(text: str, name: str, params: str) -> str:
+    return f"function {name}({params}) {{\n{extract_function_body(text, name)}\n}}"
+
+
 def test_orchestrator_extension_file_exists_and_registers_lifecycle_hooks():
     text = source()
 
@@ -83,7 +103,7 @@ def test_orchestrator_extension_stops_async_startup_after_shutdown_begins():
     assert "abortStartup" in text
     assert "if (state.shutdownStarted) return;" in text
     assert "await abortStartup(state);" in text
-    assert "if (state.shutdownStarted) return;\n\t\t\tstartStatusPolling(ctx, state);" in text
+    assert "if (state.shutdownStarted) return;\n\t\t\tstartStatusPolling(pi, ctx, state);" in text
 
 
 def test_orchestrator_extension_suppresses_expected_shutdown_fetch_failures():
@@ -197,6 +217,142 @@ def test_orchestrator_extension_surfaces_status_without_large_json_dumps():
     assert 'ctx.ui.setWidget("orchestrator-service"' in text
     assert "summarizeRunnerStatus" in text
     assert "slice(0, 8)" in text or "slice(0, 10)" in text
+
+
+def test_orchestrator_poll_waits_for_status_and_event_requests_before_restarting(tmp_path):
+    text = source()
+    harness = tmp_path / "runner-poll-race-harness.mjs"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            const POLL_MS = 5000;
+            let intervalCallback;
+            globalThis.setInterval = (callback) => {{ intervalCallback = callback; return 1; }};
+            globalThis.clearInterval = () => {{}};
+            const pi = {{}};
+            const ctx = {{}};
+            const state = {{ shutdownStarted: false }};
+            let eventCalls = 0;
+            let finishEvent;
+
+            async function refreshRunnerStatus() {{ throw new Error("status failed"); }}
+            async function refreshRunnerEvents() {{
+              eventCalls += 1;
+              await new Promise((resolve) => {{ finishEvent = resolve; }});
+            }}
+            function handleAsyncFailure() {{}}
+
+            {js_function(text, "startStatusPolling", "pi, ctx, state")}
+
+            startStatusPolling(pi, ctx, state);
+            intervalCallback();
+            await new Promise(setImmediate);
+            intervalCallback();
+            if (eventCalls !== 1) throw new Error(`overlapping event polls: ${{eventCalls}}`);
+            finishEvent();
+            await new Promise(setImmediate);
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(["node", str(harness)], text=True, capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_orchestrator_extension_does_not_send_completion_after_shutdown(tmp_path):
+    text = source()
+    harness = tmp_path / "runner-events-shutdown-harness.mjs"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            const ctx = {{ cwd: "/tmp/pi-test" }};
+            const state = {{ shutdownStarted: false, eventOffset: 4 }};
+            const sent = [];
+            const pi = {{ sendMessage: (message, options) => sent.push({{ message, options }}) }};
+            let finishRequest;
+
+            function asObject(value) {{
+              return value && typeof value === "object" && !Array.isArray(value) ? value : {{}};
+            }}
+            async function runnerRequest() {{
+              await new Promise((resolve) => {{ finishRequest = resolve; }});
+              return {{
+                events: [{{ type: "run_finished", offset: 4, bead: "pi-ready.1", outcome: "succeeded" }}],
+                nextOffset: 5,
+              }};
+            }}
+
+            {js_async_function(text, "refreshRunnerEvents", "pi, ctx, state, signal")}
+
+            const refresh = refreshRunnerEvents(pi, ctx, state);
+            await new Promise(setImmediate);
+            state.shutdownStarted = true;
+            finishRequest();
+            await refresh;
+            if (sent.length !== 0) throw new Error(`completion sent after shutdown: ${{sent.length}}`);
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(["node", str(harness)], text=True, capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_orchestrator_extension_sends_each_terminal_event_once(tmp_path):
+    text = source()
+    harness = tmp_path / "runner-events-harness.mjs"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            const ctx = {{ cwd: "/tmp/pi-test" }};
+            const state = {{ shutdownStarted: false, eventOffset: 4 }};
+            const sent = [];
+            const pi = {{ sendMessage: (message, options) => sent.push({{ message, options }}) }};
+
+            function asObject(value) {{
+              return value && typeof value === "object" && !Array.isArray(value) ? value : {{}};
+            }}
+
+            async function runnerRequest(_cwd, path) {{
+              if (!path.startsWith("/v1/events?since=")) throw new Error(`unexpected path ${{path}}`);
+              return {{
+                events: [{{
+                  type: "run_finished",
+                  offset: 4,
+                  bead: "pi-ready.1",
+                  outcome: "succeeded",
+                  runId: "runner-pi-ready.1-1",
+                  bundle: "/tmp/pi-test/.pi/runs/runner-pi-ready.1-1",
+                }}],
+                nextOffset: 5,
+              }};
+            }}
+
+            {js_async_function(text, "refreshRunnerEvents", "pi, ctx, state, signal")}
+
+            await refreshRunnerEvents(pi, ctx, state);
+            await refreshRunnerEvents(pi, ctx, state);
+
+            if (sent.length !== 1) throw new Error(`expected one completion message, got ${{sent.length}}`);
+            if (sent[0].message.customType !== "orchestrator-run-finished") throw new Error(JSON.stringify(sent[0]));
+            if (sent[0].options.deliverAs !== "followUp" || sent[0].options.triggerTurn !== true) {{
+              throw new Error(JSON.stringify(sent[0].options));
+            }}
+            if (!sent[0].message.content.includes("pi-ready.1") || !sent[0].message.content.includes("succeeded")) {{
+              throw new Error(sent[0].message.content);
+            }}
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(["node", str(harness)], text=True, capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_orchestrator_extension_does_not_shell_to_raw_beads_or_mutating_tools():

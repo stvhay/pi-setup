@@ -32,6 +32,7 @@ class _RunnerHTTPServer(ThreadingHTTPServer):
         self.lock_owner = lock_owner
         self.scheduler_enabled = scheduler_enabled
         self.scheduler_thread: threading.Thread | None = None
+        self.tick_thread: threading.Thread | None = None
         self._shutdown_requested = False
         self._state_lock = threading.RLock()
         self._tick_lock = threading.Lock()
@@ -88,13 +89,59 @@ class _RunnerHTTPServer(ThreadingHTTPServer):
             return protocol.update_runner_state(self.root, apply)
 
     def run_tick(self, *, dry_run: bool, limit: int) -> Dict[str, Any] | None:
-        """Run at most one scheduler or HTTP tick at a time."""
+        """Run at most one synchronous debug tick at a time."""
         if not self._tick_lock.acquire(blocking=False):
             return None
         try:
             return runner_tick(root=self.root, dry_run=dry_run, limit=limit)
         finally:
             self._tick_lock.release()
+
+    def submit_tick(self, *, limit: int) -> Dict[str, Any] | None:
+        """Accept one live tick without blocking the scheduler or HTTP request."""
+        if self._shutdown_requested or not self._tick_lock.acquire(blocking=False):
+            return None
+        tick_id = f"tick-{secrets.token_hex(8)}"
+        worker = threading.Thread(
+            target=self._execute_tick,
+            kwargs={"tick_id": tick_id, "limit": limit},
+            name=f"agnt-runner-tick:{self.root}",
+            daemon=True,
+        )
+        self.tick_thread = worker
+        try:
+            worker.start()
+        except BaseException:
+            self._tick_lock.release()
+            raise
+        return {
+            "schemaVersion": protocol.SCHEMA_VERSION,
+            "accepted": True,
+            "status": "accepted",
+            "tickId": tick_id,
+            "dryRun": False,
+            "limit": limit,
+        }
+
+    def _execute_tick(self, *, tick_id: str, limit: int) -> None:
+        self.record_scheduler_tick("started")
+        protocol.append_runner_event(self.root, {"type": "scheduler_tick_started", "tickId": tick_id})
+        try:
+            result = runner_tick(root=self.root, dry_run=False, limit=limit)
+        except (KeyboardInterrupt, GeneratorExit):
+            raise
+        except BaseException as exc:
+            self.record_scheduler_tick("failed", error=str(exc))
+            protocol.append_runner_event(self.root, {"type": "scheduler_tick_failed", "tickId": tick_id, "error": str(exc)})
+        else:
+            actions = _scheduler_action_summary(result)
+            self.record_scheduler_tick("completed", actions=actions)
+            protocol.append_runner_event(self.root, {"type": "scheduler_tick_completed", "tickId": tick_id, "actions": actions})
+            for event in _run_finished_events(result):
+                protocol.append_runner_event(self.root, {**event, "tickId": tick_id})
+        finally:
+            self._tick_lock.release()
+            self.maybe_shutdown_when_drained(self.read_state())
 
     def heartbeat(self) -> Dict[str, Any]:
         # Status polling updates only its own heartbeat field against the
@@ -147,6 +194,7 @@ class _RunnerHTTPServer(ThreadingHTTPServer):
             "updatedAt": state.get("updatedAt"),
             "leases": state.get("leases") or {},
             "activeRuns": state.get("activeRuns") or [],
+            "tickInProgress": self._tick_lock.locked(),
             "budget": state.get("budget") or dict(protocol.DEFAULT_BUDGET),
             "service": {**service_metadata, "schedulerEnabled": self.scheduler_enabled},
             "lock": lock_status.get("lock"),
@@ -155,7 +203,7 @@ class _RunnerHTTPServer(ThreadingHTTPServer):
     def should_stop_after_state(self, state: Dict[str, Any]) -> bool:
         # Client presence is informational only: a stale/disconnected Pi session
         # must never delay an explicit operator drain of autonomous work.
-        return bool(state.get("draining")) and not bool(state.get("activeRuns"))
+        return bool(state.get("draining")) and not bool(state.get("activeRuns")) and not self._tick_lock.locked()
 
     def request_service_shutdown(self, *, force: bool = False) -> None:
         if self._shutdown_requested:
@@ -302,11 +350,11 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed.path == "/v1/tick":
             dry_run = bool(body.get("dryRun", True))
             limit = int(body.get("limit") or 1)
-            result = self.server.run_tick(dry_run=dry_run, limit=limit)
+            result = self.server.run_tick(dry_run=True, limit=limit) if dry_run else self.server.submit_tick(limit=limit)
             if result is None:
                 self._send_json(409, {"schemaVersion": protocol.SCHEMA_VERSION, "error": "runner tick already in progress"})
             else:
-                self._send_json(200, result)
+                self._send_json(200 if dry_run else 202, result)
             return
         self._send_json(404, {"schemaVersion": protocol.SCHEMA_VERSION, "error": "not found"})
 
@@ -355,6 +403,8 @@ class RunnerServiceHandle:
             self.thread.join(timeout=timeout)
         if self.scheduler_thread and self.scheduler_thread.is_alive():
             self.scheduler_thread.join(timeout=timeout)
+        if self.httpd.tick_thread and self.httpd.tick_thread.is_alive():
+            self.httpd.tick_thread.join(timeout=timeout)
         self.httpd.cleanup()
         self.httpd.server_close()
 
@@ -412,25 +462,33 @@ def _scheduler_action_summary(result: Any) -> list[Dict[str, Any]]:
     return summary
 
 
+def _run_finished_events(result: Any) -> list[Dict[str, Any]]:
+    if not isinstance(result, dict) or not isinstance(result.get("actions"), list):
+        return []
+    events: list[Dict[str, Any]] = []
+    for item in result["actions"]:
+        if not isinstance(item, dict) or item.get("action") not in {"started", "worker_failed", "start_failed"}:
+            continue
+        event = {
+            "type": "run_finished",
+            "bead": str(item.get("bead") or "unknown"),
+            "outcome": "succeeded" if item.get("action") == "started" else "failed",
+        }
+        action_result = item.get("result") if isinstance(item.get("result"), dict) else {}
+        started = action_result.get("started") if isinstance(action_result.get("started"), dict) else {}
+        bundle = started.get("bundle") if isinstance(started.get("bundle"), str) else None
+        if bundle:
+            event["runId"] = Path(bundle).name
+            event["bundle"] = bundle
+        events.append(event)
+    return events
+
+
 def _scheduler_loop(httpd: _RunnerHTTPServer, *, interval: float, limit: int) -> None:
     while not httpd._shutdown_requested:
         state = httpd.read_state()
         if state.get("running") and not state.get("paused") and not state.get("draining"):
-            httpd.record_scheduler_tick("started")
-            protocol.append_runner_event(httpd.root, {"type": "scheduler_tick_started"})
-            try:
-                result = httpd.run_tick(dry_run=False, limit=limit)
-                if result is None:
-                    result = {"schemaVersion": protocol.SCHEMA_VERSION, "actions": []}
-            except (KeyboardInterrupt, GeneratorExit):
-                raise
-            except BaseException as exc:
-                httpd.record_scheduler_tick("failed", error=str(exc))
-                protocol.append_runner_event(httpd.root, {"type": "scheduler_tick_failed", "error": str(exc)})
-            else:
-                actions = _scheduler_action_summary(result)
-                httpd.record_scheduler_tick("completed", actions=actions)
-                protocol.append_runner_event(httpd.root, {"type": "scheduler_tick_completed", "actions": actions})
+            httpd.submit_tick(limit=limit)
         # A drain may arrive while a tick owns an active slot. Re-evaluate
         # after every loop so completion of that slot reaches shutdown.
         httpd.maybe_shutdown_when_drained(httpd.read_state())

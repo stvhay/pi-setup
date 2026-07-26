@@ -84,6 +84,7 @@ def runner_paths(root: Path | str | None = None) -> Dict[str, Path]:
         "stateGuardPath": base / "state.lock",
         "lockPath": base / "lock.json",
         "eventsPath": base / "events.jsonl",
+        "eventsGuardPath": base / "events.lock",
         "activeDir": base / "active",
     }
 
@@ -371,13 +372,18 @@ def _event_lines(path: Path) -> List[str]:
 
 
 def append_runner_event(root: Path | str | None, event: Dict[str, Any], *, now: str | None = None) -> Dict[str, Any]:
-    path = runner_paths(root)["eventsPath"]
-    lines = _event_lines(path)
-    offset = len(lines)
-    row = {"schemaVersion": SCHEMA_VERSION, **dict(event), "offset": offset, "timestamp": now or utc_now()}
+    paths = runner_paths(root)
+    path = paths["eventsPath"]
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, sort_keys=True) + "\n")
+    with paths["eventsGuardPath"].open("a+", encoding="utf-8") as guard:
+        fcntl.flock(guard.fileno(), fcntl.LOCK_EX)
+        try:
+            offset = len(_event_lines(path))
+            row = {"schemaVersion": SCHEMA_VERSION, **dict(event), "offset": offset, "timestamp": now or utc_now()}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+        finally:
+            fcntl.flock(guard.fileno(), fcntl.LOCK_UN)
     return row
 
 

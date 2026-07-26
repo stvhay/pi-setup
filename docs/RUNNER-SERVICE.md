@@ -32,8 +32,8 @@ The opted-in extension then:
 1. runs `agnt doctor --profile orchestrator-startup --json`;
 2. requires a ready report before background dispatch;
 3. starts or attaches the service with `agnt work daemon status|start`;
-4. attaches an informational client record, restricts the session to orchestrator tools, and polls service status; and
-5. exposes status through `ticket_gateway`, `/runner`, and the TUI widget.
+4. establishes an event cursor, attaches an informational client record, restricts the session to orchestrator tools, and polls service status plus events; and
+5. exposes status through `ticket_gateway`, `/runner`, and the TUI widget, then queues one Pi follow-up turn when each run finishes.
 
 The legacy `scripts/pi-bootstrap-repair-mode.sh`, `PI_ORCHESTRATOR_REPAIR_TOOLS=1`, and `/runner repair-tools` controls remain available for explicit recovery of the optional orchestration path. They are not needed for normal direct implementation.
 
@@ -60,7 +60,8 @@ agnt work daemon stop --json --force
 agnt work runner status --json
 agnt work runner pause --json --reason "operator pause"
 agnt work runner resume --json
-agnt work runner tick --dry-run --json --limit 1
+agnt work runner tick --dry-run --json --limit 1  # synchronous plan
+agnt work runner tick --json --limit 1            # asynchronous acceptance
 
 # Model-facing structured status surface
 tag='{"operation":"runner_status"}'
@@ -81,6 +82,7 @@ All service runtime files live under `.pi/runner/` and are gitignored.
 .pi/runner/state.json          # paused/draining/running, informational clients, activeRuns, budget, heartbeat
 .pi/runner/state.lock          # flock guard for atomic state read-modify-write transactions
 .pi/runner/events.jsonl        # compact append-only service event stream
+.pi/runner/events.lock         # flock guard for unique event offsets during concurrent appends
 .pi/runner/active/<run-id>.json # active run snapshots for status and crash recovery
 .pi/runner/lock.json           # singleton lock/stale detection
 .pi/runner/service.log         # daemon child stdout/stderr
@@ -108,8 +110,8 @@ Minimum v1 endpoints:
 | `POST` | `/v1/stop` | Operator shutdown; force mode is explicit. |
 | `POST` | `/v1/pause` | Pause scheduling with a reason. |
 | `POST` | `/v1/resume` | Resume scheduling unless draining. |
-| `POST` | `/v1/tick` | Run one bounded service-mediated scheduling tick. |
-| `GET` | `/v1/events?since=<offset>` | Read compact JSONL event catch-up. |
+| `POST` | `/v1/tick` | Dry runs return their plan synchronously; live ticks return HTTP 202 acceptance and execute in one bounded background slot. |
+| `GET` | `/v1/events?since=<offset>` | Read compact JSONL event catch-up with a monotonic next offset. |
 
 Status payloads expose compact active-work summaries:
 
@@ -130,6 +132,24 @@ Status payloads expose compact active-work summaries:
 ```
 
 When usage is unavailable, context and cost are reported as `unknown`; the service does not invent values.
+
+A completed worker appends a compact terminal event after its durable run result is written:
+
+```json
+{
+  "type": "run_finished",
+  "offset": 42,
+  "tickId": "tick-0123456789abcdef",
+  "bead": "pi-abc.1",
+  "outcome": "succeeded",
+  "runId": "runner-pi-abc.1-YYYYmmddHHMMSS",
+  "bundle": ".pi/runs/<run-id>"
+}
+```
+
+The opted-in Pi extension advances its event cursor only from successful responses. Each new terminal offset produces one custom message delivered as `followUp` with `triggerTurn: true`: idle Pi sessions wake for closeout, while busy sessions finish their current work first. Worker output and error text are not injected into model context; Pi receives identifiers and reads durable evidence when needed.
+
+Provider and worker timeouts remain safety watchdogs. Asynchronous acceptance removes the HTTP/orchestrator timeout boundary; it does not permit a stalled provider call to run forever.
 
 ## Scheduling and safety gates
 
