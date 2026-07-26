@@ -94,6 +94,7 @@ Do not commit credentials, sessions, caches, trust state, onboarding state, API 
 
 - `agent/auth.json`
 - `agent/sessions/`
+- `agent/pi-langfuse/`
 - `agent/mcp-cache.json`
 - `agent/mcp-onboarding.json`
 - `agent/models-store.json`

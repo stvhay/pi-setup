@@ -134,6 +134,7 @@ RSYNC_EXCLUDES=(
   --exclude='.git.backup-*'
   --exclude='agent/auth.json'
   --exclude='agent/sessions/'
+  --exclude='agent/pi-langfuse/'
   --exclude='agent/npm/'
   --exclude='agent/git/'
   --exclude='agent/mcp-cache.json'

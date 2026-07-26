@@ -73,6 +73,19 @@ def test_update_preserves_pi_managed_mutable_state(tmp_path):
     assert (agent / "models-store.json").read_text(encoding="utf-8") == models_store
 
 
+def test_update_preserves_langfuse_credentials(tmp_path):
+    dest = tmp_path / ".pi"
+    config = dest / "agent" / "pi-langfuse" / "config.json"
+    config.parent.mkdir(parents=True)
+    credentials = '{"publicKey":"pk-test","secretKey":"sk-test"}\n'
+    config.write_text(credentials, encoding="utf-8")
+
+    proc = run_update(dest)
+
+    assert proc.returncode == 0, proc.stderr
+    assert config.read_text(encoding="utf-8") == credentials
+
+
 def test_update_dry_run_excludes_models_store(tmp_path):
     proc = run_update(tmp_path / ".pi", "--dry-run")
 
