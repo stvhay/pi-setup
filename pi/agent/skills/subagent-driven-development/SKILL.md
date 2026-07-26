@@ -5,7 +5,7 @@ description: Use when implementation-plan tasks can be explored or executed inde
 
 # Subagent-Driven Development
 
-Pi does not have Claude Code Task subagents. In Pi, this workflow means **peer-driven development**: the main session orchestrates independent work using `agnt invoke`/`agnt invoke --fanout`, filesystem artifacts, optional `agnt instructions` role/model context, and—when implementation is approved—isolated git worktrees.
+Pi uses Archimedes subagents for isolated peer execution with live TUI progress. The main session routes models with `agnt route`, calls `subagent` with `agent` omitted, composes optional role/model context with `agnt instructions`, and—when implementation is approved—assigns each writing peer an isolated git worktree.
 
 Announce: "I'm using the subagent-driven-development skill to coordinate peer-driven parallel development."
 
@@ -146,29 +146,27 @@ If tasks are not safe to parallelize, stop with `STOPPED` and recommend `executi
 
 ## Mode A workflow: advisory peers
 
-1. Create a peer run directory:
+1. Route the advisory task:
    ```bash
-   mkdir -p .pi/peer-runs/<topic>
+   agnt route --task research --risk medium --budget balanced
    ```
-2. Write focused prompts or use `agnt invoke --fanout` directly.
-3. Include read-only constraints:
+2. Write focused prompts with read-only constraints:
    - do not edit files
    - do not commit
    - provide exact file references
    - propose patches only as text if useful
-4. Run peers:
-   ```bash
-   ~/.pi/agent/bin/agnt invoke olla-local/qwen3:8b "<prompt>" > .pi/peer-runs/<topic>/qwen-task-1.md
-   ~/.pi/agent/bin/agnt invoke olla-local/gemma4:e4b "<prompt>" > .pi/peer-runs/<topic>/gemma-task-2.md
+3. Call `subagent` once with `agent` omitted and one task entry per independent domain:
+   ```json
+   {
+     "tasks": [
+       { "task": "<focused read-only prompt A>", "model": "<routed target A>", "cwd": "<repository>" },
+       { "task": "<focused read-only prompt B>", "model": "<routed target B>", "cwd": "<repository>" }
+     ]
+   }
    ```
-   Or:
-   ```bash
-   printf '%s\n' "<prompt>" > .pi/peer-runs/<topic>/prompt.md
-   ~/.pi/agent/bin/agnt invoke --fanout -o .pi/peer-runs/<topic> olla-cloud/gpt-4.1-mini .pi/peer-runs/<topic>/prompt.md
-   ```
-5. Read outputs.
-6. Verify concrete claims against files/tests.
-7. Synthesize findings.
+4. Persist returned outputs under `.pi/peer-runs/<topic>/` only when handoff needs files.
+5. Verify concrete claims against files/tests.
+6. Synthesize findings.
 
 Advisory output format:
 
@@ -224,14 +222,22 @@ Worker prompt construction:
    - <commands>
    ```
 
-Example dispatch:
+Route implementation work, then dispatch one task per worktree in a single `subagent` call. Omit `agent`; include generated role context in each worker prompt.
 
 ```bash
-(
-  cd .worktrees/<topic>-task-N
-  ~/.pi/agent/bin/agnt invoke openai-codex/gpt-5.6-luna "<worker prompt>"
-) > .pi/peer-runs/<topic>/task-N-worker.md
+agnt route --task implementation --risk high --budget quality
 ```
+
+```json
+{
+  "tasks": [
+    { "task": "<role context + worker prompt N>", "model": "<routed target N>", "cwd": ".worktrees/<topic>-task-N" },
+    { "task": "<role context + worker prompt M>", "model": "<routed target M>", "cwd": ".worktrees/<topic>-task-M" }
+  ]
+}
+```
+
+Persist worker reports under `.pi/peer-runs/<topic>/` when integration needs durable evidence.
 
 ### 3. Review each task branch
 

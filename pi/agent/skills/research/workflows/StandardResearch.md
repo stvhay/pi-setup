@@ -1,6 +1,6 @@
 # Standard Research Workflow
 
-**Mode:** 2 peers/search angles in parallel | **Timeout:** 1 minute
+**Mode:** 2 peers/search angles in parallel | **Target:** about 1 minute
 
 ## CRITICAL: URL Verification Required
 
@@ -28,18 +28,24 @@ Create ONE focused query optimized for each researcher's strengths:
 
 ### Step 2: Launch 2 Peers in Parallel
 
-**SINGLE message with 2 Pi peer calls:**
+Route once and choose two distinct qualified targets from `candidateOrder` when available:
 
 ```bash
-mkdir -p .pi/research/scratch
-~/.pi/agent/bin/agnt invoke olla-cloud/gemini-flash \
-  "Research for depth/analysis: [query]. Return concise findings with source URLs and uncertainty." \
-  > .pi/research/scratch/depth.md &
-~/.pi/agent/bin/agnt invoke olla-cloud/gpt-4.1-mini \
-  "Research for breadth/cross-domain perspectives: [query]. Return concise findings with source URLs and uncertainty." \
-  > .pi/research/scratch/breadth.md &
-wait
+~/.pi/agent/bin/agnt route --task research --risk medium --budget balanced
 ```
+
+Make one `subagent` call with `agent` omitted:
+
+```json
+{
+  "tasks": [
+    { "task": "Research for depth/analysis: [query]. Return concise findings with source URLs and uncertainty.", "model": "<routed target A>" },
+    { "task": "Research for breadth/cross-domain perspectives: [query]. Return concise findings with source URLs and uncertainty.", "model": "<routed target B>" }
+  ]
+}
+```
+
+Persist returned results to `.pi/research/scratch/depth.md` and `breadth.md` only when later synthesis needs files.
 
 **Each peer:**
 - Gets ONE query

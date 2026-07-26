@@ -55,15 +55,23 @@ Override with `PI_PLANS_DIR` when needed.
 
 ## Peer orchestration
 
-Use `agnt` instead of embedding long `pi --print` commands:
+For interactive work, keep policy in `agnt` and execution in Archimedes:
 
-```bash
-~/.pi/agent/bin/agnt invoke provider/model "prompt"
-~/.pi/agent/bin/agnt invoke --fanout -o .pi/peer-runs/<name> provider/model prompt.md
-~/.pi/agent/bin/agnt tasks --models
+1. Run `~/.pi/agent/bin/agnt route --task <task> --risk <level> --budget <budget>`.
+2. Call the `subagent` tool with `agent` omitted and the routed target as `model`.
+3. Use one `tasks` array for independent parallel peers.
+4. Persist returned outputs under `.pi/peer-runs/<topic>/` only when downstream work needs artifacts.
+
+```json
+{
+  "tasks": [
+    { "task": "<focused read-only prompt A>", "model": "<routed target A>", "cwd": "<repository>" },
+    { "task": "<focused read-only prompt B>", "model": "<routed target B>", "cwd": "<repository>" }
+  ]
+}
 ```
 
-Default peer roles should come from the user's curated task/model set, not from hard-coded Claude assumptions.
+Use `agnt invoke --one-shot` only for cold complete packets. Use plain `agnt invoke` only for noninteractive headless or artifact-backed workers that need tools or ambient context. Default peer roles should come from curated task/model policy, not hard-coded Claude assumptions.
 
 ## Web research
 
@@ -81,6 +89,6 @@ Use backend-agnostic helpers:
 When porting older Claude Code skills to Pi:
 
 - Replace `.claude/...` paths with `.pi/...` unless there is a project-specific reason not to.
-- Replace Task/subagent assumptions with `agnt invoke`, `agnt invoke --fanout`, or explicit manual execution.
+- Replace platform-specific Task assumptions with routed unnamed `subagent` calls or explicit manual execution; use `agnt invoke --one-shot` only for cold packets.
 - Do not assume native WebSearch/WebFetch, AskUserQuestion, TodoWrite, MCP, hooks, background bash, or plan mode.
 - Prefer concise prompts and artifacts that can be found with `rg`.

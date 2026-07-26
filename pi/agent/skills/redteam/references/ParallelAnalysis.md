@@ -57,18 +57,26 @@ Each claim should be:
 ## PHASE 2: Parallel Agent Deployment
 
 ### Launch Protocol
-Deploy peer analyses using shell-dispatched Pi calls. For normal work, launch 4-8 peers in parallel. For high-stakes work, batch the full 32-perspective roster into rounds (e.g., 4 rounds of 8). Batching only affects parallelism, not coverage.
+Route first, then deploy one unnamed `subagent` task per perspective. For normal work, launch 4-8 peers in parallel. For high-stakes work, batch the full 32-perspective roster into rounds (e.g., 4 rounds of 8). Batching only affects parallelism, not coverage.
+
+```bash
+~/.pi/agent/bin/agnt route --task review --risk high --budget balanced
+```
 
 Example 4-peer pass:
 
-```bash
-mkdir -p .pi/redteam
-~/.pi/agent/bin/agnt invoke olla-cloud/gpt-4.1-mini "[EN-2 Evidence Demander prompt]" > .pi/redteam/evidence.md &
-~/.pi/agent/bin/agnt invoke olla-cloud/gemini-flash "[AR-2 Trade-off Illuminator prompt]" > .pi/redteam/tradeoffs.md &
-~/.pi/agent/bin/agnt invoke olla-local/qwen3:8b "[PT-2 Assumption Breaker prompt]" > .pi/redteam/assumptions.md &
-~/.pi/agent/bin/agnt invoke ollama/gemma4:31b "[IN-1 Naive Questioner prompt]" > .pi/redteam/naive.md &
-wait
+```json
+{
+  "tasks": [
+    { "task": "[EN-2 Evidence Demander prompt]", "model": "<routed target A>" },
+    { "task": "[AR-2 Trade-off Illuminator prompt]", "model": "<routed target B>" },
+    { "task": "[PT-2 Assumption Breaker prompt]", "model": "<routed target C>" },
+    { "task": "[IN-1 Naive Questioner prompt]", "model": "<routed target D>" }
+  ]
+}
 ```
+
+Persist returned analyses under `.pi/redteam/` only when synthesis or handoff needs durable artifacts.
 
 Each agent receives:
 1. The full original argument

@@ -1,6 +1,6 @@
 # Extensive Research Workflow
 
-**Mode:** 9 peers/search angles (3 types x 3 threads each) | **Timeout:** 5 minutes
+**Mode:** 9 peers/search angles (3 types x 3 threads each) | **Review point:** 5 minutes
 
 ## CRITICAL: URL Verification Required
 
@@ -33,39 +33,43 @@ Generate 3 unique angles per peer type (9 total queries).
 
 ### Step 1: Launch All Research Peers in Parallel
 
-**Launch 9 Pi peer calls (3 types x 3 threads each):**
+Route the task and select up to three distinct qualified targets from `candidateOrder`:
 
 ```bash
-mkdir -p .pi/research/scratch
-for i in 1 2 3; do
-  ~/.pi/agent/bin/agnt invoke olla-cloud/gemini-flash \
-    "Analytical research angle $i for [topic]: [angle $i]. Return findings with source URLs and uncertainty." \
-    > ".pi/research/scratch/analytical-$i.md" &
-done
-for i in 4 5 6; do
-  ~/.pi/agent/bin/agnt invoke olla-cloud/gpt-4.1-mini \
-    "Cross-domain research angle $i for [topic]: [angle $i]. Return findings with source URLs and uncertainty." \
-    > ".pi/research/scratch/breadth-$i.md" &
-done
-for i in 7 8 9; do
-  ~/.pi/agent/bin/agnt invoke olla-local/qwen3:8b \
-    "Contrarian fact-based research angle $i for [topic]: [angle $i]. Return findings with source URLs and uncertainty." \
-    > ".pi/research/scratch/contrarian-$i.md" &
-done
-wait
+~/.pi/agent/bin/agnt route --task research --risk medium --budget balanced
 ```
+
+Launch one `subagent` call with nine task entries and no `agent` fields:
+
+```json
+{
+  "tasks": [
+    { "task": "Analytical research angle 1 for [topic]: [angle 1]. Return findings with source URLs and uncertainty.", "model": "<routed analytical target>" },
+    { "task": "Analytical research angle 2 for [topic]: [angle 2]. Return findings with source URLs and uncertainty.", "model": "<routed analytical target>" },
+    { "task": "Analytical research angle 3 for [topic]: [angle 3]. Return findings with source URLs and uncertainty.", "model": "<routed analytical target>" },
+    { "task": "Cross-domain research angle 4 for [topic]: [angle 4]. Return findings with source URLs and uncertainty.", "model": "<routed breadth target>" },
+    { "task": "Cross-domain research angle 5 for [topic]: [angle 5]. Return findings with source URLs and uncertainty.", "model": "<routed breadth target>" },
+    { "task": "Cross-domain research angle 6 for [topic]: [angle 6]. Return findings with source URLs and uncertainty.", "model": "<routed breadth target>" },
+    { "task": "Contrarian fact-based research angle 7 for [topic]: [angle 7]. Return findings with source URLs and uncertainty.", "model": "<routed contrarian target>" },
+    { "task": "Contrarian fact-based research angle 8 for [topic]: [angle 8]. Return findings with source URLs and uncertainty.", "model": "<routed contrarian target>" },
+    { "task": "Contrarian fact-based research angle 9 for [topic]: [angle 9]. Return findings with source URLs and uncertainty.", "model": "<routed contrarian target>" }
+  ]
+}
+```
+
+Persist returned results under `.pi/research/scratch/` only when synthesis needs durable files.
 
 **Each peer:**
 - Gets ONE focused angle
 - Does 1-2 searches max
 - Returns as soon as it has findings
 
-### Step 2: Collect Results (5 MINUTE TIMEOUT)
+### Step 2: Collect Results (5-MINUTE REVIEW POINT)
 
-- Peers run in parallel
-- Most return within 30-90 seconds
-- **HARD TIMEOUT: 5 minutes** - proceed with whatever has returned
-- Note non-responsive peers
+- Peers run in parallel with live TUI status.
+- Most should return within 30-90 seconds.
+- Archimedes has no total wall-clock deadline; if work remains after five minutes, cancel only when enough coverage exists or the user requests a time limit.
+- Note cancelled or non-responsive peers.
 
 ### Step 3: Comprehensive Synthesis
 

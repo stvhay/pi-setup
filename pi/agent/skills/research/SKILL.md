@@ -45,7 +45,8 @@ See `references/QuickReference.md` for detailed comparison.
 
 ### Uses
 - Search and retrieval via `~/.pi/agent/bin/agnt web-search` and `~/.pi/agent/bin/agnt web-fetch`
-- Parallel Pi peer calls via `~/.pi/agent/bin/agnt invoke` / `agnt invoke --fanout`
+- Model selection via `~/.pi/agent/bin/agnt route --task research`
+- Live single/parallel execution via unnamed `subagent` calls
 
 ## File Organization
 

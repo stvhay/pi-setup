@@ -108,23 +108,24 @@ Output:
 
 ### 3. Dispatch peers
 
-Use `agnt invoke` for one focused peer or `agnt invoke --fanout` for model diversity.
-
-Examples:
+Route first:
 
 ```bash
-mkdir -p .pi/peer-runs/<topic>
-~/.pi/agent/bin/agnt invoke olla-local/qwen3:8b "<prompt>" > .pi/peer-runs/<topic>/domain-a-qwen.md &
-~/.pi/agent/bin/agnt invoke olla-local/gemma4:e4b "<prompt>" > .pi/peer-runs/<topic>/domain-b-gemma.md &
-wait
+~/.pi/agent/bin/agnt route --task research --risk medium --budget balanced
 ```
 
-```bash
-printf '%s\n' "<shared review prompt>" > .pi/peer-runs/<topic>/prompt.md
-~/.pi/agent/bin/agnt invoke --fanout -o .pi/peer-runs/<topic> olla-cloud/gpt-4.1-mini .pi/peer-runs/<topic>/prompt.md
+Use the selected target—or distinct qualified targets from `candidateOrder` when diversity matters—in one `subagent` call. Omit `agent`; named profiles are optional and must not be assumed.
+
+```json
+{
+  "tasks": [
+    { "task": "<domain A read-only prompt>", "model": "<routed target A>", "cwd": "<repository>" },
+    { "task": "<domain B read-only prompt>", "model": "<routed target B>", "cwd": "<repository>" }
+  ]
+}
 ```
 
-Do not paste large diffs into chat. Write artifacts under `.pi/peer-runs/<topic>/` and point peers at paths.
+Do not paste large diffs into prompts. Point peers at repository paths. After completion, write returned outputs under `.pi/peer-runs/<topic>/` only when synthesis or handoff needs durable artifacts.
 
 ### 4. Synthesize and verify
 

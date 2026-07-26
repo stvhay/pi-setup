@@ -13,7 +13,7 @@ Common entry points:
 ```bash
 agnt tasks --models
 agnt route --task TASK --risk medium --budget balanced
-agnt invoke [--task TASK] provider/model [filename]
+agnt invoke --one-shot --task TASK provider/model packet.md
 agnt eval list
 agnt context-health
 agnt doctor --json
@@ -39,7 +39,8 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Documentation-only and read-only work may proceed without a Bead unless project instructions say otherwise.
 - Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads, lessons, or tracked artifacts.
 - Prefer exact paths and filesystem retrieval (`rg`, `find`, `git grep`, `git diff`, `read`) over large pasted context.
-- Delegate difficult or independent read-only analysis when useful. Prefer subscription-backed OpenAI/Codex or local models when capability is comparable; verify peer output against primary sources, files, and tests.
+- Delegate difficult or independent read-only analysis when useful. Route with `agnt route`, then call the `subagent` tool with `agent` omitted and the routed target as `model`; use its `tasks` array for parallel work. Reserve `agnt invoke --one-shot` for cold complete packets and headless execution.
+- Prefer subscription-backed OpenAI/Codex or local models when capability is comparable; verify peer output against primary sources, files, and tests.
 - Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
 
 Do not push, merge, delete branches or beads, remove worktrees, rewrite history, change Beads remotes/history, or install hooks without explicit approval.

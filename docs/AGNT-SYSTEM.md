@@ -63,7 +63,8 @@ Metrics record best-effort model usage and outcomes. Code-review metrics can lin
 `agnt` is a front controller for several related command families:
 
 - `agnt route` recommends a model for a task, risk level, budget, context size, and modality.
-- `agnt invoke` runs one or more ephemeral Pi peers and records metrics by default; `--one-shot` disables tools and ambient context expansion for complete embedded packets.
+- Archimedes `subagent` runs routed interactive peers with live TUI progress and cancellation; the tracked observer records completed unnamed-peer usage without prompt or response bodies. Named-profile metrics are skipped until Archimedes exposes their final provider.
+- `agnt invoke` remains the cold/headless and run-artifact executor; `--one-shot` disables tools and ambient context expansion for complete embedded packets.
 - `agnt review` validates and summarizes structured discovery/adjudication findings.
 - `agnt instructions` composes global, project, model, and role context packages.
 - `agnt action` lists, validates, and renders action templates.
@@ -155,16 +156,16 @@ This means the system can learn from observed model behavior while preserving an
 
 ## Relationship to Pi
 
-Pi provides the agent runtime, providers, sessions, extensions, and normal interaction surface. `agnt` wraps Pi for repeatable orchestration tasks:
+Pi provides the agent runtime, providers, sessions, extensions, and normal interaction surface. Archimedes provides the interactive subagent transport and TUI. `agnt` remains the control layer for repeatable orchestration tasks:
 
 - choosing a model;
 - composing context;
-- launching peers or recorded worker sessions;
+- launching cold/headless or recorded worker sessions while interactive peers use `subagent`;
 - bridging ask/approval UI to durable Beads decisions;
 - capturing artifacts, metrics, transcripts, and session refs;
 - validating workflow invariants.
 
-Use Pi directly for ordinary interactive work, including implementation and verification, after confirming a Bead exists for any code-changing task. Use `agnt` when work should be routed, delegated, measured, replayed, reviewed, or connected to run artifacts. The runner and orchestrator-only tool surface are opt-in rather than startup requirements.
+Use Pi directly for ordinary interactive work, including implementation and verification, after confirming a Bead exists for any code-changing task. For interactive delegation, route with `agnt route` and call `subagent` with `agent` omitted. Use `agnt invoke --one-shot` for cold packets and `agnt runs`/`agnt work` when execution needs durable run artifacts. The runner and orchestrator-only tool surface are opt-in rather than startup requirements.
 
 ## Stable vs experimental
 

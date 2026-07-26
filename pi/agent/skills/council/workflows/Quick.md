@@ -20,18 +20,26 @@ Fast single-round perspective check. Use for sanity checks and quick feedback.
 
 ### Step 2: Parallel Perspective Gathering
 
-Launch all council members in parallel using shell-dispatched Pi peers. Use `~/.pi/agent/bin/agnt invoke --fanout` for default model diversity, or background `~/.pi/agent/bin/agnt invoke` calls when you need specific model/persona assignments.
-
-Example:
+Route council work and choose distinct qualified targets from `candidateOrder` when diversity matters:
 
 ```bash
-mkdir -p .pi/council/quick
-~/.pi/agent/bin/agnt invoke olla-cloud/gpt-4.1-mini "[Architect prompt]" > .pi/council/quick/architect.md &
-~/.pi/agent/bin/agnt invoke olla-cloud/gemini-flash "[Designer prompt]" > .pi/council/quick/designer.md &
-~/.pi/agent/bin/agnt invoke olla-local/qwen3:8b "[Engineer prompt]" > .pi/council/quick/engineer.md &
-~/.pi/agent/bin/agnt invoke ollama/gemma4:31b "[Researcher prompt]" > .pi/council/quick/researcher.md &
-wait
+~/.pi/agent/bin/agnt route --task planning --risk medium --budget balanced
 ```
+
+Launch one unnamed `subagent` call:
+
+```json
+{
+  "tasks": [
+    { "task": "[Architect prompt]", "model": "<routed target A>" },
+    { "task": "[Designer prompt]", "model": "<routed target B>" },
+    { "task": "[Engineer prompt]", "model": "<routed target C>" },
+    { "task": "[Researcher prompt]", "model": "<routed target D>" }
+  ]
+}
+```
+
+Persist returned perspectives under `.pi/council/quick/` only when later rounds or handoff need transcripts.
 
 **Each peer prompt:**
 ```

@@ -38,6 +38,8 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason. Evidence gathered on one venue applies to every venue of the same weights.
   - `agnt recommend` is an alias.
 
+For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and the selected target as `model`. Use its `tasks` array for parallel peers. The tracked observer records completed unnamed-peer usage under `<git-root>/.pi/metrics/invocations/` without storing prompt or response bodies. Named-profile metrics are skipped because Archimedes does not expose their final provider.
+
 - `agnt invoke [--one-shot] [--timeout-seconds N] [--task TASK] [--risk-category LABEL] [--thinking-level LEVEL] [--outcome OUTCOME] [--human-override] [--fallback-used] [--preflight] [--no-metrics] [--metrics-dir DIR] provider/model [filename]`
   - Runs one ephemeral Pi peer. Metrics are on by default, so `agnt` uses `pi --mode json --no-session`, preserves normal stdout, and writes raw token/cost/wall-clock metrics to `DIR` or `<git-root>/.pi/metrics/invocations/`.
   - `--one-shot` also disables tools, skills, context-file discovery, and prompt templates, supplies a compact read-only system prompt, and defaults to a 180-second subprocess timeout. Use `--timeout-seconds` to override it. Use one-shot only when `filename` embeds the complete task context; it prevents agentic tool loops from multiplying provider requests.
@@ -60,11 +62,21 @@ Metrics use `schemaVersion: 1` and are best-effort: when Pi/provider usage is un
 
 Local models keep cash/API `usage.cost.total` at zero with `usage.costSource: "local-free"`. For known local equivalents, metrics add a separate `usage.opportunityCost` using an OpenRouter proxy model rather than pretending that local inference spent API dollars. Local calls also get a rough marginal GPU electricity estimate in `usage.localCompute`, using `AGNT_LOCAL_GPU_WATTS` when set. Otherwise `olla-local/*` defaults to an assumed remote Olla marginal GPU draw of 208W, `ollama/*` defaults to an assumed local workstation draw of 34.2W, and `AGNT_USE_NVIDIA_SMI=1` opts into sampling `nvidia-smi` on the current host. Electricity price uses `AGNT_ELECTRICITY_USD_PER_KWH` or the default `$0.1304/kWh`. Raw metrics live under `.pi/metrics/` and are ignored by git.
 
-Use `agnt invoke` and `agnt invoke --fanout` for all peer calls; they capture metrics by default. The old `pi-peer`/`pi-fanout` wrappers were removed because they bypassed metrics capture.
+Use routed unnamed `subagent` calls for interactive peers. Use `agnt invoke --one-shot` for cold complete packets and `agnt invoke` for headless or artifact-backed execution. Both paths capture compatible metrics. The old `pi-peer`/`pi-fanout` wrappers remain removed.
 
 ## Common routing flow
 
-Example:
+Interactive example:
+
+```bash
+agnt route --task research --risk medium --budget balanced
+```
+
+```json
+{ "task": "<focused prompt>", "model": "<selected-provider/model>" }
+```
+
+Cold review example:
 
 ```bash
 agnt route --task review --risk medium --budget balanced --fanout-size 3

@@ -26,8 +26,11 @@ Beads/git/runs/health/session signals -> maintenance due -> checkpoint bead -> e
 ### 1. Capture (automatic metrics, deliberate lessons)
 
 Every `agnt invoke` writes a metric record (model, family, task, tokens,
-cost, latency) to `<git-root>/.pi/metrics/invocations/`. Always invoke peers
-through `agnt invoke`; anything else leaves holes in the data.
+cost, latency) to `<git-root>/.pi/metrics/invocations/`. Interactive Archimedes
+unnamed `subagent` results are converted to the same schema by the tracked
+observer. The observer stores usage, timing, and payload lengths—not prompt or
+response bodies. Named-profile results are skipped because Archimedes does not
+expose their final provider.
 
 Reusable workflow lessons are captured deliberately with `agnt lessons`:
 

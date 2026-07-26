@@ -64,7 +64,7 @@ Read only the relevant files. Put paths in the plan so implementers can find con
 
 ## Task sizing
 
-Each task should be independently executable by the current session or by a fresh `agnt invoke` prompt. Avoid "see previous task" dependencies except where explicitly declared.
+Each task should be independently executable by the current session or by a fresh routed `subagent` prompt. Avoid "see previous task" dependencies except where explicitly declared.
 
 Good tasks:
 
@@ -166,11 +166,15 @@ Include this section when conflicts exist:
 
 ## Peer execution notes
 
-If the plan benefits from peer review or parallel execution, include commands such as:
+If the plan benefits from peer review or parallel execution, route with `agnt route`, then include an unnamed `subagent` payload that points to the plan:
 
-```bash
-~/.pi/agent/bin/agnt invoke olla-local/qwen3:8b @path/to/plan.md "Review Task 2 for missing context"
-~/.pi/agent/bin/agnt invoke --fanout -o .pi/peer-runs/<topic> @path/to/plan.md "Review this implementation plan"
+```json
+{
+  "tasks": [
+    { "task": "Read path/to/plan.md and review Task 2 for missing context.", "model": "<routed target A>" },
+    { "task": "Read path/to/plan.md and review dependency or verification gaps.", "model": "<routed target B>" }
+  ]
+}
 ```
 
 Do not require peer execution for every plan. Use it when it reduces risk.

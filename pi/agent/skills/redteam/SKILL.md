@@ -7,7 +7,7 @@ description: Use when adversarially critiquing or stress-testing an argument, id
 
 Adversarial analysis using parallel Pi peer deployment. Breaks arguments into atomic components, attacks from multiple expert perspectives (engineers, architects, pentesters, interns), synthesizes findings, and produces strong counter-arguments with steelman representations.
 
-**Pi execution model:** Use `~/.pi/agent/bin/agnt invoke` or `~/.pi/agent/bin/agnt invoke --fanout` for independent adversarial passes. Start with 4-8 peers for normal work; reserve the full 32-perspective protocol for high-stakes analysis.
+**Pi execution model:** Route with `agnt route --task review`, then run independent adversarial passes through one unnamed Archimedes `subagent` call. Start with 4-8 parallel task entries for normal work; reserve the full 32-perspective protocol for high-stakes analysis.
 
 ## Workflow Routing
 

@@ -13,13 +13,22 @@
 
 ### Step 1: Launch Single Peer/Search Angle
 
-**ONE Pi peer call with a single focused query:**
+Route the research task:
 
 ```bash
-~/.pi/agent/bin/agnt invoke olla-cloud/gemini-flash \
-  "Do focused research for: [query]. Use only sources you can name. Return key findings, source URLs, and uncertainty. Keep it brief and factual." \
-  > .pi/research/scratch/quick.md
+~/.pi/agent/bin/agnt route --task research --risk low --budget cheap
 ```
+
+Call `subagent` with `agent` omitted:
+
+```json
+{
+  "task": "Do focused research for: [query]. Use only sources you can name. Return key findings, source URLs, and uncertainty. Keep it brief and factual.",
+  "model": "<selected routed target>"
+}
+```
+
+Save the returned result to `.pi/research/scratch/quick.md` only when durable scratch output helps later synthesis.
 
 **Prompt requirements:**
 - Single, well-crafted query

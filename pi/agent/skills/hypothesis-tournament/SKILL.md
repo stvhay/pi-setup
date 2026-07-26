@@ -67,12 +67,15 @@ For each candidate, capture:
 - what would make it novel or useful
 - first obvious weakness
 
-Use Pi peers when breadth matters:
+Use Pi peers when breadth matters. Route with `agnt route --task research`, then call `subagent` with `agent` omitted and independent task entries using routed targets:
 
-```bash
-mkdir -p .pi/research/scratch
-~/.pi/agent/bin/agnt invoke --fanout -o .pi/research/scratch/hypotheses \
-  "Generate diverse, testable hypotheses for: <objective>. Include rationale, evidence fit, novelty, and weaknesses."
+```json
+{
+  "tasks": [
+    { "task": "Generate diverse, testable hypotheses for: <objective>. Include rationale, evidence fit, novelty, and weaknesses.", "model": "<routed target A>" },
+    { "task": "Generate competing mechanisms for: <objective>. Include falsifiers and the strongest weakness.", "model": "<routed target B>" }
+  ]
+}
 ```
 
 ### 4. Critique and evolve

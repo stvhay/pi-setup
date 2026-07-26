@@ -69,6 +69,27 @@ def test_active_skills_do_not_reference_removed_plan_helper():
         assert "pi-plans-dir" not in skill_path.read_text(encoding="utf-8"), skill_path
 
 
+def test_active_skills_reserve_agnt_invoke_for_cold_or_headless_peers():
+    common_path = AGENT / "skills" / "dev-workflow-common" / "SKILL.md"
+    common = common_path.read_text(encoding="utf-8")
+    assert "plain `agnt invoke` only for noninteractive headless or artifact-backed workers" in common
+
+    review_path = AGENT / "skills" / "requesting-code-review" / "SKILL.md"
+    for line in review_path.read_text(encoding="utf-8").splitlines():
+        if "agnt invoke" in line:
+            assert "--one-shot" in line
+
+    allowed = {common_path, review_path}
+    violations = []
+    for skill_path in sorted((AGENT / "skills").glob("**/*.md")):
+        if skill_path in allowed:
+            continue
+        for line_no, line in enumerate(skill_path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "agnt invoke" in line:
+                violations.append(f"{skill_path.relative_to(ROOT)}:{line_no}")
+    assert not violations, "interactive peer guidance must use subagent: " + ", ".join(violations)
+
+
 def test_action_templates_reference_existing_architecture(common):
     task_ids = {path.stem for path in (AGENT / "tasks").glob("*.md")}
     skill_ids = {path.parent.name for path in (AGENT / "skills").glob("*/SKILL.md")}

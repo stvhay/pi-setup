@@ -37,10 +37,11 @@ tasks/*.md        routing policy per task (preferred/qualified/avoid targets)
 agnt route        constraint filter (enabledModels, modality, context window,
       │           local-ok) + budget/risk gates + outcome-history demotion
       │
-agnt invoke       normal peer or cold `--one-shot`; emits metric records
-      │
-agnt review       validates discovery/adjudication finding artifacts
-      │
+      ├─ Archimedes `subagent` for interactive streaming/TUI peer work
+      └─ agnt invoke for cold `--one-shot`, headless, and run-artifact workers
+                         │
+subagent observer + invoke metrics
+                         │
 .pi/metrics/      per-project raw records ──consolidate──▶ ~/.pi/metrics/
       │                                                       (global store)
       └───────────── outcome annotations feed back into `agnt route` ─────┘
@@ -112,7 +113,7 @@ for gate-weakening phrases.
 
 Front controller for: `route` (recommend model + thinking level for
 task/risk/budget, JSON with explicit reasons and rejected candidates),
-`invoke` (single or `--fanout` parallel peers, metrics on by default, with a
+`invoke` (cold/headless or run-artifact peers, metrics on by default, with a
 no-tools `--one-shot` mode for complete packets), `review` (validate/summarize
 structured findings), `metrics` (status/annotate/consolidate), `eval`
 (filesystem-defined deterministic evals), `instructions`, `prompt`, `action`,
@@ -154,8 +155,9 @@ invocation/result artifacts, `.pi/metrics/` for runtime telemetry, `agnt action 
 plan trees, daemon lifecycle, service-backed runner client operations, health
 checks, and maintenance checkpoints, `agnt approvals` for durable human
 decisions, `agnt gateway` for constrained Pi extension access and service-backed
-runner visibility, `agnt invoke` for peer dispatch, `agnt runs invoke` / `agnt
-work run` for invocation-backed worker execution, `agnt context-health` for
+runner visibility, Archimedes `subagent` for interactive peer dispatch, `agnt
+invoke` / `agnt runs invoke` / `agnt work run` for cold or artifact-backed worker
+execution, `agnt context-health` for
 context entropy checks, and `pi/agent/evals/` for gates. See the
 [Orchestration Loop Decision](ORCHESTRATION-LOOP.md) and
 [Project-Local Runner Service](RUNNER-SERVICE.md) for the explicitly selected
@@ -164,7 +166,12 @@ Beads-first gated workflow and its project-local loopback service boundary.
 ### Metrics and feedback
 
 Raw per-invocation records land in `<git-root>/.pi/metrics/invocations/`
-(project-local, gitignored). `agnt metrics consolidate` appends compact records
+(project-local, gitignored). `agnt invoke` writes its own records; the tracked
+subagent observer converts completed unnamed Archimedes results to the same
+schema using counts and lengths without prompt or response bodies. Named-profile
+results are skipped because Archimedes does not expose their final provider.
+`agnt metrics consolidate`
+appends compact records
 to the durable global store `~/.pi/metrics/agent-invocations.jsonl`; run it
 manually or from a locally installed hook. `agnt route` aggregates outcomes by
 family across pending and consolidated metrics and demotes families with

@@ -79,16 +79,23 @@ If modified files live under a subsystem with `SPEC.md`:
 
 ## Optional peer review
 
-For risky changes, use a peer before final claim:
+For risky changes, route a review target, then call `subagent` with `agent` omitted:
 
 ```bash
-~/.pi/agent/bin/agnt invoke --fanout -o .pi/peer-runs/verify-<topic> \
-  "Review this diff for missed requirements or risks. Focus on concrete issues."
+~/.pi/agent/bin/agnt route --task review --risk medium --budget balanced
+```
+
+```json
+{
+  "task": "Review this diff for missed requirements or risks. Focus on concrete issues and exact file references.",
+  "model": "<selected routed target>",
+  "cwd": "<repository>"
+}
 ```
 
 Include relevant files/diff paths rather than pasting huge context. Synthesize peer output yourself; do not trust it blindly.
 
-After synthesis, label each peer invocation so routing learns from the outcome (`verified-pass` when the peer's assessment matched the evidence, `verified-fail` when it did not):
+After synthesis, label each generated metric record so routing learns from the outcome (`verified-pass` when the peer's assessment matched the evidence, `verified-fail` when it did not):
 
 ```bash
 ~/.pi/agent/bin/agnt metrics annotate <metrics-file-basename-or-recordId> --outcome verified-pass

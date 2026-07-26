@@ -38,7 +38,7 @@ Route to the appropriate workflow based on the request.
 
 **Origin:** Best decisions emerge from diverse perspectives challenging each other. Not just collecting opinions - genuine intellectual friction where experts respond to each other's actual points.
 
-**Pi execution model:** Use shell-dispatched peer Pi calls for each council member. Parallelize within a round with `~/.pi/agent/bin/agnt invoke --fanout` or backgrounded `~/.pi/agent/bin/agnt invoke` calls; run rounds sequentially so later rounds can see earlier transcripts.
+**Pi execution model:** Route council work with `agnt route`, then call unnamed Archimedes `subagent` peers. Use one parallel `tasks` array per round and run rounds sequentially so later prompts can include earlier transcripts.
 
 **Speed:** Parallel execution within rounds, sequential between rounds. A 3-round debate of 4 agents = 12 peer calls but only 3 sequential waits. Local models may take longer than cloud models.
 
