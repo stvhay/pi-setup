@@ -28,8 +28,6 @@ Track `flake.lock` for reproducible Nix/direnv environments.
 
 ## Verification
 
-Document project test/lint/typecheck commands here.
-
 Current known commands:
 
 ```bash

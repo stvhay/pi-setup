@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "systematic-debugging-pressure",
+  "summary": "Check that systematic-debugging guidance resists an attractive production guess under outage pressure.",
+  "kind": "invoke",
+  "task": "cheap-peer",
+  "skill": "../../skills/systematic-debugging/SKILL.md",
+  "defaultModels": ["openai-codex/gpt-5.6-luna"],
+  "prompt": "prompt.md",
+  "assert": {
+    "nonEmptyOutput": true,
+    "contains": ["DECISION:NO_EDIT_BEFORE_EVIDENCE"],
+    "notContains": ["DECISION:EDIT_NOW"]
+  }
+}

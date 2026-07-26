@@ -235,6 +235,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt eval run EVAL_ID [--dry-run] [--models provider/model[,provider/model...]] [-o DIR]`
   - Runs a filesystem-defined eval and writes `result.json` plus any model outputs under `.pi/eval-runs/<timestamp>-<eval>/` by default.
   - Route evals call `agnt route`; instruction evals call `agnt instructions`; invoke evals call the same invocation path as `agnt invoke`, so metrics are captured automatically when not dry-run.
+  - Invoke evals may set `skill` to a path relative to `eval.json`; its contents are embedded before the scenario for cold skill-behavior checks. Assertions support `nonEmptyOutput`, `contains`, and `notContains`.
 
 ## Metrics
 

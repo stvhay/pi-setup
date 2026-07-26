@@ -139,6 +139,12 @@ def run_invoke_eval(eval_path: Path, spec: Dict[str, Any], out_dir: Path, dry_ru
     if not prompt_file.is_file():
         return {"evalPath": str(eval_path), "kind": "invoke", "results": [], "failures": [f"missing prompt file: {prompt_file}"]}
     prompt = prompt_file.read_text(encoding="utf-8")
+    skill_value = spec.get("skill")
+    if skill_value:
+        skill_file = (eval_dir / str(skill_value)).resolve()
+        if not skill_file.is_file():
+            return {"evalPath": str(eval_path), "kind": "invoke", "results": [], "failures": [f"missing skill file: {skill_file}"]}
+        prompt = f"{skill_file.read_text(encoding='utf-8')}\n\n---\n\n{prompt}"
     task = str(spec.get("task") or "cheap-peer")
     targets = models or [str(item) for item in (spec.get("defaultModels") or [])]
     if not targets:
@@ -147,13 +153,17 @@ def run_invoke_eval(eval_path: Path, spec: Dict[str, Any], out_dir: Path, dry_ru
     results: List[Dict[str, Any]] = []
     failures: List[str] = []
     metrics_dir = out_dir / "metrics"
+    planned_prompt_file = prompt_file
+    if dry_run and skill_value:
+        planned_prompt_file = out_dir / "embedded-prompt.md"
+        planned_prompt_file.write_text(prompt, encoding="utf-8")
     for target in targets:
         safe = safe_target_name(target)
         case_result: Dict[str, Any] = {"target": target, "task": task, "dryRun": dry_run}
         if dry_run:
-            case_result["plannedCommand"] = ["agnt", "invoke", "--task", task, "--metrics-dir", str(metrics_dir), target, str(prompt_file)]
+            case_result["plannedCommand"] = ["agnt", "invoke", "--one-shot", "--task", task, "--metrics-dir", str(metrics_dir), target, str(planned_prompt_file)]
         else:
-            code, out, err, record = invoke_one(target, prompt, metrics=True, task=task, risk_category="eval", outcome="unknown")
+            code, out, err, record = invoke_one(target, prompt, metrics=True, task=task, risk_category="eval", outcome="unknown", one_shot=True)
             (out_dir / f"{safe}.md").write_text(out, encoding="utf-8")
             (out_dir / f"{safe}.err").write_text(err, encoding="utf-8")
             if record is not None:
@@ -163,6 +173,12 @@ def run_invoke_eval(eval_path: Path, spec: Dict[str, Any], out_dir: Path, dry_ru
                 failures.append(f"{target}: invoke exited {code}")
             if assertions.get("nonEmptyOutput") and not out.strip():
                 failures.append(f"{target}: expected non-empty output")
+            for needle in assertions.get("contains") or []:
+                if str(needle) not in out:
+                    failures.append(f"{target}: missing expected text {needle!r}")
+            for needle in assertions.get("notContains") or []:
+                if str(needle) in out:
+                    failures.append(f"{target}: unexpected text {needle!r}")
         results.append(case_result)
     return {"evalPath": str(eval_path), "kind": "invoke", "results": results, "failures": failures}
 

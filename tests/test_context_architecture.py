@@ -69,6 +69,51 @@ def test_active_skills_do_not_reference_removed_plan_helper():
         assert "pi-plans-dir" not in skill_path.read_text(encoding="utf-8"), skill_path
 
 
+def test_nested_skill_runtime_references_are_checked(tmp_path):
+    skill_root = tmp_path / "skills" / "example"
+    (skill_root / "references").mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text("---\nname: example\n---\n", encoding="utf-8")
+    (skill_root / "references" / "guide.md").write_text("Read `references/missing.md`.\n", encoding="utf-8")
+
+    failures = _skill_runtime_reference_failures(tmp_path)
+
+    assert any("missing references/missing.md" in failure for failure in failures)
+
+
+def _skill_runtime_reference_failures(agent):
+    skill_ids = {path.parent.name for path in (agent / "skills").glob("*/SKILL.md")}
+    failures = []
+
+    for path in sorted((agent / "skills").glob("**/*.md")):
+        skill_root = agent / "skills" / path.relative_to(agent / "skills").parts[0]
+        text = re.sub(
+            r"```.*?```",
+            lambda match: "\n" * match.group().count("\n"),
+            path.read_text(encoding="utf-8"),
+            flags=re.DOTALL,
+        )
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for raw in re.findall(r"`([^`]+)`", line):
+                if raw.startswith("~/.pi/agent/skills/"):
+                    target = agent / "skills" / raw.removeprefix("~/.pi/agent/skills/")
+                    if not target.exists():
+                        failures.append(f"{path.relative_to(agent)}:{line_no}: missing {raw}")
+                elif raw.startswith("pi/agent/skills/"):
+                    failures.append(f"{path.relative_to(agent)}:{line_no}: repo-relative runtime path {raw}")
+                elif Path(raw).suffix and raw.startswith(("references/", "scripts/", "templates/", "themes/", "workflows/")):
+                    if "<" not in raw and raw != "themes/X.md" and not (skill_root / raw).exists():
+                        failures.append(f"{path.relative_to(agent)}:{line_no}: missing {raw}")
+                elif "/" in raw and raw.split("/", 1)[0] in skill_ids:
+                    failures.append(f"{path.relative_to(agent)}:{line_no}: cross-skill path must use ~/.pi/agent/skills/: {raw}")
+
+    return failures
+
+
+def test_skill_runtime_references_resolve():
+    failures = _skill_runtime_reference_failures(AGENT)
+    assert not failures, "broken skill runtime references:\n" + "\n".join(failures)
+
+
 def test_active_skills_reserve_agnt_invoke_for_cold_or_headless_peers():
     common_path = AGENT / "skills" / "dev-workflow-common" / "SKILL.md"
     common = common_path.read_text(encoding="utf-8")

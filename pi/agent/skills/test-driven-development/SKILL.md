@@ -162,6 +162,8 @@ Next failing test for next feature.
 
 ## Good Tests
 
+Before adding or changing mocks, or adding production APIs only for tests, read `references/testing-anti-patterns.md`.
+
 | Quality | Good | Bad |
 |---------|------|-----|
 | **Minimal** | One thing. "and" in name? Split it. | `test('validates email and domain and whitespace')` |

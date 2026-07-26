@@ -280,4 +280,4 @@ When explaining failures, coordinate with trust-calibration for:
 - Medium certainty: "The API key appears to have expired."
 - Low certainty: "The failure could be network-related or service-side; I can't determine which."
 
-Cross-reference: `trust-calibration/references/uncertainty-patterns.md` and `trust-calibration/references/failure-recovery.md`
+Cross-reference: `~/.pi/agent/skills/trust-calibration/references/uncertainty-patterns.md` and `~/.pi/agent/skills/trust-calibration/references/failure-recovery.md`

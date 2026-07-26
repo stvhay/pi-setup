@@ -244,6 +244,38 @@ def test_cmd_graphify_does_not_auto_install_missing_hooks(agnt, monkeypatch, tmp
         assert not (tmp_path / ".git" / "hooks" / hook_name).exists()
 
 
+def test_documented_common_agnt_entry_points_still_parse(agnt, monkeypatch, tmp_path, capsys):
+    agents = (Path(__file__).resolve().parents[1] / "pi" / "agent" / "AGENTS.md").read_text(encoding="utf-8")
+    expected = [
+        "agnt tasks --models",
+        "agnt route --task TASK --risk medium --budget balanced",
+        "agnt invoke --one-shot --task TASK provider/model packet.md",
+        "agnt eval list",
+        "agnt context-health",
+        "agnt doctor --json",
+        "agnt plans-dir",
+    ]
+    assert all(line in agents for line in expected)
+
+    from agnt_lib import invoke
+
+    packet = tmp_path / "packet.md"
+    packet.write_text("smoke", encoding="utf-8")
+    monkeypatch.setattr(invoke, "invoke_one", lambda *_args, **_kwargs: (0, "ok", "", None))
+    commands = [
+        ["tasks", "--models"],
+        ["route", "--task", "review", "--risk", "medium", "--budget", "balanced"],
+        ["invoke", "--one-shot", "--no-metrics", "--task", "review", "provider/model", str(packet)],
+        ["eval", "list"],
+        ["context-health"],
+        ["doctor", "--json"],
+        ["plans-dir"],
+    ]
+    for command in commands:
+        assert agnt.main(command) == 0, command
+        capsys.readouterr()
+
+
 def test_prompt_inventory_rows_reads_frontmatter(agnt):
     rows = agnt.prompt_inventory_rows()
     by_path = {row["path"]: row for row in rows}

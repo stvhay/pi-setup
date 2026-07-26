@@ -286,6 +286,8 @@ def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(ag
     ):
         assert flag in cmd
     assert cmd[cmd.index("--system-prompt") + 1]
+    assert "complete review packet" not in cmd
+    assert _kwargs["input"] == "complete review packet"
 
 
 def test_invoke_one_can_record_named_session(agnt, monkeypatch, tmp_path):

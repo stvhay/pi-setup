@@ -133,6 +133,7 @@ def invoke_one(
             ]
         )
     run_kwargs = {
+        "input": prompt,
         "text": True,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
@@ -142,13 +143,13 @@ def invoke_one(
     try:
         if metrics:
             proc = subprocess.run(
-                ["pi", "--mode", "json", *session_args, *extra_args, "--provider", provider, "--model", model, prompt],
+                ["pi", "--mode", "json", *session_args, *extra_args, "--provider", provider, "--model", model],
                 **run_kwargs,
             )
             out, usage, usage_source, provider_error = parse_pi_json_output(proc.stdout)
         else:
             proc = subprocess.run(
-                ["pi", "--print", *session_args, *extra_args, "--provider", provider, "--model", model, prompt],
+                ["pi", "--print", *session_args, *extra_args, "--provider", provider, "--model", model],
                 **run_kwargs,
             )
             out, usage, usage_source, provider_error = proc.stdout, None, "not_requested", ""

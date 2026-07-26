@@ -59,7 +59,7 @@ Keep a source inventory:
 
 ### 3. Verify URLs and source relevance
 
-Follow `pi/agent/skills/research/references/UrlVerificationProtocol.md`.
+Follow `~/.pi/agent/skills/research/references/UrlVerificationProtocol.md`.
 
 Before citing a URL:
 
