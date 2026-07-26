@@ -9,11 +9,11 @@ The tracked `pi/` tree is the source of truth. The default Pi runtime directory,
 From the repository root:
 
 ```bash
-scripts/bootstrap-pi-config.sh --dry-run
-scripts/bootstrap-pi-config.sh --apply
+scripts/update-pi-config.sh --dry-run # preview changes
+scripts/update-pi-config.sh           # update ~/.pi
 ```
 
-The deploy helper preserves runtime secrets/state and installs helper commands into `~/.pi/agent/bin`, including:
+The update helper preserves runtime secrets/state and installs helper commands into `~/.pi/agent/bin`, including:
 
 ```bash
 agnt --help

@@ -21,7 +21,7 @@ When changing Pi config:
 
 1. Edit files under tracked `pi/`.
 2. Verify with the project checks.
-3. Deploy to `~/.pi` only when requested or needed for verification, using `scripts/bootstrap-pi-config.sh --apply`.
+3. Deploy to `~/.pi` only when requested or needed for verification, using `scripts/update-pi-config.sh`.
 4. Never commit runtime secrets, sessions, caches, onboarding state, trust state, or API keys.
 
 Track `flake.lock` for reproducible Nix/direnv environments.

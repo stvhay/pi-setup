@@ -64,8 +64,8 @@ From the repository root:
 ```bash
 direnv allow                         # optional, if using direnv
 scripts/check-pi-config.sh           # validate tracked configuration
-scripts/bootstrap-pi-config.sh --dry-run
-scripts/bootstrap-pi-config.sh --apply
+scripts/update-pi-config.sh --dry-run # preview runtime update
+scripts/update-pi-config.sh           # update ~/.pi
 ```
 
 Deployment replaces the managed runtime copy from tracked `pi/` while preserving excluded credentials, sessions, trust state, metrics, and caches. Do not hand-edit managed files under `~/.pi`; edit `pi/`, verify, and deploy again. See [Pi Config](pi/README.md) for package installation, credentials, optional endpoints, and excluded-state details.

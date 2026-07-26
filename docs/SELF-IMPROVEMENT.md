@@ -190,7 +190,7 @@ When a model family shows a repeatable behavioral failure:
    ```
 
 4. Commit overlay + eval together, citing the observed failure.
-5. Deploy with `scripts/bootstrap-pi-config.sh --apply`.
+5. Deploy with `scripts/update-pi-config.sh`.
 
 Existing examples: `AGENTS.d/models/gpt-4.1-mini.md` (plans-dir discipline,
 from eval failures) and `AGENTS.d/models/gemma4-31b.md` (reviewer evidence
@@ -198,8 +198,8 @@ discipline, from review smoke tests).
 
 ## Rules
 
-- Never tracked: metric records, the global store, raw session data, and observational-memory ledgers. Never deployed over: `~/.pi/metrics/` is rsync-excluded by the bootstrap script.
+- Never tracked: metric records, the global store, raw session data, and observational-memory ledgers. Never deployed over: `~/.pi/metrics/` is rsync-excluded by the update script.
 - Overlays specialize behavior; they must not weaken approval, verification,
   git, or security gates (`agent-instructions --check` scans for this).
 - Edit prompts in this repo and deploy; do not hand-edit deployed `~/.pi`
-  copies — the next `--apply` overwrites them.
+  copies — the next update overwrites them.

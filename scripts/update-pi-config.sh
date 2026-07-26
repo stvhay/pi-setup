@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE=dry-run
+MODE=apply
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SOURCE=${PI_CONFIG_SOURCE:-$ROOT/pi}
 DEST=${PI_CONFIG_DEST:-$HOME/.pi}
 
 usage() {
   cat <<'EOF'
-Usage: scripts/bootstrap-pi-config.sh [--dry-run|--apply]
+Usage: scripts/update-pi-config.sh [--dry-run]
 
-Deploy the tracked Pi config from this repository's pi/ directory to ~/.pi.
+Update ~/.pi from this repository's tracked pi/ directory.
 
 This repository is the source of truth. The live ~/.pi directory is treated as
 runtime/deployed state. Runtime secrets and local state are preserved.
@@ -25,7 +25,6 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) MODE=dry-run ;;
-    --apply) MODE=apply ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -128,8 +127,8 @@ if [ "$MODE" = apply ] && [ -f "$DEST/agent/settings.json" ]; then
   cp "$DEST/agent/settings.json" "$RUNTIME_SETTINGS_BACKUP"
 fi
 
-# Preserve runtime secrets/state and project-local caches while deleting stale
-# managed files. Excluded paths are not deleted by rsync --delete.
+# Preserve runtime secrets/state while deleting stale managed files. Python
+# caches are sender-only excludes, so they are not deployed or deletion-protected.
 RSYNC_EXCLUDES=(
   --exclude='.git/'
   --exclude='.git.backup-*'
@@ -144,8 +143,8 @@ RSYNC_EXCLUDES=(
   --exclude='.pi/'
   --exclude='metrics/'
   --exclude='agent/macbook-ollama-power-*/'
-  --exclude='__pycache__/'
-  --exclude='*.py[cod]'
+  --filter='-s __pycache__/'
+  --filter='-s *.py[cod]'
   --exclude='.DS_Store'
   --exclude='*.local'
   --exclude='*.local.json'

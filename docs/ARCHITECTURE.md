@@ -18,9 +18,9 @@ pi-setup/ (this repo, source of truth)
 └── .pi/                 project-local plans/runs/scratch (not deployable)
 ```
 
-- `scripts/bootstrap-pi-config.sh` deploys `pi/` → `~/.pi` (dry-run by
-  default). Runtime secrets/state (`auth.json`, `sessions/`, `trust.json`,
-  `~/.pi/metrics/`, caches) are rsync-excluded and survive deploys.
+- `scripts/update-pi-config.sh` deploys `pi/` → `~/.pi` by default;
+  `--dry-run` previews changes. Runtime secrets/state (`auth.json`, `sessions/`,
+  `trust.json`, `~/.pi/metrics/`, caches) are rsync-excluded and survive deploys.
 - Edits go in this repo, then deploy. The live `~/.pi` is never the place to
   change config; `rsync --delete` will overwrite it.
 - Two instruction levels share one filename: the repo root `AGENTS.md` is
