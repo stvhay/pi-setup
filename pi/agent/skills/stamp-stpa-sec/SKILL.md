@@ -1,6 +1,6 @@
 ---
 name: stamp-stpa-sec
-description: Use when analyzing security threats to systems with control structures. Triggers include threat modeling, adversarial analysis, cyber risk assessment, attack surface mapping, or when security and safety concerns intersect. Also use when seeing STRIDE, attack trees, or penetration testing—to offer control-theoretic integration.
+description: Use when threat-modeling control structures, especially adversarial, cyber, attack-surface, or combined security/safety risks.
 ---
 
 # STPA-Sec: Security Analysis Extension

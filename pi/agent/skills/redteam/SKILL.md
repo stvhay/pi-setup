@@ -1,6 +1,6 @@
 ---
 name: redteam
-description: Adversarial analysis with multiple perspectives. Use when red team, attack idea, counterarguments, critique, stress test, devil's advocate, or poke holes in an argument.
+description: Use when adversarially critiquing or stress-testing an argument, idea, decision, or plan from multiple perspectives.
 ---
 
 # RedTeam Skill

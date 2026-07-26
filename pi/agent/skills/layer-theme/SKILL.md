@@ -1,6 +1,6 @@
 ---
 name: layer-theme
-description: Use when the user asks to dark-mode, restyle, re-theme, retone, skin, or layer a custom theme onto an existing website or web app — typically delivered as a Tampermonkey/Greasemonkey/Stylus userscript or a UserStyle. Also use when the user references a previously named saved style ("apply the luci-dark-material style to X") or asks for a Material/Fluent/etc. dark mode for a third-party site. Skip for native app theming, design-system authoring inside a codebase you control, or one-off CSS tweaks to your own page.
+description: Use when restyling or dark-mode theming a third-party website via userscript or UserStyle, including applying a named saved style.
 ---
 
 # Layer Theme

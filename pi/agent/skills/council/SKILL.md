@@ -1,6 +1,6 @@
 ---
 name: council
-description: Multi-agent debate system for decision-making. Use when council, debate, perspectives, agents discuss, or need multiple viewpoints on a decision.
+description: Use when a decision needs structured debate or multiple agent perspectives.
 ---
 
 # Council Skill

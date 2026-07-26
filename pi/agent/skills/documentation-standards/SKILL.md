@@ -1,6 +1,6 @@
 ---
 name: documentation-standards
-description: Use to draft or validate project documentation updates after design or implementation changes. Checks README, docs/ARCHITECTURE.md, docs/DESIGN.md, SPEC.md, and project-declared tracked docs using filesystem-first inspection.
+description: Use when drafting or validating project docs after design or implementation changes, including READMEs, architecture, and specs.
 ---
 
 # Documentation Standards

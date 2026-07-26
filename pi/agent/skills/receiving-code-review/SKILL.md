@@ -1,6 +1,6 @@
 ---
 name: receiving-code-review
-description: Use when receiving human, GitHub, or model-generated code review feedback. Evaluate feedback technically before implementing; verify each fix with focused tests.
+description: Use when processing human, GitHub, or model code-review feedback before deciding whether and how to implement fixes.
 ---
 
 # Receiving Code Review

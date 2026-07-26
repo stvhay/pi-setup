@@ -1,136 +1,85 @@
-# Available CLI tools
+# Available tools
 
-## Code search
+- `rg PATTERN [PATH]` — fast regex search.
+- `ast-grep --pattern '<code>' --lang <lang>` — structural search.
+- `nanobanana -o OUT.png <prompt>` — image generation when `GEMINI_API_KEY` exists; use `nanobanana --help` for options.
 
-- **`rg PATTERN [PATH]`** — ripgrep, regex search across files. Fast.
-- **`ast-grep --pattern '<code>' --lang <lang>`** — structural / AST search.
+# Agent helper
 
-## Image generation
+Use `~/.pi/agent/bin/agnt` as the primary helper interface. Run `agnt -h` or the command's `-h` for current syntax; full command reference lives in `~/.pi/agent/bin/README.md`.
 
-- **`nanobanana [--help] -o OUT.png -a [ASPECT] [-s SIZE] [-m MODEL] <prompt>`**
-  - preselected model alias: **`nanobanana-2`** (cheaper), **`nanobanana-pro`** (default)
-  - Requires `GEMINI_API_KEY` in env.
-
-# Agent helper convention
-
-Use `~/.pi/agent/bin/agnt` as the primary helper interface:
+Common entry points:
 
 ```bash
-agnt [command [args]] [subcommand ...] [filename]
+agnt tasks --models
+agnt route --task TASK --risk medium --budget balanced
+agnt invoke [--task TASK] provider/model [filename]
+agnt eval list
+agnt context-health
+agnt doctor --json
+agnt plans-dir
 ```
 
-When practical, commands read stdin if no filename is supplied, write primary results to stdout, write diagnostics to stderr, and use `-o` for output files/directories.
-
-## Common commands
-
-- List tasks: `agnt tasks`
-- List task/model routing: `agnt tasks --models`
-- Web search: `agnt web-search "query"`
-- Web fetch: `agnt web-fetch URL`
-- Query/build code knowledge graphs: `agnt graphify ...`
-- List models for a task: `agnt invoke --list [TASK]`
-- Recommend a model for constraints: `agnt route --task TASK --risk medium --budget balanced`
-- Invoke one peer: `agnt invoke [--task TASK] provider/model [filename]`
-- Fan out peers: `agnt invoke --fanout [-o DIR] provider/model [filename]`
-- Generate layered role/model instructions: `agnt instructions --context provider/model --role ROLE`
-- Run evals: `agnt eval list` and `agnt eval run EVAL_ID --dry-run`
-- Inventory prompts: `agnt prompt inventory`
-- Check operational readiness: `agnt doctor --json`
-- Capture/sync lessons learned: `agnt lessons capture ...`, `agnt lessons push`, `agnt lessons triage`
-- List/validate action templates: `agnt action list` and `agnt action validate`
-- Create/validate run artifacts: `agnt runs create` and `agnt runs validate`
-- Inspect beads-backed work: `agnt work next --json`, `agnt work tree --json`, and `agnt work plan --dry-run`
-- Check orchestration health: `agnt work health --json` and `agnt work audit --json`
-- Manage runner/maintenance: `agnt work daemon status --json`, `agnt work daemon start --json`, `agnt work runner status --json`, `agnt work runner tick --dry-run --json`, and `agnt work maintenance due --json`
-- Emit communication preferences: `agnt soul`
-- Resolve plans dir: `agnt plans-dir`
-
-Use `agnt -h` and `agnt COMMAND -h` for current syntax.
+Prefer deterministic helpers, tools, and evals over repeating procedures in prompts.
 
 # Operational health
 
-If tools, model providers, scripts, environment variables, Node/npm-based commands, Beads, Docker, or project checks fail repeatedly or unexpectedly, stop improvising and run:
+After repeated unexpected tool, provider, environment, Node/npm, Docker, or Beads failures, stop retrying and run:
 
 ```bash
 agnt doctor --json
 ```
 
-Use the report to distinguish broken environment from task failure. Fix or report failed checks before continuing high-effect work. For model dispatches where environment drift would be costly, prefer `agnt invoke --preflight ...` or `agnt work run --preflight ...`. `agnt doctor` is read-only: it may suggest Node LTS/nvm/home-environment remedies, but it must not edit shell startup files or home-managed config without explicit user approval through a separate repair action.
+Use its report to separate environment failure from task failure. `agnt doctor` is read-only; do not change shell startup or home-managed configuration without explicit approval.
 
-# Default development workflow
+# Development workflow
 
-Pi sessions work directly by default: inspect with `read`/`bash`, edit tracked project files, and run focused verification in the current session. Before changing code, confirm that a Bead exists for the task and inspect it with `bd show <id>`; create or request one before the first code edit if none exists. Documentation-only and read-only work may proceed without a Bead unless project instructions require one.
+- Work directly in the current Pi session by default: inspect, edit tracked files, and run focused verification.
+- Before code changes in a repository with `.beads/`, confirm a Bead exists and inspect it with `bd show <id>`; use `bd prime` and `bd ready` for context and unblocked work.
+- Documentation-only and read-only work may proceed without a Bead unless project instructions say otherwise.
+- Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads, lessons, or tracked artifacts.
+- Prefer exact paths and filesystem retrieval (`rg`, `find`, `git grep`, `git diff`, `read`) over large pasted context.
+- Delegate difficult or independent read-only analysis when useful. Prefer subscription-backed OpenAI/Codex or local models when capability is comparable; verify peer output against primary sources, files, and tests.
+- Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
 
-Delegate difficult tasks to stronger models, easy tasks to cheaper models, and independent critique/review to diverse peers. Prefer local or low-cost models when they are fast enough. Verify peer output against files, tests, and primary sources before acting.
+Do not push, merge, delete branches or beads, remove worktrees, rewrite history, change Beads remotes/history, or install hooks without explicit approval.
 
-Escalation order:
+# Architecture boundaries
 
-1. Increase the current orchestrator's thinking level.
-2. Delegate read-only analysis to one stronger specialist.
-3. Fan out diverse cheap peers for critique.
-4. Switch the primary orchestrator only for sustained high-stakes work.
+Keep these concepts distinct:
 
-Cost policy: OpenAI/Codex models benefit from the active subscription/discount and should be preferred when capability is comparable. Anthropic is still available when needed, but treat Claude usage as retail-priced extra usage rather than subscription-backed capacity.
+- **Work item/Bead:** durable task, dependency, decision, blocker, and closeout state.
+- **Task:** model/tool routing default such as review, research, or orchestration.
+- **Action template:** explicit operation binding task, skills, role, effects, and output contract.
+- **Skill:** reusable method or capability loaded when relevant.
+- **Role:** delegated-peer stance and output contract.
+- **Tool/eval:** deterministic behavior or validation.
 
-The runner, ticket gateway, run artifacts, and worktree-per-epic dispatch remain available as optional orchestration tools. Use them only when the user, a Bead, or an explicit command selects that workflow; ordinary coding does not require runner startup, orchestrator safe mode, run artifacts, a dedicated worktree, or repeated Beads-backed approvals.
-
-For strict workflow orchestration with gates—approval before edits, planning without implementation, verification before completion, PR/merge readiness—prefer models listed under:
-
-```bash
-agnt invoke --list orchestration
-```
-
-Use scriptable routing instead of embedding a static model matrix in instructions:
-
-```bash
-agnt route --task orchestration --risk high --budget quality
-agnt tasks --models
-```
-
-# Work, tasks, skills, prompts, roles, and tools
-
-Keep these concepts separate:
-
-- A **work item** (often a bead when the project has `.beads/`) is durable task/dependency state: what is ready, blocked, or complete.
-- A **task** is an operational routing label for model/tool defaults, such as `review`, `research`, `planning`, or `orchestration`.
-- A **prompt/action template** intentionally starts an action and may select a task, skills, roles, tools, and output contract.
-- A **skill** is a reusable capability package: workflow, method, expertise, references, helper tools, or any mix of those.
-- A **role** is a concise delegated-peer stance/output contract generated with `agnt instructions --role ROLE --context provider/model`.
-- A **tool** is deterministic behavior; prefer tools/evals over prose for repeatable routing, validation, data extraction, and context generation.
-
-Tasks answer “what model/tool default should I use?” Skills answer “what method/capability should I load?” Roles answer “how should this peer behave and report?” Work should produce durable artifacts when downstream agents, tools, or humans need to inspect or continue it. Task routing, prompts, and roles do not replace skill instructions or project safety gates.
-
-When a project has `.beads/`, treat Beads as the agent-facing work graph: use `bd prime` for current workflow context, `bd ready` to find unblocked work, and `bd show <id>` to inspect work. Every code-changing task requires a Bead before edits begin. Archimedes/Pi todos are transient projections; durable decisions, blockers, follow-ups, approvals, closeout, and maintenance checkpoints belong in Beads; `.pi/runs` is additional evidence only when the optional orchestration workflow is selected. Do not delete beads, rewrite Beads/Dolt history, change Beads remotes, or install Beads hooks without explicit approval.
+Routing, prompts, and roles do not replace skill methods or project safety gates. Use Beads for durable workflow state; `.pi/runs` is additional evidence only when optional orchestration is selected.
 
 # Research
 
-Do not assume model-native browsing. For cited external claims, search first, fetch/verify URLs, then cite only verified pages:
+For cited external claims, search, fetch, and verify primary URLs before citing:
 
 ```bash
 agnt web-search "query"
 agnt web-fetch URL
 ```
 
-# Development workflow conventions
+Do not treat model-native knowledge or unverified peer URLs as sourced evidence.
 
-- Prefer filesystem artifacts over chat-only state. Keep designs/plans in project-local `.pi/plans/` unless instructed otherwise. Worker sessions and run artifacts are optional execution history; observational memory is advisory recall only until promoted into Beads, lessons, or other durable evidence.
-- When you encounter a reusable lesson about Pi config, skills, tools, routing, provider setup, or agent workflow, capture it with `agnt lessons capture --kind friction|improvement|bug|success --area <area> --summary "..." --evidence "..."`. Keep evidence concise and non-secret; `agnt lessons` applies best-effort redaction but you remain responsible for not pasting secrets.
-- To trickle lessons up to the central server, use `agnt lessons push` when `AGNT_LESSONS_URL` is configured. In this repository, use `agnt lessons pull` and `agnt lessons triage --draft-beads` to convert useful lessons into Beads follow-up work; only create Beads with explicit approval/flags.
-- Use `agnt plans-dir` to resolve/create the plans directory.
-- Use `rg`, `find`, `git grep`, `git diff`, and exact file paths to retrieve context instead of bloating prompts.
-- If `graphify-out/graph.json` exists and the task asks about architecture, code concepts, dependencies, data flow, or cross-file relationships, probe it first with short keyword queries — `agnt graphify query "<keyword>"`, `agnt graphify explain "<symbol>"` — then verify important claims against source files. Matching is lexical: use identifiers/keywords, not sentence-form questions.
-- Shared workflow conventions live in the hidden skill `~/.pi/agent/skills/dev-workflow-common/SKILL.md`.
+# Context and reusable learning
 
-# Context package convention
+- Query `graphify-out/graph.json` first for architecture/dependency work when present: `agnt graphify query "keyword"` or `agnt graphify explain "symbol"`; verify findings in source.
+- Capture reusable workflow/config lessons with `agnt lessons capture`; keep evidence concise and secret-free.
+- Shared workflow conventions live in hidden skill `~/.pi/agent/skills/dev-workflow-common/SKILL.md` and should be loaded only when another skill requests them.
 
-Use compact layered instruction packages instead of bloating skills or base `AGENTS.md` files.
+# Context packages
 
-- Root files: `AGENTS.md`, `AGENT.md`, `SKILL.md`, or `SOUL.md`.
-- Supplements live beside the root under `<root-stem>.d/`, for example `AGENTS.d/`, `SKILL.d/`, or `SOUL.d/`.
-- Model files live in `<root-stem>.d/models/`. Prefer family-keyed files (`AGENTS.d/models/<family>.md`, families defined in `agent/catalog.json`) so one overlay applies to every venue of the same weights; slash-style provider/model paths (for example `AGENTS.d/models/openrouter-localish/google/gemma-4-31b-it.md`) refine a family overlay for one venue.
-- Role files live in `<root-stem>.d/roles/` and may include short frontmatter: `id`, `summary`, `task`, `writeAccess`, `preferred`, `qualified`, `disallowed`.
-- Generate layered global + project role context with `agnt instructions --context provider/model --role role`.
-- List available roles with `agnt instructions --roles`.
-- Use append-only concatenation for now; avoid patch/diff overlays unless a future named-section mechanism is designed.
+Keep root instruction files small and always applicable. Put supplements beside them under `<root-stem>.d/`:
 
-Supplemental context may specialize model/role behavior, but must not weaken project safety gates. `SOUL.md` captures communication preferences only and must not override approval, verification, git, security, or project instructions.
+- model overlays: `AGENTS.d/models/<family>.md`, refined by provider/model paths when needed
+- role overlays: `AGENTS.d/roles/<role>.md`
+- skill detail: `skills/<name>/SKILL.md`, with bulky material under `references/`
+
+Generate layered role/model context with `agnt instructions --context provider/model --role ROLE`. Supplements may specialize behavior but must not weaken security, approval, verification, git, or project rules. `SOUL.md` controls communication preferences only.

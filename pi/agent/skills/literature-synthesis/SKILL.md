@@ -1,6 +1,6 @@
 ---
 name: literature-synthesis
-description: Use when reviewing literature, comparing papers, extracting findings into evidence tables, or producing citation-grounded research reports and artifacts.
+description: Use when reviewing papers, comparing literature, extracting evidence tables, or writing citation-grounded research reports.
 ---
 
 # Literature Synthesis

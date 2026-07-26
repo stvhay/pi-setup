@@ -1,6 +1,6 @@
 ---
 name: code-simplification
-description: Use after verification passes when the user asks for simplification or low-risk touched-file cleanup is clearly useful. Flags structural changes for approval.
+description: Use after verification when simplification is requested or low-risk cleanup of touched files is clearly useful.
 ---
 
 # Code Simplification

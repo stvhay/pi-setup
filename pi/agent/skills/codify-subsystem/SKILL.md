@@ -1,6 +1,6 @@
 ---
 name: codify-subsystem
-description: Use when a subsystem directory or high-value module needs a SPEC.md that captures purpose, interfaces, invariants, failure modes, and testing guidance for future agent work.
+description: Use when a subsystem needs a SPEC.md covering purpose, interfaces, invariants, failure modes, and tests.
 ---
 
 # Codify Subsystem

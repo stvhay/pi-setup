@@ -1,10 +1,6 @@
 ---
 name: heilmeier-catechism
-description: >
-  Evaluate ambitious research or innovation initiatives using the Heilmeier
-  Catechism. Use when: research planning, initiative evaluation, feasibility
-  study, state-of-the-art analysis, technology gap analysis, moonshot
-  evaluation, go/no-go assessment, or "is this idea worth pursuing?"
+description: Use when evaluating ambitious research or innovation initiatives, feasibility, technology gaps, moonshots, or go/no-go decisions.
 ---
 
 # Heilmeier Catechism Research Initiative Skill

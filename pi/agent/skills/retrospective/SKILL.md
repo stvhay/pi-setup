@@ -1,6 +1,6 @@
 ---
 name: retrospective
-description: Use after a development branch is complete or nearly complete to capture what worked, what caused friction, and which project or skill improvements should be saved or filed.
+description: Use near branch completion to capture successes, friction, reusable lessons, and project or skill follow-up work.
 ---
 
 # Retrospective

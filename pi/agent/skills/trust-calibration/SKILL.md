@@ -1,6 +1,6 @@
 ---
 name: trust-calibration
-description: Use when communicating agent confidence to users - when outputs need calibrated certainty markers, uncertainty acknowledgment, or evidence surfacing
+description: Use when communicating calibrated confidence, uncertainty, or supporting evidence.
 ---
 
 # Trust Calibration

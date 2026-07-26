@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: Use when creating features, building components, adding functionality, or modifying behavior — any creative work that benefits from exploring intent, requirements, and alternatives before implementation begins.
+description: Use when creating or changing functionality and intent, requirements, or alternatives need exploration before implementation.
 ---
 
 # Brainstorming Ideas Into Designs

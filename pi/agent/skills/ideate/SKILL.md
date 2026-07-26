@@ -1,6 +1,6 @@
 ---
 name: ideate
-description: Use when a problem is unclear, multiple large directions exist, or the user wants divergent exploration without committing to a design.
+description: Use when problem space is fuzzy, broad directions exist, or divergent ideas are wanted without choosing a design.
 ---
 
 # Ideate

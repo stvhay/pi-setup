@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete and you need branch/project readiness checks, PR preparation, or merge/cleanup guidance. Verifies, validates docs, reviews, summarizes, and stops at risky actions unless explicitly approved.
+description: Use when completed implementation needs branch readiness, documentation, review, PR, merge, or cleanup guidance.
 ---
 
 # Finishing a Development Branch

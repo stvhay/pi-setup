@@ -103,17 +103,20 @@ GitHub synchronization is explicitly deferred in `docs/GITHUB-ADAPTER.md`.
 If desired later, it should be implemented as an explicit adapter instead of
 reintroducing dual-source tracking.
 
-### 4. Context-health checks are stronger but still evolving
+### 4. Context-health checks cover discovery and loadable guidance
 
-Existing evals test routing and role-context composition. Unit tests now cover
+Existing evals test routing and role-context composition. Unit tests cover
 role/task/skill references, action-template references, action write-effect
 compatibility with read-only roles, prompt inventory health, and run artifact
 validation.
 
-The check surface now also validates action effect vocabulary, role
-`writeAccess`, and stale active skill references to removed plan helpers.
-Duplicate skill scopes, oversized skills, and broader gate-weakening scans
-remain useful future refinements.
+`agnt context-health` now checks single-line skill descriptions, an 8,000-character
+discovery metadata budget, overlapping description scopes, oversized top-level
+skills, stale helpers, and gate-weakening language across routing tasks and all
+loadable skill Markdown. Four progressively disclosed skills were removed from
+the large-skill allowlist; remaining exemptions should be removed only as their
+behavior is preserved by scenarios and focused checks. Pattern scans remain a
+backstop, not a semantic proof that guidance is safe.
 
 ### 5. Role validation is improving but not complete
 
@@ -142,11 +145,10 @@ part of the verification surface, not only documented as available.
 1. Keep `docs/SELF-IMPROVEMENT-PRINCIPLES.md` as an occasional design reference,
    not default runtime context.
 2. Keep `docs/ARCHITECTURE.md` as the concise operational architecture.
-3. Continue extending evals/checks. This pass added unit checks that roles
-   reference existing routing tasks and skills, task ids match filenames, and
-   skills have descriptions. Remaining checks should validate write-access vs.
-   allowed effects, composed-context gate weakening, and `agnt prompt inventory`
-   health at the CLI level.
+3. Continue extending evals/checks. Current checks cover role/task/skill
+   references, task ids, skill discovery metadata, description overlap, and
+   loadable-context gate weakening. Remaining work should deepen composed-context
+   behavior evals and remove large-skill exemptions incrementally.
 
 ### Priority 2 — Deepen invocation/result workflow integration
 
@@ -195,9 +197,9 @@ similar audits recur, create a focused skill such as `context-architecture` or
 3. **Additional action templates**
    - Add only when a new action has a crisp effect policy and output contract.
 
-4. **Context health check command/eval**
-   - Move more architecture invariants into `scripts/check-pi-config.sh`,
-     `agent-instructions --check`, or a dedicated `agnt` check.
+4. **Context-health ratchet**
+   - Remove remaining large-skill exemptions only after focused trigger and
+     behavior scenarios preserve each migrated skill's invariants.
 
 5. **Workflow refactoring skill decision**
    - If this kind of audit recurs, create a focused `context-architecture` or

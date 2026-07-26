@@ -182,9 +182,11 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 
 ## Context health
 
-- `agnt context-health [--strict]`
-  - Checks active Pi context for stale helper names, gate-weakening phrases, oversized unallowlisted skills, and overlapping skill descriptions.
-  - `--strict` exits nonzero when failures are found; warnings are reported for entropy signals.
+- `agnt context-health [--strict] [--max-skill-lines N] [--overlap-threshold N] [--skill-discovery-limit N]`
+  - Checks root/overlay guidance, routing tasks, and all loadable skill Markdown for stale helpers and gate-weakening phrases.
+  - Fails on unsupported multiline skill descriptions or discovery metadata above the default 8,000-character budget.
+  - Warns on oversized unallowlisted skills and overlapping skill descriptions.
+  - `--strict` exits nonzero when failures are found; warnings remain entropy signals.
 
 ## Lessons
 

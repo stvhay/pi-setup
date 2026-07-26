@@ -1,6 +1,6 @@
 ---
 name: graphify
-description: Use when the user invokes /graphify, asks to build or query a project knowledge graph, or asks codebase architecture/file-relationship questions where graphify-out/ exists.
+description: Use for /graphify, project knowledge-graph work, or architecture and dependency questions when graphify-out exists.
 ---
 
 # Graphify

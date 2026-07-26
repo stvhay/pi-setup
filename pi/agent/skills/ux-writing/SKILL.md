@@ -1,6 +1,6 @@
 ---
 name: ux-writing
-description: Use when writing or editing interface copy - buttons, labels, error messages, notifications, forms, or any text users see in apps and software
+description: Use when writing or editing interface copy such as buttons, labels, forms, errors, and notifications.
 ---
 
 # UX Writing

@@ -11,21 +11,19 @@ import _agnt_common as common
 
 from .core import ROOT
 
+SKILL_DISCOVERY_LIMIT = 8000
+
 LARGE_SKILL_ALLOWLIST = {
     "code-simplification",
     "codify-subsystem",
     "design-principles",
-    "executing-plans",
     "failure-choreography",
     "finishing-a-development-branch",
     "heilmeier-catechism",
     "layer-theme",
-    "project-init",
     "requesting-code-review",
     "retrospective",
-    "skill-creator",
     "stamp-cast",
-    "stamp-stpa",
     "stamp-stpa-sec",
     "subagent-driven-development",
     "systematic-debugging",
@@ -63,7 +61,8 @@ GATE_WEAKENING_PATTERNS = [
 def active_context_files() -> List[Path]:
     files: List[Path] = []
     files.extend([ROOT / "AGENTS.md", ROOT / "SOUL.md"])
-    files.extend(sorted((ROOT / "skills").glob("*/SKILL.md")))
+    files.extend(sorted((ROOT / "skills").glob("**/*.md")))
+    files.extend(sorted((ROOT / "tasks").glob("*.md")))
     files.extend(sorted((ROOT / "AGENTS.d" / "roles").glob("*.md")))
     files.extend(sorted((ROOT / "AGENTS.d" / "models").glob("**/*.md")))
     files.extend(sorted((ROOT / "actions").glob("*.md")))
@@ -80,6 +79,44 @@ def skill_descriptions() -> Dict[str, str]:
         meta, _body = common.parse_frontmatter_file(path)
         rows[path.parent.name] = str(meta.get("description") or "")
     return rows
+
+
+def unsupported_description(value: str) -> bool:
+    return value.startswith((">", "|"))
+
+
+def scan_skill_metadata(limit: int) -> tuple[List[Dict[str, Any]], int]:
+    failures: List[Dict[str, Any]] = []
+    discovery_chars = 0
+    for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
+        text = path.read_text(encoding="utf-8")
+        meta, _body = common.split_frontmatter(text)
+        rel_path = str(path.relative_to(ROOT))
+        description = str(meta.get("description") or "")
+        description_line = next(
+            (line for line in text.splitlines() if line.startswith("description:")),
+            "",
+        )
+        raw_value = description_line.split(":", 1)[1].strip() if description_line else ""
+        if unsupported_description(raw_value):
+            failures.append(
+                {
+                    "kind": "skill-description-format",
+                    "path": rel_path,
+                    "value": raw_value,
+                    "replacement": "Use one supported single-line scalar.",
+                }
+            )
+        discovery_chars += len(f"{path.parent.name}\t{description}\t{rel_path}\n")
+    if discovery_chars > limit:
+        failures.append(
+            {
+                "kind": "skill-discovery-budget",
+                "chars": discovery_chars,
+                "limit": limit,
+            }
+        )
+    return failures, discovery_chars
 
 
 def scan_large_skills(max_lines: int) -> List[Dict[str, Any]]:
@@ -164,9 +201,14 @@ def scan_content(text: str, rel_path: str) -> List[Dict[str, Any]]:
     return _scan_text_for_failures(text, rel_path)
 
 
-def context_health_report(*, max_skill_lines: int = 220, overlap_threshold: float = 0.65) -> Dict[str, Any]:
+def context_health_report(
+    *,
+    max_skill_lines: int = 220,
+    overlap_threshold: float = 0.65,
+    skill_discovery_limit: int = SKILL_DISCOVERY_LIMIT,
+) -> Dict[str, Any]:
     warnings: List[Dict[str, Any]] = []
-    failures: List[Dict[str, Any]] = []
+    failures, discovery_chars = scan_skill_metadata(skill_discovery_limit)
     warnings.extend(scan_large_skills(max_skill_lines))
     warnings.extend(scan_overlapping_skill_descriptions(overlap_threshold))
     failures.extend(scan_stale_terms())
@@ -176,7 +218,12 @@ def context_health_report(*, max_skill_lines: int = 220, overlap_threshold: floa
         "passed": not failures,
         "failures": failures,
         "warnings": warnings,
-        "summary": {"failureCount": len(failures), "warningCount": len(warnings)},
+        "summary": {
+            "failureCount": len(failures),
+            "warningCount": len(warnings),
+            "skillDiscoveryChars": discovery_chars,
+            "skillDiscoveryLimit": skill_discovery_limit,
+        },
     }
 
 
@@ -200,6 +247,7 @@ def cmd_context_health(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt context-health", description="Check active Pi context for stale terms, gate weakening, and entropy signals.")
     parser.add_argument("--max-skill-lines", type=int, default=220)
     parser.add_argument("--overlap-threshold", type=float, default=0.65)
+    parser.add_argument("--skill-discovery-limit", type=int, default=SKILL_DISCOVERY_LIMIT)
     parser.add_argument("--strict", action="store_true", help="exit nonzero when failures are found")
     scan_group = parser.add_argument_group("per-file scan", "scan a single file body instead of the active context (used by the guidance-edit guard)")
     scan_source = scan_group.add_mutually_exclusive_group()
@@ -221,6 +269,10 @@ def cmd_context_health(argv: List[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 1 if args.strict and report["failures"] else 0
 
-    report = context_health_report(max_skill_lines=args.max_skill_lines, overlap_threshold=args.overlap_threshold)
+    report = context_health_report(
+        max_skill_lines=args.max_skill_lines,
+        overlap_threshold=args.overlap_threshold,
+        skill_discovery_limit=args.skill_discovery_limit,
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 1 if args.strict and report["failures"] else 0

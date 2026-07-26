@@ -1,6 +1,6 @@
 ---
 name: stamp-base
-description: Use when any STAMP-related analysis is needed. Provides theoretical foundations and routes to appropriate methodology (STPA for prospective, CAST for retrospective, STPA-Sec for security).
+description: Use when routing STAMP analysis or when shared foundations are needed before STPA, CAST, or STPA-Sec.
 ---
 
 # STAMP Foundations

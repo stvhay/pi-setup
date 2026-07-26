@@ -1,6 +1,6 @@
 ---
 name: first-principles
-description: Use when conventional solutions feel wrong, costs seem fixed, you hear "that's how it's done," or need breakthrough rather than incremental improvement
+description: Use when conventional assumptions seem wrong, costs appear fixed, or breakthrough reasoning is needed.
 ---
 
 # First Principles Analysis

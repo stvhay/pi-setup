@@ -1,6 +1,6 @@
 ---
 name: using-git-worktrees
-description: Use when starting feature work that needs isolation from the current checkout, before executing implementation plans on a feature branch, or when preparing isolated worktrees for peer/worktree-driven implementation.
+description: Use when feature work or parallel implementation needs isolation in a separate Git worktree.
 ---
 
 # Using Git Worktrees

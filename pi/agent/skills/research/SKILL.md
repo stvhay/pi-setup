@@ -1,6 +1,6 @@
 ---
 name: research
-description: Multi-source parallel research. Use when research, do research, quick research, extensive research, find information, or investigate a topic. For due diligence or background checks, use osint skill instead.
+description: Use when doing multi-source research or investigating a topic; not for due diligence or background checks.
 ---
 
 # Research Skill

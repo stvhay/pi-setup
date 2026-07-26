@@ -1,6 +1,6 @@
 ---
 name: dev-workflow-common
-description: Shared Pi development workflow conventions. Hidden helper skill for other workflow skills; use only when another skill asks you to read it.
+description: Use only when another workflow skill requests shared Pi development conventions.
 disable-model-invocation: true
 ---
 

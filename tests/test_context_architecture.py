@@ -55,6 +55,15 @@ def test_skill_frontmatter_names_match_directories(common):
         assert meta.get("description"), f"{skill_path} needs a description"
 
 
+def test_skill_descriptions_use_supported_single_line_scalars():
+    for skill_path in sorted((AGENT / "skills").glob("*/SKILL.md")):
+        frontmatter = skill_path.read_text(encoding="utf-8").split("---", 2)[1]
+        description_lines = [line for line in frontmatter.splitlines() if line.startswith("description:")]
+        assert len(description_lines) == 1, f"{skill_path} needs one description line"
+        value = description_lines[0].split(":", 1)[1].strip()
+        assert value and not value.startswith((">", "|")), f"{skill_path} uses unsupported multiline description syntax"
+
+
 def test_active_skills_do_not_reference_removed_plan_helper():
     for skill_path in sorted((AGENT / "skills").glob("*/SKILL.md")):
         assert "pi-plans-dir" not in skill_path.read_text(encoding="utf-8"), skill_path

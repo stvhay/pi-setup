@@ -1,6 +1,6 @@
 ---
 name: hypothesis-tournament
-description: Use when generating, ranking, critiquing, or refining research hypotheses, mechanisms, explanations, or testable investigation plans.
+description: Use when generating, ranking, critiquing, or testing research hypotheses, mechanisms, or explanations.
 ---
 
 # Hypothesis Tournament

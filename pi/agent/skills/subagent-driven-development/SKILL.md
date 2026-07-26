@@ -1,6 +1,6 @@
 ---
 name: subagent-driven-development
-description: Use when executing or exploring implementation plans with independent tasks using Pi peers, advisory fan-out, and isolated per-task worktrees for true parallel implementation.
+description: Use when implementation-plan tasks can be explored or executed independently with peers or isolated worktrees.
 ---
 
 # Subagent-Driven Development

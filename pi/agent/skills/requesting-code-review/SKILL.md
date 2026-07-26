@@ -1,6 +1,6 @@
 ---
 name: requesting-code-review
-description: Use when completing tasks, implementing major features, before merging, or reviewing a diff/PR. Runs cold, cost-bounded, model-diverse review and verifies concrete findings against executable evidence.
+description: Use when reviewing a diff or PR, finishing substantial implementation, or preparing to merge.
 ---
 
 # Requesting Code Review

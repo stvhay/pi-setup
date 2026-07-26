@@ -1,6 +1,6 @@
 ---
 name: ux-design-agent
-description: Use when designing user experiences - especially for user-facing interfaces, agentic systems, or when "who uses this and how" isn't obvious
+description: Use when designing user experiences, especially interfaces or agentic workflows with unclear users or usage.
 ---
 
 # UX Design Agent

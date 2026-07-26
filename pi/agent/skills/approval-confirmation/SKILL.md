@@ -1,6 +1,6 @@
 ---
 name: approval-confirmation
-description: Use when designing the approval UI for agentic systems - how to present an approval request that enables informed consent rather than rubber-stamping
+description: Use when designing informed-consent approval interfaces for agentic systems.
 ---
 
 # Approval & Confirmation

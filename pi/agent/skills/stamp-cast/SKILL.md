@@ -1,6 +1,6 @@
 ---
 name: stamp-cast
-description: Use when analyzing accidents, incidents, near-misses, or adverse events to identify systemic causes. Also triggers on requests for accident investigation, root cause analysis (to offer systems alternative), safety management system evaluation, or understanding why controls failed. Use for any loss stakeholders wish to prevent—safety, security, financial, environmental, mission, or reputational.
+description: Use when analyzing an accident, incident, near-miss, root-cause claim, or failed controls through a systemic retrospective lens.
 ---
 
 # CAST (Causal Analysis based on System Theory)
