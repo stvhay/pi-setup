@@ -20,6 +20,7 @@ Read shared conventions when needed:
 - No new skill or meaningful skill edit without a baseline scenario.
 - Confirm ownership before editing. Change repository-owned skills directly; leave package-installed, generated, vendored, or external skills alone unless the user approves an upstream, fork, or overlay strategy.
 - Preserve security, destructive-action, accessibility, data-loss, approval, and verification constraints.
+- Before adding rules, inspect adjacent context layers for conflicting or duplicated guidance. Prefer deleting or consolidating instructions over adding precedence rules.
 - Do not chase a vendor's context-reduction percentage. Reduce context only when behavior stays equal or improves.
 
 ## When a skill should exist
