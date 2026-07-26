@@ -21,6 +21,24 @@ agnt --help
 
 Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes the pinned `@mariozechner/clipboard` native addon required by the Archimedes image-paste extension.
 
+### Archimedes subagents
+
+Omit `agent` for a generic subagent call:
+
+```json
+{"task": "Review the current diff"}
+```
+
+Supplying `agent` selects a named definition; it is not a task label or an alias for generic mode. Create named definitions with `/agents` before using them. Current discovery paths are:
+
+- project: `<git-root>/.pi/agents/*.md`
+- user: `~/.pi/agent/agents/*.md`
+- optional global/legacy: nearest `<git-root>/.agents/agents/*.md`, then `~/.agents/agents/*.md`
+
+The current Archimedes package documentation incorrectly says generic calls default to a named `general` agent and places user definitions under `~/.pi/agents/`. In practice, explicit `"agent": "general"` requires a definition named `general`; only omission selects generic mode.
+
+`agent/extensions/subagent-error-workaround.ts` compensates for Archimedes 1.8.2 error signaling and rendering defects: failed child exits are marked as errors, and validation failures show their original message instead of `no results`.
+
 Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, verify them, then deploy.
 
 ## Contents
