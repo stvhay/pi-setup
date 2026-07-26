@@ -5,14 +5,10 @@
 // sessions, creates the Beads decision/blocker before any UI prompt, and records
 // any final approval decision back through the same deterministic CLI.
 
-import { execFile } from "node:child_process";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-
-const AGNT_BIN = join(getAgentDir(), "bin", "agnt");
+import { runAgntJson } from "./lib/run-agnt-json.ts";
 
 const PreviewSchema = Type.Object({
 	action: Type.String({ description: "What action is being approved or decided" }),
@@ -73,25 +69,6 @@ interface ResolveParams {
 	outcome: "approved" | "answered" | "rejected" | "cancelled" | "timed-out";
 	answer?: string;
 	runBundle?: string;
-}
-
-function runAgnt(args: string[], cwd: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-	return new Promise((resolve, reject) => {
-		const proc = execFile(AGNT_BIN, args, { cwd, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024, signal }, (err, stdout, stderr) => {
-			if (err) {
-				reject(new Error((stderr || stdout || err.message).trim()));
-				return;
-			}
-			try {
-				resolve(JSON.parse(stdout || "{}") as Record<string, unknown>);
-			} catch (parseErr) {
-				reject(new Error(`agnt did not return JSON: ${(parseErr as Error).message}; output=${stdout}`));
-			}
-		});
-		if (signal) {
-			signal.addEventListener("abort", () => proc.kill(), { once: true });
-		}
-	});
 }
 
 function requestArgs(kind: "question" | "approval", params: RequestParams): string[] {
@@ -161,7 +138,7 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 		],
 		parameters: RequestSchema,
 		async execute(_toolCallId, params: RequestParams, signal, _onUpdate, ctx) {
-			const request = await runAgnt(requestArgs("question", params), ctx.cwd, signal);
+			const request = await runAgntJson(requestArgs("question", params), ctx.cwd, signal);
 			const decisionBead = String(request.decisionBead ?? "");
 			if (!ctx.hasUI) {
 				return {
@@ -172,7 +149,7 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 
 			const answer = await ctx.ui.select(approvalMessage(params, decisionBead), params.options);
 			const outcome = answer ? "answered" : "cancelled";
-			const resolution = await runAgnt(resolveArgs({
+			const resolution = await runAgntJson(resolveArgs({
 				decisionBead,
 				outcome,
 				answer: answer ? `Answered in Pi UI: ${answer}` : "Cancelled in Pi UI",
@@ -195,7 +172,7 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 		],
 		parameters: ApprovalSchema,
 		async execute(_toolCallId, params: RequestParams, signal, _onUpdate, ctx) {
-			const request = await runAgnt(requestArgs("approval", params), ctx.cwd, signal);
+			const request = await runAgntJson(requestArgs("approval", params), ctx.cwd, signal);
 			const decisionBead = String(request.decisionBead ?? "");
 
 			if (!params.promptUser || !ctx.hasUI) {
@@ -207,7 +184,7 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 
 			const approved = await ctx.ui.confirm("Approval requested", approvalMessage(params, decisionBead));
 			const outcome = approved ? "approved" : "rejected";
-			const resolution = await runAgnt(resolveArgs({
+			const resolution = await runAgntJson(resolveArgs({
 				decisionBead,
 				outcome,
 				answer: approved ? "Approved in Pi UI" : "Rejected in Pi UI",
@@ -244,7 +221,7 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 					resolver = { kind: "human-ui", sessionId: ctx.sessionManager.getSessionId() };
 				}
 			}
-			const result = await runAgnt(resolveArgs({ ...params, outcome, answer }, resolver), ctx.cwd, signal);
+			const result = await runAgntJson(resolveArgs({ ...params, outcome, answer }, resolver), ctx.cwd, signal);
 			return {
 				content: [{ type: "text", text: `Resolved ${params.decisionBead} as ${outcome}; blocker visible=${String(result.blockerVisible)}.` }],
 				details: result,

@@ -47,7 +47,7 @@ agnt work runner tick --dry-run --json --limit 1
 agnt work daemon stop --json --drain
 ```
 
-`agnt work daemon start|stop|status` are the direct lifecycle commands. `agnt work runner status|pause|resume|tick` are clients of the running service; they do not mutate runner state through a second local path. `agnt work loop` is deprecated in favor of the service lifecycle.
+`agnt work daemon start|stop|status` are the direct lifecycle commands. `agnt work runner status|pause|resume|tick` are clients of the running service; they do not mutate runner state through a second local path.
 
 `agnt work run` is the end-to-end command. It:
 

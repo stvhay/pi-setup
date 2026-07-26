@@ -28,10 +28,6 @@ VALID_ALLOWED_EFFECTS = {
 MODEL_OVERRIDE_KEYS = {"model", "selectedModel", "modelOverride", "target", "provider", "id", "override"}
 
 
-def _is_dict(value: Any) -> bool:
-    return isinstance(value, dict)
-
-
 def _string_list(value: Any) -> List[str] | None:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         return None

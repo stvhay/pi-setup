@@ -2,21 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import shutil
-import subprocess
 import sys
-import tempfile
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import _agnt_common as common
 
 from .core import ACTIONS, EVALS, PROMPT_PATTERNS, ROOT, die
-from .evals import cmd_eval, split_models
+from .evals import cmd_eval
 from .metrics import utc_now
 
 def slugify(value: str) -> str:

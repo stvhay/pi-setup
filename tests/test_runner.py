@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 
@@ -639,8 +638,10 @@ def test_work_runner_cli_status_and_tick_json(agnt, tmp_path, capsys):
         assert tick_out["dryRun"] is True
 
     assert calls[0] == ("status", tmp_path)
-    assert calls[1][0] == "tick"
-    assert calls[1][1]["root"] == tmp_path
+    assert calls[1] == (
+        "tick",
+        {"root": tmp_path, "dry_run": True, "limit": 1},
+    )
 
 
 def test_work_runner_cli_reports_missing_service_json(agnt, tmp_path, capsys):

@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 from .approvals import create_beads_approval_request
-from .orchestration import validate_bead_orchestration_metadata
-from .runs import default_runs_dir, update_run_result
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .runner_protocol import DEFAULT_BUDGET, read_runner_state, normalize_runner_state, runner_paths, update_runner_state, utc_now as protocol_utc_now, write_runner_state
-from .worktree_policy import worktree_snapshot_for_bead, write_conflict_for
+from .worktree_policy import worktree_snapshot_for_bead
 
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
 RunnerStart = Callable[..., Dict[str, Any]]
@@ -242,39 +238,11 @@ def runner_tick(
         maintenance_creator=maintenance_creator,
         status_provider=runner_status,
     )
-
-def runner_loop(
-    *,
-    root: Path | str | None = None,
-    interval: float = 30.0,
-    max_ticks: int | None = None,
-    dry_run: bool = False,
-    limit: int = 1,
-) -> Dict[str, Any]:
-    lock = acquire_runner_lock(root, owner="agnt-runner")
-    if not lock.get("acquired"):
-        return {"schemaVersion": 1, "started": False, "lock": lock, "ticks": []}
-    ticks: List[Dict[str, Any]] = []
-    try:
-        count = 0
-        while max_ticks is None or count < max_ticks:
-            tick = runner_tick(root=root, dry_run=dry_run, limit=limit)
-            ticks.append(tick)
-            count += 1
-            if max_ticks is not None and count >= max_ticks:
-                break
-            time.sleep(max(1.0, interval))
-    finally:
-        release_runner_lock(root, owner="agnt-runner")
-    return {"schemaVersion": 1, "started": True, "lock": lock, "ticks": ticks}
-
-
 __all__ = [
     "runner_status",
     "runner_pause",
     "runner_resume",
     "runner_tick",
-    "runner_loop",
     "acquire_runner_lock",
     "release_runner_lock",
     "load_runner_state",

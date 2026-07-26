@@ -148,15 +148,8 @@ def runner_client_tick(
     root: Path | str | None = None,
     dry_run: bool = True,
     limit: int = 1,
-    runs_dir: Path | None = None,
-    metrics_dir: Path | None = None,
 ) -> Dict[str, Any]:
-    payload = RunnerClient(root).tick(dry_run=dry_run, limit=limit)
-    if runs_dir is not None:
-        payload.setdefault("client", {})["runsDirIgnored"] = str(runs_dir)
-    if metrics_dir is not None:
-        payload.setdefault("client", {})["metricsDirIgnored"] = str(metrics_dir)
-    return payload
+    return RunnerClient(root).tick(dry_run=dry_run, limit=limit)
 
 
 def daemon_status(root: Path | str | None = None) -> Dict[str, Any]:

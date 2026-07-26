@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
-from urllib.error import URLError
 
 import pytest
 

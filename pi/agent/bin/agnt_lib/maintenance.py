@@ -437,48 +437,12 @@ def maintenance_create_beads(
     return {"schemaVersion": 1, "dryRun": False, "beads": specs, "commands": commands, "created": created, "failures": failures}
 
 
-def lessons_harvest_plan(
-    *,
-    closed_beads: List[Dict[str, Any]],
-    runs: List[Dict[str, Any]],
-    observational_memory_refs: List[str] | None = None,
-) -> Dict[str, Any]:
-    input_refs: List[str] = []
-    for bead in closed_beads:
-        bead_id = bead.get("id")
-        if bead_id:
-            input_refs.append(f"bead:{bead_id}")
-    for run in runs:
-        bundle = run.get("bundle") or run.get("id")
-        if bundle:
-            input_refs.append(f"run:{bundle}")
-        for key in ("sessionRef", "transcriptRef", "memorySummaryRef"):
-            value = run.get(key)
-            if value:
-                input_refs.append(str(value))
-    input_refs.extend(str(ref) for ref in observational_memory_refs or [] if ref)
-    seen: set[str] = set()
-    compact_refs = [ref for ref in input_refs if not (ref in seen or seen.add(ref))]
-    report = {"schemaVersion": 1, "due": [{"mode": "lessons-harvest", "label": MAINTENANCE_MODES["lessons-harvest"]["label"], "reason": "explicit lessons harvest"}], "signals": {}}
-    spec = maintenance_bead_specs(report)[0]
-    return {
-        "schemaVersion": 1,
-        "mode": "lessons-harvest",
-        "inputRefs": compact_refs,
-        "closedBeadCount": len(closed_beads),
-        "runCount": len(runs),
-        "observationalMemoryRefCount": len(observational_memory_refs or []),
-        "bead": spec,
-    }
-
-
 __all__ = [
     "MAINTENANCE_MODES",
     "DEFAULT_THRESHOLDS",
     "maintenance_due_report",
     "maintenance_bead_specs",
     "maintenance_create_beads",
-    "lessons_harvest_plan",
     "collect_beads",
     "collect_runs",
     "git_commit_summary",

@@ -4,15 +4,12 @@
 // the runner. Explicit `--orchestrator-service` or environment opt-in enables
 // the preserved orchestrator/client workflow and its restricted tool surface.
 
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { runAgntJson } from "./lib/run-agnt-json.ts";
 
-const AGNT_BIN = join(getAgentDir(), "bin", "agnt");
-const STATUS_KEY = "orchestrator-service";
-const WIDGET_KEY = "orchestrator-service";
 const POLL_MS = 5000;
 
 const ORCHESTRATOR_SAFE_TOOLS = [
@@ -78,28 +75,6 @@ function runnerDir(cwd: string): string {
 async function readJsonFile(path: string): Promise<JsonObject> {
 	const text = await readFile(path, "utf-8");
 	return asObject(JSON.parse(text));
-}
-
-async function runAgnt(args: string[], cwd: string, signal?: AbortSignal): Promise<JsonObject> {
-	return new Promise((resolve, reject) => {
-		const proc = execFile(
-			AGNT_BIN,
-			args,
-			{ cwd, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024, signal },
-			(err, stdout, stderr) => {
-				if (err) {
-					reject(new Error((stderr || stdout || err.message).trim()));
-					return;
-				}
-				try {
-					resolve(asObject(JSON.parse(stdout || "{}")));
-				} catch (parseErr) {
-					reject(new Error(`agnt did not return JSON: ${(parseErr as Error).message}; output=${stdout}`));
-				}
-			},
-		);
-		if (signal) signal.addEventListener("abort", () => proc.kill(), { once: true });
-	});
 }
 
 async function loadServiceConnection(cwd: string): Promise<ServiceConnection> {
@@ -255,7 +230,7 @@ async function abortStartup(state: SessionState): Promise<void> {
 }
 
 async function refreshRunnerStatus(ctx: ExtensionContext, signal?: AbortSignal): Promise<JsonObject> {
-	const payload = await runAgnt(["work", "runner", "status", "--json"], ctx.cwd, signal);
+	const payload = await runAgntJson(["work", "runner", "status", "--json"], ctx.cwd, signal);
 	showRunnerStatus(ctx, payload);
 	return payload;
 }
@@ -294,24 +269,24 @@ async function refreshRunnerEvents(pi: ExtensionAPI, ctx: ExtensionContext, stat
 }
 
 async function ensureDaemon(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
-	const status = await runAgnt(["work", "daemon", "status", "--json"], ctx.cwd, signal);
+	const status = await runAgntJson(["work", "daemon", "status", "--json"], ctx.cwd, signal);
 	const service = asObject(status.service);
 	const activeRuns = Array.isArray(service.activeRuns) ? service.activeRuns : [];
 	if (status.running === true && status.connected === true) {
 		if (service.schedulerEnabled !== true && activeRuns.length === 0) {
 			ctx.ui.setStatus("orchestrator-service", statusText(ctx, "orch upgrading", "warn"));
-			await runAgnt(["work", "daemon", "stop", "--force", "--json"], ctx.cwd, signal);
-			await runAgnt(["work", "daemon", "start", "--json"], ctx.cwd, signal);
+			await runAgntJson(["work", "daemon", "stop", "--force", "--json"], ctx.cwd, signal);
+			await runAgntJson(["work", "daemon", "start", "--json"], ctx.cwd, signal);
 			return;
 		}
 		if (service.draining === true || service.paused === true || service.acceptingNewWork === false) {
 			ctx.ui.setStatus("orchestrator-service", statusText(ctx, "orch resuming", "warn"));
-			await runAgnt(["work", "runner", "resume", "--json"], ctx.cwd, signal);
+			await runAgntJson(["work", "runner", "resume", "--json"], ctx.cwd, signal);
 		}
 		return;
 	}
 	ctx.ui.setStatus("orchestrator-service", statusText(ctx, "orch starting", "warn"));
-	await runAgnt(["work", "daemon", "start", "--json"], ctx.cwd, signal);
+	await runAgntJson(["work", "daemon", "start", "--json"], ctx.cwd, signal);
 }
 
 async function attachLease(ctx: ExtensionContext, state: SessionState, signal?: AbortSignal): Promise<void> {
@@ -426,7 +401,7 @@ export default function orchestratorService(pi: ExtensionAPI) {
 		await applyToolMode(pi, ctx, state);
 		if (!state.repairToolsActive) ctx.ui.setStatus("orchestrator-service", statusText(ctx, "orch checking", "warn"));
 		try {
-			const startup = await runAgnt(["doctor", "--profile", "orchestrator-startup", "--json"], ctx.cwd, startupAbort.signal);
+			const startup = await runAgntJson(["doctor", "--profile", "orchestrator-startup", "--json"], ctx.cwd, startupAbort.signal);
 			if (state.shutdownStarted) return;
 			if (!startupReady(startup)) {
 				showBlockedStartup(ctx, startup);

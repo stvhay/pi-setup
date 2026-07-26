@@ -18,11 +18,9 @@ rg -n "openai-codex/gpt-5\.6-sol|openrouter-localish/google/gemma-4-31b-it|olla-
 bin/agnt invoke -h >/tmp/agnt-invoke-help.txt
 rg -n -- "--fanout|--list|--task|--no-metrics|--metrics-dir" /tmp/agnt-invoke-help.txt >/dev/null
 bin/agnt metrics -h >/tmp/agnt-metrics-help.txt
-rg -n "status|consolidate|reset|prune|import-session" /tmp/agnt-metrics-help.txt >/dev/null
-bin/agnt metrics import-session -h >/tmp/agnt-import-session-help.txt
-rg -n -- "--latest|--session-file|--kind" /tmp/agnt-import-session-help.txt >/dev/null
-bin/agnt benchmark -h >/tmp/agnt-benchmark-help.txt
-rg -n "pong" /tmp/agnt-benchmark-help.txt >/dev/null
+rg -n "status|consolidate|reset|prune|annotate" /tmp/agnt-metrics-help.txt >/dev/null
+! rg -n "import-session" /tmp/agnt-metrics-help.txt >/dev/null
+! rg -n "benchmark" /tmp/agnt-help.txt >/dev/null
 
 FAKE_PI_DIR=$(mktemp -d)
 METRICS_TMP=$(mktemp -d)

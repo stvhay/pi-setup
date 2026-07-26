@@ -6,16 +6,13 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import _agnt_common as common
 
-from .core import ROOT, VALID_OUTCOMES, capture, die, split_target
+from .core import ROOT, VALID_OUTCOMES, capture, split_target
 from .review import load_review_document, review_annotation_fields
 
 def utc_now() -> str:
@@ -387,15 +384,11 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     thinking_counts: Dict[str, int] = {}
     review_scope_counts: Dict[str, int] = {}
     review_finding_counts = empty_review_finding_stats()
-    benchmark_counts: Dict[str, int] = {}
     kind_counts: Dict[str, int] = {}
     human_overrides = 0
     fallback_uses = 0
     context_chars = 0
     estimated_input_tokens = 0
-    verification = {"passed": 0, "failed": 0, "commands": 0}
-    rework_cycles = 0
-    benchmark_elapsed_ms = 0
     for record in records:
         target = str(record.get("target") or f"{record.get('provider')}/{record.get('model')}")
         task = str(record.get("task") or "unspecified")
@@ -431,23 +424,10 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             fallback_uses += 1
         context_chars += int(record.get("contextChars") or 0)
         estimated_input_tokens += int(record.get("estimatedInputTokens") or 0)
-        benchmark = record.get("benchmark")
-        if benchmark:
-            benchmark_key = str(benchmark)
-            benchmark_counts[benchmark_key] = benchmark_counts.get(benchmark_key, 0) + 1
         kind = record.get("kind")
         if kind:
             kind_key = str(kind)
             kind_counts[kind_key] = kind_counts.get(kind_key, 0) + 1
-        rework_cycles += int(record.get("reworkCycles") or 0)
-        benchmark_elapsed_ms += int(record.get("benchmarkElapsedMs") or 0)
-        for check in record.get("verification") or []:
-            if isinstance(check, dict):
-                verification["commands"] += 1
-                if check.get("passed"):
-                    verification["passed"] += 1
-                else:
-                    verification["failed"] += 1
         for bucket, key in ((by_model, target), (by_task, task)):
             item = bucket.setdefault(
                 key,
@@ -497,11 +477,7 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "fallbackUses": fallback_uses,
         "contextChars": context_chars,
         "estimatedInputTokens": estimated_input_tokens,
-        "benchmarks": benchmark_counts,
         "kinds": kind_counts,
-        "verification": verification,
-        "reworkCycles": rework_cycles,
-        "benchmarkElapsedMs": benchmark_elapsed_ms,
         "usage": usage_summary(records),
         "byModel": by_model,
         "byTask": by_task,
@@ -547,97 +523,7 @@ def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "stderrChars": record.get("stderrChars"),
         "kind": record.get("kind"),
         "status": record.get("status"),
-        "benchmark": record.get("benchmark"),
-        "benchmarkedTarget": record.get("benchmarkedTarget"),
-        "reworkCycles": record.get("reworkCycles"),
-        "verification": record.get("verification"),
-        "codeQuality": record.get("codeQuality"),
-        "benchmarkElapsedMs": record.get("benchmarkElapsedMs"),
     }
-
-
-def session_dir_name(cwd: Path) -> str:
-    return "--" + str(cwd.resolve()).strip("/").replace("/", "-") + "--"
-
-
-def session_dirs_for_cwd(cwd: Path) -> List[Path]:
-    base = Path.home() / ".pi" / "agent" / "sessions"
-    names = [session_dir_name(cwd)]
-    try:
-        names.append(session_dir_name(git_root()))
-    except Exception:
-        pass
-    dirs: List[Path] = []
-    for name in names:
-        path = base / name
-        if path.is_dir() and path not in dirs:
-            dirs.append(path)
-    return dirs
-
-
-def latest_session_file(cwd: Path) -> Path | None:
-    files: List[Path] = []
-    for directory in session_dirs_for_cwd(cwd):
-        files.extend(directory.glob("*.jsonl"))
-    return max(files, key=lambda path: path.stat().st_mtime) if files else None
-
-
-def session_import_state_path() -> Path:
-    return git_root() / ".pi" / "metrics" / "session-import-state.json"
-
-
-def load_session_import_state() -> Dict[str, Any]:
-    path = session_import_state_path()
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def save_session_import_state(state: Dict[str, Any]) -> None:
-    write_json(session_import_state_path(), state)
-
-
-def parse_pi_session_file(path: Path, since_timestamp: str | None = None) -> Tuple[Dict[str, Any], str | None, int]:
-    usage = empty_usage()
-    usage_seen = False
-    by_model: Dict[str, Dict[str, Any]] = {}
-    assistant_messages = 0
-    last_timestamp = since_timestamp
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        timestamp = entry.get("timestamp")
-        if since_timestamp and timestamp and timestamp <= since_timestamp:
-            continue
-        message = entry.get("message") if entry.get("type") == "message" else None
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        assistant_messages += 1
-        last_timestamp = timestamp or last_timestamp
-        msg_usage = message.get("usage")
-        provider = str(message.get("provider") or "unknown")
-        model = str(message.get("model") or "unknown")
-        target = f"{provider}/{model}"
-        bucket = by_model.setdefault(target, {"assistantMessages": 0, "usage": empty_usage(), "usageSeen": False})
-        bucket["assistantMessages"] += 1
-        if isinstance(msg_usage, dict):
-            msg_usage = apply_assumed_cost(dict(msg_usage), target) or msg_usage
-            add_usage(usage, msg_usage)
-            add_usage(bucket["usage"], msg_usage)
-            usage_seen = True
-            bucket["usageSeen"] = True
-    for bucket in by_model.values():
-        if not bucket.pop("usageSeen"):
-            bucket["usage"] = None
-    return {"usage": usage if usage_seen else None, "assistantMessages": assistant_messages, "byModel": by_model}, last_timestamp, assistant_messages
 
 
 def write_metric_record(metrics_dir: Path, name: str, record: Dict[str, Any]) -> Path:
@@ -645,19 +531,6 @@ def write_metric_record(metrics_dir: Path, name: str, record: Dict[str, Any]) ->
     path = metrics_dir / f"{stamp}-{name}.metrics.json"
     write_json(path, record)
     return path
-
-
-def run_check(command: List[str]) -> Dict[str, Any]:
-    started = time.monotonic()
-    proc = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return {
-        "command": command,
-        "exitCode": proc.returncode,
-        "passed": proc.returncode == 0,
-        "elapsedMs": int((time.monotonic() - started) * 1000),
-        "stdoutTail": proc.stdout[-1000:],
-        "stderrTail": proc.stderr[-1000:],
-    }
 
 
 def move_consumed(files: List[Path], consumed_root: Path) -> Path:
@@ -705,7 +578,7 @@ def append_annotation(path: Path, annotation: Dict[str, Any]) -> None:
 def cmd_metrics(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt metrics", description="Inspect and consolidate agnt invocation metrics.")
     sub = parser.add_subparsers(dest="action")
-    for name in ("status", "consolidate", "reset", "prune", "import-session", "annotate"):
+    for name in ("status", "consolidate", "reset", "prune", "annotate"):
         sub.add_parser(name)
     if not argv:
         parser.print_help()
@@ -723,55 +596,6 @@ def cmd_metrics(argv: List[str]) -> int:
         records, warnings = load_metric_records(files)
         print(json.dumps({"metricsDir": str(metrics_dir), "pendingFiles": len(files), "loadedRecords": len(records), "warnings": warnings, "summary": summarize_metrics(records)}, indent=2, sort_keys=True))
         return 0 if not warnings else 1
-    if action == "import-session":
-        p = argparse.ArgumentParser(prog="agnt metrics import-session")
-        p.add_argument("--latest", action="store_true", help="import the latest Pi session for cwd")
-        p.add_argument("--session-file", help="explicit session JSONL file")
-        p.add_argument("--cwd", default=os.getcwd(), help="cwd used to locate latest session")
-        p.add_argument("--kind", default="orchestration", help="metric kind label")
-        p.add_argument("--metrics-dir")
-        p.add_argument("--no-dedupe", action="store_true", help="import whole session without updating dedupe state")
-        args = p.parse_args(rest)
-        if not args.latest and not args.session_file:
-            p.error("use --latest or --session-file")
-        session_file = Path(args.session_file).expanduser() if args.session_file else latest_session_file(Path(args.cwd))
-        if not session_file or not session_file.is_file():
-            print("No session file found")
-            return 0
-        state = load_session_import_state()
-        key = str(session_file.resolve())
-        since = None if args.no_dedupe else state.get(key, {}).get("lastTimestamp")
-        parsed, last_timestamp, count = parse_pi_session_file(session_file, since)
-        if count == 0:
-            print(f"No new assistant messages in {session_file}")
-            return 0
-        record = {
-            "schemaVersion": 1,
-            "kind": args.kind,
-            "task": args.kind,
-            "status": "observed",
-            "startedAt": since,
-            "endedAt": last_timestamp,
-            "elapsedMs": 0,
-            "target": "main-session",
-            "provider": "pi-session",
-            "model": "mixed",
-            "exitCode": 0,
-            "usageSource": "session-jsonl",
-            "usage": parsed["usage"],
-            "responseChars": 0,
-            "stderrChars": 0,
-            "sessionFile": str(session_file),
-            "assistantMessages": parsed["assistantMessages"],
-            "byModel": parsed["byModel"],
-        }
-        metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
-        out = write_metric_record(metrics_dir, "session", record)
-        if not args.no_dedupe and last_timestamp:
-            state[key] = {"lastTimestamp": last_timestamp, "importedAt": utc_now()}
-            save_session_import_state(state)
-        print(f"Imported {count} assistant messages from {session_file} to {out}")
-        return 0
     if action == "annotate":
         p = argparse.ArgumentParser(prog="agnt metrics annotate")
         p.add_argument("selector", nargs="?", default="latest", help="recordId, source file, basename, or 'latest'")

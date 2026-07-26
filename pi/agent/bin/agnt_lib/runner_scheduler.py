@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Tuple
 from .approvals import create_beads_approval_request
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .orchestration import READ_ONLY_ACTIONS, validate_bead_orchestration_metadata
-from .runner_protocol import normalize_active_run_snapshot, normalize_budget_state, normalize_runner_state, read_runner_state, runner_paths, update_runner_state, utc_now
+from .runner_protocol import normalize_active_run_snapshot, normalize_budget_state, normalize_runner_state, read_runner_state, runner_paths, update_runner_state
 from .runs import update_run_result, write_yaml_json
 from .worktree_policy import checkpoint_epic_worktree, worktree_snapshot_for_bead, write_conflict_for
 

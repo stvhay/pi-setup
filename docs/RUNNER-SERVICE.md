@@ -70,8 +70,6 @@ agnt gateway --payload "$tag" --json
 
 If the service is absent, runner client commands return a clear JSON payload with `status: "not-running"`, `connected: false`, and suggested action `agnt work daemon start --json`.
 
-`agnt work loop` is deprecated; use `agnt work daemon start` for the service lifecycle and `agnt work runner tick` for bounded debug/operator ticks.
-
 ## Runtime files
 
 All service runtime files live under `.pi/runner/` and are gitignored.

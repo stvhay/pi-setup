@@ -8,15 +8,16 @@ if str(BIN) not in sys.path:
     sys.path.insert(0, str(BIN))
 
 
-def test_benchmark_pong_reaches_invocation_without_missing_metric_helpers(monkeypatch, tmp_path):
-    from agnt_lib import benchmark
+def test_removed_benchmark_and_session_import_are_not_advertised(agnt, capsys):
+    assert agnt.main(["--help"]) == 0
+    assert "benchmark" not in capsys.readouterr().out
 
-    monkeypatch.setattr(benchmark, "invoke_one", lambda *_args, **_kwargs: (1, "", "unavailable", None))
-    result = benchmark.cmd_benchmark([
-        "pong", "--model", "test/model", "--work-dir", str(tmp_path / "work"), "--metrics-dir", str(tmp_path / "metrics"),
-    ])
+    assert agnt.cmd_metrics(["--help"]) == 0
+    assert "import-session" not in capsys.readouterr().out
 
-    assert result == 1
+
+def test_removed_session_importer_has_no_deployed_hook():
+    assert not (BIN.parent.parent / ".githooks" / "pre-commit").exists()
 
 
 def test_invoke_eval_records_metrics_without_nameerror(monkeypatch, tmp_path):

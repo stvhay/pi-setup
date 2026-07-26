@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -11,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
-from .core import ROOT, die
+from .core import die
 from .invoke import invoke_one, safe_target_name
 from .metrics import default_metrics_dir, git_root, write_json
 from .tasks import preferred_models

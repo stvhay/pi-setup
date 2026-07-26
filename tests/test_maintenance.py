@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 
@@ -114,34 +113,6 @@ def test_maintenance_create_beads_dry_run_outputs_specs_and_approval_gates_refac
     assert metadata["pi"]["approved"] is False
     validation = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "approval required"})
     assert validation["status"] == "needs-human"
-
-
-def test_lessons_harvest_plan_includes_closed_beads_runs_sessions_and_memory_refs(agnt):
-    closed_beads = [_closed_impl("pi-1")]
-    runs = [
-        {
-            "id": "run-1",
-            "bundle": ".pi/runs/run-1",
-            "status": "succeeded",
-            "sessionRef": "pi-session-id:run-1",
-            "transcriptRef": "pi-session-transcript:run-1",
-            "memorySummaryRef": "pi-memory-summary:run-1",
-        }
-    ]
-
-    plan = agnt.lessons_harvest_plan(
-        closed_beads=closed_beads,
-        runs=runs,
-        observational_memory_refs=["pi-observation:abc"],
-    )
-
-    assert plan["mode"] == "lessons-harvest"
-    assert "bead:pi-1" in plan["inputRefs"]
-    assert "run:.pi/runs/run-1" in plan["inputRefs"]
-    assert "pi-session-id:run-1" in plan["inputRefs"]
-    assert "pi-memory-summary:run-1" in plan["inputRefs"]
-    assert "pi-observation:abc" in plan["inputRefs"]
-    assert plan["bead"]["label"] == "maintenance:lessons-harvest"
 
 
 def test_work_maintenance_cli_due_and_create_beads_json(agnt, tmp_path, capsys):

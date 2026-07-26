@@ -8,7 +8,7 @@ import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List
+from typing import Any, Callable, Dict, Iterator, List
 
 import fcntl
 

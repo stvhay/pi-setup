@@ -738,17 +738,6 @@ def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str],
     return {"result": result, "beadClose": close_result}
 
 
-def _runner_symbol(name: str):
-    value = globals().get(name)
-    if value is not None:
-        return value
-    from . import runner as runner_mod
-
-    value = getattr(runner_mod, name)
-    globals()[name] = value
-    return value
-
-
 def cmd_work(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt work", description="Inspect beads-backed ready work and construct gated dispatch/run artifacts.")
     sub = parser.add_subparsers(dest="command")
@@ -802,8 +791,6 @@ def cmd_work(argv: List[str]) -> int:
     runner_tick_cmd.add_argument("--dry-run", action="store_true", help="explain actions without starting/blocking work")
     runner_tick_cmd.add_argument("--json", action="store_true")
     runner_tick_cmd.add_argument("--limit", type=int, default=1)
-    runner_tick_cmd.add_argument("--runs-dir")
-    runner_tick_cmd.add_argument("--metrics-dir")
     daemon = sub.add_parser("daemon", help="manage the project-local runner service lifecycle")
     daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
     daemon_status_cmd = daemon_sub.add_parser("status", help="show project-local runner service status")
@@ -829,13 +816,6 @@ def cmd_work(argv: List[str]) -> int:
     daemon_serve_cmd.add_argument("--concurrency", type=int)
     daemon_serve_cmd.add_argument("--interval", type=float)
     daemon_serve_cmd.add_argument("--json", action="store_true")
-    loop = sub.add_parser("loop", help="deprecated; use agnt work daemon start")
-    loop.add_argument("--root")
-    loop.add_argument("--interval", type=float, default=30.0)
-    loop.add_argument("--max-ticks", type=int, default=None)
-    loop.add_argument("--limit", type=int, default=1)
-    loop.add_argument("--dry-run", action="store_true")
-    loop.add_argument("--json", action="store_true")
     audit = sub.add_parser("audit", help="audit Beads queue health against unresolved required-work signals")
     audit.add_argument("--json", action="store_true")
     audit.add_argument("--scan-root", action="append", default=[], help="file or directory to scan; defaults to docs, README, AGENTS, and .pi/runs")
@@ -987,13 +967,7 @@ def cmd_work(argv: List[str]) -> int:
             elif args.runner_command == "resume":
                 result = runner_client_resume(root=root)
             elif args.runner_command == "tick":
-                result = runner_client_tick(
-                    root=root,
-                    dry_run=args.dry_run,
-                    limit=args.limit,
-                    runs_dir=Path(args.runs_dir).expanduser() if args.runs_dir else None,
-                    metrics_dir=Path(args.metrics_dir).expanduser() if args.metrics_dir else None,
-                )
+                result = runner_client_tick(root=root, dry_run=args.dry_run, limit=args.limit)
             else:
                 parser.print_help(sys.stderr)
                 return 2
@@ -1024,15 +998,6 @@ def cmd_work(argv: List[str]) -> int:
             print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("served") else 1
         parser.print_help(sys.stderr)
-        return 2
-    if args.command == "loop":
-        result = {
-            "schemaVersion": 1,
-            "deprecated": True,
-            "error": "agnt work loop has been replaced by the project-local runner service lifecycle",
-            "suggestedAction": "agnt work daemon start --json",
-        }
-        print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
         return 2
     if args.command == "audit":
         roots = [Path(item).expanduser() for item in args.scan_root] if args.scan_root else None

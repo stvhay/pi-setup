@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "orchestrator-service.ts"
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
+EXTENSIONS = ROOT / "pi" / "agent" / "extensions"
+SHARED_AGNT_RUNNER = EXTENSIONS / "lib" / "run-agnt-json.ts"
 
 
 def source() -> str:
@@ -58,6 +60,15 @@ def extract_function_body(text: str, name: str) -> str:
 
 def js_function(text: str, name: str, params: str) -> str:
     return f"function {name}({params}) {{\n{extract_function_body(text, name)}\n}}"
+
+
+def test_extensions_share_one_agnt_json_subprocess_runner():
+    assert SHARED_AGNT_RUNNER.is_file()
+    for name in ("beads-ask-bridge.ts", "ticket-gateway.ts", "orchestrator-service.ts"):
+        text = (EXTENSIONS / name).read_text(encoding="utf-8")
+        assert 'from "./lib/run-agnt-json.ts"' in text
+        assert 'from "node:child_process"' not in text
+    assert 'from "node:child_process"' in (EXTENSIONS / "guidance-edit-guard.ts").read_text(encoding="utf-8")
 
 
 def test_orchestrator_extension_file_exists_and_registers_lifecycle_hooks():

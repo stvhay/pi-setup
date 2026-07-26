@@ -4,14 +4,10 @@
 // orchestration is explicitly selected, this extension provides a constrained
 // ticket tool and compact /work command backed by `agnt gateway`.
 
-import { execFile } from "node:child_process";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-
-const AGNT_BIN = join(getAgentDir(), "bin", "agnt");
+import { runAgntJson } from "./lib/run-agnt-json.ts";
 
 const OperationEnum = StringEnum([
 	"list",
@@ -65,42 +61,7 @@ const GatewayParamsSchema = Type.Object({
 type GatewayParams = Record<string, unknown> & { operation: string };
 
 function runGateway(payload: GatewayParams, cwd: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-	return new Promise((resolve, reject) => {
-		const proc = execFile(
-			AGNT_BIN,
-			["gateway", "--payload", JSON.stringify(payload), "--json"],
-			{ cwd, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024, signal },
-			(err, stdout, stderr) => {
-				if (err) {
-					reject(new Error((stderr || stdout || err.message).trim()));
-					return;
-				}
-				try {
-					resolve(JSON.parse(stdout || "{}") as Record<string, unknown>);
-				} catch (parseErr) {
-					reject(new Error(`agnt gateway did not return JSON: ${(parseErr as Error).message}; output=${stdout}`));
-				}
-			},
-		);
-		if (signal) signal.addEventListener("abort", () => proc.kill(), { once: true });
-	});
-}
-
-function runAgnt(args: string[], cwd: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-	return new Promise((resolve, reject) => {
-		const proc = execFile(AGNT_BIN, args, { cwd, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024, signal }, (err, stdout, stderr) => {
-			if (err) {
-				reject(new Error((stderr || stdout || err.message).trim()));
-				return;
-			}
-			try {
-				resolve(JSON.parse(stdout || "{}") as Record<string, unknown>);
-			} catch (parseErr) {
-				reject(new Error(`agnt did not return JSON: ${(parseErr as Error).message}; output=${stdout}`));
-			}
-		});
-		if (signal) signal.addEventListener("abort", () => proc.kill(), { once: true });
-	});
+	return runAgntJson(["gateway", "--payload", JSON.stringify(payload), "--json"], cwd, signal, "agnt gateway");
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -194,7 +155,7 @@ export default function ticketGateway(pi: ExtensionAPI) {
 					"--resolver-kind", "human-ui", "--resolver-session", ctx.sessionManager.getSessionId(), "--json"];
 				const runBundle = typeof params.runBundle === "string" ? params.runBundle : "";
 				if (runBundle) resolveArgs.push("--run-bundle", runBundle);
-				const resolution = await runAgnt(resolveArgs, ctx.cwd, signal);
+				const resolution = await runAgntJson(resolveArgs, ctx.cwd, signal);
 				return {
 					content: [{ type: "text", text: `Approval ${decisionBead} ${outcome}.` }],
 					details: { request: result, resolution },

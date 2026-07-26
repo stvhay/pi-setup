@@ -9,7 +9,6 @@ BIN = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin"
 if str(BIN) not in sys.path:
     sys.path.insert(0, str(BIN))
 
-from agnt_lib import runner_protocol as rp
 from agnt_lib.runner import save_runner_state
 from agnt_lib.runner_scheduler import load_scheduler_state, runner_scheduler_tick, save_scheduler_state
 from agnt_lib.runs import create_run_bundle, load_yaml_json, update_run_result

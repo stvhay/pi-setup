@@ -114,16 +114,15 @@ Front controller for: `route` (recommend model + thinking level for
 task/risk/budget, JSON with explicit reasons and rejected candidates),
 `invoke` (single or `--fanout` parallel peers, metrics on by default, with a
 no-tools `--one-shot` mode for complete packets), `review` (validate/summarize
-structured findings), `metrics` (status/annotate/consolidate/import-session), `eval`
+structured findings), `metrics` (status/annotate/consolidate), `eval`
 (filesystem-defined deterministic evals), `instructions`, `prompt`, `action`,
-`runs`, `work`, `approvals`, `gateway`, `benchmark`, `web-search`/`web-fetch`,
-`plans-dir`, `risk`.
+`runs`, `work`, `approvals`, `gateway`, `web-search`/`web-fetch`, `plans-dir`,
+`risk`.
 
 Design constraint: `agnt` is a front controller, not the home for subsystem
 logic. Command implementations live under `pi/agent/bin/agnt_lib/` (`routing`,
 `invoke`, `review`, `metrics`, `evals`, `tasks`, `prompt`, `actions`, `runs`,
-`work`, and `benchmark`) and share catalog/frontmatter helpers through
-`_agnt_common.py`.
+and `work`) and share catalog/frontmatter helpers through `_agnt_common.py`.
 New shared behavior should move into those importable modules, or a new
 `agnt_lib` module when the seam is clear; avoid adding another independent
 model/catalog/parser table inside the executable. The orchestration additions
