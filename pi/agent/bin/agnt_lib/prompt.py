@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Tuple
 import _agnt_common as common
 
 from .core import ACTIONS, EVALS, PROMPT_PATTERNS, ROOT, die
-from .evals import cmd_eval
 from .metrics import utc_now
 
 def slugify(value: str) -> str:
@@ -95,16 +94,11 @@ createdAt: {utc_now()}
 
 
 def cmd_prompt(argv: List[str]) -> int:
-    parser = argparse.ArgumentParser(prog="agnt prompt", description="Prompt inventory, eval helpers, and provenance-safe pattern notes.")
+    parser = argparse.ArgumentParser(prog="agnt prompt", description="Prompt inventory and provenance-safe pattern notes.")
     sub = parser.add_subparsers(dest="action")
     inv = sub.add_parser("inventory", help="list tracked prompt/instruction artifacts")
     inv.add_argument("--kind", help="filter by kind")
     inv.add_argument("--paths-only", action="store_true")
-    peval = sub.add_parser("eval", help="run a prompt-related eval via agnt eval")
-    peval.add_argument("eval_id", help="eval id or path")
-    peval.add_argument("--dry-run", action="store_true")
-    peval.add_argument("--models", help="space- or comma-separated provider/model list")
-    peval.add_argument("-o", "--output", help="output directory")
     note = sub.add_parser("import-pattern-note", help="write a rewritten external prompt-pattern note without copying prompt text")
     note.add_argument("--name", required=True)
     note.add_argument("--source-url", required=True)
@@ -126,15 +120,6 @@ def cmd_prompt(argv: List[str]) -> int:
         else:
             print(json.dumps({"schemaVersion": 1, "count": len(rows), "prompts": rows}, indent=2, sort_keys=True))
         return 0
-    if args.action == "eval":
-        forwarded = ["run", args.eval_id]
-        if args.dry_run:
-            forwarded.append("--dry-run")
-        if args.models:
-            forwarded.extend(["--models", args.models])
-        if args.output:
-            forwarded.extend(["--output", args.output])
-        return cmd_eval(forwarded)
     if args.action == "import-pattern-note":
         path = write_pattern_note(name=args.name, source_url=args.source_url, source_license=args.source_license, pattern=args.pattern, rewrite=args.rewrite, notes=args.notes)
         print(json.dumps({"schemaVersion": 1, "path": str(path), "copiedPromptText": False}, indent=2, sort_keys=True))

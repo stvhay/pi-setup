@@ -4,6 +4,8 @@ import inspect
 import sys
 from pathlib import Path
 
+import pytest
+
 BIN = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin"
 if str(BIN) not in sys.path:
     sys.path.insert(0, str(BIN))
@@ -114,6 +116,12 @@ def test_invoke_eval_dry_run_materializes_embedded_one_shot_prompt(tmp_path):
     planned_prompt = Path(command[-1])
     assert planned_prompt.parent == out_dir
     assert planned_prompt.read_text(encoding="utf-8") == "skill body\n\n---\n\nscenario"
+
+
+def test_prompt_eval_alias_is_retired(agnt):
+    with pytest.raises(SystemExit) as exc:
+        agnt.cmd_prompt(["eval", "routing-smoke"])
+    assert exc.value.code == 2
 
 
 def test_prompt_pattern_note_has_timestamp_helper(monkeypatch, tmp_path):

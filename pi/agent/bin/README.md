@@ -98,9 +98,6 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt prompt inventory [--kind KIND] [--paths-only]`
   - Lists tracked prompt/instruction artifacts such as `AGENTS.md`, skills, model/role supplements, action templates, and eval prompts.
 
-- `agnt prompt eval EVAL_ID [--dry-run] [--models provider/model[,provider/model...]] [-o DIR]`
-  - Convenience wrapper around `agnt eval run` for prompt-related evals.
-
 - `agnt prompt import-pattern-note --name NAME --source-url URL --source-license LICENSE --pattern TEXT --rewrite TEXT [--notes TEXT]`
   - Writes a provenance note under `agent/prompt-patterns/` without copying external prompt text.
   - Use this for GPL/community prompt repositories: record the pattern and an original Pi-specific rewrite, not the source prompt.
