@@ -203,7 +203,10 @@ def test_service_start_clears_stale_active_runs_from_previous_owner(tmp_path):
         service.stop(force=True)
 
 
-def test_scheduler_rechecks_drain_after_active_run_finishes(tmp_path):
+def test_scheduler_rechecks_drain_after_active_run_finishes(monkeypatch, tmp_path):
+    from agnt_lib import runner_service
+
+    monkeypatch.setattr(runner_service, "runner_tick", lambda **_kwargs: {"schemaVersion": 1, "actions": []})
     service = start_runner_service(
         tmp_path, host="127.0.0.1", port=0, token="secret-token",
         auto_schedule=True, scheduler_interval=0.02,
