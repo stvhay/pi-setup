@@ -7,9 +7,7 @@ description: Use when writing or editing human-facing prose such as documentatio
 
 ## Overview
 
-William Strunk Jr.'s *The Elements of Style* (1918) teaches you to write clearly and cut ruthlessly.
-
-**WARNING:** `references/elements-of-style.md` consumes ~12,000 tokens. Read it only when writing or editing prose.
+Write clearly. Cut ruthlessly.
 
 ## When to Use This Skill
 
@@ -23,12 +21,11 @@ Use this skill whenever you write prose for humans:
 
 **If you're writing sentences for a human to read, use this skill.**
 
-## Limited Context Strategy
+## Workflow
 
-When context is tight:
-1. Write your draft using judgment
-2. Dispatch a subagent with your draft and `references/elements-of-style.md`
-3. Have the subagent copyedit and return the revision
+1. Draft with necessary technical detail.
+2. Apply the rules below.
+3. Remove words that do not change meaning.
 
 ## All Rules
 
@@ -54,9 +51,6 @@ When context is tight:
 17. Keep to one tense in summaries
 18. **Place emphatic words at end of sentence**
 
-### Section V: Words and Expressions Commonly Misused
-Alphabetical reference for usage questions
-
 ## Bottom Line
 
-Writing for humans? Read `references/elements-of-style.md` and apply the rules. Low on tokens? Dispatch a subagent to copyedit with the guide.
+Apply these rules, then cut once more.
