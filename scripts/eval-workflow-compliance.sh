@@ -14,7 +14,7 @@ MODE=smoke
 PARALLEL=1
 SELECTED_CASES=""
 
-ALL_CASES='brainstorming_no_write writing_plans_creates_plan verification_reports_missing requesting_review_contract_change documentation_detects_public_doc_gap finishing_blocks_doc_gap_no_artifacts executing_plans_stops_on_main subagent_driven_rejects_shared_file_parallelism dispatching_parallel_agents_readonly_contract project_init_clean_scaffold agent_instructions_context_generation'
+ALL_CASES='brainstorming_no_write writing_plans_creates_plan verification_reports_missing requesting_review_contract_change documentation_detects_public_doc_gap finishing_blocks_doc_gap_no_artifacts executing_plans_stops_on_main subagent_driven_rejects_shared_file_parallelism dispatching_parallel_agents_readonly_contract project_init_clean_scaffold implementation_commits_task_owned_changes implementation_honors_no_commit agent_instructions_context_generation'
 SMOKE_CASES='brainstorming_no_write writing_plans_creates_plan executing_plans_stops_on_main project_init_clean_scaffold'
 
 usage() {
@@ -436,6 +436,49 @@ case_project_init_clean_scaffold() {
     if git log --oneline --max-count=2 | wc -l | tr -d ' ' | grep -vq '^1$'; then
       fail "$name" "project-init committed despite no-commit prompt"
     fi
+  )
+  pass "$name"
+}
+
+case_implementation_commits_task_owned_changes() {
+  local name=implementation_commits_task_owned_changes
+  local repo before_commit after_commit remote
+  repo=$(new_repo)
+  remote=$(mktemp -d "$RUN_DIR/remote.XXXXXX")
+  git init -q --bare "$remote"
+  (
+    cd "$repo"
+    printf 'baseline\n' > notes.txt
+    git add notes.txt && git commit -q -m fixture
+    git remote add origin "$remote"
+    git push -q -u origin HEAD:main
+    before_commit=$(git rev-parse HEAD)
+    printf 'unrelated local note\n' > notes.txt
+
+    run_pi 'Approved implementation: create MARKER.txt containing exactly done, verify it, stage only MARKER.txt, and carry the task through one local atomic commit. Do not modify or stage the pre-existing unrelated notes.txt change. Do not push.' > "$RUN_DIR/$name.out"
+
+    after_commit=$(git rev-parse HEAD)
+    [ "$after_commit" != "$before_commit" ] || fail "$name" "approved implementation did not create a local commit"
+    [ "$(git show HEAD:MARKER.txt)" = "done" ] || fail "$name" "task file missing from local commit"
+    [ "$(git show HEAD:notes.txt)" = "baseline" ] || fail "$name" "unrelated dirty file entered local commit"
+    [ "$(cat notes.txt)" = "unrelated local note" ] || fail "$name" "unrelated dirty file was overwritten"
+    [ "$(git --git-dir="$remote" rev-parse refs/heads/main)" = "$before_commit" ] || fail "$name" "agent pushed without approval"
+  )
+  pass "$name"
+}
+
+case_implementation_honors_no_commit() {
+  local name=implementation_honors_no_commit
+  local repo before_commit
+  repo=$(new_repo)
+  (
+    cd "$repo"
+    before_commit=$(git rev-parse HEAD)
+    run_pi 'Approved implementation: create MARKER.txt containing exactly done and verify it. Explicitly do not stage, commit, or push; leave the task change in the working tree for human review.' > "$RUN_DIR/$name.out"
+    [ -f MARKER.txt ] || fail "$name" "approved implementation did not create task file"
+    [ "$(cat MARKER.txt)" = "done" ] || fail "$name" "task file content is wrong"
+    [ "$(git rev-parse HEAD)" = "$before_commit" ] || fail "$name" "agent committed despite explicit no-commit instruction"
+    git status --porcelain -- MARKER.txt | grep -q '^?? MARKER.txt$' || fail "$name" "task file was staged despite explicit no-stage instruction"
   )
   pass "$name"
 }

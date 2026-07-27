@@ -42,6 +42,7 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Delegate difficult or independent read-only analysis when useful. Route with `agnt route`, then call the `subagent` tool with `agent` omitted and the routed target as `model`; use its `tasks` array for parallel work. Reserve `agnt invoke --one-shot` for cold complete packets and headless execution.
 - Prefer subscription-backed OpenAI/Codex or local models when capability is comparable; verify peer output against primary sources, files, and tests.
 - Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
+- Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 
 Do not push, merge, delete branches or beads, remove worktrees, rewrite history, change Beads remotes/history, or install hooks without explicit approval.
 

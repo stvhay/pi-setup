@@ -43,6 +43,13 @@ Choose ceremony by risk, not habit:
 
 Hard gates still apply: approval before implementation in design workflows, branch/dirty-tree checks before edits, fresh verification before completion, and approval for destructive/remote git actions.
 
+## Development completion contract
+
+- Approval to implement includes staging and one local atomic commit of task-owned changes unless the user explicitly narrows that approval. Explicit `do not commit` instructions override this default.
+- Before staging, inspect the diff and status. Never stage unrelated pre-existing changes; if task-owned and unrelated changes cannot be separated safely, preserve the work and ask with exact paths.
+- After verification, commit task-owned changes, then close the Bead. Do not close the Bead or claim completion while task-owned changes remain uncommitted unless committing is explicitly prohibited or blocked; record that blocker and resumption path instead.
+- Push, merge, deploy, history rewrite, branch/worktree deletion, and other remote or destructive actions still require explicit approval. A local commit grants none of those actions.
+
 ## Plan directory
 
 Use the helper:

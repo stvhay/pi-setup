@@ -69,6 +69,26 @@ def test_active_skills_do_not_reference_removed_plan_helper():
         assert "pi-plans-dir" not in skill_path.read_text(encoding="utf-8"), skill_path
 
 
+def test_approved_implementation_defaults_through_local_commit():
+    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
+    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
+
+    required_default = "implementation approval includes staging and one local atomic commit"
+    assert required_default in global_instructions
+    assert required_default in project_instructions
+    assert required_default in template_instructions
+    assert "Explicit `do not commit` instructions override this default" in common
+    assert "Never stage unrelated pre-existing changes" in common
+    assert "Do not close the Bead or claim completion while task-owned changes remain uncommitted" in common
+    assert "Push, merge, deploy" in common and "explicit approval" in common
+
+    workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
+    assert "implementation_commits_task_owned_changes" in workflow_eval
+    assert "implementation_honors_no_commit" in workflow_eval
+
+
 def test_nested_skill_runtime_references_are_checked(tmp_path):
     skill_root = tmp_path / "skills" / "example"
     (skill_root / "references").mkdir(parents=True)

@@ -7,6 +7,7 @@
 - Use Beads (`bd`/`beads`) for persistent agent-facing work tracking. Require a Bead before every code-changing task begins.
 - Work directly in the current Pi session by default; select runner/run-artifact orchestration explicitly when useful.
 - Treat GitHub issues as optional external adapters/exports, not a second source of truth.
+- Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 - Do not push, merge, delete branches, remove worktrees, delete beads, change Beads remotes/history, or install hooks without explicit approval.
 
 ## Verification
