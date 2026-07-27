@@ -233,6 +233,17 @@
         }
       ]
     },
+    "qwen3-coder-flash": {
+      "venues": [
+        {
+          "target": "openrouter-localish/qwen/qwen3-coder-flash",
+          "costClass": "cheap",
+          "input": ["text"],
+          "contextWindow": 1000000,
+          "maxTokens": 65536
+        }
+      ]
+    },
     "deepseek-v4-flash": {
       "venues": [
         {
@@ -241,6 +252,18 @@
           "reasoning": true,
           "input": ["text"],
           "contextWindow": 1048576
+        }
+      ]
+    },
+    "deepseek-v4-pro": {
+      "venues": [
+        {
+          "target": "openrouter-localish/deepseek/deepseek-v4-pro",
+          "costClass": "balanced",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 1048576,
+          "maxTokens": 384000
         }
       ]
     },
@@ -259,34 +282,6 @@
           "reasoning": true,
           "input": ["text"],
           "contextWindow": 128000
-        },
-        {
-          "target": "openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b",
-          "costClass": "cheap",
-          "equivalence": "approximate-family",
-          "reasoning": true,
-          "input": ["text"],
-          "contextWindow": 128000
-        }
-      ]
-    },
-    "llama-3.1-8b": {
-      "venues": [
-        {
-          "target": "openrouter-localish/meta-llama/llama-3.1-8b-instruct",
-          "costClass": "cheap",
-          "input": ["text"],
-          "contextWindow": 131072
-        }
-      ]
-    },
-    "llama-3.3-70b": {
-      "venues": [
-        {
-          "target": "openrouter-localish/meta-llama/llama-3.3-70b-instruct",
-          "costClass": "cheap",
-          "input": ["text"],
-          "contextWindow": 131072
         }
       ]
     }

@@ -37,20 +37,12 @@
           "cost": { "input": 0.04, "output": 0.15, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
-          "id": "meta-llama/llama-3.1-8b-instruct",
-          "name": "Llama 3.1 8B via OpenRouter",
+          "id": "qwen/qwen3-coder-flash",
+          "name": "Qwen3 Coder Flash via OpenRouter",
           "input": ["text"],
-          "contextWindow": 131072,
-          "maxTokens": 32768,
-          "cost": { "input": 0.02, "output": 0.05, "cacheRead": 0, "cacheWrite": 0 }
-        },
-        {
-          "id": "meta-llama/llama-3.3-70b-instruct",
-          "name": "Llama 3.3 70B via OpenRouter",
-          "input": ["text"],
-          "contextWindow": 131072,
-          "maxTokens": 32768,
-          "cost": { "input": 0.10, "output": 0.32, "cacheRead": 0, "cacheWrite": 0 }
+          "contextWindow": 1000000,
+          "maxTokens": 65536,
+          "cost": { "input": 0.195, "output": 0.975, "cacheRead": 0.039, "cacheWrite": 0.24375 }
         },
         {
           "id": "deepseek/deepseek-v4-flash",
@@ -62,13 +54,13 @@
           "cost": { "input": 0.0938, "output": 0.1876, "cacheRead": 0.01876, "cacheWrite": 0 }
         },
         {
-          "id": "deepseek/deepseek-r1-distill-qwen-32b",
-          "name": "DeepSeek R1 Distill Qwen 32B via OpenRouter",
+          "id": "deepseek/deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro via OpenRouter",
           "reasoning": true,
           "input": ["text"],
-          "contextWindow": 128000,
-          "maxTokens": 32768,
-          "cost": { "input": 0.29, "output": 0.29, "cacheRead": 0, "cacheWrite": 0 }
+          "contextWindow": 1048576,
+          "maxTokens": 384000,
+          "cost": { "input": 0.435, "output": 0.87, "cacheRead": 0.003625, "cacheWrite": 0 }
         }
       ]
     }

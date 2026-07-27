@@ -9,6 +9,8 @@ qualified:
   - olla-cloud/kimi-k2.7-code
   - openai-codex/gpt-5.6-sol
   - openrouter-localish/qwen/qwen3.5-9b
+  - openrouter-localish/qwen/qwen3-coder-flash
+  - openrouter-localish/deepseek/deepseek-v4-pro
   - olla-local/qwen3:8b
   - olla-cloud/gpt-4.1-mini
   - olla-cloud/gemini-flash

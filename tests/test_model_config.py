@@ -106,6 +106,68 @@ def test_deepseek_v4_flash_is_enabled_as_a_cheap_review_challenger():
     assert f"  - {target}" in review
 
 
+def test_openrouter_challengers_replace_unrouted_legacy_models():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    enabled = set(settings["enabledModels"])
+    configured = {
+        f"{provider}/{model['id']}": model
+        for provider, config in json.loads(MODELS.read_text(encoding="utf-8"))[
+            "providers"
+        ].items()
+        for model in config.get("models", [])
+    }
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+
+    removed = {
+        "openrouter-localish/meta-llama/llama-3.1-8b-instruct",
+        "openrouter-localish/meta-llama/llama-3.3-70b-instruct",
+        "openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b",
+    }
+    assert removed.isdisjoint(enabled)
+    assert removed.isdisjoint(configured)
+
+    expected = {
+        "openrouter-localish/qwen/qwen3-coder-flash": {
+            "contextWindow": 1_000_000,
+            "maxTokens": 65_536,
+            "cost": {
+                "input": 0.195,
+                "output": 0.975,
+                "cacheRead": 0.039,
+                "cacheWrite": 0.24375,
+            },
+        },
+        "openrouter-localish/deepseek/deepseek-v4-pro": {
+            "reasoning": True,
+            "contextWindow": 1_048_576,
+            "maxTokens": 384_000,
+            "cost": {
+                "input": 0.435,
+                "output": 0.87,
+                "cacheRead": 0.003625,
+                "cacheWrite": 0,
+            },
+        },
+    }
+    for target, metadata in expected.items():
+        assert target in enabled
+        for key, value in metadata.items():
+            assert configured[target][key] == value
+
+    assert catalog["qwen3-coder-flash"]["venues"][0]["target"] in enabled
+    assert catalog["deepseek-v4-pro"]["venues"][0]["target"] in enabled
+    assert "llama-3.1-8b" not in catalog
+    assert "llama-3.3-70b" not in catalog
+
+    implementation = (AGENT / "tasks" / "implementation.md").read_text(
+        encoding="utf-8"
+    )
+    review = (AGENT / "tasks" / "review.md").read_text(encoding="utf-8")
+    assert "  - openrouter-localish/qwen/qwen3-coder-flash" in implementation
+    assert "  - openrouter-localish/qwen/qwen3-coder-flash" in review
+    assert "  - openrouter-localish/deepseek/deepseek-v4-pro" in review
+
+
 def test_kimi_families_and_dispatch_roles_are_cataloged():
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
     assert catalog["kimi-k2.7-code"]["venues"] == [

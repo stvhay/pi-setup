@@ -19,10 +19,9 @@
     "openrouter-localish/google/gemma-4-31b-it",
     "openrouter-localish/google/gemma-4-31b-it:free",
     "openrouter-localish/qwen/qwen3.5-9b",
-    "openrouter-localish/meta-llama/llama-3.1-8b-instruct",
-    "openrouter-localish/meta-llama/llama-3.3-70b-instruct",
+    "openrouter-localish/qwen/qwen3-coder-flash",
     "openrouter-localish/deepseek/deepseek-v4-flash",
-    "openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b"
+    "openrouter-localish/deepseek/deepseek-v4-pro"
   ],
   "packages": [
     "npm:pi-archimedes",

@@ -30,11 +30,7 @@ def test_local_proxy_derived_from_family(common):
         "quality": "approximate-family",
     }
 
-    proxy = common.proxy_for_target("olla-local/deepseek-r1:14b")
-    assert (
-        proxy["target"] == "openrouter-localish/deepseek/deepseek-r1-distill-qwen-32b"
-    )
-    assert proxy["quality"] == "approximate-family"
+    assert common.proxy_for_target("olla-local/deepseek-r1:14b") is None
 
 
 def test_subscription_opportunity_rates(common):

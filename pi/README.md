@@ -76,7 +76,7 @@ The Langfuse extension and official Langfuse skill share credentials from privat
 Example smoke test after the key is set:
 
 ```bash
-pi --print --provider openrouter-localish --model meta-llama/llama-3.1-8b-instruct "Reply with OK only."
+pi --print --provider openrouter-localish --model google/gemma-4-31b-it "Reply with OK only."
 ```
 
 ## Optional service endpoints
