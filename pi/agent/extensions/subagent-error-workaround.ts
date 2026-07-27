@@ -33,6 +33,13 @@ type SubagentDetails = {
   progress?: unknown[];
 };
 
+function providerError(message?: string): string {
+  if (message && /OpenrouterException/i.test(message) && /Key limit exceeded \(monthly limit\)/i.test(message)) {
+    return `upstream OpenRouter monthly limit exceeded${message.startsWith("403:") ? " (HTTP 403 via Olla)" : ""}`;
+  }
+  return message || "unknown upstream error";
+}
+
 async function repositoryRoot(cwd: string): Promise<string> {
   let current = resolve(cwd);
   const filesystemRoot = parse(current).root;
@@ -159,6 +166,14 @@ async function recordSubagentMetrics(
 
 export default function subagentErrorWorkaround(pi: ExtensionAPI): void {
   const starts = new Map<string, number>();
+
+  pi.on("message_end", (event) => {
+    const message = event.message as { role?: string; provider?: string; model?: string; stopReason?: string; errorMessage?: string };
+    if (!process.env.PI_SUBAGENT_SOCKET || message.role !== "assistant" || message.stopReason !== "error") return;
+    const target = [message.provider, message.model].filter(Boolean).join("/") || "provider";
+    console.error(`[subagent] ${target} failed: ${providerError(message.errorMessage)}`);
+    process.exitCode = 1;
+  });
 
   pi.on("tool_call", (event) => {
     if (event.toolName === "subagent") starts.set(event.toolCallId, Date.now());

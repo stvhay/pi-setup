@@ -78,6 +78,77 @@ def test_subagent_workaround_exposes_failures_without_touching_successes():
     run_node(script)
 
 
+def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }});
+      assert.equal(typeof handlers.message_end, "function");
+
+      const originalSocket = process.env.PI_SUBAGENT_SOCKET;
+      const originalExitCode = process.exitCode;
+      const originalError = console.error;
+      const errors = [];
+      process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
+      process.exitCode = undefined;
+      console.error = (...args) => errors.push(args.join(" "));
+
+      try {{
+        await handlers.message_end({{
+          message: {{
+            role: "assistant",
+            provider: "olla-cloud",
+            model: "gpt-4.1-mini",
+            stopReason: "error",
+            errorMessage: "403: upstream monthly limit exceeded",
+          }},
+        }});
+        assert.equal(process.exitCode, 1);
+        assert.deepEqual(errors, [
+          "[subagent] olla-cloud/gpt-4.1-mini failed: 403: upstream monthly limit exceeded",
+        ]);
+
+        process.exitCode = undefined;
+        errors.length = 0;
+        await handlers.message_end({{
+          message: {{
+            role: "assistant",
+            provider: "olla-cloud",
+            model: "gpt-4.1-mini",
+            stopReason: "error",
+            errorMessage: '403: {{"message":"litellm.APIError: OpenrouterException - Key limit exceeded (monthly limit). Manage it using https://openrouter.ai/workspaces/default/keys/private-key-id"}}',
+          }},
+        }});
+        assert.equal(process.exitCode, 1);
+        assert.deepEqual(errors, [
+          "[subagent] olla-cloud/gpt-4.1-mini failed: upstream OpenRouter monthly limit exceeded (HTTP 403 via Olla)",
+        ]);
+
+        process.exitCode = undefined;
+        errors.length = 0;
+        await handlers.message_end({{
+          message: {{
+            role: "assistant",
+            provider: "olla-cloud",
+            model: "gpt-4.1-mini",
+            stopReason: "stop",
+            content: [],
+          }},
+        }});
+        assert.equal(process.exitCode, undefined);
+        assert.deepEqual(errors, []);
+      }} finally {{
+        console.error = originalError;
+        process.exitCode = originalExitCode;
+        if (originalSocket === undefined) delete process.env.PI_SUBAGENT_SOCKET;
+        else process.env.PI_SUBAGENT_SOCKET = originalSocket;
+      }}
+    """
+    run_node(script)
+
+
 def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
     script = f"""
       import assert from "node:assert/strict";
