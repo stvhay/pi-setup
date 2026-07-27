@@ -216,7 +216,7 @@ def test_cmd_graphify_hooks_install_writes_marked_blocks(agnt, tmp_path):
         hook = tmp_path / ".git" / "hooks" / hook_name
         text = hook.read_text(encoding="utf-8")
         assert "# BEGIN agnt graphify hook" in text
-        assert "agnt graphify --no-hook-check update ." in text
+        assert "agnt graphify update ." in text
         assert os.access(hook, os.X_OK)
 
     assert agnt.cmd_graphify(["hooks", "status", "--repo", str(tmp_path)]) == 0

@@ -502,7 +502,6 @@ def cmd_route(argv: List[str]) -> int:
         type=float,
         help="override measured month-to-date marginal paid review spend in USD",
     )
-    parser.add_argument("--json", action="store_true", help="emit JSON (always on; kept for compatibility)")
     args = parser.parse_args(argv)
 
     result = select_model(

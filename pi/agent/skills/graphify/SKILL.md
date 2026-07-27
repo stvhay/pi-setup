@@ -13,7 +13,7 @@ Pi integration rule: use the Pi helper surface first:
 agnt graphify [ARGS...]
 ```
 
-`agnt graphify` runs an installed `graphify` binary when available and falls back to `uv tool run --from graphifyy graphify`. Do not install or enable project-local Graphify refresh hooks unless the user explicitly approves hook installation in the current conversation. If needed, set `AGNT_GRAPHIFY_HOOKS=0` or pass `--no-hook-check` for ordinary graph commands.
+`agnt graphify` runs an installed `graphify` binary when available and falls back to `uv tool run --from graphifyy graphify`. Do not install or enable project-local Graphify refresh hooks unless the user explicitly approves hook installation in the current conversation.
 
 ## Fast path: existing graph
 
@@ -104,7 +104,7 @@ agnt graphify hooks uninstall
 
 Hook installation changes repository behavior and requires explicit user approval in the current conversation. Checking hook status is allowed; installing, enabling, or uninstalling hooks is not allowed without approval.
 
-The hooks are best-effort `post-commit`, `post-merge`, and `post-checkout` hooks that run `agnt graphify --no-hook-check update .` in the background. They are installed in the current Git repo's hooks directory, respect `core.hooksPath`, and use a marked block so existing hook content is preserved. They should not block commits or make generated `graphify-out/` tracked.
+The hooks are best-effort `post-commit`, `post-merge`, and `post-checkout` hooks that run `agnt graphify update .` in the background. They are installed in the current Git repo's hooks directory, respect `core.hooksPath`, and use a marked block so existing hook content is preserved. They should not block commits or make generated `graphify-out/` tracked.
 
 ## Backend and environment notes
 

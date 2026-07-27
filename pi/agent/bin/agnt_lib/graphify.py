@@ -17,7 +17,7 @@ HOOK_BLOCK = f"""{HOOK_BEGIN}
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
   cd "$repo_root" || exit 0
   command -v agnt >/dev/null 2>&1 || exit 0
-  agnt graphify --no-hook-check update . >/tmp/agnt-graphify-update.log 2>&1 || true
+  agnt graphify update . >/tmp/agnt-graphify-update.log 2>&1 || true
 ) &
 {HOOK_END}
 """
@@ -134,14 +134,9 @@ def cmd_graphify(argv: List[str], *, runner: Runner, which: Which = shutil.which
     if argv[:1] == ["hooks"]:
         return cmd_graphify_hooks(argv[1:])
 
-    # Backward compatibility: accept the old no-op hook check flag, but never
-    # install hooks implicitly. Hook installation is explicit via
-    # `agnt graphify hooks install`.
-    passthrough = [arg for arg in argv if arg != "--no-hook-check"]
-
     graphify_bin = which("graphify")
     if graphify_bin:
-        return runner([graphify_bin, *passthrough])
+        return runner([graphify_bin, *argv])
     if which("uv"):
-        return runner(["uv", "tool", "run", "--from", "graphifyy", "graphify", *passthrough])
+        return runner(["uv", "tool", "run", "--from", "graphifyy", "graphify", *argv])
     die("graphify CLI not found and uv is unavailable; install with `uv tool install graphifyy`", 1)
