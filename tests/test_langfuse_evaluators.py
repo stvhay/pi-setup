@@ -100,7 +100,7 @@ def test_setup_applies_and_startup_checks_evaluators():
 
     assert '"$DEST/agent/bin/agnt" langfuse apply' in setup
     assert 'pi?.on("session_start"' in extension
-    assert 'resolve(getAgentDir(), "bin", "agnt")' in extension
+    assert 'resolve(agentDir, "bin", "agnt")' in extension
     assert 'langfuse", "check", "--quiet"' in extension
     assert 'pi.exec("agnt"' not in extension
     assert "Langfuse evaluator configuration is outdated" in extension

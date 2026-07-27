@@ -1,9 +1,12 @@
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 
 type SubagentInput = {
   agent?: string;
@@ -63,7 +66,7 @@ function assistantOutput(messages: unknown): unknown {
 }
 
 async function loadDefaultObserve(): Promise<Observe> {
-  const modules = join(getAgentDir(), "npm", "node_modules");
+  const modules = join(agentDir, "npm", "node_modules");
   const [{ startObservation }, { redactValue }, { createCapturePolicy }] = await Promise.all([
     import(pathToFileURL(join(modules, "@langfuse", "tracing", "dist", "index.mjs")).href),
     import(pathToFileURL(join(modules, "pi-langfuse", "src", "redaction.ts")).href),
@@ -72,7 +75,7 @@ async function loadDefaultObserve(): Promise<Observe> {
   return (name, attributes, options) => {
     let saved: Record<string, unknown> = {};
     try {
-      saved = JSON.parse(readFileSync(join(getAgentDir(), "pi-langfuse", "config.json"), "utf8"));
+      saved = JSON.parse(readFileSync(join(agentDir, "pi-langfuse", "config.json"), "utf8"));
     } catch {
       // pi-langfuse owns missing/invalid config handling.
     }
