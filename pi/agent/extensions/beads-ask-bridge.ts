@@ -20,8 +20,6 @@ const PreviewSchema = Type.Object({
 
 const RequestProperties = {
 	targetBead: Type.String({ description: "Bead blocked by this human decision" }),
-	// Compatibility with legacy stored tool calls that used snake_case.
-	target_bead: Type.Optional(Type.String()),
 	question: Type.String({ description: "Question shown to the user and stored in Beads" }),
 	context: Type.String({ description: "Decision context sufficient for handoff" }),
 	options: Type.Array(Type.String(), { description: "Available answers/options" }),
@@ -47,7 +45,6 @@ const ResolveSchema = Type.Object({
 
 interface RequestParams {
 	targetBead: string;
-	target_bead?: string;
 	question: string;
 	context: string;
 	options: string[];
@@ -72,8 +69,7 @@ interface ResolveParams {
 }
 
 function requestArgs(kind: "question" | "approval", params: RequestParams): string[] {
-	const targetBead = params.targetBead || params.target_bead;
-	if (!targetBead) throw new Error("ticket request requires targetBead or target_bead");
+	const targetBead = params.targetBead;
 	const args = [
 		"approvals",
 		"request",

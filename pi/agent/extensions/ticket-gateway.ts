@@ -44,8 +44,6 @@ const GatewayParamsSchema = Type.Object({
 	parent: Type.Optional(Type.String()),
 	acceptance: Type.Optional(Type.String()),
 	targetBead: Type.Optional(Type.String()),
-	// Compatibility with legacy stored gateway payloads that used snake_case.
-	target_bead: Type.Optional(Type.String()),
 	question: Type.Optional(Type.String()),
 	context: Type.Optional(Type.String()),
 	options: Type.Optional(Type.Array(Type.String())),

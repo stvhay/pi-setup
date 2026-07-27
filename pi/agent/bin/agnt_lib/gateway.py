@@ -36,7 +36,6 @@ ALLOWED_KEYS = {
     "request_approval": {
         "operation",
         "targetBead",
-        "target_bead",
         "question",
         "context",
         "options",
@@ -88,14 +87,6 @@ def _require_string(payload: Dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{key} is required")
-    return value.strip()
-
-
-def _require_target_bead(payload: Dict[str, Any]) -> str:
-    """Accept the canonical wire key and legacy snake_case gateway payloads."""
-    value = payload.get("targetBead", payload.get("target_bead"))
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("targetBead/target_bead is required")
     return value.strip()
 
 
@@ -222,7 +213,7 @@ def _create_draft_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner)
 def _request_approval_gateway(payload: Dict[str, Any], *, approval_creator: Callable[..., Dict[str, Any]]) -> Dict[str, Any]:
     result = approval_creator(
         kind="approval",
-        target_bead=_require_target_bead(payload),
+        target_bead=_require_string(payload, "targetBead"),
         question=_require_string(payload, "question"),
         context=_require_string(payload, "context"),
         options=payload.get("options"),

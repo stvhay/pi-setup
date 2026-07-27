@@ -119,32 +119,9 @@ def test_gateway_model_resolution_rejects_approval_outcomes(agnt):
         )
 
 
-def test_gateway_request_approval_accepts_legacy_snake_case_target_bead(agnt):
-    calls = []
-
-    def fake_approval(**kwargs):
-        calls.append(kwargs)
-        return {"decisionBead": "pi-decision.1", "blockerCreated": True}
-
-    agnt.ticket_gateway(
-        {
-            "operation": "request_approval",
-            "target_bead": "pi-task.1",
-            "question": "Approve?",
-            "context": "Need approval.",
-            "options": ["approve", "reject"],
-            "preview": {
-                "action": "Edit files",
-                "scope": "one file",
-                "consequences": "writes change",
-                "reversibility": "git revert",
-                "closeoutPath": "tests pass",
-            },
-        },
-        approval_creator=fake_approval,
-    )
-
-    assert calls[0]["target_bead"] == "pi-task.1"
+def test_gateway_request_approval_rejects_unknown_target_alias(agnt):
+    with pytest.raises(ValueError, match="unsupported gateway field"):
+        agnt.ticket_gateway({"operation": "request_approval", "target_bead": "pi-task.1"})
 
 
 def test_gateway_request_approval_and_resolve_blocker_delegate_to_approval_core(agnt):
