@@ -40,7 +40,7 @@ def test_tracked_models_use_server_backed_olla_providers_only():
 
     assert not any(target.startswith("openrouter-localish/") for target in enabled | catalog_targets)
     assert not any(target.startswith("ollama/") for target in enabled | catalog_targets)
-    assert json.loads(MODELS.read_text(encoding="utf-8"))["providers"] == {}
+    assert not MODELS.exists()
 
     models = built_models([
         "gemma-4-31b-it", "gemma-4-31b-it:free", "qwen3.5-9b",
@@ -69,15 +69,6 @@ def test_kimi_models_are_enabled_through_olla_only():
     assert "olla-cloud/kimi-k3" in enabled
     assert "openrouter/moonshotai/kimi-k2.7-code" not in enabled
     assert "openrouter/moonshotai/kimi-k3" not in enabled
-
-    models = json.loads(MODELS.read_text(encoding="utf-8"))
-    configured_ids = {
-        f"{provider}/{model['id']}"
-        for provider, config in models["providers"].items()
-        for model in config.get("models", [])
-    }
-    assert "openrouter-localish/moonshotai/kimi-k2.7-code" not in configured_ids
-    assert "openrouter-localish/moonshotai/kimi-k3" not in configured_ids
 
 
 def test_kimi_olla_metadata_matches_verified_capabilities():

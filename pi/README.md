@@ -47,7 +47,6 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 - `agent/AGENTS.d/roles/` — delegated-worker stances and output contracts
 - `agent/AGENTS.d/models/` — family-wide and venue-specific instruction overlays
 - `agent/settings.json` — shared Pi settings, package declarations, and runtime defaults
-- `agent/models.json` — custom model providers, including OpenRouter alternatives
 - `agent/catalog.json` — model family catalog: maps each family to venues such as local Ollama, remote Olla-compatible endpoints, and OpenRouter; records cost classes, GPU-watt assumptions, opportunity-cost rates, and model-overlay keys
 - `agent/tasks/` — operational routing labels and preferred, qualified, or avoided model targets
 - `agent/actions/` — action templates that bind routing task, skills, role, allowed effects, and output contract
