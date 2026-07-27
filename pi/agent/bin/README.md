@@ -291,11 +291,6 @@ To consolidate metrics automatically before commits, install a local hook that r
   - Default: `<git-root>/.pi/plans` or `$PWD/.pi/plans` outside git.
   - `PI_PLANS_DIR` overrides.
 
-- `agnt risk reset|check|status|<category>`
-  - Tracks a session risk budget in JSON.
-  - Default state: `<git-root>/.pi/risk-budget.json`.
-  - `PI_RISK_BUDGET_FILE` overrides.
-
 ## Supporting commands
 
 Some implementation-specific scripts remain in this directory, but agent-facing instructions should prefer `agnt` unless they intentionally need a lower-level helper. The `agnt` executable is a front controller; command implementation code lives in importable `agnt_lib/` modules.

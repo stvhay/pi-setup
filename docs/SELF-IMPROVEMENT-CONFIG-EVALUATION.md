@@ -59,7 +59,7 @@ and mostly atomic enough to load on demand.
 ### 5. Deterministic helper surface exists
 
 `agnt` centralizes route, invoke, metrics, evals, instructions, prompt
-inventory, graphify, plans-dir, and risk helpers. This is the correct place to
+inventory, graphify, and plans-dir helpers. This is the correct place to
 move behavior that should not depend on prose compliance.
 
 ### 6. Feedback loop is already policy-oriented

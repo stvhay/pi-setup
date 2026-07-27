@@ -110,7 +110,6 @@ def main(argv: List[str]) -> int:
         "langfuse": "check or apply tracked evaluator configuration",
         "graphify": "run graphify knowledge-graph tooling",
         "plans-dir": "print/create the active plans directory",
-        "risk": "manage session risk budget",
     }.items():
         sub.add_parser(name, help=help_text)
 
@@ -165,8 +164,6 @@ def main(argv: List[str]) -> int:
         return cmd_graphify(rest)
     if command == "plans-dir":
         return run([str(BIN / "pi-plans-dir"), *rest])
-    if command == "risk":
-        return run([str(BIN / "total-risk"), *rest])
     parser.print_help(sys.stderr)
     return 2
 
