@@ -186,6 +186,27 @@ elif [ "$MODE" = dry-run ] && [ -f "$DEST/agent/settings.json" ]; then
   echo "DRY-RUN: preserve Pi-managed lastChangelogVersion in $DEST/agent/settings.json"
 fi
 
+if [ "$MODE" = apply ]; then
+  if [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_BASE_URL:-${LANGFUSE_HOST:-}}" ] || python3 - "$DEST/agent/pi-langfuse/config.json" <<'PY'
+import json
+import pathlib
+import sys
+
+try:
+    config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
+raise SystemExit(0 if all(config.get(key) for key in ("publicKey", "secretKey", "host")) else 1)
+PY
+  then
+    PI_CONFIG_DIR="$DEST" "$DEST/agent/bin/agnt" langfuse apply
+  else
+    echo "Skipping Langfuse evaluator sync: credentials are not configured."
+  fi
+else
+  echo "DRY-RUN: $DEST/agent/bin/agnt langfuse apply (when Langfuse credentials are configured)"
+fi
+
 run touch "$DEST/.managed-by-pi-setup"
 
 echo "Done. Verify with: PI_CONFIG_DIR=$DEST scripts/check-pi-config.sh"

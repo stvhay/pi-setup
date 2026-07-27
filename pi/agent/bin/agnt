@@ -43,6 +43,7 @@ from agnt_lib.maintenance import *  # noqa: E402,F401,F403
 from agnt_lib.context_health import *  # noqa: E402,F401,F403
 from agnt_lib.doctor import *  # noqa: E402,F401,F403
 from agnt_lib.lessons import *  # noqa: E402,F401,F403
+from agnt_lib.langfuse import *  # noqa: E402,F401,F403
 from agnt_lib import graphify as graphify_impl  # noqa: E402
 
 def cmd_soul(argv: List[str]) -> int:
@@ -106,6 +107,7 @@ def main(argv: List[str]) -> int:
         "context-health": "check active context for stale terms and entropy signals",
         "doctor": "check local Pi/agnt operational readiness",
         "lessons": "capture, sync, and triage lessons learned",
+        "langfuse": "check or apply tracked evaluator configuration",
         "graphify": "run graphify knowledge-graph tooling",
         "plans-dir": "print/create the active plans directory",
         "risk": "manage session risk budget",
@@ -157,6 +159,8 @@ def main(argv: List[str]) -> int:
         return cmd_doctor(rest)
     if command == "lessons":
         return cmd_lessons(rest)
+    if command == "langfuse":
+        return cmd_langfuse(rest)
     if command == "graphify":
         return cmd_graphify(rest)
     if command == "plans-dir":

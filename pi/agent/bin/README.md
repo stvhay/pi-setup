@@ -178,6 +178,15 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `request_approval`, `resolve_blocker`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields.
   - `runner_status` is the stable model-facing service status surface. It returns absent-service state when no service is running, and redacted running/paused/draining state, leases, active work, budget, model/thinking, context, and cost when connected.
 
+## Langfuse evaluator configuration
+
+- `agnt langfuse check [--quiet] [--manifest PATH]`
+  - Compares tracked evaluator and live-observation rule definitions with configured Langfuse project. Read-only; exits `1` on drift and `2` when configuration cannot be checked.
+- `agnt langfuse apply [--quiet] [--manifest PATH]`
+  - Creates missing evaluator versions and creates or updates managed rules. It never deletes unmanaged Langfuse resources.
+
+Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LANGFUSE_*` variables or private `agent/pi-langfuse/config.json`.
+
 ## Operational health
 
 - `agnt doctor [--json] [--strict] [--profile PROFILE] [--check CHECK ...] [--skip CHECK ...]`

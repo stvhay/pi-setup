@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "evaluators": [
+    {
+      "type": "llm_as_judge",
+      "name": "Apparent task outcome",
+      "prompt": "Judge apparent task outcome using only user request and final agent output. Do not infer hidden tool success or factual correctness beyond supplied text.\n\nUser request:\n{{input}}\n\nFinal agent output:\n{{output}}\n\nChoose exactly one:\n- success: output clearly claims and explains completion of requested outcome, with no visible unresolved blocker or material omission.\n- partial: useful progress or some requested parts completed, but a visible blocker, omission, or remaining step exists.\n- failure: requested outcome was not achieved, output reports failure, or response is materially nonresponsive.\n- unclear: evidence is too ambiguous to distinguish categories.\n\nBe conservative. Briefly cite visible evidence. Never treat confidence, verbosity, or claimed hidden work as independent proof.",
+      "outputDefinition": {
+        "dataType": "CATEGORICAL",
+        "reasoning": {
+          "description": "One concise sentence citing visible evidence from request and final output."
+        },
+        "score": {
+          "description": "Apparent task outcome category.",
+          "categories": ["success", "partial", "failure", "unclear"],
+          "shouldAllowMultipleMatches": false
+        }
+      },
+      "modelConfig": {
+        "provider": "ollama-st5ve",
+        "model": "gemma4:e2b"
+      }
+    },
+    {
+      "type": "llm_as_judge",
+      "name": "Subagent output quality",
+      "prompt": "You evaluate one delegated coding-agent result using only delegated task and worker output.\n\nDelegated task:\n{{task}}\n\nWorker output:\n{{output}}\n\nChoose exactly one:\n- excellent: correct, relevant, complete, and directly actionable for the delegated task.\n- acceptable: useful and substantially complete, with only minor omissions.\n- weak: partial progress, but important gaps, unsupported conclusions, or limited usability remain.\n- poor: incorrect, nonresponsive, empty, failed, or unusable.\n\nJudge against delegated task only. Do not reward verbosity. Do not require implementation when task requested analysis. Do not infer hidden work or factual correctness beyond supplied text. Briefly cite visible evidence.",
+      "outputDefinition": {
+        "dataType": "CATEGORICAL",
+        "reasoning": {
+          "description": "One concise sentence citing visible evidence from delegated task and worker output."
+        },
+        "score": {
+          "description": "Individual subagent output quality.",
+          "categories": ["excellent", "acceptable", "weak", "poor"],
+          "shouldAllowMultipleMatches": false
+        }
+      },
+      "modelConfig": {
+        "provider": "ollama-st5ve",
+        "model": "gemma4:e2b"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "name": "Apparent task outcome — root Pi agents (10%)",
+      "target": "observation",
+      "evaluator": {
+        "name": "Apparent task outcome",
+        "scope": "project"
+      },
+      "filter": [
+        {
+          "column": "name",
+          "operator": "any of",
+          "value": ["pi-agent"],
+          "type": "stringOptions"
+        },
+        {
+          "type": "null",
+          "column": "parentObservationId",
+          "operator": "is null",
+          "value": ""
+        }
+      ],
+      "sampling": 1,
+      "mapping": [
+        {"variable": "input", "source": "input"},
+        {"variable": "output", "source": "output"}
+      ],
+      "enabled": true
+    },
+    {
+      "name": "Subagent output quality — calibration (100%)",
+      "target": "observation",
+      "evaluator": {
+        "name": "Subagent output quality",
+        "scope": "project"
+      },
+      "filter": [
+        {
+          "column": "name",
+          "operator": "any of",
+          "value": ["pi-agent"],
+          "type": "stringOptions"
+        },
+        {
+          "type": "null",
+          "column": "parentObservationId",
+          "operator": "is null",
+          "value": ""
+        }
+      ],
+      "sampling": 1,
+      "mapping": [
+        {"variable": "task", "source": "input"},
+        {"variable": "output", "source": "output"}
+      ],
+      "enabled": true
+    }
+  ]
+}
