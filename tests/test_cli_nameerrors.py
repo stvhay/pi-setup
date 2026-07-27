@@ -16,6 +16,16 @@ def test_removed_benchmark_and_session_import_are_not_advertised(agnt, capsys):
     assert "import-session" not in capsys.readouterr().out
 
 
+def test_improve_command_is_advertised_and_dispatched(agnt, monkeypatch, capsys):
+    assert agnt.main(["--help"]) == 0
+    assert "improve" in capsys.readouterr().out
+
+    seen = []
+    monkeypatch.setattr(agnt, "cmd_improve", lambda args: seen.append(args) or 7)
+    assert agnt.main(["improve", "scan", "--dry-run"]) == 7
+    assert seen == [["scan", "--dry-run"]]
+
+
 def test_removed_session_importer_has_no_deployed_hook():
     assert not (BIN.parent.parent / ".githooks" / "pre-commit").exists()
 

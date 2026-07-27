@@ -143,6 +143,7 @@ RSYNC_EXCLUDES=(
   --exclude='agent/trust.json'
   --exclude='agent/extensions/*.local.ts'
   --exclude='.pi/'
+  --exclude='improvement/'
   --exclude='metrics/'
   --exclude='agent/macbook-ollama-power-*/'
   --filter='-s __pycache__/'

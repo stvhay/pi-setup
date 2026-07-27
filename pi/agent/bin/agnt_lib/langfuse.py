@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[2] / "langfuse" / "evaluators.json"
+MAX_PAGE_SIZE = 100
+
+
+class LangfuseError(RuntimeError):
+    pass
 
 
 def load_manifest(path: Path | str = DEFAULT_MANIFEST) -> dict[str, Any]:
@@ -81,12 +86,35 @@ class LangfuseClient:
             headers=self.headers,
             method=method,
         )
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                payload = json.load(response)
+        except urllib.error.HTTPError as exc:
+            raise LangfuseError(f"Langfuse request failed with HTTP {exc.code}") from None
+        except (urllib.error.URLError, TimeoutError):
+            raise LangfuseError("Langfuse request failed") from None
+        except json.JSONDecodeError:
+            raise LangfuseError("Langfuse response was not valid JSON") from None
+        if not isinstance(payload, dict):
+            raise LangfuseError("Langfuse response was not a JSON object")
+        return payload
+
+    @staticmethod
+    def _data(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        data = payload.get("data") or payload.get("items") or []
+        if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+            raise LangfuseError("Langfuse response data was not a list")
+        return data
+
+    @staticmethod
+    def _meta(payload: dict[str, Any]) -> dict[str, Any]:
+        meta = payload.get("meta") or {}
+        if not isinstance(meta, dict):
+            raise LangfuseError("Langfuse response metadata was not an object")
+        return meta
 
     def _list(self, path: str) -> list[dict[str, Any]]:
-        payload = self._request("GET", path, params={"limit": 50, "page": 1})
-        return payload.get("data") or payload.get("items") or []
+        return self._data(self._request("GET", path, params={"limit": 50, "page": 1}))
 
     def _legacy_rows(
         self,
@@ -95,6 +123,7 @@ class LangfuseClient:
         bounds: dict[str, str],
         limit: int,
         page_size: int,
+        filters: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         if not all(bounds.values()):
             raise ValueError("Langfuse reads require time bounds")
@@ -105,23 +134,33 @@ class LangfuseClient:
         while len(rows) < limit:
             payload = self._request("GET", path, params={
                 **bounds,
-                "limit": min(page_size, limit - len(rows)),
+                **(filters or {}),
+                "limit": min(page_size, MAX_PAGE_SIZE, limit - len(rows)),
                 "page": page,
             })
-            items = payload.get("data") or []
+            items = self._data(payload)
             rows.extend(items)
-            meta = payload.get("meta") or {}
+            meta = self._meta(payload)
             if not items or page >= int(meta.get("totalPages") or page):
                 break
             page += 1
         return rows[:limit]
 
-    def list_observations(self, *, from_start_time: str, to_start_time: str, limit: int, page_size: int = 100) -> list[dict[str, Any]]:
+    def list_observations(
+        self,
+        *,
+        from_start_time: str,
+        to_start_time: str,
+        limit: int,
+        page_size: int = 100,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         return self._legacy_rows(
             "/api/public/observations",
             bounds={"fromStartTime": from_start_time, "toStartTime": to_start_time},
             limit=limit,
             page_size=page_size,
+            filters={"traceId": trace_id} if trace_id else None,
         )
 
     def list_traces(self, *, from_timestamp: str, to_timestamp: str, limit: int, page_size: int = 100) -> list[dict[str, Any]]:
@@ -140,6 +179,8 @@ class LangfuseClient:
         limit: int,
         page_size: int = 100,
         name: str | None = None,
+        session_id: str | None = None,
+        trace_id: str | None = None,
     ) -> list[dict[str, Any]]:
         if not from_timestamp or not to_timestamp:
             raise ValueError("Langfuse reads require time bounds")
@@ -153,17 +194,41 @@ class LangfuseClient:
                 "toTimestamp": to_timestamp,
                 "fields": "details,subject",
                 "name": name,
-                "limit": min(page_size, limit - len(rows)),
+                "limit": min(page_size, MAX_PAGE_SIZE, limit - len(rows)),
             }
+            if session_id:
+                params["sessionId"] = session_id
+            if trace_id:
+                params["traceId"] = trace_id
             if cursor:
                 params["cursor"] = cursor
             payload = self._request("GET", "/api/public/v3/scores", params=params)
-            items = payload.get("data") or []
+            items = self._data(payload)
             rows.extend(items)
-            cursor = (payload.get("meta") or {}).get("cursor")
+            cursor = self._meta(payload).get("cursor")
             if not items or not cursor:
                 break
         return rows[:limit]
+
+    def put_session_score(
+        self,
+        *,
+        score_id: str,
+        session_id: str,
+        name: str,
+        value: str | int | float,
+        metadata: dict[str, Any] | None = None,
+        data_type: str = "CATEGORICAL",
+    ) -> dict[str, Any]:
+        return self._request("POST", "/api/public/scores", {
+            "id": score_id,
+            "sessionId": session_id,
+            "name": name,
+            "value": value,
+            "dataType": data_type,
+            "source": "API",
+            "metadata": metadata or {},
+        })
 
     def list_evaluators(self):
         return self._list("/api/public/unstable/evaluators")
@@ -205,10 +270,10 @@ def cmd_langfuse(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         return run_sync(load_manifest(args.manifest), _client_from_env(), apply=args.action == "apply", quiet=args.quiet)
-    except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, LangfuseError) as exc:
         if not args.quiet:
             print(f"Langfuse evaluator sync failed: {exc}")
         return 2
 
 
-__all__ = ["LangfuseClient", "cmd_langfuse", "load_manifest", "run_sync"]
+__all__ = ["LangfuseClient", "LangfuseError", "cmd_langfuse", "load_manifest", "run_sync"]

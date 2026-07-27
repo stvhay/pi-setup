@@ -99,6 +99,18 @@ def test_update_preserves_langfuse_credentials(tmp_path):
     assert config.read_text(encoding="utf-8") == credentials
 
 
+def test_update_preserves_private_improvement_runtime(tmp_path):
+    dest = tmp_path / ".pi"
+    report = dest / "improvement" / "scan-private.json"
+    report.parent.mkdir(parents=True)
+    report.write_text('{"private": true}\n', encoding="utf-8")
+
+    proc = run_update(dest)
+
+    assert proc.returncode == 0, proc.stderr
+    assert report.read_text(encoding="utf-8") == '{"private": true}\n'
+
+
 def test_update_dry_run_excludes_models_store(tmp_path):
     proc = run_update(tmp_path / ".pi", "--dry-run")
 

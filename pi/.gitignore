@@ -9,6 +9,7 @@ agent/trust.json
 
 # Local scratch and overrides (runtime state lives in deployed ~/.pi, not here)
 /.pi/
+/improvement/
 /metrics/
 agent/macbook-ollama-power-*/
 .DS_Store
