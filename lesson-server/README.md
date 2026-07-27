@@ -59,20 +59,9 @@ Returns lessons as JSONL (`application/x-ndjson`). Optional filters:
 - `project`
 - `hostname`
 
-## Test API
+## Local tests
 
-Set `LESSON_ENABLE_TEST_API=1` to expose:
-
-- `POST /test/lesson`
-- `GET /test/lesson?uuid=<uuid>`
-- `PATCH /test/lesson?uuid=<uuid>`
-- `GET /test/lessons`
-- `GET /test/logs`
-
-These use a separate `test_lessons` table so integration probes do not pollute
-real triage data. They are disabled by default in `docker-compose.yml`.
-
-For local Python tests, the app also supports `LESSON_STORE=memory`.
+Set `LESSON_STORE=memory` to exercise the normal API without Postgres.
 
 ## Deploy with Docker Compose
 

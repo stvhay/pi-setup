@@ -17,7 +17,6 @@ APP_PATH = ROOT / "lesson-server" / "app" / "main.py"
 
 def load_lesson_app(monkeypatch):
     monkeypatch.setenv("LESSON_STORE", "memory")
-    monkeypatch.setenv("LESSON_ENABLE_TEST_API", "1")
     spec = importlib.util.spec_from_file_location("lesson_server_app", APP_PATH)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -79,24 +78,3 @@ def test_post_jsonl_upserts_and_patch_lesson(monkeypatch):
     assert fetched["summary"] == "second"
     assert fetched["status"] == "accepted"
     assert fetched["tags"] == ["triaged"]
-
-
-def test_test_endpoints_are_isolated_from_main_lessons(monkeypatch):
-    app = load_lesson_app(monkeypatch)
-    client = TestClient(app)
-    prod_uuid = "33333333-3333-4333-8333-333333333333"
-    test_uuid = "44444444-4444-4444-8444-444444444444"
-
-    client.post("/lesson", json={"uuid": prod_uuid, "date": "2026-07-01T20:03:00Z", "summary": "prod"})
-    client.post("/test/lesson", json={"uuid": test_uuid, "date": "2026-07-01T20:04:00Z", "summary": "test"})
-    patched = client.patch(f"/test/lesson?uuid={test_uuid}", json={"status": "checked"})
-
-    assert patched.status_code == 200
-    assert client.get("/test/lesson", params={"uuid": test_uuid}).json()["status"] == "checked"
-    prod_rows = [json.loads(line) for line in client.get("/lessons").text.splitlines()]
-    test_rows = [json.loads(line) for line in client.get("/test/lessons").text.splitlines()]
-    assert [row["uuid"] for row in prod_rows] == [prod_uuid]
-    assert [row["uuid"] for row in test_rows] == [test_uuid]
-    logs = client.get("/test/logs")
-    assert logs.status_code == 200
-    assert logs.json()["testLessonCount"] == 1
