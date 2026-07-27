@@ -47,7 +47,20 @@ def test_manifest_contains_default_evaluators():
         "Apparent task outcome",
         "Subagent output quality",
     }
-    assert all(rule["sampling"] == 1 for rule in manifest["rules"])
+    rules = {rule["name"]: rule for rule in manifest["rules"]}
+    outcome = rules["Apparent task outcome — root Pi agents (10%)"]
+    subagent = rules["Subagent output quality — calibration (100%)"]
+    assert outcome["sampling"] == 0.1
+    assert subagent["sampling"] == 1
+    assert any(
+        item.get("column") == "sessionId" and item.get("operator") == "contains" and item.get("value") == ""
+        for item in outcome["filter"]
+    )
+    assert any(
+        item.get("column") == "metadata" and item.get("operator") == "=" and item.get("value") == ""
+        for item in subagent["filter"]
+    )
+    assert next(item for item in subagent["filter"] if item["column"] == "metadata")["key"] == "sessionId"
 
 
 def test_check_is_silent_when_remote_matches(capsys):
@@ -77,7 +90,7 @@ def test_check_reports_drift_without_mutating(capsys):
 
 def test_apply_creates_missing_and_updates_drifted_rules():
     manifest = langfuse.load_manifest(MANIFEST)
-    existing_rule = {**manifest["rules"][0], "id": "rule-1", "sampling": 0.1}
+    existing_rule = {**manifest["rules"][0], "id": "rule-1", "sampling": 1}
     client = FakeClient(rules=[existing_rule])
 
     assert langfuse.run_sync(manifest, client, apply=True, quiet=True) == 0

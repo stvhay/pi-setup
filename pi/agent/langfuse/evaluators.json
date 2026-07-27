@@ -62,9 +62,15 @@
           "column": "parentObservationId",
           "operator": "is null",
           "value": ""
+        },
+        {
+          "type": "string",
+          "column": "sessionId",
+          "operator": "contains",
+          "value": ""
         }
       ],
-      "sampling": 1,
+      "sampling": 0.1,
       "mapping": [
         {"variable": "input", "source": "input"},
         {"variable": "output", "source": "output"}
@@ -89,6 +95,13 @@
           "type": "null",
           "column": "parentObservationId",
           "operator": "is null",
+          "value": ""
+        },
+        {
+          "type": "stringObject",
+          "column": "metadata",
+          "key": "sessionId",
+          "operator": "=",
           "value": ""
         }
       ],
