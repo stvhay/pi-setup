@@ -156,15 +156,18 @@ The v1 schema and helper commands exist. Next, model invocation and verification
 workflows should update `result.yaml` with richer evidence, metrics refs,
 follow-up beads, and final statuses.
 
-### Priority 3 — Mature beads integrations
+### Priority 3 — Mature Beads integrations
 
-Beads is canonical for agent-facing work. Remaining integration work:
+Completed in July 2026:
 
-- fresh-clone/bootstrap validation in CI or a deterministic smoke test;
-- optional GitHub adapter/export design;
-- clearer worktree behavior guidance, since Beads resolves to the main repo's
-  `.beads/` from linked worktrees;
-- idempotency/retry conventions for reopened or superseded beads.
+- CI pins Beads and tests bootstrap/query behavior from only tracked fresh-checkout files;
+- `.beads/README.md` documents shared linked-worktree resolution and retry,
+  reopen, supersede, and human-decision lifecycle rules;
+- `docs/GITHUB-ADAPTER.md` records the one-way/canonical-source constraints.
+
+GitHub adapter implementation remains explicitly deferred until external
+collaboration creates a concrete need. Beads remains the sole agent-facing work
+graph.
 
 ### Priority 4 — Expand prompt/action templates cautiously
 
@@ -191,8 +194,8 @@ similar audits recur, create a focused skill such as `context-architecture` or
    - Have `agnt invoke` or selected workflows write enriched `result.yaml`
      records when they run from an invocation artifact.
 
-2. **Optional GitHub adapter implementation**
-   - Only if collaboration requirements demand it; keep Beads canonical.
+2. **Optional GitHub adapter implementation (deferred)**
+   - Reconsider only when collaboration requirements demand it; keep Beads canonical.
 
 3. **Additional action templates**
    - Add only when a new action has a crisp effect policy and output contract.
