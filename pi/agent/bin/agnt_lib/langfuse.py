@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -66,9 +67,16 @@ class LangfuseClient:
         self.base_url = base_url.rstrip("/")
         self.headers = {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
 
-    def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        query = urllib.parse.urlencode({key: value for key, value in (params or {}).items() if value is not None})
         request = urllib.request.Request(
-            self.base_url + path,
+            self.base_url + path + (f"?{query}" if query else ""),
             data=json.dumps(body).encode() if body is not None else None,
             headers=self.headers,
             method=method,
@@ -77,8 +85,85 @@ class LangfuseClient:
             return json.load(response)
 
     def _list(self, path: str) -> list[dict[str, Any]]:
-        payload = self._request("GET", f"{path}?limit=50&page=1")
+        payload = self._request("GET", path, params={"limit": 50, "page": 1})
         return payload.get("data") or payload.get("items") or []
+
+    def _legacy_rows(
+        self,
+        path: str,
+        *,
+        bounds: dict[str, str],
+        limit: int,
+        page_size: int,
+    ) -> list[dict[str, Any]]:
+        if not all(bounds.values()):
+            raise ValueError("Langfuse reads require time bounds")
+        if limit < 1 or page_size < 1:
+            raise ValueError("Langfuse read limits must be positive")
+        rows: list[dict[str, Any]] = []
+        page = 1
+        while len(rows) < limit:
+            payload = self._request("GET", path, params={
+                **bounds,
+                "limit": min(page_size, limit - len(rows)),
+                "page": page,
+            })
+            items = payload.get("data") or []
+            rows.extend(items)
+            meta = payload.get("meta") or {}
+            if not items or page >= int(meta.get("totalPages") or page):
+                break
+            page += 1
+        return rows[:limit]
+
+    def list_observations(self, *, from_start_time: str, to_start_time: str, limit: int, page_size: int = 100) -> list[dict[str, Any]]:
+        return self._legacy_rows(
+            "/api/public/observations",
+            bounds={"fromStartTime": from_start_time, "toStartTime": to_start_time},
+            limit=limit,
+            page_size=page_size,
+        )
+
+    def list_traces(self, *, from_timestamp: str, to_timestamp: str, limit: int, page_size: int = 100) -> list[dict[str, Any]]:
+        return self._legacy_rows(
+            "/api/public/traces",
+            bounds={"fromTimestamp": from_timestamp, "toTimestamp": to_timestamp},
+            limit=limit,
+            page_size=page_size,
+        )
+
+    def list_scores(
+        self,
+        *,
+        from_timestamp: str,
+        to_timestamp: str,
+        limit: int,
+        page_size: int = 100,
+        name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not from_timestamp or not to_timestamp:
+            raise ValueError("Langfuse reads require time bounds")
+        if limit < 1 or page_size < 1:
+            raise ValueError("Langfuse read limits must be positive")
+        rows: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while len(rows) < limit:
+            params = {
+                "fromTimestamp": from_timestamp,
+                "toTimestamp": to_timestamp,
+                "fields": "details,subject",
+                "name": name,
+                "limit": min(page_size, limit - len(rows)),
+            }
+            if cursor:
+                params["cursor"] = cursor
+            payload = self._request("GET", "/api/public/v3/scores", params=params)
+            items = payload.get("data") or []
+            rows.extend(items)
+            cursor = (payload.get("meta") or {}).get("cursor")
+            if not items or not cursor:
+                break
+        return rows[:limit]
 
     def list_evaluators(self):
         return self._list("/api/public/unstable/evaluators")
