@@ -4,7 +4,9 @@ import io
 import json
 import stat
 import sys
+import threading
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -520,6 +522,35 @@ def test_scan_rechecks_stale_review_policy_markers(tmp_path):
     assert packet["sessions"][0]["sessionId"] == "stale-session"
 
 
+def test_scan_checks_multiple_review_markers_for_current_policy(tmp_path):
+    class MixedMarkerClient(FakeScanClient):
+        def list_scores(self, **kwargs):
+            if kwargs.get("trace_id"):
+                return []
+            self.marker_limit = kwargs["limit"]
+            return [
+                {"value": "no-action", "metadata": {"reviewPolicyVersion": "older-policy"}},
+                {"value": "no-action", "metadata": {"reviewPolicyVersion": "v1"}},
+            ][: kwargs["limit"]]
+
+    client = MixedMarkerClient([_private_trace("reviewed-session", "reviewed-trace")], {})
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    assert client.marker_limit == 100
+    assert summary["reviewedSessionsSkipped"] == 1
+    assert packet["sessions"] == []
+
+
 def test_scan_expands_bounded_trace_window_past_reviewed_prefix(tmp_path):
     traces = [_private_trace(f"reviewed-{index}", f"trace-{index}") for index in range(10)]
     traces.append(_private_trace("eligible-session", "eligible-trace"))
@@ -606,6 +637,182 @@ def test_scan_refuses_report_directory_inside_repository(tmp_path):
         )
 
 
+def _review_packet():
+    return {
+        "schemaVersion": 1,
+        "reportId": "0123456789abcdef",
+        "createdAt": "2026-07-27T00:00:00Z",
+        "scan": {
+            "since": "2026-07-26T00:00:00Z",
+            "until": "2026-07-27T00:00:00Z",
+            "limit": 1,
+            "recheck": False,
+            "reviewPolicyVersion": "v1",
+        },
+        "sessions": [{
+            "sessionId": "private-session",
+            "traceIds": ["private-trace"],
+            "correlation": {"status": "unlinked"},
+            "features": {
+                "toolErrors": 2,
+                "models": ["private-model"],
+                "captureGaps": [],
+            },
+        }],
+    }
+
+
+def _review_decisions():
+    return {
+        "schemaVersion": 1,
+        "reportId": "0123456789abcdef",
+        "reviewPolicyVersion": "v1",
+        "reviewedAt": "2026-07-27T01:00:00Z",
+        "sessions": [{
+            "sessionId": "private-session",
+            "decision": "actions-created",
+            "findings": [{
+                "findingId": "finding-0123456789ab",
+                "category": "coordination-error",
+                "errorRelevance": "contributing",
+                "impact": "medium",
+                "attribution": "prompt-system",
+                "confidence": 0.8,
+                "evidenceRefs": ["/sessions/0/features/toolErrors"],
+                "proposedIntervention": "prompt",
+                "public": {
+                    "title": "Improve coordination instruction targeting",
+                    "affectedPaths": ["pi/agent/AGENTS.md"],
+                    "aggregate": "Repeated coordination failures occurred across reviewed work items.",
+                    "proposedIntervention": "Clarify one conflicting coordination instruction.",
+                    "acceptanceCriteria": ["A deterministic regression case passes."],
+                    "evaluationRequirement": "Run routing and role-context smoke evaluations.",
+                },
+            }],
+        }],
+    }
+
+
+def test_review_rubric_requires_unknown_and_evidence_thresholds():
+    rubric = (ROOT / "pi" / "agent" / "langfuse" / "improvement-review.md").read_text(encoding="utf-8")
+
+    for required in (
+        "`unknown`",
+        "3 confirmed instances",
+        "2 independent work items",
+        "1.5×",
+        "5 comparable invocations",
+        "Human approval",
+    ):
+        assert required in rubric
+
+
+def test_review_decisions_accept_strict_private_schema():
+    decisions = _review_decisions()
+
+    validated = improvement.validate_decisions(_review_packet(), decisions)
+
+    assert validated == decisions
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("unknown-field", "unknown fields"),
+        ("bad-finding-id", "findingId"),
+        ("unsupported-category", "category"),
+        ("missing-evidence", "evidenceRefs"),
+        ("bad-evidence-pointer", "evidence reference"),
+        ("copied-public-text", "copied private packet text"),
+    ],
+)
+def test_review_decisions_reject_unsafe_or_malformed_content(case, message):
+    packet = _review_packet()
+    decisions = _review_decisions()
+    finding = decisions["sessions"][0]["findings"][0]
+    if case == "unknown-field":
+        finding["sourceExcerpt"] = "private content"
+    elif case == "bad-finding-id":
+        finding["findingId"] = "../../private"
+    elif case == "unsupported-category":
+        finding["category"] = "invented"
+    elif case == "missing-evidence":
+        finding["evidenceRefs"] = []
+    elif case == "bad-evidence-pointer":
+        finding["evidenceRefs"] = ["/sessions/0/privateInput"]
+    else:
+        finding["public"]["aggregate"] = "private-model"
+
+    with pytest.raises(ValueError, match=message):
+        improvement.validate_decisions(packet, decisions)
+
+
+class FakeReviewClient:
+    def __init__(self, fail_once=False):
+        self.calls = []
+        self.fail_once = fail_once
+
+    def put_session_score(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.fail_once:
+            self.fail_once = False
+            raise langfuse.LangfuseError("private score write failed")
+        return {"id": kwargs["score_id"]}
+
+
+def test_review_preview_does_not_write_scores_or_emit_private_ids():
+    client = FakeReviewClient()
+
+    summary = improvement.review_sessions(client, _review_packet(), _review_decisions(), apply=False)
+
+    assert summary == {
+        "schemaVersion": 1,
+        "status": "preview",
+        "reviewedSessions": 1,
+        "findings": 1,
+        "scoresWritten": 0,
+    }
+    assert client.calls == []
+    assert "private-session" not in json.dumps(summary)
+
+
+def test_review_apply_uses_deterministic_idempotent_session_markers():
+    client = FakeReviewClient()
+    packet = _review_packet()
+    decisions = _review_decisions()
+
+    first = improvement.review_sessions(client, packet, decisions, apply=True)
+    second = improvement.review_sessions(client, packet, decisions, apply=True)
+
+    assert first["scoresWritten"] == second["scoresWritten"] == 1
+    assert len(client.calls) == 2
+    assert client.calls[0] == client.calls[1]
+    marker = client.calls[0]
+    assert marker["session_id"] == "private-session"
+    assert marker["name"] == "improvement_review_status"
+    assert marker["value"] == "actions-created"
+    assert marker["data_type"] == "CATEGORICAL"
+    assert marker["metadata"] == {
+        "schemaVersion": 1,
+        "reviewPolicyVersion": "v1",
+        "reviewedAt": "2026-07-27T01:00:00Z",
+        "findingIds": ["finding-0123456789ab"],
+        "beadIds": [],
+    }
+
+
+def test_review_score_failure_is_retryable_with_same_marker_id():
+    client = FakeReviewClient(fail_once=True)
+    packet = _review_packet()
+    decisions = _review_decisions()
+
+    with pytest.raises(langfuse.LangfuseError):
+        improvement.review_sessions(client, packet, decisions, apply=True)
+    improvement.review_sessions(client, packet, decisions, apply=True)
+
+    assert client.calls[0]["score_id"] == client.calls[1]["score_id"]
+
+
 def test_improvement_dir_uses_private_default_and_environment_override(monkeypatch, tmp_path):
     monkeypatch.delenv("AGNT_IMPROVEMENT_DIR", raising=False)
     assert improvement.improvement_dir() == Path.home() / ".pi" / "improvement"
@@ -613,6 +820,480 @@ def test_improvement_dir_uses_private_default_and_environment_override(monkeypat
     override = tmp_path / "override"
     monkeypatch.setenv("AGNT_IMPROVEMENT_DIR", str(override))
     assert improvement.improvement_dir() == override
+
+
+def test_improve_review_cli_is_preview_only_by_default(monkeypatch, tmp_path, capsys):
+    private_dir = tmp_path / "private"
+    private_dir.mkdir()
+    report_path = private_dir / "report.json"
+    decisions_path = private_dir / "decisions.json"
+    report_path.write_text(json.dumps(_review_packet()), encoding="utf-8")
+    decisions_path.write_text(json.dumps(_review_decisions()), encoding="utf-8")
+    monkeypatch.setattr(improvement, "git_root", lambda: tmp_path / "repo")
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: pytest.fail("preview must not create client"))
+
+    result = improvement.cmd_improve(["review", str(report_path), str(decisions_path), "--json"])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert json.loads(output)["status"] == "preview"
+    assert "private-session" not in output
+    assert "private-trace" not in output
+
+
+def test_improve_review_cli_applies_markers_only_with_apply(monkeypatch, tmp_path, capsys):
+    private_dir = tmp_path / "private"
+    private_dir.mkdir()
+    report_path = private_dir / "report.json"
+    decisions_path = private_dir / "decisions.json"
+    report_path.write_text(json.dumps(_review_packet()), encoding="utf-8")
+    decisions_path.write_text(json.dumps(_review_decisions()), encoding="utf-8")
+    client = FakeReviewClient()
+    monkeypatch.setattr(improvement, "git_root", lambda: tmp_path / "repo")
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+
+    result = improvement.cmd_improve(["review", str(report_path), str(decisions_path), "--apply", "--json"])
+
+    assert result == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "applied"
+    assert len(client.calls) == 1
+
+
+def _approved_preview(preview):
+    return {
+        "metadata": {
+            "pi": {
+                "approval": {
+                    "kind": "approval",
+                    "status": "approved",
+                    "resolver": {"kind": "human-ui", "sessionId": "interactive-human"},
+                    "preview": preview,
+                },
+            },
+        },
+    }
+
+
+def test_promote_preview_contains_only_exact_public_bead_and_approval_text(tmp_path):
+    summary = improvement.promote_finding(
+        None,
+        _review_packet(),
+        _review_decisions(),
+        finding_id="finding-0123456789ab",
+        state_dir=tmp_path / "private-state",
+        repository_root=tmp_path / "repo",
+        tracked_paths={"pi/agent/AGENTS.md"},
+        apply=False,
+        beads_runner=lambda _args: pytest.fail("preview must not mutate Beads"),
+    )
+
+    assert summary["status"] == "preview"
+    assert summary["bead"] == {
+        "title": "Improve coordination instruction targeting",
+        "category": "coordination-error",
+        "affectedPaths": ["pi/agent/AGENTS.md"],
+        "description": (
+            "Category: coordination-error\n\n"
+            "Affected tracked paths:\n- pi/agent/AGENTS.md\n\n"
+            "Sanitized aggregate: Repeated coordination failures occurred across reviewed work items.\n\n"
+            "Proposed intervention: Clarify one conflicting coordination instruction.\n\n"
+            "Evaluation requirement: Run routing and role-context smoke evaluations."
+        ),
+        "acceptance": "- A deterministic regression case passes.",
+        "labels": ["continuous-improvement", "coordination-error", "human-approved"],
+    }
+    assert summary["approvalPreview"]["scope"].endswith(improvement.render_public_bead(summary["bead"]))
+    output = json.dumps(summary)
+    for private in ("private-session", "private-trace", "finding-0123456789ab", "private-model"):
+        assert private not in output
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "url",
+        "ssh-url",
+        "absolute-path",
+        "email",
+        "uuid",
+        "hash-id",
+        "secret",
+        "telemetry",
+        "unknown-field",
+        "copied-text",
+        "case-changed-copy",
+        "newline-path",
+    ],
+)
+def test_promote_rejects_unsafe_public_preview_before_bead_mutation(tmp_path, unsafe):
+    packet = _review_packet()
+    decisions = _review_decisions()
+    public = decisions["sessions"][0]["findings"][0]["public"]
+    tracked_paths = {"pi/agent/AGENTS.md"}
+    if unsafe == "url":
+        public["aggregate"] = "See https://private.example/evidence"
+    elif unsafe == "ssh-url":
+        public["aggregate"] = "See ssh://private.example/evidence"
+    elif unsafe == "absolute-path":
+        public["affectedPaths"] = ["/private/repo/file.py"]
+    elif unsafe == "email":
+        public["aggregate"] = "Reported by private@example.com"
+    elif unsafe == "uuid":
+        public["aggregate"] = "Evidence 12345678-1234-1234-1234-123456789abc"
+    elif unsafe == "hash-id":
+        public["aggregate"] = "Evidence PATH_HASH:483cca468d65"
+    elif unsafe == "secret":
+        public["aggregate"] = "Use API key private-value"
+    elif unsafe == "telemetry":
+        public["aggregate"] = "One traceId was affected"
+    elif unsafe == "unknown-field":
+        public["telemetryId"] = "private-observation"
+    elif unsafe == "copied-text":
+        public["aggregate"] = "private-model"
+    elif unsafe == "case-changed-copy":
+        public["aggregate"] = "PRIVATE-MODEL"
+    else:
+        public["affectedPaths"] = ["pi/agent/file.py\nInjected: private content"]
+        tracked_paths.add("pi/agent/file.py\nInjected: private content")
+    calls = []
+
+    with pytest.raises(ValueError, match="public"):
+        improvement.promote_finding(
+            None,
+            packet,
+            decisions,
+            finding_id="finding-0123456789ab",
+            state_dir=tmp_path / "private-state",
+            repository_root=tmp_path / "repo",
+            tracked_paths=tracked_paths,
+            apply=True,
+            approval=None,
+            beads_runner=lambda args: calls.append(args),
+        )
+
+    assert calls == []
+
+
+def test_promote_apply_requires_human_approval_of_exact_preview(tmp_path):
+    calls = []
+    kwargs = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": tmp_path / "private-state",
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "apply": True,
+        "beads_runner": lambda args: calls.append(args),
+    }
+
+    with pytest.raises(ValueError, match="exact human approval"):
+        improvement.promote_finding(None, _review_packet(), _review_decisions(), approval=None, **kwargs)
+
+    preview = improvement.promote_finding(
+        None,
+        _review_packet(),
+        _review_decisions(),
+        apply=False,
+        **{key: value for key, value in kwargs.items() if key != "apply"},
+    )["approvalPreview"]
+    preview["scope"] += " changed"
+    with pytest.raises(ValueError, match="exact human approval"):
+        improvement.promote_finding(
+            None,
+            _review_packet(),
+            _review_decisions(),
+            approval=_approved_preview(preview),
+            **kwargs,
+        )
+
+    assert calls == []
+
+
+def test_private_json_write_fsyncs_file_and_directory(monkeypatch, tmp_path):
+    synced = []
+    monkeypatch.setattr(improvement.os, "fsync", lambda fd: synced.append(fd))
+
+    improvement._write_private_json(tmp_path / "private", "state.json", {"schemaVersion": 1})
+
+    assert len(synced) == 2
+
+
+def test_promote_apply_creates_once_and_links_private_marker(tmp_path):
+    client = FakeReviewClient()
+    created = []
+
+    def beads_runner(args):
+        created.append(args)
+        return 0, {"id": args[args.index("--id") + 1]}, ""
+
+    base = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": tmp_path / "private-state",
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "beads_runner": beads_runner,
+    }
+    preview = improvement.promote_finding(
+        None, _review_packet(), _review_decisions(), apply=False, **base
+    )["approvalPreview"]
+    approval = _approved_preview(preview)
+
+    first = improvement.promote_finding(
+        client, _review_packet(), _review_decisions(), apply=True, approval=approval, **base
+    )
+    second = improvement.promote_finding(
+        client, _review_packet(), _review_decisions(), apply=True, approval=approval, **base
+    )
+
+    assert first["status"] == "promoted"
+    assert second["status"] == "already-promoted"
+    assert first["beadId"] == second["beadId"]
+    assert improvement.BEAD_ID.fullmatch(first["beadId"])
+    assert len(created) == 1
+    assert "--id" in created[0]
+    command = json.dumps(created[0])
+    for private in ("private-session", "private-trace", "finding-0123456789ab", "private-model"):
+        assert private not in command
+    assert client.calls[0]["metadata"]["beadIds"] == [first["beadId"]]
+    state_path = tmp_path / "private-state" / "promotion-finding-0123456789ab.json"
+    assert stat.S_IMODE((tmp_path / "private-state").stat().st_mode) == 0o700
+    assert stat.S_IMODE(state_path.stat().st_mode) == 0o600
+
+
+def test_promote_serializes_concurrent_create_attempts(tmp_path):
+    client = FakeReviewClient()
+    create_barrier = threading.Barrier(2)
+    created = []
+
+    def beads_runner(args):
+        created.append(args)
+        try:
+            create_barrier.wait(timeout=0.2)
+        except threading.BrokenBarrierError:
+            pass
+        return 0, {"id": args[args.index("--id") + 1]}, ""
+
+    base = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": tmp_path / "private-state",
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "beads_runner": beads_runner,
+    }
+    preview = improvement.promote_finding(
+        None, _review_packet(), _review_decisions(), apply=False, **base
+    )["approvalPreview"]
+
+    def invoke():
+        return improvement.promote_finding(
+            client,
+            _review_packet(),
+            _review_decisions(),
+            apply=True,
+            approval=_approved_preview(preview),
+            **base,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: invoke(), range(2)))
+
+    assert len(created) == 1
+    assert {result["status"] for result in results} == {"promoted", "already-promoted"}
+
+
+def test_promote_rejects_mismatched_private_state(tmp_path):
+    state_dir = tmp_path / "private-state"
+    improvement._write_private_json(state_dir, "promotion-finding-0123456789ab.json", {
+        "schemaVersion": 99,
+        "findingId": "finding-deadbeefdead",
+        "beadId": "pi-wrong.1",
+        "creationPending": False,
+        "linkRepairNeeded": False,
+    })
+
+    with pytest.raises(ValueError, match="private promotion state"):
+        improvement.promote_finding(
+            FakeReviewClient(),
+            _review_packet(),
+            _review_decisions(),
+            finding_id="finding-0123456789ab",
+            state_dir=state_dir,
+            repository_root=tmp_path / "repo",
+            tracked_paths={"pi/agent/AGENTS.md"},
+            apply=True,
+            approval=None,
+            beads_runner=lambda _args: pytest.fail("invalid state must not create"),
+        )
+
+
+def test_promote_ignores_other_pending_findings_when_linking_session(tmp_path):
+    decisions = _review_decisions()
+    second = json.loads(json.dumps(decisions["sessions"][0]["findings"][0]))
+    second["findingId"] = "finding-abcdef012345"
+    second["public"]["title"] = "Improve separate verification behavior"
+    decisions["sessions"][0]["findings"].append(second)
+    state_dir = tmp_path / "private-state"
+    improvement._write_private_json(state_dir, "promotion-finding-abcdef012345.json", {
+        "schemaVersion": 1,
+        "findingId": "finding-abcdef012345",
+        "beadId": "pi-pending.1",
+        "creationPending": True,
+        "linkRepairNeeded": True,
+    })
+    client = FakeReviewClient()
+    created = []
+
+    def beads_runner(args):
+        created.append(args)
+        return 0, {"id": args[args.index("--id") + 1]}, ""
+
+    base = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": state_dir,
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "beads_runner": beads_runner,
+    }
+    preview = improvement.promote_finding(
+        None, _review_packet(), decisions, apply=False, **base
+    )["approvalPreview"]
+
+    result = improvement.promote_finding(
+        client,
+        _review_packet(),
+        decisions,
+        apply=True,
+        approval=_approved_preview(preview),
+        **base,
+    )
+
+    assert result["status"] == "promoted"
+    assert client.calls[0]["metadata"]["beadIds"] == [result["beadId"]]
+
+
+def test_promote_state_failure_after_create_blocks_duplicate_retry(monkeypatch, tmp_path):
+    client = FakeReviewClient()
+    created = []
+
+    def beads_runner(args):
+        if args[0] == "show":
+            return 0, {"id": args[1]}, ""
+        created.append(args)
+        return 0, {"id": args[args.index("--id") + 1]}, ""
+
+    base = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": tmp_path / "private-state",
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "beads_runner": beads_runner,
+    }
+    preview = improvement.promote_finding(
+        None, _review_packet(), _review_decisions(), apply=False, **base
+    )["approvalPreview"]
+    original_write = improvement._write_private_json
+    writes = 0
+
+    def fail_second_write(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise OSError("disk full")
+        return original_write(*args, **kwargs)
+
+    monkeypatch.setattr(improvement, "_write_private_json", fail_second_write)
+    with pytest.raises(OSError, match="disk full"):
+        improvement.promote_finding(
+            client,
+            _review_packet(),
+            _review_decisions(),
+            apply=True,
+            approval=_approved_preview(preview),
+            **base,
+        )
+
+    second = improvement.promote_finding(
+        client,
+        _review_packet(),
+        _review_decisions(),
+        apply=True,
+        approval=_approved_preview(preview),
+        **base,
+    )
+    assert second["schemaVersion"] == 1
+    assert second["status"] == "promoted"
+    assert second["created"] is False
+    assert len(created) == 1
+
+
+def test_promote_link_write_failure_retries_without_duplicate_bead(tmp_path):
+    client = FakeReviewClient(fail_once=True)
+    created = []
+
+    def beads_runner(args):
+        created.append(args)
+        return 0, {"id": args[args.index("--id") + 1]}, ""
+
+    base = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": tmp_path / "private-state",
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "beads_runner": beads_runner,
+    }
+    preview = improvement.promote_finding(
+        None, _review_packet(), _review_decisions(), apply=False, **base
+    )["approvalPreview"]
+
+    first = improvement.promote_finding(
+        client,
+        _review_packet(),
+        _review_decisions(),
+        apply=True,
+        approval=_approved_preview(preview),
+        **base,
+    )
+    second = improvement.promote_finding(
+        client,
+        _review_packet(),
+        _review_decisions(),
+        apply=True,
+        approval=None,
+        **base,
+    )
+
+    assert first["status"] == "link-repair-needed"
+    assert second["status"] == "promoted"
+    assert len(created) == 1
+    assert client.calls[0]["score_id"] == client.calls[1]["score_id"]
+
+
+def test_improve_promote_cli_previews_without_remote_clients(monkeypatch, tmp_path, capsys):
+    private_dir = tmp_path / "private"
+    private_dir.mkdir()
+    report_path = private_dir / "report.json"
+    decisions_path = private_dir / "decisions.json"
+    report_path.write_text(json.dumps(_review_packet()), encoding="utf-8")
+    decisions_path.write_text(json.dumps(_review_decisions()), encoding="utf-8")
+    monkeypatch.setattr(improvement, "git_root", lambda: tmp_path / "repo")
+    monkeypatch.setattr(improvement, "_git_tracked_paths", lambda _root: {"pi/agent/AGENTS.md"}, raising=False)
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: pytest.fail("preview must not create client"))
+    monkeypatch.setattr(improvement, "_beads", lambda _args: pytest.fail("preview must not mutate Beads"), raising=False)
+    monkeypatch.setenv("AGNT_IMPROVEMENT_DIR", str(private_dir / "state"))
+
+    result = improvement.cmd_improve([
+        "promote",
+        str(report_path),
+        str(decisions_path),
+        "--finding",
+        "finding-0123456789ab",
+        "--json",
+    ])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert json.loads(output)["status"] == "preview"
+    for private in ("private-session", "private-trace", "finding-0123456789ab", "private-model"):
+        assert private not in output
 
 
 def test_improve_scan_cli_emits_safe_json_only(monkeypatch, tmp_path, capsys):
