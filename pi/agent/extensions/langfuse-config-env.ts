@@ -37,7 +37,6 @@ export default function langfuseConfigEnv(pi?: ExtensionAPI) {
     return {
       message: {
         ...message,
-        model: `${message.model}-subscription`,
         usage: {
           ...usage,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },

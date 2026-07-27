@@ -59,7 +59,7 @@ def test_langfuse_skill_is_pinned_and_reuses_extension_config(tmp_path):
     run_extension_script(script, home=tmp_path)
 
 
-def test_subscription_models_are_aliased_with_zero_cost():
+def test_subscription_models_keep_runtime_id_with_zero_cost():
     script = f"""
       import assert from "node:assert/strict";
       import install from {EXTENSION.as_uri()!r};
@@ -79,7 +79,7 @@ def test_subscription_models_are_aliased_with_zero_cost():
       }};
       const result = await handler({{ message }});
 
-      assert.equal(result.message.model, "gpt-5.6-sol-subscription");
+      assert.equal(result.message.model, "gpt-5.6-sol");
       assert.deepEqual(result.message.usage.cost, {{
         input: 0,
         output: 0,
