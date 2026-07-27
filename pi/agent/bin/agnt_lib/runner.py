@@ -3,24 +3,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict
 
-from .approvals import create_beads_approval_request
-from .maintenance import maintenance_create_beads, maintenance_due_report
 from .runner_protocol import DEFAULT_BUDGET, read_runner_state, normalize_runner_state, runner_paths, update_runner_state, utc_now as protocol_utc_now, write_runner_state
-from .worktree_policy import worktree_snapshot_for_bead
-
-BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
-RunnerStart = Callable[..., Dict[str, Any]]
-BlockerCreator = Callable[..., Dict[str, Any]]
 
 
 def utc_now() -> str:
     return protocol_utc_now()
-
-
-def runner_dir(root: Path | str | None = None) -> Path:
-    return runner_paths(root)["runnerDir"]
 
 
 def state_path(root: Path | str | None = None) -> Path:
@@ -37,11 +26,6 @@ def _read_json(path: Path) -> Dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def _write_json(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _pid_running(pid: Any) -> bool:
@@ -153,90 +137,38 @@ def release_runner_lock(root: Path | str | None = None, *, owner: str | None = N
     return {"schemaVersion": 1, "released": True, "lockPath": str(path)}
 
 
-def _default_beads_runner(args: List[str]) -> Tuple[int, Any, str]:
-    from .work import run_beads_json
-
-    return run_beads_json(args)
-
-
-def _default_runner_start(bead: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
-    from .work import run_work
-
-    return run_work(bead, **kwargs)
-
-
-def _ready_items(beads_runner: BeadsRunner) -> List[Dict[str, Any]]:
-    code, data, err = beads_runner(["ready"])
-    if code != 0:
-        raise RuntimeError(err or "bd ready failed")
-    if not isinstance(data, list):
-        return []
-    return [item for item in data if isinstance(item, dict) and item.get("issue_type") != "epic"]
-
-
-def _validation_context(bead: Dict[str, Any], validation: Dict[str, Any]) -> str:
-    parts = [
-        f"Runner could not dispatch {bead.get('id')}: metadata status {validation.get('status')}.",
-    ]
-    for key in ("failures", "humanActions", "blockers"):
-        values = validation.get(key) or []
-        if values:
-            parts.append(f"{key}: " + "; ".join(str(item) for item in values))
-    return "\n".join(parts)
-
-
-def _blocker_preview(bead: Dict[str, Any], validation: Dict[str, Any]) -> Dict[str, str]:
-    return {
-        "action": f"Resolve runner dispatch blocker for {bead.get('id')}",
-        "scope": "Beads metadata and approval state for this work item only.",
-        "consequences": f"Work remains blocked until metadata status is dispatchable; current status is {validation.get('status')}.",
-        "reversibility": "The blocker is a Beads decision record and can be resolved or superseded with an auditable note.",
-        "closeoutPath": "Fix metadata or record approval, then resolve the blocker and rerun the runner tick.",
-    }
-
-
-def _session_refs(run_id: str | None, bead_id: str | None, action: str | None) -> Dict[str, str | None]:
-    if not run_id:
-        return {"sessionId": None, "sessionRef": None, "transcriptRef": None, "sessionName": None}
-    safe_id = str(run_id).replace("/", "-").replace(":", "-")
-    session_id = f"run-{safe_id}"
-    return {
-        "sessionId": session_id,
-        "sessionRef": f"pi-session-id:{session_id}",
-        "transcriptRef": f"pi-session-transcript:{session_id}",
-        "sessionName": f"run:{run_id} bead:{bead_id or 'unknown'} action:{action or 'unknown'}",
-    }
-
-
 def runner_tick(
     *,
     root: Path | str | None = None,
     dry_run: bool = True,
     limit: int = 1,
-    beads_runner: BeadsRunner = _default_beads_runner,
-    runner_start: RunnerStart = _default_runner_start,
-    blocker_creator: BlockerCreator = create_beads_approval_request,
+    beads_runner: Callable[..., Any] | None = None,
+    runner_start: Callable[..., Dict[str, Any]] | None = None,
+    blocker_creator: Callable[..., Dict[str, Any]] | None = None,
     runs_dir: Path | None = None,
     metrics_dir: Path | None = None,
-    worktree_resolver: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]] = worktree_snapshot_for_bead,
-    maintenance_due_provider: Callable[..., Dict[str, Any]] = maintenance_due_report,
-    maintenance_creator: Callable[..., Dict[str, Any]] = maintenance_create_beads,
+    worktree_resolver: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]] | None = None,
+    maintenance_due_provider: Callable[..., Dict[str, Any]] | None = None,
+    maintenance_creator: Callable[..., Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     from .runner_scheduler import runner_scheduler_tick
 
+    options = {
+        "beads_runner": beads_runner,
+        "runner_start": runner_start,
+        "blocker_creator": blocker_creator,
+        "worktree_resolver": worktree_resolver,
+        "maintenance_due_provider": maintenance_due_provider,
+        "maintenance_creator": maintenance_creator,
+    }
     return runner_scheduler_tick(
         root=root,
         dry_run=dry_run,
         limit=limit,
-        beads_runner=beads_runner,
-        runner_start=runner_start,
-        blocker_creator=blocker_creator,
         runs_dir=runs_dir,
         metrics_dir=metrics_dir,
-        worktree_resolver=worktree_resolver,
-        maintenance_due_provider=maintenance_due_provider,
-        maintenance_creator=maintenance_creator,
         status_provider=runner_status,
+        **{key: value for key, value in options.items() if value is not None},
     )
 __all__ = [
     "runner_status",
