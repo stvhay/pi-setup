@@ -63,20 +63,14 @@ Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must h
 
 ## Provider credentials
 
-Provider credentials belong in the shell environment or ignored local env files, not in git. For OpenRouter:
-
-```bash
-export OPENROUTER_API_KEY=sk-or-...
-```
-
-With direnv, put that export in a private file such as `.envrc.local.d/openrouter.sh` in projects that need it, or in a shell profile for broader use.
+Provider credentials belong in the shell environment or ignored local env files, not in git. OpenRouter credentials live on Knuth behind LiteLLM; Pi needs only `OLLA_HOST` to reach Olla.
 
 The Langfuse extension and official Langfuse skill share credentials from private `~/.pi/agent/pi-langfuse/config.json`. During Pi sessions, `langfuse-config-env.ts` exposes that config to Langfuse CLI child processes; explicit `LANGFUSE_*` environment variables still take precedence. No second credential file is needed. Tracked evaluator desired state lives in `agent/langfuse/evaluators.json`; `agnt langfuse check` reports drift and `agnt langfuse apply` creates or updates managed evaluators and rules without deleting unmanaged resources. The owned subagent extension emits explicit `interactive-result` and `subagent-result` observations with captured task/output; outcome evaluation samples 10% of interactive results and subagent quality evaluates 100% of delegated results. Config deployment runs apply when credentials exist. Interactive Pi startup checks asynchronously, stays silent when current, and warns when drift exists. The same extension labels `openai-codex` generations as `gpt-*-subscription` and records zero marginal cost; Langfuse project model `^gpt-.*-subscription$` supplies matching zero pricing.
 
-Example smoke test after the key is set:
+Example cloud smoke test:
 
 ```bash
-pi --print --provider openrouter-localish --model google/gemma-4-31b-it "Reply with OK only."
+pi --print --provider olla-cloud --model gemma-4-31b-it "Reply with OK only."
 ```
 
 ## Optional service endpoints
@@ -88,7 +82,7 @@ export SEARXNG_URL=https://your-searxng.example
 export OLLA_HOST=https://your-olla-compatible-router.example
 ```
 
-`SEARXNG_URL` enables `agnt web-search`. `OLLA_HOST` enables optional `olla-local`/`olla-cloud` providers; without it, the Olla extension uses localhost Ollama only.
+`SEARXNG_URL` enables `agnt web-search`. `OLLA_HOST` enables `olla-local` for Knuth Ollama and `olla-cloud` for Knuth LiteLLM. Laptop Ollama is optional machine state supplied by ignored `~/.pi/agent/extensions/ollama.local.ts`.
 
 ## Excluded runtime state
 

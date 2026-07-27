@@ -103,7 +103,7 @@ def test_metered_models_are_not_changed():
       install({{ on: (event, callback) => {{ if (event === "message_end") handler = callback; }} }});
       const message = {{
         role: "assistant",
-        provider: "openrouter-localish",
+        provider: "olla-cloud",
         model: "gpt-5.6-sol",
         usage: {{ cost: {{ total: 10 }} }},
       }};

@@ -27,14 +27,14 @@ def test_doctor_report_schema_and_strict_failure(agnt, monkeypatch):
 
 
 def test_doctor_redacts_provider_env_vars(agnt, monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-secret-value")
+    monkeypatch.setenv("OLLA_HOST", "https://secret-host.example")
     report = agnt.doctor_report(check_names=["provider.env"])
     encoded = json.dumps(report)
 
-    assert "sk-or-secret-value" not in encoded
+    assert "secret-host.example" not in encoded
     check = report["checks"][0]
     assert check["id"] == "provider.env"
-    assert check["evidence"]["OPENROUTER_API_KEY"] == "present:redacted"
+    assert check["evidence"]["OLLA_HOST"] == "present:redacted"
 
 
 def test_doctor_checks_olla_host_used_by_olla_provider(agnt, monkeypatch):

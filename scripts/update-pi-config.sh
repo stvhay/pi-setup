@@ -141,6 +141,7 @@ RSYNC_EXCLUDES=(
   --exclude='agent/mcp-onboarding.json'
   --exclude='agent/models-store.json'
   --exclude='agent/trust.json'
+  --exclude='agent/extensions/*.local.ts'
   --exclude='.pi/'
   --exclude='metrics/'
   --exclude='agent/macbook-ollama-power-*/'

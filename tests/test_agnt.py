@@ -26,7 +26,7 @@ def usage_tokens(input_tokens=1_000_000, output_tokens=1_000_000):
 def test_route_cost_rank_cheap_budget_orders_local_cheap_frontier(agnt):
     info = agnt.configured_model_info()
     local = agnt.route_cost_rank(
-        "ollama/gemma4:31b", info["ollama/gemma4:31b"], "cheap"
+        "olla-local/gemma4:31b", info["olla-local/gemma4:31b"], "cheap"
     )
     cheap = agnt.route_cost_rank(
         "olla-cloud/gpt-4.1-mini", info["olla-cloud/gpt-4.1-mini"], "cheap"
@@ -54,9 +54,9 @@ def test_configured_model_info_merges_catalog_and_models_json(agnt):
     assert codex["costClass"] == "frontier"
     assert codex["reasoning"] is True
     assert codex["family"] == "gpt-5.6-sol"
-    openrouter = info["openrouter-localish/google/gemma-4-31b-it"]
-    assert openrouter["family"] == "gemma4-31b"
-    assert isinstance(openrouter.get("cost"), dict)  # pricing from models.json
+    cloud = info["olla-cloud/gemma-4-31b-it"]
+    assert cloud["family"] == "gemma4-31b"
+    assert cloud["cost"] == {"input": 0.12, "output": 0.37}
 
 
 def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
@@ -145,16 +145,16 @@ def test_glm_52_extension_uses_routable_id_with_openrouter_thinking_params():
 
 def test_apply_assumed_cost_local_gets_opportunity_cost(agnt):
     usage = agnt.apply_assumed_cost(
-        usage_tokens(), "ollama/gemma4:31b", elapsed_ms=60_000
+        usage_tokens(), "olla-local/gemma4:31b", elapsed_ms=60_000
     )
     assert usage["costSource"] == "local-free"
     assert usage["cost"]["total"] == 0.0
     opp = usage["opportunityCost"]
-    assert opp["proxyTarget"] == "openrouter-localish/google/gemma-4-31b-it"
+    assert opp["proxyTarget"] == "olla-cloud/gemma-4-31b-it"
     assert opp["proxyQuality"] == "exact-family"
     assert opp["cost"]["total"] > 0
     compute = usage["localCompute"]
-    assert compute["gpuWatts"] == 34.2
+    assert compute["gpuWatts"] == 208.0
     assert compute["estimatedEnergyCostUsd"] > 0
 
 
@@ -165,6 +165,15 @@ def test_apply_assumed_cost_subscription_gets_openrouter_assumed(agnt):
     assert usage["costSource"] == "openrouter-assumed"
     assert usage["costEstimated"] is True
     assert round(usage["cost"]["total"], 2) == 2.0  # 0.40 + 1.60 per 1M+1M tokens
+
+
+def test_apply_assumed_cost_free_venue_stays_free(agnt):
+    usage = agnt.apply_assumed_cost(
+        usage_tokens(), "olla-cloud/gemma-4-31b-it:free", elapsed_ms=1_000
+    )
+    assert usage["costSource"] == "catalog-free"
+    assert usage["costEstimated"] is False
+    assert usage["cost"]["total"] == 0.0
 
 
 def test_apply_assumed_cost_provider_reported_untouched(agnt):
@@ -647,10 +656,10 @@ def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
 
 def test_review_policy_targets_vary_by_risk_and_paid_spend(agnt):
     meta, _ = agnt.task_meta("review")
-    gemma = "openrouter-localish/google/gemma-4-31b-it"
-    local_gemma = "ollama/gemma4:31b"
+    gemma = "olla-cloud/gemma-4-31b-it"
+    local_gemma = "olla-local/gemma4:31b"
     kimi = "olla-cloud/kimi-k2.7-code"
-    deepseek = "openrouter-localish/deepseek/deepseek-v4-flash"
+    deepseek = "olla-cloud/deepseek-v4-flash"
 
     assert agnt.review_policy_targets(meta, "low", 0.0) == ([gemma], "normal")
     assert agnt.review_policy_targets(meta, "medium", 0.0) == ([gemma, kimi], "normal")
@@ -670,13 +679,13 @@ def test_paid_review_spend_counts_monthly_marginal_cost_only(agnt):
         }
 
     records = [
-        record("gemma", "openrouter-localish/google/gemma-4-31b-it", 0.25),
+        record("gemma", "olla-cloud/gemma-4-31b-it", 0.25),
         record("kimi", "olla-cloud/kimi-k2.7-code", 4.0),
         record("subscription", "openai-codex/gpt-5.6-sol", 8.0, source="provider-reported"),
-        record("local", "ollama/gemma4:31b", 0.0, source="local-free"),
-        record("old", "openrouter-localish/google/gemma-4-31b-it", 9.0, started="2026-06-30T23:59:59Z"),
-        record("other-task", "openrouter-localish/google/gemma-4-31b-it", 9.0, task="research"),
-        record("gemma", "openrouter-localish/google/gemma-4-31b-it", 0.25),
+        record("local", "olla-local/gemma4:31b", 0.0, source="local-free"),
+        record("old", "olla-cloud/gemma-4-31b-it", 9.0, started="2026-06-30T23:59:59Z"),
+        record("other-task", "olla-cloud/gemma-4-31b-it", 9.0, task="research"),
+        record("gemma", "olla-cloud/gemma-4-31b-it", 0.25),
     ]
 
     assert agnt.paid_review_spend(records, month="2026-07") == pytest.approx(4.25)
@@ -693,9 +702,9 @@ def test_select_model_returns_risk_specific_review_policy_without_automatic_k3(a
         )
 
     assert result["reviewPolicyTargets"] == [
-        "openrouter-localish/google/gemma-4-31b-it",
+        "olla-cloud/gemma-4-31b-it",
         "olla-cloud/kimi-k2.7-code",
-        "openrouter-localish/deepseek/deepseek-v4-flash",
+        "olla-cloud/deepseek-v4-flash",
     ]
     assert result["reviewBudgetState"] == "normal"
     assert "olla-cloud/kimi-k3" not in result["candidateOrder"]
@@ -713,7 +722,7 @@ def test_select_model_review_cheap_prefers_active_policy_without_metrics(agnt):
             paid_review_spend_usd=0.0,
         )
 
-    assert result["selected"] == "openrouter-localish/google/gemma-4-31b-it"
+    assert result["selected"] == "olla-cloud/gemma-4-31b-it"
 
 
 def test_select_model_review_hard_cap_forces_local_fallback(agnt):
@@ -726,8 +735,8 @@ def test_select_model_review_hard_cap_forces_local_fallback(agnt):
             fanout_size=3,
         )
 
-    assert result["selected"] == "ollama/gemma4:31b"
-    assert result["reviewPolicyTargets"] == ["ollama/gemma4:31b"]
+    assert result["selected"] == "olla-local/gemma4:31b"
+    assert result["reviewPolicyTargets"] == ["olla-local/gemma4:31b"]
     assert result["reviewBudgetState"] == "hard-cap"
     assert result["localOk"] is True
 
@@ -1560,7 +1569,7 @@ def test_cmd_invoke_one_shot_forwards_mode(agnt, monkeypatch, capsys):
     assert agnt.cmd_invoke([
         "--one-shot",
         "--no-metrics",
-        "openrouter-localish/google/gemma-4-31b-it",
+        "olla-cloud/gemma-4-31b-it",
         "review packet",
     ]) == 0
 
@@ -1583,7 +1592,7 @@ def test_cmd_invoke_one_shot_accepts_explicit_timeout(agnt, monkeypatch, capsys)
         "--timeout-seconds",
         "45",
         "--no-metrics",
-        "openrouter-localish/google/gemma-4-31b-it",
+        "olla-cloud/gemma-4-31b-it",
         "review packet",
     ]) == 0
 
@@ -1595,7 +1604,7 @@ def test_metrics_record_includes_family_and_invocation_shape(agnt):
     usage = usage_tokens(input_tokens=10, output_tokens=2)
     usage["providerRequests"] = 1
     record = agnt.metrics_record(
-        target="ollama/gemma4:31b",
+        target="olla-local/gemma4:31b",
         task="review",
         started_at="2026-06-09T00:00:00Z",
         ended_at="2026-06-09T00:00:01Z",

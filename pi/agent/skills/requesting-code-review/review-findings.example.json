@@ -3,7 +3,7 @@
   "reviewId": "example-review",
   "scope": "behavioral",
   "reviewer": {
-    "target": "openrouter-localish/google/gemma-4-31b-it",
+    "target": "olla-cloud/gemma-4-31b-it",
     "family": "gemma4-31b"
   },
   "findings": [

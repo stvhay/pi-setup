@@ -118,7 +118,7 @@ def venue_info(
 def proxy_for_target(
     target: str, catalog: Dict[str, Any] | None = None
 ) -> Dict[str, str] | None:
-    """OpenRouter venue standing in for a local target, for opportunity-cost pricing."""
+    """Metered family venue standing in for local opportunity-cost pricing."""
     catalog = catalog or load_catalog()
     info = venue_info(target, catalog)
     if not info:
@@ -128,10 +128,14 @@ def proxy_for_target(
         if not isinstance(venue, dict):
             continue
         proxy_target = str(venue.get("target") or "")
-        if proxy_target != target and proxy_target.startswith("openrouter-localish/"):
+        if (
+            proxy_target != target
+            and venue.get("billingClass") == "metered"
+            and venue.get("equivalence")
+        ):
             return {
                 "target": proxy_target,
-                "quality": str(venue.get("equivalence") or "exact-family"),
+                "quality": str(venue["equivalence"]),
             }
     return None
 

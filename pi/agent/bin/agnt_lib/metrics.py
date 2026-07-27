@@ -113,6 +113,12 @@ def apply_assumed_cost(usage: Dict[str, Any] | None, target: str | None, elapsed
     if cost and float(cost.get("total") or 0.0) > 0:
         usage.setdefault("costSource", "provider-reported")
         return usage
+    venue = common.venue_info(target)
+    if venue and venue.get("billingClass") == "free":
+        usage["cost"] = {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.0}
+        usage["costSource"] = "catalog-free"
+        usage["costEstimated"] = False
+        return usage
     prices = openrouter_model_prices()
     if is_local_target(target):
         usage.setdefault("cost", {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.0})
@@ -121,10 +127,10 @@ def apply_assumed_cost(usage: Dict[str, Any] | None, target: str | None, elapsed
         proxy = common.proxy_for_target(target)
         if proxy:
             proxy_target = proxy["target"]
-            proxy_prices = prices.get(proxy_target)
+            proxy_prices = prices.get(proxy_target) or common.opportunity_rates(proxy_target)
             if proxy_prices:
                 usage["opportunityCost"] = {
-                    "source": "openrouter-proxy",
+                    "source": "metered-family-proxy",
                     "proxyTarget": proxy_target,
                     "proxyQuality": proxy.get("quality"),
                     "unit": "USD_PER_MILLION_TOKENS",

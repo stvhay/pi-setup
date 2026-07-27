@@ -52,6 +52,10 @@ def configured_model_info() -> Dict[str, Dict[str, Any]]:
                 continue
             target = str(venue["target"])
             merged = {**venue, **info.get(target, {})}
+            if merged.get("billingClass") == "metered" and "cost" not in merged:
+                rates = family.get("openrouterRates")
+                if isinstance(rates, dict):
+                    merged["cost"] = rates
             merged.setdefault("target", target)
             merged["family"] = family_id
             info[target] = merged

@@ -40,7 +40,6 @@ DEFAULT_CHECKS = [
 
 PROVIDER_ENV_VARS = {
     "openrouter": ["OPENROUTER_API_KEY"],
-    "openrouter-localish": ["OPENROUTER_API_KEY"],
     "openai": ["OPENAI_API_KEY"],
     "anthropic": ["ANTHROPIC_API_KEY"],
     "gemini": ["GEMINI_API_KEY"],

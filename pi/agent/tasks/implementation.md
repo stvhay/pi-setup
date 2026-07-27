@@ -9,7 +9,7 @@ qualified:
   - olla-cloud/glm-5.2
   - olla-cloud/kimi-k2.7-code
   - olla-cloud/kimi-k3
-  - openrouter-localish/qwen/qwen3-coder-flash
+  - olla-cloud/qwen3-coder-flash
   - claude-sonnet-4-6
   - claude-opus-4-7
 ---

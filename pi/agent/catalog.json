@@ -1,10 +1,9 @@
 {
   "schemaVersion": 1,
-  "comment": "Model family catalog. A family is one set of weights (or a close equivalent) reachable through multiple venues (providers). Routing policy lives in tasks/*.md; venue facts live here; OpenRouter cash pricing stays in models.json. Family ids key the AGENTS.d/models/<family>.md prompt overlays so per-model prompt learning transfers across venues.",
+  "comment": "Model family catalog. A family is one set of weights (or a close equivalent) reachable through multiple venues. Routing policy lives in tasks/*.md; venue facts and opportunity-cost rates live here. Family ids key AGENTS.d/models/<family>.md overlays so prompt learning transfers across venues.",
   "defaults": {
     "electricityUsdPerKwh": 0.1304,
     "providerGpuWatts": {
-      "ollama": 34.2,
       "olla-local": 208.0
     }
   },
@@ -171,32 +170,32 @@
       ]
     },
     "gemma4-31b": {
+      "openrouterRates": {"input": 0.12, "output": 0.37},
       "venues": [
-        {
-          "target": "ollama/gemma4:31b",
-          "costClass": "local",
-          "input": ["text", "image"],
-          "contextWindow": 128000
-        },
         {
           "target": "olla-local/gemma4:31b",
           "costClass": "local",
           "input": ["text", "image"],
-          "contextWindow": 128000
+          "contextWindow": 131072,
+          "maxTokens": 32768
         },
         {
-          "target": "openrouter-localish/google/gemma-4-31b-it",
+          "target": "olla-cloud/gemma-4-31b-it",
           "costClass": "cheap",
+          "billingClass": "metered",
           "equivalence": "exact-family",
           "input": ["text", "image"],
-          "contextWindow": 262144
+          "contextWindow": 262144,
+          "maxTokens": 262144
         },
         {
-          "target": "openrouter-localish/google/gemma-4-31b-it:free",
+          "target": "olla-cloud/gemma-4-31b-it:free",
           "costClass": "cheap",
+          "billingClass": "free",
           "equivalence": "exact-family",
           "input": ["text", "image"],
-          "contextWindow": 262144
+          "contextWindow": 262144,
+          "maxTokens": 32768
         }
       ]
     },
@@ -211,33 +210,33 @@
       ]
     },
     "qwen3-8b": {
+      "openrouterRates": {"input": 0.04, "output": 0.15},
       "venues": [
         {
           "target": "olla-local/qwen3:8b",
           "costClass": "local",
           "input": ["text"],
-          "contextWindow": 128000
+          "contextWindow": 131072,
+          "maxTokens": 8192
         },
         {
-          "target": "ollama/qwen3:8b",
-          "costClass": "local",
-          "input": ["text"],
-          "contextWindow": 128000
-        },
-        {
-          "target": "openrouter-localish/qwen/qwen3.5-9b",
+          "target": "olla-cloud/qwen3.5-9b",
           "costClass": "cheap",
+          "billingClass": "metered",
           "equivalence": "approximate-family",
           "input": ["text"],
-          "contextWindow": 262144
+          "contextWindow": 262144,
+          "maxTokens": 262144
         }
       ]
     },
     "qwen3-coder-flash": {
+      "openrouterRates": {"input": 0.195, "output": 0.975, "cacheRead": 0.039, "cacheWrite": 0.24375},
       "venues": [
         {
-          "target": "openrouter-localish/qwen/qwen3-coder-flash",
+          "target": "olla-cloud/qwen3-coder-flash",
           "costClass": "cheap",
+          "billingClass": "metered",
           "input": ["text"],
           "contextWindow": 1000000,
           "maxTokens": 65536
@@ -245,21 +244,26 @@
       ]
     },
     "deepseek-v4-flash": {
+      "openrouterRates": {"input": 0.0938, "output": 0.1876, "cacheRead": 0.01876},
       "venues": [
         {
-          "target": "openrouter-localish/deepseek/deepseek-v4-flash",
+          "target": "olla-cloud/deepseek-v4-flash",
           "costClass": "cheap",
+          "billingClass": "metered",
           "reasoning": true,
           "input": ["text"],
-          "contextWindow": 1048576
+          "contextWindow": 1048576,
+          "maxTokens": 393216
         }
       ]
     },
     "deepseek-v4-pro": {
+      "openrouterRates": {"input": 0.435, "output": 0.87, "cacheRead": 0.003625},
       "venues": [
         {
-          "target": "openrouter-localish/deepseek/deepseek-v4-pro",
+          "target": "olla-cloud/deepseek-v4-pro",
           "costClass": "balanced",
+          "billingClass": "metered",
           "reasoning": true,
           "input": ["text"],
           "contextWindow": 1048576,
@@ -271,13 +275,6 @@
       "venues": [
         {
           "target": "olla-local/deepseek-r1:14b",
-          "costClass": "local",
-          "reasoning": true,
-          "input": ["text"],
-          "contextWindow": 128000
-        },
-        {
-          "target": "ollama/deepseek-r1:14b",
           "costClass": "local",
           "reasoning": true,
           "input": ["text"],

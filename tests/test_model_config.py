@@ -13,6 +13,54 @@ CATALOG = AGENT / "catalog.json"
 OLLA_PROVIDER = AGENT / "extensions" / "olla-provider.ts"
 
 
+def built_models(ids: list[str], surface: str = "cloud") -> dict[str, dict]:
+    script = f"""
+      import {{ buildModels }} from {json.dumps(OLLA_PROVIDER.as_uri())};
+      const {{ models }} = buildModels({json.dumps(ids)}, {json.dumps(surface)});
+      console.log(JSON.stringify(models));
+    """
+    result = subprocess.run(
+        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return {model["id"]: model for model in json.loads(result.stdout)}
+
+
+def test_tracked_models_use_server_backed_olla_providers_only():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    enabled = set(settings["enabledModels"])
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+    catalog_targets = {
+        venue["target"]
+        for family in catalog.values()
+        for venue in family.get("venues", [])
+    }
+
+    assert not any(target.startswith("openrouter-localish/") for target in enabled | catalog_targets)
+    assert not any(target.startswith("ollama/") for target in enabled | catalog_targets)
+    assert json.loads(MODELS.read_text(encoding="utf-8"))["providers"] == {}
+
+    models = built_models([
+        "gemma-4-31b-it", "gemma-4-31b-it:free", "qwen3.5-9b",
+        "qwen3-coder-flash", "deepseek-v4-flash", "deepseek-v4-pro",
+    ])
+    assert models["gemma-4-31b-it"]["contextWindow"] == 262_144
+    assert models["gemma-4-31b-it"]["maxTokens"] == 262_144
+    assert models["gemma-4-31b-it:free"]["maxTokens"] == 32_768
+    assert models["qwen3.5-9b"]["input"] == ["text", "image"]
+    assert models["qwen3.5-9b"]["maxTokens"] == 262_144
+    assert models["qwen3-coder-flash"]["contextWindow"] == 1_000_000
+    assert models["qwen3-coder-flash"]["maxTokens"] == 65_536
+    assert models["deepseek-v4-flash"]["contextWindow"] == 1_048_576
+    assert models["deepseek-v4-flash"]["maxTokens"] == 393_216
+    assert models["deepseek-v4-pro"]["maxTokens"] == 384_000
+
+    deploy = (ROOT / "scripts" / "update-pi-config.sh").read_text(encoding="utf-8")
+    assert "agent/extensions/*.local.ts" in deploy
+
+
 def test_kimi_models_are_enabled_through_olla_only():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     enabled = set(settings["enabledModels"])
@@ -71,18 +119,22 @@ def test_kimi_olla_metadata_matches_verified_capabilities():
     assert k3["compat"]["supportsReasoningEffort"] is False
 
 
+def test_deepseek_reasoning_uses_openrouter_payload_format():
+    models = built_models([
+        "deepseek-r1", "deepseek-v4-flash", "deepseek-v4-pro"
+    ])
+    for model in models.values():
+        assert model["reasoning"] is True
+        assert model["compat"]["supportsReasoningEffort"] is True
+        assert model["compat"]["thinkingFormat"] == "openrouter"
+
+
 def test_deepseek_v4_flash_is_enabled_as_a_cheap_review_challenger():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    target = "openrouter-localish/deepseek/deepseek-v4-flash"
+    target = "olla-cloud/deepseek-v4-flash"
     assert target in settings["enabledModels"]
 
-    models = json.loads(MODELS.read_text(encoding="utf-8"))
-    configured = {
-        f"{provider}/{model['id']}": model
-        for provider, config in models["providers"].items()
-        for model in config.get("models", [])
-    }
-    model = configured[target]
+    model = built_models(["deepseek-v4-flash"])["deepseek-v4-flash"]
     assert model["contextWindow"] == 1_048_576
     assert model["reasoning"] is True
     assert model["cost"] == {
@@ -100,6 +152,8 @@ def test_deepseek_v4_flash_is_enabled_as_a_cheap_review_challenger():
             "reasoning": True,
             "input": ["text"],
             "contextWindow": 1_048_576,
+            "billingClass": "metered",
+            "maxTokens": 393_216,
         }
     ]
     review = (AGENT / "tasks" / "review.md").read_text(encoding="utf-8")
@@ -110,11 +164,10 @@ def test_openrouter_challengers_replace_unrouted_legacy_models():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     enabled = set(settings["enabledModels"])
     configured = {
-        f"{provider}/{model['id']}": model
-        for provider, config in json.loads(MODELS.read_text(encoding="utf-8"))[
-            "providers"
-        ].items()
-        for model in config.get("models", [])
+        f"olla-cloud/{model_id}": model
+        for model_id, model in built_models([
+            "qwen3-coder-flash", "deepseek-v4-pro"
+        ]).items()
     }
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
 
@@ -127,7 +180,7 @@ def test_openrouter_challengers_replace_unrouted_legacy_models():
     assert removed.isdisjoint(configured)
 
     expected = {
-        "openrouter-localish/qwen/qwen3-coder-flash": {
+        "olla-cloud/qwen3-coder-flash": {
             "contextWindow": 1_000_000,
             "maxTokens": 65_536,
             "cost": {
@@ -137,7 +190,7 @@ def test_openrouter_challengers_replace_unrouted_legacy_models():
                 "cacheWrite": 0.24375,
             },
         },
-        "openrouter-localish/deepseek/deepseek-v4-pro": {
+        "olla-cloud/deepseek-v4-pro": {
             "reasoning": True,
             "contextWindow": 1_048_576,
             "maxTokens": 384_000,
@@ -163,9 +216,9 @@ def test_openrouter_challengers_replace_unrouted_legacy_models():
         encoding="utf-8"
     )
     review = (AGENT / "tasks" / "review.md").read_text(encoding="utf-8")
-    assert "  - openrouter-localish/qwen/qwen3-coder-flash" in implementation
-    assert "  - openrouter-localish/qwen/qwen3-coder-flash" in review
-    assert "  - openrouter-localish/deepseek/deepseek-v4-pro" in review
+    assert "  - olla-cloud/qwen3-coder-flash" in implementation
+    assert "  - olla-cloud/qwen3-coder-flash" in review
+    assert "  - olla-cloud/deepseek-v4-pro" in review
 
 
 def test_kimi_families_and_dispatch_roles_are_cataloged():

@@ -11,7 +11,6 @@ qualified:
   - claude-opus-4-7
   - claude-sonnet-4-6
 avoid:
-  - ollama/*
   - olla-local/*
 ---
 

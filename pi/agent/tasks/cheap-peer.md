@@ -4,10 +4,10 @@ summary: Low-cost advisory passes, critique, classification, or simple extractio
 preferred:
   - olla-cloud/gemini-flash
   - olla-cloud/gpt-4.1-mini
-  - openrouter-localish/qwen/qwen3.5-9b
-  - openrouter-localish/google/gemma-4-31b-it
+  - olla-cloud/qwen3.5-9b
+  - olla-cloud/gemma-4-31b-it
 qualified:
-  - ollama/gemma4:31b
+  - olla-local/gemma4:31b
   - olla-local/qwen3:8b
 ---
 

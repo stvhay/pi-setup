@@ -2,31 +2,30 @@
 
 
 def test_family_resolution_across_venues(common):
-    assert common.family_for_target("ollama/gemma4:31b") == "gemma4-31b"
     assert common.family_for_target("olla-local/gemma4:31b") == "gemma4-31b"
     assert (
-        common.family_for_target("openrouter-localish/google/gemma-4-31b-it")
+        common.family_for_target("olla-cloud/gemma-4-31b-it")
         == "gemma4-31b"
     )
     assert common.family_for_target("openai-codex/gpt-5.6-sol") == "gpt-5.6-sol"
     assert common.family_for_target("olla-cloud/glm-5.2") == "glm-5.2"
     assert (
-        common.family_for_target("openrouter-localish/deepseek/deepseek-v4-flash")
+        common.family_for_target("olla-cloud/deepseek-v4-flash")
         == "deepseek-v4-flash"
     )
     assert common.family_for_target("unknown/model") is None
 
 
 def test_local_proxy_derived_from_family(common):
-    proxy = common.proxy_for_target("ollama/gemma4:31b")
+    proxy = common.proxy_for_target("olla-local/gemma4:31b")
     assert proxy == {
-        "target": "openrouter-localish/google/gemma-4-31b-it",
+        "target": "olla-cloud/gemma-4-31b-it",
         "quality": "exact-family",
     }
 
     proxy = common.proxy_for_target("olla-local/qwen3:8b")
     assert proxy == {
-        "target": "openrouter-localish/qwen/qwen3.5-9b",
+        "target": "olla-cloud/qwen3.5-9b",
         "quality": "approximate-family",
     }
 
@@ -50,11 +49,13 @@ def test_subscription_opportunity_rates(common):
     assert rates["input"] == 3.0
     assert rates["output"] == 15.0
 
-    assert common.opportunity_rates("ollama/gemma4:31b") is None
+    rates = common.opportunity_rates("olla-local/gemma4:31b")
+    assert rates["input"] == 0.12
+    assert rates["output"] == 0.37
 
 
 def test_provider_gpu_watt_defaults(common):
-    assert common.provider_gpu_watts("ollama") == 34.2
+    assert common.provider_gpu_watts("ollama") is None
     assert common.provider_gpu_watts("olla-local") == 208.0
     assert common.provider_gpu_watts("olla-cloud") is None
 

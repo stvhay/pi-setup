@@ -13,7 +13,7 @@ bin/agnt tasks >/tmp/agnt-tasks.txt
 rg -n "orchestration|review|research" /tmp/agnt-tasks.txt >/dev/null
 
 bin/agnt tasks --models >/tmp/agnt-task-models.txt
-rg -n "openai-codex/gpt-5\.6-sol|openrouter-localish/google/gemma-4-31b-it|olla-cloud/gemini-flash" /tmp/agnt-task-models.txt >/dev/null
+rg -n "openai-codex/gpt-5\.6-sol|olla-cloud/gemma-4-31b-it|olla-cloud/gemini-flash" /tmp/agnt-task-models.txt >/dev/null
 
 bin/agnt invoke -h >/tmp/agnt-invoke-help.txt
 rg -n -- "--fanout|--list|--task|--no-metrics|--metrics-dir" /tmp/agnt-invoke-help.txt >/dev/null
@@ -68,7 +68,7 @@ assert abs(data['usage']['cost']['total'] - 0.000012) < 0.0000001, data['usage']
 PY
 rm -rf "$ASSUMED_COST_TMP"
 LOCAL_COST_TMP=$(mktemp -d)
-PATH="$FAKE_PI_DIR:$PATH" AGNT_LOCAL_GPU_WATTS=285 AGNT_ELECTRICITY_USD_PER_KWH=0.1304 bin/agnt invoke --metrics-dir "$LOCAL_COST_TMP" ollama/gemma4:31b 'hello' >/tmp/agnt-local-cost-stdout.txt
+PATH="$FAKE_PI_DIR:$PATH" AGNT_LOCAL_GPU_WATTS=285 AGNT_ELECTRICITY_USD_PER_KWH=0.1304 bin/agnt invoke --metrics-dir "$LOCAL_COST_TMP" olla-local/gemma4:31b 'hello' >/tmp/agnt-local-cost-stdout.txt
 python3 - <<PY
 import json, pathlib
 files = list(pathlib.Path('$LOCAL_COST_TMP').glob('*.metrics.json'))
@@ -77,7 +77,7 @@ data = json.loads(files[0].read_text())
 usage = data['usage']
 assert usage['costSource'] == 'local-free'
 assert usage['cost']['total'] == 0
-assert usage['opportunityCost']['source'] == 'openrouter-proxy'
+assert usage['opportunityCost']['source'] == 'metered-family-proxy'
 assert usage['localCompute']['electricityUsdPerKwh'] == 0.1304
 assert usage['localCompute']['gpuWatts'] == 285
 assert usage['localCompute']['gpuWattsSource'] == 'env:AGNT_LOCAL_GPU_WATTS'
@@ -116,9 +116,9 @@ bin/agnt soul "$SOUL_TMP/SOUL.md" | rg -n "Soul root|Soul supplement" >/dev/null
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP" "$SOUL_TMP"' EXIT
-mkdir -p "$TMP/AGENTS.d/models/openrouter-localish/google"
+mkdir -p "$TMP/AGENTS.d/models/olla-cloud"
 printf '# Root\n' > "$TMP/AGENTS.md"
-printf '# Provider context\n' > "$TMP/AGENTS.d/models/openrouter-localish.md"
-printf '# Nested model context\n' > "$TMP/AGENTS.d/models/openrouter-localish/google/gemma-4-31b-it.md"
-bin/agent-instructions "$TMP/AGENTS.md" --context openrouter-localish/google/gemma-4-31b-it > /tmp/agnt-nested-context.txt
+printf '# Provider context\n' > "$TMP/AGENTS.d/models/olla-cloud.md"
+printf '# Nested model context\n' > "$TMP/AGENTS.d/models/olla-cloud/gemma-4-31b-it.md"
+bin/agent-instructions "$TMP/AGENTS.md" --context olla-cloud/gemma-4-31b-it > /tmp/agnt-nested-context.txt
 rg -n "Provider context|Nested model context" /tmp/agnt-nested-context.txt >/dev/null

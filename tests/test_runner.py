@@ -188,7 +188,7 @@ def test_invoke_one_parses_json_stream_on_timeout(agnt, monkeypatch):
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
 
     code, out, err, record = agnt.invoke_one(
-        "openrouter-localish/google/gemma-4-31b-it",
+        "olla-cloud/gemma-4-31b-it",
         "prompt",
         metrics=True,
         task="review",
@@ -222,7 +222,7 @@ def test_invoke_one_fails_terminal_provider_error(agnt, monkeypatch):
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", lambda cmd, **kwargs: Proc())
 
     code, out, err, record = agnt.invoke_one(
-        "openrouter-localish/google/gemma-4-31b-it",
+        "olla-cloud/gemma-4-31b-it",
         "prompt",
         metrics=True,
         task="review",
@@ -264,7 +264,7 @@ def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(ag
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
 
     code, out, err, record = agnt.invoke_one(
-        "openrouter-localish/google/gemma-4-31b-it",
+        "olla-cloud/gemma-4-31b-it",
         "complete review packet",
         metrics=True,
         task="review",

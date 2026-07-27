@@ -22,7 +22,7 @@ Output the debate header:
 
 ### Step 2: Round 1 - Initial Positions
 
-Launch 4 parallel Pi peer calls (one per council member). Prefer a diverse model mix, e.g. `olla-cloud/gpt-4.1-mini`, `olla-cloud/gemini-flash`, `olla-local/qwen3:8b`, and `ollama/gemma4:31b`.
+Launch 4 parallel Pi peer calls (one per council member). Prefer a diverse model mix, e.g. `olla-cloud/gpt-4.1-mini`, `olla-cloud/gemini-flash`, `olla-local/qwen3:8b`, and `olla-local/gemma4:31b`.
 
 **Each peer prompt includes:**
 ```

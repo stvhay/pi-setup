@@ -27,10 +27,10 @@ At start, read shared conventions if needed:
 
 Use `agnt route --task review` rather than inventing a fanout. Review task policy currently uses:
 
-- **Fast cheap default:** `openrouter-localish/google/gemma-4-31b-it`.
-- **Zero-marginal fallback/control:** `ollama/gemma4:31b`.
+- **Fast cheap default:** `olla-cloud/gemma-4-31b-it`.
+- **Zero-marginal fallback/control:** `olla-local/gemma4:31b`.
 - **Coding-focused independent reviewer:** `olla-cloud/kimi-k2.7-code`, scoped and one-shot.
-- **Cheap challenger/boundary reviewer:** `openrouter-localish/deepseek/deepseek-v4-flash`.
+- **Cheap challenger/boundary reviewer:** `olla-cloud/deepseek-v4-flash`.
 - **Manual unresolved-critical escalation only:** `olla-cloud/kimi-k3`.
 
 Local repository evidence for OpenRouter Gemma is 43 invocations, $0.232 provider-reported total cost, 52-second median latency. Treat this as a local operating observation, not a universal benchmark. Gemma remains a diverse default; DeepSeek is measured as a challenger because code-generation benchmarks do not establish code-review quality.
@@ -127,7 +127,7 @@ Example:
 
 ```bash
 agnt invoke --one-shot --task review --risk-category medium \
-  openrouter-localish/google/gemma-4-31b-it \
+  olla-cloud/gemma-4-31b-it \
   "$ReviewDir/behavioral-packet.md" > "$ReviewDir/gemma-findings.json"
 
 agnt invoke --one-shot --task review --risk-category medium \

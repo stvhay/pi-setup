@@ -9,7 +9,6 @@ qualified:
   - olla-cloud/gpt-4.1-mini
   - claude-sonnet-4-6
 avoid:
-  - ollama/*
   - olla-local/*
 ---
 

@@ -73,6 +73,19 @@ def test_update_preserves_pi_managed_mutable_state(tmp_path):
     assert (agent / "models-store.json").read_text(encoding="utf-8") == models_store
 
 
+def test_update_preserves_machine_local_extensions(tmp_path):
+    dest = tmp_path / ".pi"
+    extension = dest / "agent" / "extensions" / "ollama.local.ts"
+    extension.parent.mkdir(parents=True)
+    content = "// machine-local provider\n"
+    extension.write_text(content, encoding="utf-8")
+
+    proc = run_update(dest)
+
+    assert proc.returncode == 0, proc.stderr
+    assert extension.read_text(encoding="utf-8") == content
+
+
 def test_update_preserves_langfuse_credentials(tmp_path):
     dest = tmp_path / ".pi"
     config = dest / "agent" / "pi-langfuse" / "config.json"

@@ -43,6 +43,7 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Prefer subscription-backed OpenAI/Codex or local models when capability is comparable; verify peer output against primary sources, files, and tests.
 - Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
+- Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.
 
 Do not push, merge, delete branches or beads, remove worktrees, rewrite history, change Beads remotes/history, or install hooks without explicit approval.
 

@@ -1,31 +1,28 @@
 // olla-provider.ts
 //
-// Registers up to three Pi providers:
-//   - ollama:     localhost ollama daemon (whatever you have locally pulled)
-//   - olla-local: optional remote ollama-compatible upstream
-//   - olla-cloud: optional remote OpenAI-compatible upstream
+// Registers two server-backed Pi providers:
+//   - olla-local: remote Ollama-compatible upstream
+//   - olla-cloud: remote OpenAI-compatible upstream
 //
-// Why split olla-local vs olla-cloud: /olla/openai/v1/models lists everything
-// (cloud + local mixed), but /olla/openai/v1/chat/completions only routes cloud
-// upstreams. Local-tagged ids 404 at chat time. /olla/ollama/v1 is the routable
-// surface for ollama models. Cloud-only = ids in /openai minus ids in /ollama.
+// Laptop-local Ollama is machine state, registered by an ignored
+// ~/.pi/agent/extensions/ollama.local.ts when wanted.
 //
-// localhost ollama is registered as a separate provider so heavy local models
-// (e.g. gemma4:31b) skip the network hop. Same model id may appear under both
-// `ollama` and `olla-local` — pick whichever via /model.
+// Olla exposes each upstream on its own stable path: /olla/ollama for Knuth's
+// local models and /olla/litellm for LiteLLM/OpenRouter cloud aliases.
 //
 // Loaded from ~/.pi/agent/extensions/ via jiti.
 
 const OLLA_HOST = (process.env.OLLA_HOST ?? "").replace(/\/$/, "");
 // baseUrl MUST include /v1 — Pi's openai-completions adapter does not append it.
-const CLOUD_BASE = OLLA_HOST ? `${OLLA_HOST}/olla/openai/v1` : null;
+const CLOUD_BASE = OLLA_HOST ? `${OLLA_HOST}/olla/litellm/v1` : null;
 const LOCAL_BASE = OLLA_HOST ? `${OLLA_HOST}/olla/ollama/v1` : null;
-const LOCALHOST_BASE = "http://localhost:11434/v1";
 
 const VISION_PATTERNS: RegExp[] = [
   /^claude-/,
   /^gpt-4\.1/,
   /^gemini-/,
+  /^gemma-4-31b-it(?::free)?$/,
+  /^qwen3\.5-9b$/,
   /^gemma3:/,
   /^gemma4:/,
   /^kimi-k(?:2\.7-code|3)$/,
@@ -41,7 +38,12 @@ const KNOWN_OLLA_CLOUD_MODEL_IDS = ["glm-5.2"];
 
 // Keep this conservative: Pi maps this to reasoning-effort compatibility, which
 // is not the same as a model having a native "thinking" capability in Ollama.
-const REASONING_PATTERNS: RegExp[] = [/^deepseek-r1/, /^glm-5\.2$/, /^kimi-k(?:2\.7-code|3)$/];
+const REASONING_PATTERNS: RegExp[] = [
+  /^deepseek-r1/,
+  /^deepseek-v4-(?:flash|pro)$/,
+  /^glm-5\.2$/,
+  /^kimi-k(?:2\.7-code|3)$/,
+];
 
 // Excluded from registration (not chat-capable through openai-completions).
 const SKIP_PATTERNS: RegExp[] = [
@@ -98,13 +100,23 @@ const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 
 const CLOUD_COSTS: Array<[RegExp, ModelCost]> = [
   [/^gpt-4\.1$/, { input: 2.0, output: 8.0, cacheRead: 0, cacheWrite: 0 }],
   [/^gpt-4\.1-mini$/, { input: 0.40, output: 1.60, cacheRead: 0, cacheWrite: 0 }],
+  [/^gemma-4-31b-it$/, { input: 0.12, output: 0.37, cacheRead: 0, cacheWrite: 0 }],
+  [/^qwen3\.5-9b$/, { input: 0.04, output: 0.15, cacheRead: 0, cacheWrite: 0 }],
+  [/^qwen3-coder-flash$/, { input: 0.195, output: 0.975, cacheRead: 0.039, cacheWrite: 0.24375 }],
+  [/^deepseek-v4-flash$/, { input: 0.0938, output: 0.1876, cacheRead: 0.01876, cacheWrite: 0 }],
+  [/^deepseek-v4-pro$/, { input: 0.435, output: 0.87, cacheRead: 0.003625, cacheWrite: 0 }],
 ];
 
-// Olla's /v1/models endpoint only returns ids, so keep a conservative metadata
-// table here. Prefer under-promising to Pi over advertising a giant context that
-// may be unusably slow or rejected by the upstream router.
+// Olla's /v1/models endpoint only returns ids, so keep verified upstream
+// context/output limits here.
 const CLOUD_METADATA: Array<[RegExp, ModelMetadata]> = [
   [/^gpt-4\.1(?:-mini)?$/, { contextWindow: 1047576, maxTokens: 32768 }],
+  [/^gemma-4-31b-it$/, { contextWindow: 262144, maxTokens: 262144 }],
+  [/^gemma-4-31b-it:free$/, { contextWindow: 262144, maxTokens: 32768 }],
+  [/^qwen3\.5-9b$/, { contextWindow: 262144, maxTokens: 262144 }],
+  [/^qwen3-coder-flash$/, { contextWindow: 1000000, maxTokens: 65536 }],
+  [/^deepseek-v4-flash$/, { contextWindow: 1048576, maxTokens: 393216 }],
+  [/^deepseek-v4-pro$/, { contextWindow: 1048576, maxTokens: 384000 }],
   [/^gemini-(?:pro|flash|flash-lite)$/, { contextWindow: 1048576, maxTokens: 65536 }],
   [/^claude-(?:sonnet|haiku)$/, { contextWindow: 200000, maxTokens: 16384 }],
   [/^deepseek-(?:r1|v3\.2)$/, { contextWindow: 128000, maxTokens: 16384 }],
@@ -114,18 +126,16 @@ const CLOUD_METADATA: Array<[RegExp, ModelMetadata]> = [
   [/^llama-3\.3-70b$/, { contextWindow: 128000, maxTokens: 8192 }],
 ];
 
-// Remote olla-local and localhost ollama. Values are model-native context where
-// known, with local-friendly output caps. Very large contexts are real for some
-// models but can be slow/VRAM hungry, especially on the 4070 Ti backend.
+// Remote olla-local values reflect Knuth runtime limits where configured.
 const OLLAMA_METADATA: Array<[RegExp, ModelMetadata]> = [
-  [/^gemma4:(?:31b|26b)$/, { contextWindow: 262144, maxTokens: 32768 }],
+  [/^gemma4:(?:31b|26b)$/, { contextWindow: 131072, maxTokens: 32768 }],
   [/^gemma4:e[24]b$/, { contextWindow: 131072, maxTokens: 32768 }],
   [/^gemma3:(?:12b|4b)$/, { contextWindow: 128000, maxTokens: 8192 }],
   [/^deepseek-coder-v2:16b$/, { contextWindow: 163840, maxTokens: 8192 }],
   [/^deepseek-r1:14b$/, { contextWindow: 131072, maxTokens: 8192 }],
   [/^llama3\.1:8b$/, { contextWindow: 131072, maxTokens: 8192 }],
   [/^qwen2\.5:14b$/, { contextWindow: 32768, maxTokens: 8192 }],
-  [/^qwen3:(?:8b|4b)$/, { contextWindow: 40960, maxTokens: 8192 }],
+  [/^qwen3:(?:8b|4b)$/, { contextWindow: 131072, maxTokens: 8192 }],
   [/^phi4:14b$/, { contextWindow: 16384, maxTokens: 8192 }],
   [/^granite3\.3-vision:2b$/, { contextWindow: 128000, maxTokens: 4096 }],
   [/^llava(?::13b|-llama3:8b)$/, { contextWindow: 4096, maxTokens: 2048 }],
@@ -167,6 +177,13 @@ function getCompat(id: string, reasoning: boolean) {
       thinkingFormat: "openrouter",
     };
   }
+  if (/^deepseek-(?:r1|v4-(?:flash|pro))$/.test(id)) {
+    return {
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+      thinkingFormat: "openrouter",
+    };
+  }
   if (id === "kimi-k2.7-code" || id === "kimi-k3") {
     return {
       supportsDeveloperRole: false,
@@ -183,10 +200,6 @@ function getCompat(id: string, reasoning: boolean) {
 function withKnownOllaCloudIds(ids: string[] | null): string[] | null {
   if (ids === null) return null;
   return [...new Set([...ids, ...KNOWN_OLLA_CLOUD_MODEL_IDS])];
-}
-
-function isKnownOllaCloudModel(id: string): boolean {
-  return KNOWN_OLLA_CLOUD_MODEL_IDS.includes(id);
 }
 
 export function buildModels(ids: string[], surface: ProviderSurface) {
@@ -219,34 +232,16 @@ export function buildModels(ids: string[], surface: ProviderSurface) {
 }
 
 export default async function olla(pi: any): Promise<void> {
-  const [cloudIdsRaw, localIdsRaw, hostIdsRaw] = await Promise.all([
+  const [cloudIdsRaw, localIdsRaw] = await Promise.all([
     fetchModelIds(CLOUD_BASE),
     fetchModelIds(LOCAL_BASE),
-    fetchModelIds(LOCALHOST_BASE),
   ]);
   const cloudIds = withKnownOllaCloudIds(cloudIdsRaw);
-  const localIds = localIdsRaw?.filter((id) => !isKnownOllaCloudModel(id)) ?? null;
-  const hostIds = hostIdsRaw?.filter((id) => !isKnownOllaCloudModel(id)) ?? null;
+  const localIds = localIdsRaw;
 
-  if (cloudIds === null && localIds === null && hostIds === null) {
-    pi.logger?.warn?.("olla-provider: no remote OLLA_HOST configured/reachable and localhost is unreachable — no providers registered");
+  if (cloudIds === null && localIds === null) {
+    pi.logger?.warn?.("olla-provider: OLLA_HOST is not configured or reachable — no providers registered");
     return;
-  }
-
-  if (hostIds && hostIds.length > 0) {
-    const { models, skipped } = buildModels(hostIds, "ollama");
-    if (models.length > 0) {
-      pi.registerProvider("ollama", {
-        baseUrl: LOCALHOST_BASE,
-        apiKey: "ollama",
-        api: "openai-completions",
-        authHeader: true,
-        models,
-      });
-      pi.logger?.info?.(
-        `olla-provider: ollama registered ${models.length} models from localhost (skipped ${skipped.length}: ${skipped.join(", ") || "none"})`,
-      );
-    }
   }
 
   if (localIds && localIds.length > 0) {
@@ -263,12 +258,8 @@ export default async function olla(pi: any): Promise<void> {
     );
   }
 
-  // Cloud-only = ids in /openai minus ids in /ollama (those route through litellm only).
-  const localSet = new Set(localIds ?? []);
-  const cloudOnlyIds = (cloudIds ?? []).filter((id) => isKnownOllaCloudModel(id) || !localSet.has(id));
-
-  if (cloudOnlyIds.length > 0) {
-    const { models, skipped } = buildModels(cloudOnlyIds, "cloud");
+  if (cloudIds && cloudIds.length > 0) {
+    const { models, skipped } = buildModels(cloudIds, "cloud");
     pi.registerProvider("olla-cloud", {
       baseUrl: CLOUD_BASE,
       apiKey: "olla",

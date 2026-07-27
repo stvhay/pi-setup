@@ -40,7 +40,7 @@ def run_route(tmp_path, store_lines):
 def test_negative_history_demotes_every_venue_of_family(tmp_path):
     rejected = [
         {
-            "target": "openrouter-localish/google/gemma-4-31b-it",
+            "target": "olla-cloud/gemma-4-31b-it",
             "family": "gemma4-31b",
             "outcome": "rejected",
         }
@@ -60,10 +60,10 @@ def test_negative_history_demotes_every_venue_of_family(tmp_path):
 
 def test_positive_history_does_not_demote(tmp_path):
     accepted = [
-        {"target": "ollama/gemma4:31b", "family": "gemma4-31b", "outcome": "accepted"}
+        {"target": "olla-local/gemma4:31b", "family": "gemma4-31b", "outcome": "accepted"}
         for _ in range(6)
     ]
     result = run_route(tmp_path, [{"records": accepted}])
     assert not any("demoted" in reason for reason in result["reasons"])
     hints = result["metricsHints"]
-    assert hints["openrouter-localish/google/gemma-4-31b-it"]["positive"] == 6
+    assert hints["olla-cloud/gemma-4-31b-it"]["positive"] == 6

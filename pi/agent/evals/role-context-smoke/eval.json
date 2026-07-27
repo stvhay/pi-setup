@@ -6,7 +6,7 @@
   "cases": [
     {
       "name": "code-reviewer-role",
-      "args": ["--role", "code-reviewer", "--context", "openrouter-localish/qwen/qwen3.5-9b"],
+      "args": ["--role", "code-reviewer", "--context", "olla-cloud/qwen3.5-9b"],
       "contains": ["# Role: code reviewer", "### Verdict: PASS | NEEDS_WORK | NOT_SURE", "# Project Instructions"]
     },
     {
@@ -21,7 +21,7 @@
     },
     {
       "name": "finding-discoverer-role",
-      "args": ["--role", "finding-discoverer", "--context", "openrouter-localish/google/gemma-4-31b-it"],
+      "args": ["--role", "finding-discoverer", "--context", "olla-cloud/gemma-4-31b-it"],
       "contains": ["# Role: finding discoverer", "specific failure scenario", "review-findings.schema.json", "# Model notes: gemma4-31b"]
     },
     {
@@ -31,12 +31,12 @@
     },
     {
       "name": "family-overlay-local-venue",
-      "args": ["--context", "ollama/gemma4:31b"],
+      "args": ["--context", "olla-local/gemma4:31b"],
       "contains": ["# Model notes: gemma4-31b (all venues)"]
     },
     {
       "name": "family-overlay-openrouter-venue",
-      "args": ["--context", "openrouter-localish/google/gemma-4-31b-it"],
+      "args": ["--context", "olla-cloud/gemma-4-31b-it"],
       "contains": ["# Model notes: gemma4-31b (all venues)"]
     },
     {

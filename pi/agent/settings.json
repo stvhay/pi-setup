@@ -12,16 +12,16 @@
     "olla-cloud/glm-5.2",
     "olla-cloud/kimi-k2.7-code",
     "olla-cloud/kimi-k3",
-    "ollama/gemma4:31b",
+    "olla-local/gemma4:31b",
     "olla-local/gemma4:e4b",
     "olla-local/qwen3:8b",
     "olla-local/deepseek-r1:14b",
-    "openrouter-localish/google/gemma-4-31b-it",
-    "openrouter-localish/google/gemma-4-31b-it:free",
-    "openrouter-localish/qwen/qwen3.5-9b",
-    "openrouter-localish/qwen/qwen3-coder-flash",
-    "openrouter-localish/deepseek/deepseek-v4-flash",
-    "openrouter-localish/deepseek/deepseek-v4-pro"
+    "olla-cloud/gemma-4-31b-it",
+    "olla-cloud/gemma-4-31b-it:free",
+    "olla-cloud/qwen3.5-9b",
+    "olla-cloud/qwen3-coder-flash",
+    "olla-cloud/deepseek-v4-flash",
+    "olla-cloud/deepseek-v4-pro"
   ],
   "packages": [
     "npm:pi-archimedes",

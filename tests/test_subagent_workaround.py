@@ -314,12 +314,12 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
           task: "inherited private task",
           exitCode: 0,
           usage: {{ input: 6, output: 3, cacheRead: 0, cacheWrite: 0, cost: 0.01, turns: 1 }},
-          model: "google/gemma-4-31b-it",
+          model: "gemma-4-31b-it",
           finalOutput: "inherited output",
           progressSummary: {{ toolCount: 0, tokens: 9, durationMs: 100 }},
         }}], progress: [] }},
         isError: false,
-      }}, {{ cwd, model: {{ provider: "openrouter-localish", id: "google/gemma-4-31b-it" }} }});
+      }}, {{ cwd, model: {{ provider: "olla-cloud", id: "gemma-4-31b-it" }} }});
 
       const namedInput = {{ agent: "configured-reviewer", task: "named private task", model: "olla-cloud/gpt-4.1-mini" }};
       await handlers.tool_call({{ toolName: "subagent", toolCallId: "named", input: namedInput }}, {{ cwd }});
@@ -362,7 +362,7 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       assert.equal(single.usage.cost.total, 0.12);
       assert.equal(records.find((record) => record.target === "olla-cloud/gemini-flash").workerElapsedMs, 500);
       assert.equal(records.find((record) => record.target === "olla-cloud/gpt-4.1-mini").workerElapsedMs, 700);
-      assert.ok(records.some((record) => record.target === "openrouter-localish/google/gemma-4-31b-it"));
+      assert.ok(records.some((record) => record.target === "olla-cloud/gemma-4-31b-it"));
 
       const serialized = JSON.stringify(records);
       for (const secret of [secretPrompt, secretOutput, "first private task", "second private task", "first private output", "second private output", "inherited private task", "inherited output"]) {{
