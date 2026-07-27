@@ -126,12 +126,9 @@ Upstream/config candidates:
 - model/provider configuration adjustments
 - eval cases for repeated failures
 
-For reusable Pi configuration lessons that should be aggregated across projects,
-optionally capture a redacted lesson:
-
-```bash
-agnt lessons capture --kind friction --area <area> --summary "<lesson>" --evidence "<redacted evidence>"
-```
+For cross-session patterns, use `agnt improve` separately. Keep private telemetry
+out of retrospectives and committed Beads; promote only generalized,
+human-approved findings.
 
 ## Step 4: Present analysis
 

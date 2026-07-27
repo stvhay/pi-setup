@@ -48,13 +48,6 @@ MAINTENANCE_MODES: Dict[str, Dict[str, Any]] = {
         "role": "verifier",
         "action": "review",
     },
-    "lessons-harvest": {
-        "label": "maintenance:lessons-harvest",
-        "title": "Maintenance: lessons harvest",
-        "routingTask": "research",
-        "role": "planner",
-        "action": "review",
-    },
 }
 
 DEFAULT_THRESHOLDS = {
@@ -65,7 +58,6 @@ DEFAULT_THRESHOLDS = {
     "contextWarnings": 3,
     "healthWarnings": 3,
     "healthFailures": 1,
-    "recordedSessions": 5,
 }
 
 
@@ -231,7 +223,6 @@ def _derive_signals(
         "contextWarnings": _summary_count(context_health_report, "warningCount"),
         "healthWarnings": _summary_count(health_report, "warningCount"),
         "healthFailures": _summary_count(health_report, "failureCount"),
-        "recordedSessions": sum(1 for run in runs if run.get("sessionRef") or run.get("transcriptRef")),
     }
 
 
@@ -286,8 +277,6 @@ def maintenance_due_report(
         candidates.append(_due_item("workflow-retro", "repeated human blockers reached workflow retrospective threshold", signals))
     if signals["contextWarnings"] >= limits["contextWarnings"] or signals["healthWarnings"] >= limits["healthWarnings"]:
         candidates.append(_due_item("context-health", "context or health warnings reached review threshold", signals))
-    if signals["recordedSessions"] >= limits["recordedSessions"]:
-        candidates.append(_due_item("lessons-harvest", "recorded worker sessions reached lessons-harvest threshold", signals))
 
     due: List[Dict[str, Any]] = []
     suppressed: List[Dict[str, Any]] = []

@@ -66,19 +66,14 @@ def test_maintenance_due_report_derives_signals_and_suppresses_open_duplicates(a
             "humanBlockers": 2,
             "contextWarnings": 1,
             "healthWarnings": 1,
-            "recordedSessions": 3,
         },
     )
 
     due_modes = {item["mode"] for item in report["due"]}
     suppressed_modes = {item["mode"] for item in report["suppressed"]}
     assert "design-review" in suppressed_modes
-    assert "architecture-review" in due_modes
-    assert "workflow-retro" in due_modes
-    assert "context-health" in due_modes
-    assert "lessons-harvest" in due_modes
+    assert due_modes == {"architecture-review", "simplification", "workflow-retro", "context-health"}
     assert report["signals"]["failedOrBlockedRuns"] == 2
-    assert report["signals"]["recordedSessions"] == 3
 
 
 def test_read_only_maintenance_specs_use_a_dispatchable_review_action(agnt):

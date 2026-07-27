@@ -42,7 +42,6 @@ from agnt_lib.health import *  # noqa: E402,F401,F403
 from agnt_lib.maintenance import *  # noqa: E402,F401,F403
 from agnt_lib.context_health import *  # noqa: E402,F401,F403
 from agnt_lib.doctor import *  # noqa: E402,F401,F403
-from agnt_lib.lessons import *  # noqa: E402,F401,F403
 from agnt_lib.langfuse import *  # noqa: E402,F401,F403
 from agnt_lib.improvement import *  # noqa: E402,F401,F403
 from agnt_lib import graphify as graphify_impl  # noqa: E402
@@ -107,7 +106,6 @@ def main(argv: List[str]) -> int:
         "gateway": "execute strict ticket gateway operations",
         "context-health": "check active context for stale terms and entropy signals",
         "doctor": "check local Pi/agnt operational readiness",
-        "lessons": "capture, sync, and triage lessons learned",
         "langfuse": "check or apply tracked evaluator configuration",
         "improve": "scan and review private improvement telemetry",
         "graphify": "run graphify knowledge-graph tooling",
@@ -158,8 +156,6 @@ def main(argv: List[str]) -> int:
         return cmd_context_health(rest)
     if command == "doctor":
         return cmd_doctor(rest)
-    if command == "lessons":
-        return cmd_lessons(rest)
     if command == "langfuse":
         return cmd_langfuse(rest)
     if command == "improve":

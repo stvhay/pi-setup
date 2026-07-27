@@ -209,24 +209,16 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
   - Warns on oversized unallowlisted skills and overlapping skill descriptions.
   - `--strict` exits nonzero when failures are found; warnings remain entropy signals.
 
-## Lessons
+## Private improvement review
 
-- `agnt lessons capture --summary TEXT [--kind KIND] [--area AREA] [--evidence TEXT] [--tag TAG ...] [--payload-json JSON] [--out FILE]`
-  - Appends one redacted JSONL lesson to the local inbox. Default: `~/.pi/lessons/inbox.jsonl` or `AGNT_LESSONS_INBOX`.
-  - Adds UUID, UTC date, hostname, project name, and project directory provenance.
+- `agnt improve scan [--since ISO] [--limit N] [--recheck] [--dry-run] [--json]`
+  - Reads a bounded Langfuse cohort and writes a private packet under `~/.pi/improvement/`; `--dry-run` writes nothing.
+- `agnt improve review REPORT DECISIONS [--apply] [--json]`
+  - Validates private review decisions. `--apply` writes idempotent private session markers; preview is default.
+- `agnt improve promote REPORT DECISIONS --finding ID [--apply] [--approval ID] [--json]`
+  - Renders an allowlisted public-safe Bead preview. `--apply` requires durable approval matching the exact preview.
 
-- `agnt lessons inbox [--file FILE] [--json]`
-  - Prints the local lessons inbox as JSONL or a JSON envelope.
-
-- `agnt lessons push [--url URL] [--file FILE] [--archive-dir DIR] [--dry-run]`
-  - Posts local JSONL to `${AGNT_LESSONS_URL}/lesson` or the supplied `--url`.
-  - Archives and clears pushed records only after a successful server response; preserves the inbox on failure.
-
-- `agnt lessons pull [--url URL] [--status STATUS] [--since ISO] [--project NAME] [--hostname NAME] [--limit N] [-o FILE]`
-  - Fetches `${AGNT_LESSONS_URL}/lessons` as JSONL. The current production server is `https://pi-lessons.st5ve.com`.
-
-- `agnt lessons triage [--file FILE] [--status new] [--draft-beads] [--create-beads]`
-  - Drafts Beads follow-up work from lessons. It creates Beads only with explicit `--create-beads`.
+Private telemetry, IDs, excerpts, URLs, user content, and absolute paths stay out of committed Beads.
 
 ## Knowledge graphs
 

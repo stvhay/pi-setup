@@ -37,7 +37,7 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Work directly in the current Pi session by default: inspect, edit tracked files, and run focused verification.
 - Before code changes in a repository with `.beads/`, confirm a Bead exists and inspect it with `bd show <id>`; use `bd prime` and `bd ready` for context and unblocked work.
 - Documentation-only and read-only work may proceed without a Bead unless project instructions say otherwise.
-- Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads, lessons, or tracked artifacts.
+- Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads or tracked artifacts.
 - Prefer exact paths and filesystem retrieval (`rg`, `find`, `git grep`, `git diff`, `read`) over large pasted context.
 - Delegate difficult or independent read-only analysis when useful. Route with `agnt route`, then call the `subagent` tool with `agent` omitted and the routed target as `model`; use its `tasks` array for parallel work. Reserve `agnt invoke --one-shot` for cold complete packets and headless execution.
 - Prefer subscription-backed OpenAI/Codex or local models when capability is comparable; verify peer output against primary sources, files, and tests.
@@ -74,7 +74,7 @@ Do not treat model-native knowledge or unverified peer URLs as sourced evidence.
 # Context and reusable learning
 
 - Query `graphify-out/graph.json` first for architecture/dependency work when present: `agnt graphify query "keyword"` or `agnt graphify explain "symbol"`; verify findings in source.
-- Capture reusable workflow/config lessons with `agnt lessons capture`; keep evidence concise and secret-free.
+- Review private telemetry with `agnt improve`; promote only sanitized, human-approved findings into Beads.
 - Shared workflow conventions live in hidden skill `~/.pi/agent/skills/dev-workflow-common/SKILL.md` and should be loaded only when another skill requests them.
 
 # Context packages

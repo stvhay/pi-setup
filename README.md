@@ -13,10 +13,10 @@ Review the tracked settings, provider assumptions, and model policy before deplo
 | Layer | What it provides |
 | --- | --- |
 | **Pi configuration** | Global instructions, settings, model/provider data, tasks, actions, skills, roles, extensions, packages, and evals under `pi/`. |
-| **`agnt` controls** | Model routing, context composition, peer invocation, evidence-backed review, operational health, metrics, lessons, and deterministic evals. |
+| **`agnt` controls** | Model routing, context composition, peer invocation, evidence-backed review, operational health, private improvement analysis, metrics, and deterministic evals. |
 | **Durable work and evidence** | Beads for work state, `.pi/plans/` for plans, runtime metrics for outcomes, and optional `.pi/runs/` bundles for replayable execution evidence. |
 | **Optional orchestration** | Manual artifact-backed dispatch, Beads-backed approvals, constrained gateways, and a project-local runner for scheduled or unusually strict work. |
-| **Feedback loop** | Runtime metrics and lessons inform reviewed, eval-gated changes to tracked routing, prompts, tools, and policy. Telemetry does not edit policy automatically. |
+| **Feedback loop** | Runtime metrics and private Langfuse reviews inform human-approved, eval-gated changes to tracked routing, prompts, tools, and policy. Telemetry does not edit policy automatically. |
 
 For the narrative overview, read [The agnt System](docs/AGNT-SYSTEM.md). For subsystem boundaries and data flow, read [Architecture](docs/ARCHITECTURE.md).
 
@@ -38,7 +38,7 @@ tracked pi/ policy ──deploy──▶ ~/.pi runtime
                                │             │
                          manual dispatch   optional runner
 
-runtime evidence and lessons ──review + eval──▶ tracked policy changes
+private runtime evidence ──review + approval + eval──▶ tracked policy changes
 ```
 
 Pi is the interactive runtime. `agnt` is a front controller around Pi, not a replacement for it. Manual `agnt runs` or `agnt work run` execution does not require the runner service; the service adds an explicitly started scheduling and executor boundary.
@@ -116,7 +116,6 @@ The default deployment does not start a runner or require structured run bundles
 
 - [Run Artifacts](docs/RUN-ARTIFACTS.md) documents manual `agnt runs` and `agnt work` invocation/result bundles under `.pi/runs/`.
 - [Project-Local Runner Service](docs/RUNNER-SERVICE.md) documents the explicitly started, loopback-only service for scheduling and executor lifecycle.
-- [Lesson Server](lesson-server/README.md) is an optional service for aggregating and triaging lessons captured by `agnt lessons`.
 - [Knowledge graphs](pi/agent/bin/README.md#knowledge-graphs) documents the optional Graphify integration and its explicit hook-management commands.
 - [Pi Config](pi/README.md#optional-service-endpoints) documents optional search and model-provider endpoints.
 
@@ -130,7 +129,6 @@ pi-setup/
 ├── docs/          # concepts, architecture, procedures, decisions, and audits
 ├── scripts/       # checks, deployment helpers, and behavioral evals
 ├── tests/         # pytest coverage for agnt/agent-instructions internals
-├── lesson-server/ # optional lesson aggregation and triage service
 ├── .beads/        # Beads work graph export/config; local DB ignored
 └── .pi/           # project-local plans/runs/scratch; not deployable config
 ```
@@ -148,14 +146,13 @@ pi-setup/
 - [The agnt System](docs/AGNT-SYSTEM.md) — problem, design thesis, primitives, lifecycle, safety model, feedback loop, and relationship to Pi.
 - [Architecture](docs/ARCHITECTURE.md) — implementation map for deployment, routing, invocation, context composition, evidence, quality gates, and safety gates.
 - [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) — design principles for tasks, skills, roles, prompts, tools, artifacts, and evals.
-- [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how metrics and lessons become reviewed, eval-gated policy changes.
+- [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how private telemetry and metrics become reviewed, approval-gated policy changes.
 
 ### Optional orchestration and services
 
 - [Run Artifacts](docs/RUN-ARTIFACTS.md) — invocation/result schemas and manual artifact-backed workflows.
 - [Project-Local Runner Service](docs/RUNNER-SERVICE.md) — service lifecycle, REST boundary, leases, drain, health, and security model.
 - [Orchestration Loop Decision](docs/ORCHESTRATION-LOOP.md) — rationale for direct work by default and optional strict orchestration.
-- [Lesson Server](lesson-server/README.md) — optional lesson aggregation and triage service.
 
 ### Decisions and historical evaluations
 

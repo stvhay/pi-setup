@@ -76,7 +76,7 @@ Metrics record best-effort model usage and outcomes. Code-review metrics can lin
 - `agnt eval` runs deterministic or model-backed checks.
 - `agnt doctor` checks local operational readiness before agents rely on tools, providers, Beads, Node, or project config.
 - `agnt context-health` checks active context for drift, unsafe weakening, and entropy signals.
-- `agnt lessons` captures, pushes, pulls, and triages reusable lessons learned as JSONL records.
+- `agnt improve` scans bounded private telemetry, records reviewed sessions, and promotes only approved public-safe findings.
 
 See the [agnt command reference](../pi/agent/bin/README.md) for syntax and examples.
 
@@ -146,11 +146,11 @@ The safety model is layered: user preferences, roles, skills, prompts, and model
 The system separates runtime telemetry from tracked policy:
 
 ```text
-capture metrics -> annotate outcomes -> consolidate summaries -> adjust routing/prompts -> eval -> commit policy
-capture lessons -> push to lesson server -> triage into Beads -> implement/eval -> commit policy
+metrics -> annotate -> consolidate -> adjust routing/prompts -> eval -> commit policy
+private telemetry -> scan -> review marker -> approved safe Bead -> implement/eval -> monitor
 ```
 
-Raw metrics, lesson inboxes, observational-memory ledgers, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals. Maintenance due signals are derived from Beads, git, `.pi/runs`, health reports, context-health warnings, and recorded session volume rather than hidden counters.
+Raw metrics, private improvement packets, observational-memory ledgers, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals. Maintenance due signals are derived from Beads, git, `.pi/runs`, health reports, and context-health warnings rather than hidden counters.
 
 This means the system can learn from observed model behavior while preserving an auditable source-of-truth boundary.
 

@@ -1,8 +1,8 @@
 # Self-Improvement Loop
 
-How this setup learns from its own model usage, for both **routing** (which
-model gets which task) and **prompts** (per-model instruction overlays). For
-broader workflow/context design principles, see
+How this setup learns from model usage while keeping private evidence out of
+tracked policy and Beads. It improves routing, prompts, tools, and monitoring.
+For broader workflow/context design principles, see
 [Self-Improvement Principles](SELF-IMPROVEMENT-PRINCIPLES.md).
 
 Principle: telemetry is runtime state; policy is config. Metrics live in
@@ -18,12 +18,14 @@ metrics justify changing:
 ## The loop
 
 ```text
-capture -> annotate -> consolidate -> route hints/demotion
-                                   -> overlay or task-policy edit -> eval -> commit
-Beads/git/runs/health/session signals -> maintenance due -> checkpoint bead -> evidence -> closeout
+metrics -> annotate -> consolidate -> route hints/demotion
+                              -> policy edit -> eval -> commit
+Langfuse sessions -> private scan -> human review -> private marker
+                  -> sanitized Bead -> implementation -> matched monitoring
+Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
 ```
 
-### 1. Capture (automatic metrics, deliberate lessons)
+### 1. Capture
 
 Every `agnt invoke` writes a metric record (model, family, task, tokens,
 cost, latency) to `<git-root>/.pi/metrics/invocations/`. Interactive Archimedes
@@ -32,25 +34,10 @@ observer. The observer stores usage, timing, and payload lengths—not prompt or
 response bodies. Named-profile results are skipped because Archimedes does not
 expose their final provider.
 
-Reusable workflow lessons are captured deliberately with `agnt lessons`:
-
-```bash
-agnt lessons capture \
-  --kind friction \
-  --area doctor \
-  --summary "Provider failure caused repeated tool retries" \
-  --evidence "provider env var was missing; agnt doctor would have caught it"
-```
-
-Lessons are JSONL runtime state, not tracked policy. The default local inbox is
-`~/.pi/lessons/inbox.jsonl` (`AGNT_LESSONS_INBOX` overrides). Records include a
-UUID, UTC date, hostname, project name, and project directory. Evidence is
-best-effort redacted before it is written.
-
-Worker sessions are recorded by default when dispatched by the runner. Session
-and transcript refs in `.pi/runs` are inspectable execution history. Observational
-memory can help recall long-session context, but important findings must be
-promoted into Beads, run evidence, or lessons before they affect durable policy.
+The Langfuse extension records private interactive telemetry. `agnt improve`
+reads bounded cohorts and writes private packets under `~/.pi/improvement/`.
+Worker session and transcript refs may help correlation, but private evidence
+stays outside git and committed Beads.
 
 ### 2. Annotate (the human/orchestrator signal)
 
@@ -92,18 +79,6 @@ Appends compact records to the global store
 this manually or from a locally installed hook when you want pending metrics to
 contribute to cross-project routing history.
 
-For lessons, push/pull through the lesson server:
-
-```bash
-export AGNT_LESSONS_URL=https://pi-lessons.st5ve.com
-agnt lessons push
-agnt lessons pull --status new -o /tmp/lessons.jsonl
-```
-
-The server exposes `POST /lesson` and `GET /lessons` and stores JSONL lessons.
-It is an aggregation point only; accepted lessons become auditable when they are
-triaged into Beads and implemented as tracked config/docs/tooling changes.
-
 ### 4. Routing feedback (automatic)
 
 `agnt route` aggregates outcome history **by model family** (so evidence from
@@ -118,21 +93,22 @@ policy edit: move the model in the relevant `tasks/*.md` frontmatter and
 commit with the evidence summarized in the message
 (`agnt metrics status` gives the aggregate).
 
-### 5. Lesson triage into Beads
-
-In this repository, turn useful lessons into Beads work instead of letting them
-remain chat-only observations:
+### 5. Private review and safe promotion
 
 ```bash
-agnt lessons pull --status new -o /tmp/lessons.jsonl
-agnt lessons triage --file /tmp/lessons.jsonl --draft-beads
-# after reviewing the drafts:
-agnt lessons triage --file /tmp/lessons.jsonl --create-beads
+agnt improve scan --since <ISO> --limit 5 --dry-run --json
+agnt improve scan --since <ISO> --limit 5 --json
+agnt improve review <report> <decisions>          # preview
+agnt improve review <report> <decisions> --apply  # private session markers
+agnt improve promote <report> <decisions> --finding <id>          # preview
+agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bead
 ```
 
-`--create-beads` is an explicit state mutation. It should only be used when the
-lesson is specific enough to become work with context, problem, suggested
-improvement, and evidence.
+`scan` uses bounded reads and skips sessions already reviewed under the current
+policy. `review --apply` writes idempotent private Langfuse markers. `promote`
+accepts only allowlisted, generalized text and requires durable approval of the
+exact preview before creating a committed Bead. Private trace IDs, URLs, user
+content, excerpts, and absolute paths never enter the Bead.
 
 ### 6. Maintenance cadence from durable signals
 
@@ -158,7 +134,6 @@ Maintenance labels include:
 - `maintenance:simplification`
 - `maintenance:workflow-retro`
 - `maintenance:context-health`
-- `maintenance:lessons-harvest`
 
 Read-only maintenance reviews use `action: maintenance` and may be auto-created
 by an idle runner. Simplification/refactor implementation beads use
@@ -166,14 +141,7 @@ by an idle runner. Simplification/refactor implementation beads use
 authorize edits. Close maintenance checkpoints like normal Beads: record evidence,
 represent follow-ups as Beads, and pass closeout checks.
 
-### 7. Lessons harvest from runs and sessions
-
-A lessons-harvest maintenance checkpoint reviews closed Beads, `.pi/runs`,
-recorded session/transcript refs, memory-summary refs, and optional
-observational-memory recall ids. It should extract reusable lessons or create
-follow-up Beads. It should not treat chat-only memory as canonical state.
-
-### 8. Prompt feedback (deliberate, eval-gated)
+### 7. Prompt feedback (deliberate, eval-gated)
 
 When a model family shows a repeatable behavioral failure:
 
@@ -201,7 +169,7 @@ discipline, from review smoke tests).
 
 ## Rules
 
-- Never tracked: metric records, the global store, raw session data, and observational-memory ledgers. Never deployed over: `~/.pi/metrics/` is rsync-excluded by the update script.
+- Never tracked: metric records, private improvement packets, raw session data, and observational-memory ledgers. Never deployed over: `~/.pi/metrics/` and `~/.pi/improvement/` are rsync-excluded by the update script.
 - Overlays specialize behavior; they must not weaken approval, verification,
   git, or security gates (`agent-instructions --check` scans for this).
 - Edit prompts in this repo and deploy; do not hand-edit deployed `~/.pi`

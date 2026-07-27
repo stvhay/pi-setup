@@ -26,6 +26,13 @@ def test_improve_command_is_advertised_and_dispatched(agnt, monkeypatch, capsys)
     assert seen == [["scan", "--dry-run"]]
 
 
+def test_legacy_learning_command_is_retired(agnt, capsys):
+    command = "les" + "sons"
+    assert agnt.main(["--help"]) == 0
+    assert command not in capsys.readouterr().out
+    assert agnt.main([command]) == 2
+
+
 def test_removed_session_importer_has_no_deployed_hook():
     assert not (BIN.parent.parent / ".githooks" / "pre-commit").exists()
 
