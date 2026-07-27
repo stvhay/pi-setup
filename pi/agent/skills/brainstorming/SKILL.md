@@ -17,7 +17,7 @@ At start, read shared conventions if needed:
 
 Do **not** implement, scaffold, create files, edit files, write code, or invoke implementation skills until you have presented a design and the user has approved it.
 
-Before approval, allowed tool use is read-only project discovery only: `read` and harmless `bash` inspection commands such as `pwd`, `find`, `rg`, `git status`, `git diff`, and `git log`. Do not use `write` or `edit` before approval.
+Before approval, filesystem and project-state access is read-only: use `read` and harmless `bash` inspection commands such as `pwd`, `find`, `rg`, `git status`, `git diff`, and `git log`. Do not use `write` or `edit` before approval. Transient `manage_todo_list` tracking is allowed because it does not mutate durable project state; use it without narrating tool-choice deliberation.
 
 In non-interactive / `--print` contexts, you usually cannot obtain real user approval. Therefore stop after presenting the design and approval question unless the prompt explicitly says approval has already been granted.
 

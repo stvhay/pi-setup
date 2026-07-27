@@ -89,6 +89,13 @@ def test_approved_implementation_defaults_through_local_commit():
     assert "implementation_honors_no_commit" in workflow_eval
 
 
+def test_brainstorming_distinguishes_transient_todos_from_durable_work_state():
+    brainstorming = (AGENT / "skills" / "brainstorming" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "Transient `manage_todo_list` tracking is allowed" in brainstorming
+    assert "Do not create or mutate Beads, issues, or PRs before design approval" in brainstorming
+
+
 def test_nested_skill_runtime_references_are_checked(tmp_path):
     skill_root = tmp_path / "skills" / "example"
     (skill_root / "references").mkdir(parents=True)
