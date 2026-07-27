@@ -84,33 +84,34 @@ def cmd_graphify(argv: List[str]) -> int:
 
 
 def main(argv: List[str]) -> int:
+    commands = {
+        "tasks": ("list task/model routing hints", cmd_tasks),
+        "invoke": ("invoke one or more Pi peer models", cmd_invoke),
+        "web-search": ("search the web", lambda args: run([str(BIN / "web-search"), *args])),
+        "web-fetch": ("fetch a URL", lambda args: run([str(BIN / "web-fetch"), *args])),
+        "instructions": ("generate layered instructions", cmd_instructions),
+        "soul": ("emit or validate communication preferences", cmd_soul),
+        "route": ("recommend a model for a task", cmd_route),
+        "recommend": ("alias for route", cmd_route),
+        "metrics": ("inspect and consolidate invocation metrics", cmd_metrics),
+        "review": ("validate and summarize structured review findings", cmd_review),
+        "eval": ("run filesystem-defined agnt evals", cmd_eval),
+        "prompt": ("inventory prompts and manage prompt pattern notes", cmd_prompt),
+        "action": ("list, validate, and render prompt/action templates", cmd_action),
+        "runs": ("create and validate invocation/result run artifacts", cmd_runs),
+        "work": ("inspect beads-backed ready work and dispatch/run artifacts", cmd_work),
+        "approvals": ("create and resolve Beads-backed questions/approval gates", cmd_approvals),
+        "gateway": ("execute strict ticket gateway operations", cmd_gateway),
+        "context-health": ("check active context for stale terms and entropy signals", cmd_context_health),
+        "doctor": ("check local Pi/agnt operational readiness", cmd_doctor),
+        "langfuse": ("check or apply tracked evaluator configuration", cmd_langfuse),
+        "improve": ("scan and review private improvement telemetry", cmd_improve),
+        "graphify": ("run graphify knowledge-graph tooling", cmd_graphify),
+        "plans-dir": ("print/create the active plans directory", lambda args: run([str(BIN / "pi-plans-dir"), *args])),
+    }
     parser = argparse.ArgumentParser(prog="agnt", description="Pi agent helper command surface.")
     sub = parser.add_subparsers(dest="command")
-    for name, help_text in {
-        "tasks": "list task/model routing hints",
-        "invoke": "invoke one or more Pi peer models",
-        "web-search": "search the web",
-        "web-fetch": "fetch a URL",
-        "instructions": "generate layered instructions",
-        "soul": "emit or validate communication preferences",
-        "route": "recommend a model for a task",
-        "recommend": "alias for route",
-        "metrics": "inspect and consolidate invocation metrics",
-        "review": "validate and summarize structured review findings",
-        "eval": "run filesystem-defined agnt evals",
-        "prompt": "inventory prompts and manage prompt pattern notes",
-        "action": "list, validate, and render prompt/action templates",
-        "runs": "create and validate invocation/result run artifacts",
-        "work": "inspect beads-backed ready work and dispatch/run artifacts",
-        "approvals": "create and resolve Beads-backed questions/approval gates",
-        "gateway": "execute strict ticket gateway operations",
-        "context-health": "check active context for stale terms and entropy signals",
-        "doctor": "check local Pi/agnt operational readiness",
-        "langfuse": "check or apply tracked evaluator configuration",
-        "improve": "scan and review private improvement telemetry",
-        "graphify": "run graphify knowledge-graph tooling",
-        "plans-dir": "print/create the active plans directory",
-    }.items():
+    for name, (help_text, _handler) in commands.items():
         sub.add_parser(name, help=help_text)
 
     if not argv:
@@ -120,50 +121,9 @@ def main(argv: List[str]) -> int:
     if command in {"-h", "--help"}:
         parser.print_help()
         return 0
-    if command == "tasks":
-        return cmd_tasks(rest)
-    if command == "invoke":
-        return cmd_invoke(rest)
-    if command == "web-search":
-        return run([str(BIN / "web-search"), *rest])
-    if command == "web-fetch":
-        return run([str(BIN / "web-fetch"), *rest])
-    if command == "instructions":
-        return cmd_instructions(rest)
-    if command == "soul":
-        return cmd_soul(rest)
-    if command in {"route", "recommend"}:
-        return cmd_route(rest)
-    if command == "metrics":
-        return cmd_metrics(rest)
-    if command == "review":
-        return cmd_review(rest)
-    if command == "eval":
-        return cmd_eval(rest)
-    if command == "prompt":
-        return cmd_prompt(rest)
-    if command == "action":
-        return cmd_action(rest)
-    if command == "runs":
-        return cmd_runs(rest)
-    if command == "work":
-        return cmd_work(rest)
-    if command == "approvals":
-        return cmd_approvals(rest)
-    if command == "gateway":
-        return cmd_gateway(rest)
-    if command == "context-health":
-        return cmd_context_health(rest)
-    if command == "doctor":
-        return cmd_doctor(rest)
-    if command == "langfuse":
-        return cmd_langfuse(rest)
-    if command == "improve":
-        return cmd_improve(rest)
-    if command == "graphify":
-        return cmd_graphify(rest)
-    if command == "plans-dir":
-        return run([str(BIN / "pi-plans-dir"), *rest])
+    entry = commands.get(command)
+    if entry:
+        return entry[1](rest)
     parser.print_help(sys.stderr)
     return 2
 
