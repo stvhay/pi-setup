@@ -117,8 +117,8 @@ task/risk/budget, JSON with explicit reasons and rejected candidates),
 no-tools `--one-shot` mode for complete packets), `review` (validate/summarize
 structured findings), `metrics` (status/annotate/consolidate), `eval`
 (filesystem-defined deterministic evals), `instructions`, `prompt`, `action`,
-`runs`, `work`, `approvals`, `gateway`, `web-search`/`web-fetch`, `plans-dir`,
-`risk`.
+`runs`, `work`, `approvals`, `gateway`, `web-search`/`web-fetch`, and
+`plans-dir`.
 
 Design constraint: `agnt` is a front controller, not the home for subsystem
 logic. Command implementations live under `pi/agent/bin/agnt_lib/` (`routing`,
