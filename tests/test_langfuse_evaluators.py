@@ -52,15 +52,10 @@ def test_manifest_contains_default_evaluators():
     subagent = rules["Subagent output quality — calibration (100%)"]
     assert outcome["sampling"] == 0.1
     assert subagent["sampling"] == 1
-    assert any(
-        item.get("column") == "sessionId" and item.get("operator") == "contains" and item.get("value") == ""
-        for item in outcome["filter"]
-    )
-    assert any(
-        item.get("column") == "metadata" and item.get("operator") == "=" and item.get("value") == ""
-        for item in subagent["filter"]
-    )
-    assert next(item for item in subagent["filter"] if item["column"] == "metadata")["key"] == "sessionId"
+    assert next(item for item in outcome["filter"] if item["column"] == "name")["value"] == ["interactive-result"]
+    assert not any(item.get("column") == "sessionId" for item in outcome["filter"])
+    assert next(item for item in subagent["filter"] if item["column"] == "name")["value"] == ["subagent-result"]
+    assert not any(item.get("column") in {"sessionId", "metadata"} for item in subagent["filter"])
 
 
 def test_check_is_silent_when_remote_matches(capsys):
@@ -105,5 +100,7 @@ def test_setup_applies_and_startup_checks_evaluators():
 
     assert '"$DEST/agent/bin/agnt" langfuse apply' in setup
     assert 'pi?.on("session_start"' in extension
+    assert 'resolve(getAgentDir(), "bin", "agnt")' in extension
     assert 'langfuse", "check", "--quiet"' in extension
+    assert 'pi.exec("agnt"' not in extension
     assert "Langfuse evaluator configuration is outdated" in extension

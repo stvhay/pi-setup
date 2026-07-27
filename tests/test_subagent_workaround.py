@@ -149,6 +149,107 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
     run_node(script)
 
 
+def test_interactive_results_emit_evaluator_ready_observations():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+      }});
+
+      const originalSocket = process.env.PI_SUBAGENT_SOCKET;
+      delete process.env.PI_SUBAGENT_SOCKET;
+      await handlers.before_agent_start({{ prompt: "Fix auth" }});
+      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Intermediate attempt" }}] }}] }});
+      assert.deepEqual(observations, []);
+      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Auth fixed" }}] }}] }});
+      await handlers.agent_settled({{}});
+      assert.deepEqual(observations, [{{
+        name: "interactive-result",
+        attributes: {{ input: "Fix auth", output: "Auth fixed" }},
+        options: {{ asType: "agent" }},
+      }}]);
+
+      process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
+      await handlers.before_agent_start({{ prompt: "Headless work" }});
+      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Done" }}] }}] }});
+      await handlers.agent_settled({{}});
+      delete process.env.PI_SUBAGENT_SOCKET;
+      await handlers.before_agent_start({{ prompt: "Fail visibly" }});
+      await handlers.agent_end({{ messages: [{{
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "403: OpenrouterException - Key limit exceeded (monthly limit): https://openrouter.ai/settings/keys?id=secret",
+      }}] }});
+      await handlers.agent_settled({{}});
+      assert.equal(observations[1].attributes.output, "upstream OpenRouter monthly limit exceeded (HTTP 403 via Olla)");
+      if (originalSocket === undefined) delete process.env.PI_SUBAGENT_SOCKET;
+      else process.env.PI_SUBAGENT_SOCKET = originalSocket;
+      assert.equal(observations.length, 2);
+    """
+    run_node(script)
+
+
+def test_subagent_results_emit_evaluator_ready_observations():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+      }});
+
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel",
+        input: {{ tasks: [
+          {{ task: "Review auth", model: "olla-cloud/gpt-4.1-mini" }},
+          {{ task: "Check tests", model: "openai-codex/gpt-5.6-luna" }},
+        ] }},
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "parallel", results: [
+          {{ task: "Review auth", model: "gpt-4.1-mini", exitCode: 0, finalOutput: "Auth review complete" }},
+          {{ task: "Check tests", model: "gpt-5.6-luna", exitCode: 1, error: "Provider unavailable" }},
+        ] }},
+        isError: false,
+      }}, {{ cwd: process.cwd(), model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
+
+      assert.deepEqual(observations, [
+        {{
+          name: "subagent-result",
+          attributes: {{
+            input: "Review auth",
+            output: "Auth review complete",
+            metadata: {{ index: 0, model: "gpt-4.1-mini", exitCode: 0 }},
+            level: "DEFAULT",
+          }},
+          options: {{ asType: "agent" }},
+        }},
+        {{
+          name: "subagent-result",
+          attributes: {{
+            input: "Check tests",
+            output: "Provider unavailable",
+            metadata: {{ index: 1, model: "gpt-5.6-luna", exitCode: 1 }},
+            level: "ERROR",
+          }},
+          options: {{ asType: "agent" }},
+        }},
+      ]);
+    """
+    run_node(script)
+
+
 def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
     script = f"""
       import assert from "node:assert/strict";

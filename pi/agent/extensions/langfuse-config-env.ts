@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -23,7 +23,7 @@ export default function langfuseConfigEnv(pi?: ExtensionAPI) {
 
   pi?.on("session_start", (event, ctx) => {
     if (event.reason !== "startup" || !ctx.hasUI) return;
-    void pi.exec("agnt", ["langfuse", "check", "--quiet"], { timeout: 5000 }).then(({ code }) => {
+    void pi.exec(resolve(getAgentDir(), "bin", "agnt"), ["langfuse", "check", "--quiet"], { timeout: 5000 }).then(({ code }) => {
       if (code === 1) ctx.ui.notify("Langfuse evaluator configuration is outdated; run `agnt langfuse apply`.", "warning");
     }).catch(() => {});
   });

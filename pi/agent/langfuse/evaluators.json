@@ -54,20 +54,8 @@
         {
           "column": "name",
           "operator": "any of",
-          "value": ["pi-agent"],
+          "value": ["interactive-result"],
           "type": "stringOptions"
-        },
-        {
-          "type": "null",
-          "column": "parentObservationId",
-          "operator": "is null",
-          "value": ""
-        },
-        {
-          "type": "string",
-          "column": "sessionId",
-          "operator": "contains",
-          "value": ""
         }
       ],
       "sampling": 0.1,
@@ -88,21 +76,8 @@
         {
           "column": "name",
           "operator": "any of",
-          "value": ["pi-agent"],
+          "value": ["subagent-result"],
           "type": "stringOptions"
-        },
-        {
-          "type": "null",
-          "column": "parentObservationId",
-          "operator": "is null",
-          "value": ""
-        },
-        {
-          "type": "stringObject",
-          "column": "metadata",
-          "key": "sessionId",
-          "operator": "=",
-          "value": ""
         }
       ],
       "sampling": 1,

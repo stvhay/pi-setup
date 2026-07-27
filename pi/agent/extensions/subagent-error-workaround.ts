@@ -1,7 +1,9 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, parse, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 type SubagentInput = {
   agent?: string;
@@ -32,6 +34,63 @@ type SubagentDetails = {
   results: SubagentResult[];
   progress?: unknown[];
 };
+
+type ObservationAttributes = {
+  input?: unknown;
+  output?: unknown;
+  metadata?: Record<string, unknown>;
+  level?: "DEFAULT" | "ERROR";
+};
+
+type Observe = (
+  name: string,
+  attributes: ObservationAttributes,
+  options: { asType: "agent" },
+) => void | Promise<void>;
+
+type Dependencies = { observe?: Observe };
+
+function assistantOutput(messages: unknown): unknown {
+  if (!Array.isArray(messages)) return undefined;
+  const message = messages.findLast((item) => item && typeof item === "object" && (item as { role?: string }).role === "assistant") as { content?: unknown; stopReason?: string; errorMessage?: string } | undefined;
+  if (message?.stopReason === "error") return providerError(message.errorMessage);
+  if (!Array.isArray(message?.content)) return message?.content;
+  const text = message.content
+    .map((item) => item && typeof item === "object" && (item as { type?: string; text?: string }).type === "text" ? (item as { text?: string }).text ?? "" : "")
+    .filter(Boolean)
+    .join("\n");
+  return text || undefined;
+}
+
+async function loadDefaultObserve(): Promise<Observe> {
+  const modules = join(getAgentDir(), "npm", "node_modules");
+  const [{ startObservation }, { redactValue }, { createCapturePolicy }] = await Promise.all([
+    import(pathToFileURL(join(modules, "@langfuse", "tracing", "dist", "index.mjs")).href),
+    import(pathToFileURL(join(modules, "pi-langfuse", "src", "redaction.ts")).href),
+    import(pathToFileURL(join(modules, "pi-langfuse", "src", "capture-policy.ts")).href),
+  ]);
+  return (name, attributes, options) => {
+    let saved: Record<string, unknown> = {};
+    try {
+      saved = JSON.parse(readFileSync(join(getAgentDir(), "pi-langfuse", "config.json"), "utf8"));
+    } catch {
+      // pi-langfuse owns missing/invalid config handling.
+    }
+    const capture = saved.capture && typeof saved.capture === "object" ? saved.capture as Record<string, string> : {};
+    const policy = createCapturePolicy({
+      ...capture,
+      ...(typeof saved.privacyPreset === "string" ? { LANGFUSE_PRIVACY_PRESET: saved.privacyPreset } : {}),
+      ...process.env,
+    });
+    const observation = startObservation(name, {
+      ...attributes,
+      input: policy.captureInputs ? redactValue(attributes.input) : undefined,
+      output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
+      metadata: redactValue(attributes.metadata),
+    }, options);
+    observation.end();
+  };
+}
 
 function providerError(message?: string): string {
   if (message && /OpenrouterException/i.test(message) && /Key limit exceeded \(monthly limit\)/i.test(message)) {
@@ -164,8 +223,40 @@ async function recordSubagentMetrics(
   }));
 }
 
-export default function subagentErrorWorkaround(pi: ExtensionAPI): void {
+export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: Dependencies = {}): void {
   const starts = new Map<string, number>();
+  let observe = dependencies.observe;
+  let observeLoad: Promise<Observe> | undefined;
+  const getObserve = () => observe
+    ? Promise.resolve(observe)
+    : (observeLoad ??= loadDefaultObserve().then((loaded) => (observe = loaded)));
+  let interactivePrompt: unknown;
+  let interactiveOutput: unknown;
+
+  pi.on("session_start", async () => {
+    if (!observe) await getObserve();
+  });
+
+  pi.on("before_agent_start", (event) => {
+    if (!process.env.PI_SUBAGENT_SOCKET) interactivePrompt = event.prompt;
+  });
+
+  pi.on("agent_end", (event) => {
+    if (!process.env.PI_SUBAGENT_SOCKET) interactiveOutput = assistantOutput(event.messages);
+  });
+
+  pi.on("agent_settled", async () => {
+    if (process.env.PI_SUBAGENT_SOCKET || interactivePrompt === undefined) return;
+    const input = interactivePrompt;
+    const output = interactiveOutput;
+    interactivePrompt = undefined;
+    interactiveOutput = undefined;
+    try {
+      await (await getObserve())("interactive-result", { input, output }, { asType: "agent" });
+    } catch (error) {
+      console.error("[langfuse-projection] could not record interactive result:", error);
+    }
+  });
 
   pi.on("message_end", (event) => {
     const message = event.message as { role?: string; provider?: string; model?: string; stopReason?: string; errorMessage?: string };
@@ -191,6 +282,21 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI): void {
     }
 
     const details = event.details as SubagentDetails | undefined;
+    if (details?.results?.length) {
+      await Promise.all(details.results.map(async (result, index) => {
+        const task = (event.input as SubagentInput).tasks?.[index]?.task ?? (event.input as SubagentInput).task ?? result.task;
+        try {
+          await (await getObserve())("subagent-result", {
+            input: task,
+            output: result.finalOutput ?? result.error,
+            metadata: { index, model: result.model, exitCode: result.exitCode ?? 1 },
+            level: result.exitCode === 0 ? "DEFAULT" : "ERROR",
+          }, { asType: "agent" });
+        } catch (error) {
+          console.error("[langfuse-projection] could not record subagent result:", error);
+        }
+      }));
+    }
     if (!details || !Array.isArray(details.results)) return;
     if (details.results.some((result) => result.exitCode !== 0)) return { isError: true };
     if (details.results.length > 0) return;
