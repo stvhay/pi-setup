@@ -95,7 +95,7 @@ Use available project-approved tooling; do not install a scanner solely to satis
 
 ```bash
 docker buildx build --check -f <Dockerfile> <context>
-docker image inspect --format '{{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}' <image>
+docker image inspect --format '{{json (index .Config "User")}} {{json (index .Config "Entrypoint")}} {{json (index .Config "Cmd")}}' <image>
 docker history <image>  # avoid --no-trunc; history can contain sensitive build arguments
 docker scout cves <image>          # when Docker Scout is configured
 docker scout policy <image>        # when organization policy exists

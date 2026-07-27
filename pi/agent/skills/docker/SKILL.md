@@ -81,7 +81,7 @@ Choose applicable checks; do not run every command by habit:
 docker compose config --quiet
 docker buildx build --check -f <Dockerfile> <context>
 docker buildx build --load -t <local-tag> -f <Dockerfile> <context>
-docker image inspect --format '{{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}' <local-tag>
+docker image inspect --format '{{json (index .Config "User")}} {{json (index .Config "Entrypoint")}} {{json (index .Config "Cmd")}}' <local-tag>
 docker compose up --wait <services>
 docker compose ps
 docker compose down                 # keeps named volumes

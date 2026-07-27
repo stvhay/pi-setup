@@ -87,7 +87,7 @@ docker buildx build --progress=plain --target <stage> -f <Dockerfile> <context>
 
 # Build local runtime image when daemon supports it.
 docker buildx build --load -t <tag> -f <Dockerfile> <context>
-docker image inspect --format '{{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}' <tag>
+docker image inspect --format '{{json (index .Config "User")}} {{json (index .Config "Entrypoint")}} {{json (index .Config "Cmd")}}' <tag>
 docker history <tag>  # avoid --no-trunc; history can contain sensitive build arguments
 
 # Optional tools only when already available or project requires them.
