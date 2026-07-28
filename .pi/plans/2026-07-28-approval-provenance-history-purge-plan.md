@@ -130,10 +130,12 @@ git fsck --full
 
 **Steps:**
 1. Restore the Dolt backup into a private rehearsal directory.
-2. Run `dolt filter-branch --all` with:
+2. After independently confirming `dolt status` is clean, run `dolt filter-branch --all --apply-to-uncommitted --continue` with:
    - `JSON_REMOVE(metadata, '$.pi.approval.requestingRun', '$.pi.approval.resolver.sessionId', '$.pi.humanApproval.resolver.sessionId')`
    - `REGEXP_REPLACE(description, '\nRequesting run: [^\n]*', '')`
-3. Verify every rewritten commit using `issues AS OF <commit>` queries.
+   - `--apply-to-uncommitted` is required by the rehearsed embedded-Dolt copy despite a clean status; do not use it unless the clean-status assertion passes immediately beforehand.
+   - `--continue` is required only because early commits predate the `issues` table; post-rewrite `AS OF` verification must still cover every commit that changed `issues`.
+3. Verify every rewritten `issues` commit using `issues AS OF <commit>` queries.
 4. Validate current data through `bd list` against the private copy and run `bd doctor` in read-only mode.
 5. Confirm content hashes/sync state are valid; stop if Dolt reports stale hashes or schema inconsistency.
 
@@ -145,6 +147,13 @@ dolt log -n 5 --oneline
 ```
 
 **Expected result:** Rehearsal history is clean and current Beads remain readable without schema/hash warnings.
+
+## Rehearsal evidence
+
+- Git rehearsal rewrote all clone refs, changed only `.beads/issues.jsonl`, scanned 173 reachable commits clean, passed 388 tests, and passed `git fsck --full`.
+- Dolt rehearsal used the exact documented flags above, scanned 1,602 commits that changed `issues` with zero unsafe records, passed `dolt fsck`, and ended clean.
+- Private sanitizer fixtures proved exact allowlisted removal, malformed-input failure, and idempotence.
+- Private Git bundle and Dolt archive were verified readable and remain mode 0600 outside the repository.
 
 ## Task 6: Request exact execution approval [Depends on: Tasks 4 and 5]
 
