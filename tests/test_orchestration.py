@@ -23,7 +23,7 @@ def valid_implement_metadata() -> dict:
             "routingTask": "implementation",
             "role": "implementation-worker",
             "approved": True,
-            "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui", "sessionId": "pi-session-1"}},
+            "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
             "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
             "risk": "medium",
             "budget": "balanced",

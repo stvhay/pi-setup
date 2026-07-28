@@ -168,11 +168,12 @@ def test_interactive_results_emit_evaluator_ready_observations():
       await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Intermediate attempt" }}] }}] }});
       assert.deepEqual(observations, []);
       await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Auth fixed" }}] }}] }});
-      await handlers.agent_settled({{}});
+      const ctx = {{ sessionManager: {{ getSessionFile() {{ return "/private/2026-07-28T00-00-00Z_private-session.jsonl"; }} }} }};
+      await handlers.agent_settled({{}}, ctx);
       assert.deepEqual(observations, [{{
         name: "interactive-result",
         attributes: {{ input: "Fix auth", output: "Auth fixed" }},
-        options: {{ asType: "agent" }},
+        options: {{ asType: "agent", sessionId: "2026-07-28T00-00-00Z_private-session" }},
       }}]);
 
       process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
@@ -192,6 +193,49 @@ def test_interactive_results_emit_evaluator_ready_observations():
       if (originalSocket === undefined) delete process.env.PI_SUBAGENT_SOCKET;
       else process.env.PI_SUBAGENT_SOCKET = originalSocket;
       assert.equal(observations.length, 2);
+    """
+    run_node(script)
+
+
+def test_interactive_results_emit_payload_free_tool_error_signals():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+      }});
+
+      delete process.env.PI_SUBAGENT_SOCKET;
+      const ctx = {{
+        cwd: process.cwd(),
+        sessionManager: {{ getSessionFile() {{ return "/private/private-session.jsonl"; }} }},
+      }};
+      await handlers.before_agent_start({{ prompt: "Run checks" }});
+      await handlers.tool_result({{
+        toolName: "bash", toolCallId: "red", input: {{ command: "SECRET failing test" }},
+        details: {{ exitCode: 1, cancelled: false }}, isError: true, content: [],
+      }}, ctx);
+      await handlers.tool_result({{
+        toolName: "bash", toolCallId: "green", input: {{ command: "SECRET failing test" }},
+        details: {{ exitCode: 0, cancelled: false }}, isError: false, content: [],
+      }}, ctx);
+      await handlers.tool_result({{
+        toolName: "bash", toolCallId: "timeout", input: {{ command: "SECRET timeout command" }},
+        details: {{ timedOut: true }}, isError: true, content: [],
+      }}, ctx);
+      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Done" }}] }}] }});
+      await handlers.agent_settled({{}}, ctx);
+
+      const signals = observations[0].attributes.metadata.toolErrorSignals;
+      assert.equal(signals.length, 2);
+      assert.deepEqual(signals.map((item) => item.classification).sort(), ["infrastructure", "recovered"]);
+      assert.equal(signals.every((item) => /^[0-9a-f]{{64}}$/.test(item.inputHash)), true);
+      assert.equal(JSON.stringify(signals).includes("SECRET"), false);
     """
     run_node(script)
 
@@ -222,7 +266,11 @@ def test_subagent_results_emit_evaluator_ready_observations():
           {{ task: "Check tests", model: "gpt-5.6-luna", exitCode: 1, error: "Provider unavailable" }},
         ] }},
         isError: false,
-      }}, {{ cwd: process.cwd(), model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
+      }}, {{
+        cwd: process.cwd(),
+        model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }},
+        sessionManager: {{ getSessionFile() {{ return "/private/private-session.jsonl"; }} }},
+      }});
 
       assert.deepEqual(observations, [
         {{
@@ -233,7 +281,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
             metadata: {{ index: 0, model: "gpt-4.1-mini", exitCode: 0 }},
             level: "DEFAULT",
           }},
-          options: {{ asType: "agent" }},
+          options: {{ asType: "agent", sessionId: "private-session" }},
         }},
         {{
           name: "subagent-result",
@@ -243,7 +291,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
             metadata: {{ index: 1, model: "gpt-5.6-luna", exitCode: 1 }},
             level: "ERROR",
           }},
-          options: {{ asType: "agent" }},
+          options: {{ asType: "agent", sessionId: "private-session" }},
         }},
       ]);
     """

@@ -78,7 +78,8 @@ def test_create_approval_request_creates_decision_blocks_target_and_updates_run_
     assert {"approval", "human", "human-gate", "beads-backed"}.issubset(labels)
     metadata = json.loads(create_call[create_call.index("--metadata") + 1])
     assert metadata["pi"]["approval"]["targetBead"] == "pi-work.1"
-    assert metadata["pi"]["approval"]["requestingRun"] == "approval-run"
+    assert "requestingRun" not in metadata["pi"]["approval"]
+    assert "approval-run" not in create_call[create_call.index("--description") + 1]
     assert metadata["pi"]["approval"]["default"] == "reject"
     assert metadata["pi"]["approval"]["preview"] == approval_preview()
     assert fake.calls[1] == ["dep", "pi-decision.1", "--blocks", "pi-work.1"]
@@ -161,7 +162,15 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
     updated_metadata = json.loads(update_call[update_call.index("--metadata") + 1])
     assert updated_metadata["pi"]["approval"]["status"] == "approved"
     assert updated_metadata["pi"]["approval"]["answer"] == "Approved for the stated write set."
-    assert updated_metadata["pi"]["approval"]["resolver"] == {"kind": "human-ui", "sessionId": "pi-session-1"}
+    assert updated_metadata["pi"]["approval"]["resolver"] == {"kind": "human-ui"}
+    assert "requestingRun" not in updated_metadata["pi"]["approval"]
+    target_update = next(call for call in fake.calls if call[:2] == ["update", "pi-work.1"])
+    target_metadata = json.loads(target_update[target_update.index("--metadata") + 1])
+    assert target_metadata["pi"]["humanApproval"] == {
+        "decisionBead": "pi-decision.1",
+        "resolver": {"kind": "human-ui"},
+    }
+    assert "pi-session-1" not in json.dumps(fake.calls)
     assert any(call[:2] == ["close", "pi-decision.1"] for call in fake.calls)
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert run_result["status"] == "succeeded"
@@ -227,6 +236,29 @@ def test_timeout_keeps_decision_bead_open_as_visible_blocker(agnt, tmp_path):
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert run_result["status"] == "blocked"
     assert run_result["decisionRefs"] == ["pi-decision.1"]
+
+
+def test_tracked_beads_have_public_safe_approval_provenance():
+    unsafe = []
+    for line in Path(".beads/issues.jsonl").read_text(encoding="utf-8").splitlines():
+        issue = json.loads(line)
+        metadata = issue.get("metadata") or {}
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata) if metadata.strip() else {}
+        pi = metadata.get("pi") if isinstance(metadata, dict) else None
+        if not isinstance(pi, dict):
+            continue
+        approval = pi.get("approval")
+        human_approval = pi.get("humanApproval")
+        if (
+            isinstance(approval, dict)
+            and ("requestingRun" in approval or "sessionId" in (approval.get("resolver") or {}))
+        ) or (
+            isinstance(human_approval, dict)
+            and "sessionId" in (human_approval.get("resolver") or {})
+        ):
+            unsafe.append(issue.get("id"))
+    assert unsafe == []
 
 
 def test_beads_ask_bridge_extension_registers_ticket_tools():

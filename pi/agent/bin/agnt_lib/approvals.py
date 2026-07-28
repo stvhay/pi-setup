@@ -87,7 +87,6 @@ def approval_request_payload(
         "schemaVersion": 1,
         "kind": kind,
         "targetBead": target,
-        "requestingRun": requesting_run,
         "question": prompt,
         "context": body_context,
         "options": choices,
@@ -109,7 +108,6 @@ def approval_request_payload(
         *[f"- {item}" for item in choices],
         "",
         f"Requested default: {chosen_default}",
-        f"Requesting run: {requesting_run or 'unknown'}",
         f"Target bead: {target}",
         "",
         "Approval preview:",
@@ -261,13 +259,14 @@ def resolve_beads_approval_request(
     metadata = _metadata_from_bead(shown)
     approval = _approval_from_metadata(metadata)
     kind = str(approval.get("kind") or "approval")
+    approval.pop("requestingRun", None)
     approval.update({
         "status": outcome,
         "answer": answer_text,
         "resolvedAt": utc_now(),
     })
     if resolver is not None:
-        approval["resolver"] = dict(resolver)
+        approval["resolver"] = {"kind": resolver["kind"]}
 
     note = f"Beads-backed {kind} resolved as {outcome}: {answer_text}"
     update_args = ["update", decision, "--metadata", _json_arg(metadata), "--append-notes", note]
@@ -287,7 +286,7 @@ def resolve_beads_approval_request(
         target_pi["approved"] = True
         target_pi["humanApproval"] = {
             "decisionBead": decision,
-            "resolver": dict(resolver or {}),
+            "resolver": {"kind": str((resolver or {}).get("kind") or "")},
         }
         target_update_code, target_update_data, target_update_err = beads_runner([
             "update", target_bead, "--metadata", _json_arg(target_metadata),

@@ -965,7 +965,7 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
                 "approved": True,
                 "humanApproval": {
                     "decisionBead": "pi-human.1",
-                    "resolver": {"kind": "human-ui", "sessionId": "pi-session-1"},
+                    "resolver": {"kind": "human-ui"},
                 },
                 "inputRefs": ["pi-predecessor.1", "shared-ref"],
                 "approvalRefs": ["pi-declared-approval.1"],
@@ -1013,7 +1013,7 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
     assert provenance["decisionRefs"] == ["pi-decision.1"]
     assert provenance["humanApproval"] == {
         "decisionBead": "pi-human.1",
-        "resolver": {"kind": "human-ui", "sessionId": "pi-session-1"},
+        "resolver": {"kind": "human-ui"},
     }
     assert provenance["continuation"]["predecessor"] == "pi-predecessor.1"
     assert provenance["requestedWorkerContext"]["role"] == "implementation-worker"
@@ -1075,7 +1075,7 @@ def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
                 "approved": True,
                 "humanApproval": {
                     "decisionBead": "pi-approval.3",
-                    "resolver": {"kind": "human-ui", "sessionId": "pi-session-3"},
+                    "resolver": {"kind": "human-ui"},
                 },
                 "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
                 "epicId": "pi-6yg",

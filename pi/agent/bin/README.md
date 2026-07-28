@@ -169,7 +169,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Creates a durable Beads decision/approval record, adds a blocking dependency to the target bead, and records approval/decision refs in the requesting run when supplied.
 
 - `agnt approvals resolve DECISION_ID --outcome approved|answered|rejected|cancelled|timed-out [--note TEXT]`
-  - Records the human outcome in Beads metadata/notes and updates run refs. Approved/answered decisions close the decision bead; rejected/cancelled/timed-out decisions keep visible blockers.
+  - Records the human outcome and public-safe UI resolver kind in Beads, never the private Pi session or requesting-run ID. Run refs remain in private run artifacts. Approved/answered decisions close the decision bead; rejected/cancelled/timed-out decisions keep visible blockers.
 
 - `agnt gateway --payload-json JSON`
   - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `request_approval`, `resolve_blocker`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields.
@@ -208,8 +208,10 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 
 ## Private improvement review
 
+- `agnt improve link BEAD [--json]`
+  - Idempotently links the current private Pi session to an exact public work-item ID; run after claiming interactive work. Runner sessions link automatically.
 - `agnt improve scan [--since ISO] [--limit N] [--recheck] [--dry-run] [--json]`
-  - Reads a bounded Langfuse cohort and writes a private packet under `~/.pi/improvement/`; `--dry-run` writes nothing.
+  - Reads a bounded Langfuse cohort and writes a private packet under `~/.pi/improvement/`; `--dry-run` writes nothing. Projected outcomes and payload-free tool-error signals join through the private session ID.
 - `agnt improve review REPORT DECISIONS [--apply] [--json]`
   - Validates private review decisions. `--apply` writes idempotent private session markers; preview is default.
 - `agnt improve promote REPORT DECISIONS --finding ID [--apply] [--approval ID] [--json]`

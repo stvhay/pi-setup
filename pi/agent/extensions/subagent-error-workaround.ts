@@ -48,8 +48,18 @@ type ObservationAttributes = {
 type Observe = (
   name: string,
   attributes: ObservationAttributes,
-  options: { asType: "agent" },
+  options: { asType: "agent"; sessionId?: string },
 ) => void | Promise<void>;
+
+type ToolErrorSignal = {
+  toolName: string;
+  inputHash: string;
+  count: number;
+  exitCode?: number;
+  cancelled: boolean;
+  timedOut: boolean;
+  recovered: boolean;
+};
 
 type Dependencies = { observe?: Observe };
 
@@ -67,7 +77,7 @@ function assistantOutput(messages: unknown): unknown {
 
 async function loadDefaultObserve(): Promise<Observe> {
   const modules = join(agentDir, "npm", "node_modules");
-  const [{ startObservation }, { redactValue }, { createCapturePolicy }] = await Promise.all([
+  const [{ startObservation, propagateAttributes }, { redactValue }, { createCapturePolicy }] = await Promise.all([
     import(pathToFileURL(join(modules, "@langfuse", "tracing", "dist", "index.mjs")).href),
     import(pathToFileURL(join(modules, "pi-langfuse", "src", "redaction.ts")).href),
     import(pathToFileURL(join(modules, "pi-langfuse", "src", "capture-policy.ts")).href),
@@ -85,14 +95,58 @@ async function loadDefaultObserve(): Promise<Observe> {
       ...(typeof saved.privacyPreset === "string" ? { LANGFUSE_PRIVACY_PRESET: saved.privacyPreset } : {}),
       ...process.env,
     });
-    const observation = startObservation(name, {
-      ...attributes,
-      input: policy.captureInputs ? redactValue(attributes.input) : undefined,
-      output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
-      metadata: redactValue(attributes.metadata),
-    }, options);
-    observation.end();
+    const record = () => {
+      const observation = startObservation(name, {
+        ...attributes,
+        input: policy.captureInputs ? redactValue(attributes.input) : undefined,
+        output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
+        metadata: redactValue(attributes.metadata),
+      }, { asType: options.asType });
+      observation.end();
+    };
+    return options.sessionId
+      ? propagateAttributes({ sessionId: options.sessionId }, record)
+      : record();
   };
+}
+
+function langfuseSessionId(ctx?: ExtensionContext): string | undefined {
+  const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+  return sessionFile ? parse(sessionFile).name : undefined;
+}
+
+function toolSignalKey(event: { toolName: string; input: Record<string, unknown> }): string {
+  return createHash("sha256").update(`${event.toolName}|${JSON.stringify(event.input)}`).digest("hex");
+}
+
+function recordToolSignal(
+  signals: Map<string, ToolErrorSignal>,
+  event: { toolName: string; input: Record<string, unknown>; details?: unknown; isError?: boolean },
+): void {
+  const key = toolSignalKey(event);
+  const existing = signals.get(key);
+  if (!event.isError) {
+    if (existing) existing.recovered = true;
+    return;
+  }
+  const details = event.details && typeof event.details === "object" ? event.details as Record<string, unknown> : {};
+  const exitCode = typeof details.exitCode === "number" ? details.exitCode : undefined;
+  signals.set(key, {
+    toolName: event.toolName,
+    inputHash: key,
+    count: (existing?.count ?? 0) + 1,
+    ...(exitCode === undefined ? {} : { exitCode }),
+    cancelled: Boolean(details.cancelled),
+    timedOut: Boolean(details.timedOut),
+    recovered: existing?.recovered ?? false,
+  });
+}
+
+function serializedToolSignals(signals: Map<string, ToolErrorSignal>): Array<Record<string, unknown>> {
+  return [...signals.values()].map((signal) => ({
+    ...signal,
+    classification: signal.recovered ? "recovered" : signal.timedOut ? "infrastructure" : "unknown",
+  }));
 }
 
 function providerError(message?: string): string {
@@ -235,27 +289,37 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     : (observeLoad ??= loadDefaultObserve().then((loaded) => (observe = loaded)));
   let interactivePrompt: unknown;
   let interactiveOutput: unknown;
+  const interactiveToolSignals = new Map<string, ToolErrorSignal>();
 
   pi.on("session_start", async () => {
     if (!observe) await getObserve();
   });
 
   pi.on("before_agent_start", (event) => {
-    if (!process.env.PI_SUBAGENT_SOCKET) interactivePrompt = event.prompt;
+    if (!process.env.PI_SUBAGENT_SOCKET) {
+      interactivePrompt = event.prompt;
+      interactiveToolSignals.clear();
+    }
   });
 
   pi.on("agent_end", (event) => {
     if (!process.env.PI_SUBAGENT_SOCKET) interactiveOutput = assistantOutput(event.messages);
   });
 
-  pi.on("agent_settled", async () => {
+  pi.on("agent_settled", async (_event, ctx) => {
     if (process.env.PI_SUBAGENT_SOCKET || interactivePrompt === undefined) return;
     const input = interactivePrompt;
     const output = interactiveOutput;
+    const toolErrorSignals = serializedToolSignals(interactiveToolSignals);
     interactivePrompt = undefined;
     interactiveOutput = undefined;
+    interactiveToolSignals.clear();
     try {
-      await (await getObserve())("interactive-result", { input, output }, { asType: "agent" });
+      await (await getObserve())("interactive-result", {
+        input,
+        output,
+        ...(toolErrorSignals.length ? { metadata: { toolErrorSignals } } : {}),
+      }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
     } catch (error) {
       console.error("[langfuse-projection] could not record interactive result:", error);
     }
@@ -274,6 +338,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
   });
 
   pi.on("tool_result", async (event, ctx) => {
+    if (!process.env.PI_SUBAGENT_SOCKET) recordToolSignal(interactiveToolSignals, event);
     if (event.toolName !== "subagent") return;
 
     const startedMs = starts.get(event.toolCallId) ?? Date.now();
@@ -294,7 +359,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
             output: result.finalOutput ?? result.error,
             metadata: { index, model: result.model, exitCode: result.exitCode ?? 1 },
             level: result.exitCode === 0 ? "DEFAULT" : "ERROR",
-          }, { asType: "agent" });
+          }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
         } catch (error) {
           console.error("[langfuse-projection] could not record subagent result:", error);
         }

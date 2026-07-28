@@ -34,10 +34,13 @@ observer. The observer stores usage, timing, and payload lengths—not prompt or
 response bodies. Named-profile results are skipped because Archimedes does not
 expose their final provider.
 
-The Langfuse extension records private interactive telemetry. `agnt improve`
-reads bounded cohorts and writes private packets under `~/.pi/improvement/`.
-Worker session and transcript refs may help correlation, but private evidence
-stays outside git and committed Beads.
+The Langfuse extension records private interactive telemetry. Evaluator-ready
+result projections share the Pi session ID, allowing sampled outcome scores to
+join the root agent trace without heuristic matching. `agnt improve` reads
+bounded cohorts and writes private packets under `~/.pi/improvement/`.
+Runner sessions correlate from run bundles; interactive work must call
+`agnt improve link <bead>` after claim. Private evidence stays outside git and
+committed Beads.
 
 ### 2. Annotate (the human/orchestrator signal)
 
@@ -96,6 +99,7 @@ commit with the evidence summarized in the message
 ### 5. Private review and safe promotion
 
 ```bash
+agnt improve link <bead>                                  # current private session
 agnt improve scan --since <ISO> --limit 5 --dry-run --json
 agnt improve scan --since <ISO> --limit 5 --json
 agnt improve review <report> <decisions>          # preview
@@ -104,8 +108,10 @@ agnt improve promote <report> <decisions> --finding <id>          # preview
 agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bead
 ```
 
-`scan` uses bounded reads and skips sessions already reviewed under the current
-policy. `review --apply` writes idempotent private Langfuse markers. `promote`
+`link` writes an idempotent private session score containing only the public
+work-item ID. `scan` uses bounded reads, exact links, payload-free tool-error
+signals, and skips sessions already reviewed under the current policy.
+`review --apply` writes idempotent private Langfuse markers. `promote`
 accepts only allowlisted, generalized text and requires durable approval of the
 exact preview before creating a committed Bead. Private trace IDs, URLs, user
 content, excerpts, and absolute paths never enter the Bead.

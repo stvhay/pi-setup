@@ -72,7 +72,7 @@ def test_dispatch_plan_uses_metadata_action_before_title_heuristics(agnt):
                 "action": "implement",
                 "routingTask": "implementation",
                 "approved": True,
-                "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui", "sessionId": "pi-session-1"}},
+                "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
                 "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
                 "epicId": "pi-epic",
                 "worktreePolicy": "epic-worktree",

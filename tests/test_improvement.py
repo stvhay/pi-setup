@@ -462,6 +462,88 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
     assert session["features"]["errorSignatures"][0]["count"] == 1
 
 
+def test_scan_joins_projected_outcomes_and_payload_free_error_signals(tmp_path):
+    session_id = "interactive-session"
+    root = _private_trace(session_id, "root-trace")
+    projection = _private_trace(session_id, "projection-trace")
+    projection["metadata"] = {}
+    signals = [{
+        "toolName": "bash",
+        "inputHash": "a" * 64,
+        "count": 1,
+        "exitCode": 1,
+        "cancelled": False,
+        "timedOut": False,
+        "classification": "recovered",
+    }]
+    client = FakeScanClient(
+        [root, projection],
+        {
+            "root-trace": _private_observations(),
+            "projection-trace": [{
+                "id": "projection-observation",
+                "type": "AGENT",
+                "name": "interactive-result",
+                "metadata": {"toolErrorSignals": signals},
+            }],
+        },
+        trace_scores={
+            "projection-trace": [{
+                "name": "Apparent task outcome",
+                "value": "success",
+                "source": "EVAL",
+                "subject": {"kind": "trace", "id": "projection-trace"},
+            }],
+        },
+    )
+
+    _, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    features = packet["sessions"][0]["features"]
+    assert features["finalOutcome"] == "success"
+    assert features["toolErrorSignals"] == signals
+    assert "missing-outcome" not in features["captureGaps"]
+
+
+def test_scan_uses_explicit_private_work_item_link(tmp_path):
+    class LinkedClient(FakeScanClient):
+        def list_scores(self, **kwargs):
+            if kwargs.get("name") == improvement.WORK_LINK_SCORE:
+                return [{
+                    "value": "linked",
+                    "metadata": {"schemaVersion": 1, "beadId": "pi-work.1"},
+                    "subject": {"kind": "session", "id": kwargs["session_id"]},
+                }]
+            return super().list_scores(**kwargs)
+
+    client = LinkedClient(
+        [_private_trace("interactive-session", "private-trace")],
+        {"private-trace": _private_observations()},
+    )
+
+    _, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    assert packet["sessions"][0]["correlation"] == {"status": "linked", "beadId": "pi-work.1"}
+
+
 def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
     reviewed = _private_trace("reviewed-session", "reviewed-trace")
     eligible = _private_trace("eligible-session", "eligible-trace")
@@ -520,6 +602,38 @@ def test_scan_rechecks_stale_review_policy_markers(tmp_path):
     assert summary["eligibleSessions"] == 1
     assert summary["reviewedSessionsSkipped"] == 0
     assert packet["sessions"][0]["sessionId"] == "stale-session"
+
+
+def test_scan_score_markers_are_bounded_from_pi_session_start(tmp_path):
+    class QueryClient(FakeScanClient):
+        def __init__(self, traces, observations):
+            super().__init__(traces, observations)
+            self.score_queries = []
+
+        def list_scores(self, **kwargs):
+            self.score_queries.append(kwargs)
+            return super().list_scores(**kwargs)
+
+    session_id = "2026-07-26T12-00-00-000Z_private-session"
+    client = QueryClient(
+        [_private_trace(session_id, "private-trace")],
+        {"private-trace": _private_observations()},
+    )
+
+    improvement.scan_sessions(
+        client,
+        since="2026-07-27T00:00:00Z",
+        until="2026-07-28T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    session_queries = [query for query in client.score_queries if query.get("session_id") == session_id]
+    assert len(session_queries) == 2
+    assert {query["from_timestamp"] for query in session_queries} == {"2026-07-26T12:00:00Z"}
 
 
 def test_scan_checks_multiple_review_markers_for_current_policy(tmp_path):
@@ -866,7 +980,7 @@ def _approved_preview(preview):
                 "approval": {
                     "kind": "approval",
                     "status": "approved",
-                    "resolver": {"kind": "human-ui", "sessionId": "interactive-human"},
+                    "resolver": {"kind": "human-ui"},
                     "preview": preview,
                 },
             },
@@ -1294,6 +1408,26 @@ def test_improve_promote_cli_previews_without_remote_clients(monkeypatch, tmp_pa
     assert json.loads(output)["status"] == "preview"
     for private in ("private-session", "private-trace", "finding-0123456789ab", "private-model"):
         assert private not in output
+
+
+def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, tmp_path, capsys):
+    client = FakeReviewClient()
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setenv("PI_SESSION_FILE", str(tmp_path / "2026-07-28T00-00-00Z_private-session.jsonl"))
+
+    result = improvement.cmd_improve(["link", "pi-work.1", "--json"])
+
+    assert result == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "beadId": "pi-work.1",
+        "schemaVersion": 1,
+        "status": "linked",
+    }
+    assert len(client.calls) == 1
+    assert client.calls[0]["session_id"] == "2026-07-28T00-00-00Z_private-session"
+    assert client.calls[0]["name"] == improvement.WORK_LINK_SCORE
+    assert client.calls[0]["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
 
 
 def test_improve_scan_cli_emits_safe_json_only(monkeypatch, tmp_path, capsys):

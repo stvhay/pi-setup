@@ -274,10 +274,7 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         isinstance(human_approval, dict)
         and isinstance(human_approval.get("decisionBead"), str)
         and bool(human_approval["decisionBead"].strip())
-        and isinstance(human_approval.get("resolver"), dict)
-        and human_approval["resolver"].get("kind") == "human-ui"
-        and isinstance(human_approval["resolver"].get("sessionId"), str)
-        and bool(human_approval["resolver"]["sessionId"].strip())
+        and human_approval.get("resolver") == {"kind": "human-ui"}
     )
     epic_id = pi_meta.get("epicId")
     worktree_policy = pi_meta.get("worktreePolicy")

@@ -23,6 +23,7 @@ from .metrics import git_root
 from .runs import default_runs_dir
 
 REVIEW_SCORE = "improvement_review_status"
+WORK_LINK_SCORE = "improvement_work_item"
 REVIEW_POLICY_VERSION = "v1"
 TRACE_LIMIT_MULTIPLIER = 10
 MAX_TRACE_READ = 500
@@ -115,6 +116,40 @@ def _sum_trace_metadata(traces: list[dict[str, Any]], key: str) -> tuple[int, bo
         if isinstance(metadata, dict) and key in metadata:
             values.append(_int(metadata[key]))
     return sum(values), bool(values)
+
+
+def _tool_error_signals(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    signals = []
+    for observation in observations:
+        metadata = observation.get("metadata")
+        raw_signals = metadata.get("toolErrorSignals") if isinstance(metadata, dict) else None
+        if not isinstance(raw_signals, list):
+            continue
+        for raw in raw_signals:
+            if not isinstance(raw, dict):
+                continue
+            tool_name = raw.get("toolName")
+            input_hash = raw.get("inputHash")
+            classification = raw.get("classification")
+            if (
+                not isinstance(tool_name, str)
+                or not isinstance(input_hash, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", input_hash)
+                or classification not in {"infrastructure", "recovered", "unknown"}
+            ):
+                continue
+            signal = {
+                "toolName": tool_name,
+                "inputHash": input_hash,
+                "count": _int(raw.get("count")),
+                "cancelled": bool(raw.get("cancelled")),
+                "timedOut": bool(raw.get("timedOut")),
+                "classification": classification,
+            }
+            if isinstance(raw.get("exitCode"), int):
+                signal["exitCode"] = raw["exitCode"]
+            signals.append(signal)
+    return signals
 
 
 def _features(
@@ -229,29 +264,56 @@ def _features(
         "evaluatorOutcomes": evaluator_outcomes,
         "evaluatorTimeouts": evaluator_timeouts,
         "errorSignatures": [{"hash": key, "count": count} for key, count in sorted(signatures.items())],
+        "toolErrorSignals": _tool_error_signals(observations),
         "captureGaps": capture_gaps,
     }
 
 
-def _correlate(session_id: str, runs_dir: Path) -> dict[str, Any]:
-    if not session_id.startswith("run-"):
-        return {"status": "unlinked"}
-    run_id = session_id[4:]
-    if not run_id or run_id in {".", ".."} or "/" in run_id or "\\" in run_id:
-        return {"status": "unlinked"}
-    bundle = runs_dir / run_id
-    try:
-        invocation = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"status": "unlinked"}
-    if not isinstance(invocation, dict) or invocation.get("id") != run_id:
-        return {"status": "unlinked"}
-    return {
-        "status": "linked",
-        "runId": run_id,
-        "beadId": invocation.get("bead"),
-        "bundle": str(bundle),
-    }
+def _correlate(session_id: str, runs_dir: Path, scores: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    if session_id.startswith("run-"):
+        run_id = session_id[4:]
+        if run_id and run_id not in {".", ".."} and "/" not in run_id and "\\" not in run_id:
+            bundle = runs_dir / run_id
+            try:
+                invocation = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                invocation = None
+            if isinstance(invocation, dict) and invocation.get("id") == run_id:
+                return {
+                    "status": "linked",
+                    "runId": run_id,
+                    "beadId": invocation.get("bead"),
+                    "bundle": str(bundle),
+                }
+    for score in scores or []:
+        metadata = score.get("metadata")
+        bead_id = metadata.get("beadId") if isinstance(metadata, dict) else None
+        if score.get("value") == "linked" and isinstance(bead_id, str) and BEAD_ID.fullmatch(bead_id):
+            return {"status": "linked", "beadId": bead_id}
+    return {"status": "unlinked"}
+
+
+def _work_link_score_id(session_id: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"urn:agnt:improvement-work-item:{session_id}"))
+
+
+def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: Any) -> dict[str, Any]:
+    if not session_id or len(session_id) > 200:
+        raise ValueError("current Pi session is unavailable")
+    if not BEAD_ID.fullmatch(bead_id):
+        raise ValueError("bead ID is malformed")
+    code, _data, _error = beads_runner(["show", bead_id])
+    if code != 0:
+        raise ValueError("could not load work item")
+    client.put_session_score(
+        score_id=_work_link_score_id(session_id),
+        session_id=session_id,
+        name=WORK_LINK_SCORE,
+        value="linked",
+        data_type="CATEGORICAL",
+        metadata={"schemaVersion": 1, "beadId": bead_id},
+    )
+    return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
 
 
 def _write_private_json(output_dir: Path, filename: str, value: dict[str, Any]) -> Path:
@@ -558,10 +620,7 @@ def _has_exact_human_approval(approval: Any, expected: dict[str, str]) -> bool:
     return (
         value.get("kind") == "approval"
         and value.get("status") == "approved"
-        and isinstance(resolver, dict)
-        and resolver.get("kind") == "human-ui"
-        and isinstance(resolver.get("sessionId"), str)
-        and bool(resolver["sessionId"].strip())
+        and resolver == {"kind": "human-ui"}
         and value.get("preview") == expected
     )
 
@@ -763,6 +822,18 @@ def promote_finding(
         )
 
 
+def _session_score_since(session_id: str, fallback: str) -> str:
+    prefix = session_id.split("_", 1)[0]
+    try:
+        started = datetime.strptime(prefix, "%Y-%m-%dT%H-%M-%S-%fZ").replace(tzinfo=timezone.utc)
+        fallback_time = datetime.fromisoformat(fallback.replace("Z", "+00:00"))
+    except ValueError:
+        return fallback
+    if started >= fallback_time:
+        return fallback
+    return started.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _is_current_review(scores: list[dict[str, Any]]) -> bool:
     return any(
         isinstance(score.get("metadata"), dict)
@@ -802,7 +873,7 @@ def scan_sessions(
         for session_id in groups:
             if session_id not in review_cache:
                 scores = [] if recheck else client.list_scores(
-                    from_timestamp=since,
+                    from_timestamp=_session_score_since(session_id, since),
                     to_timestamp=until,
                     session_id=session_id,
                     name=REVIEW_SCORE,
@@ -835,7 +906,14 @@ def scan_sessions(
                 trace_id=str(trace["id"]),
                 limit=100,
             ))
-        correlation = _correlate(session_id, runs_dir)
+        link_scores = client.list_scores(
+            from_timestamp=_session_score_since(session_id, since),
+            to_timestamp=until,
+            session_id=session_id,
+            name=WORK_LINK_SCORE,
+            limit=100,
+        )
+        correlation = _correlate(session_id, runs_dir, link_scores)
         features = _features(selected_traces, observations, trace_scores)
         if len(session_traces) > len(selected_traces):
             features["captureGaps"].append("trace-limit")
@@ -930,6 +1008,9 @@ def cmd_improve(argv: list[str]) -> int:
     scan.add_argument("--recheck", action="store_true")
     scan.add_argument("--dry-run", action="store_true")
     scan.add_argument("--json", action="store_true")
+    link = sub.add_parser("link", help="link the current private session to a public work item")
+    link.add_argument("bead")
+    link.add_argument("--json", action="store_true")
     review = sub.add_parser("review", help="validate private review decisions and optionally mark sessions")
     review.add_argument("report", type=Path)
     review.add_argument("decisions", type=Path)
@@ -943,6 +1024,28 @@ def cmd_improve(argv: list[str]) -> int:
     promote.add_argument("--approval")
     promote.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.action == "link":
+        try:
+            session_file = os.environ.get("PI_SESSION_FILE")
+            if not session_file:
+                raise ValueError("current Pi session is unavailable")
+            summary = link_session(
+                _client_from_env(),
+                session_id=Path(session_file).stem,
+                bead_id=args.bead,
+                beads_runner=_beads,
+            )
+        except (LangfuseError, OSError, ValueError):
+            if args.json:
+                print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement link failed"}))
+            else:
+                print("Improvement link failed.", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(summary, indent=2, sort_keys=True))
+        else:
+            print(f"Linked current private session to {summary['beadId']}.")
+        return 0
     if args.action == "promote":
         try:
             repository_root = git_root()
