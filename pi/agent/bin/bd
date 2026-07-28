@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+self_dir=$(cd "$(dirname "$0")" && pwd -P)
+real_bd=
+old_ifs=$IFS
+IFS=:
+for dir in $PATH; do
+  [ -n "$dir" ] || dir=.
+  resolved=$(cd "$dir" 2>/dev/null && pwd -P) || continue
+  [ "$resolved" = "$self_dir" ] && continue
+  if [ -x "$resolved/bd" ]; then
+    real_bd=$resolved/bd
+    break
+  fi
+done
+IFS=$old_ifs
+
+if [ -z "$real_bd" ]; then
+  echo "bd wrapper: real bd executable not found" >&2
+  exit 127
+fi
+
+if [ "${1-}" = prime ]; then
+  "$real_bd" "$@" | sed '/^- Git authority: no git operations in this context$/d'
+else
+  exec "$real_bd" "$@"
+fi

@@ -4,6 +4,8 @@
 
 Commands are designed to compose with normal Unix idioms: stdin when no file is supplied, stdout for primary output, stderr for diagnostics, and `-o` for files/directories when needed.
 
+`agent/bin/bd` transparently delegates to the installed Beads CLI. For `bd prime` only, it removes the exact Beads-internal `Git authority: no git operations in this context` line because repository Git authority comes from project instructions, not Beads sync mode. Other commands, output, diagnostics, and exit codes pass through unchanged.
+
 ```bash
 agnt [command [args]] [subcommand ...] [filename]
 ```
