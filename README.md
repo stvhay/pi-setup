@@ -145,6 +145,7 @@ pi-setup/
 
 - [The agnt System](docs/AGNT-SYSTEM.md) — problem, design thesis, primitives, lifecycle, safety model, feedback loop, and relationship to Pi.
 - [Architecture](docs/ARCHITECTURE.md) — implementation map for deployment, routing, invocation, context composition, evidence, quality gates, and safety gates.
+- [Extension web compatibility](docs/extension-web-compatibility.md) — Pi RPC UI boundary, configured-package matrix, and agent-os semantic adapters.
 - [Self-Improvement Principles](docs/SELF-IMPROVEMENT-PRINCIPLES.md) — design principles for tasks, skills, roles, prompts, tools, artifacts, and evals.
 - [Self-Improvement Loop](docs/SELF-IMPROVEMENT.md) — how private telemetry and metrics become reviewed, approval-gated policy changes.
 
