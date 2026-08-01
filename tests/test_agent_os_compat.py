@@ -83,6 +83,47 @@ def test_rpc_adapter_uses_portable_ask_and_text_todo_widget():
         args: {{ operation: "read" }},
       }}, {{ ui: {{ setWidget: (key, lines) => {{ widget = {{ key, lines }}; }} }} }});
       assert.deepEqual(widget.lines, ["✓ Inspect", "→ Adapt"]);
+
+      handlers.tool_execution_start({{
+        toolName: "manage_todo_list",
+        args: {{ todoList: [
+          {{ id: 1, title: "Inspect", status: "completed" }},
+          {{ id: 2, title: "Adapt", status: "completed" }},
+        ] }},
+      }}, {{ ui: {{ setWidget: (key, lines) => {{ widget = {{ key, lines }}; }} }} }});
+      assert.equal(widget.key, "agent-os-todos");
+      assert.equal(widget.lines, undefined);
+
+      handlers.tool_execution_start({{
+        toolName: "manage_todo_list",
+        args: {{ todoList: [] }},
+      }}, {{ ui: {{ setWidget: (key, lines) => {{ widget = {{ key, lines }}; }} }} }});
+      assert.equal(widget.lines, undefined);
+
+      const activities = new Map();
+      const activityUI = {{ setWidget(key, lines) {{
+        if (lines === undefined) activities.delete(key);
+        else activities.set(key, lines);
+      }} }};
+      handlers.tool_execution_start({{
+        toolName: "subagent",
+        toolCallId: "peer-1",
+        args: {{ tasks: [{{ task: "private first task" }}, {{ task: "private second task" }}] }},
+      }}, {{ ui: activityUI }});
+      handlers.tool_execution_start({{
+        toolName: "subagent",
+        toolCallId: "peer-2",
+        args: {{ task: "private third task" }},
+      }}, {{ ui: activityUI }});
+      assert.deepEqual([...activities], [
+        ["agent-os-subagent-peer-1", ["Running 2 tasks"]],
+        ["agent-os-subagent-peer-2", ["Running 1 task"]],
+      ]);
+      assert.doesNotMatch(JSON.stringify([...activities.values()]), /private/);
+      handlers.tool_execution_end({{ toolName: "subagent", toolCallId: "peer-1" }}, {{ ui: activityUI }});
+      assert.deepEqual([...activities], [
+        ["agent-os-subagent-peer-2", ["Running 1 task"]],
+      ]);
     """
     run_node(script)
 

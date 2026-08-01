@@ -109,7 +109,7 @@ function formatAnswer(answer: Answer): string {
 }
 
 function todoLines(value: unknown): string[] | undefined {
-  if (!Array.isArray(value) || value.length === 0) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.every((todo) => todo?.status === "completed")) return undefined;
   const icon: Record<string, string> = { completed: "✓", "in-progress": "→", "not-started": "○" };
   return value.slice(0, 50).map((todo: any) => `${icon[todo?.status] || "○"} ${clean(todo?.title, 120) || "Untitled"}`);
 }
@@ -139,9 +139,23 @@ export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void 
   });
 
   pi.on("tool_execution_start", (event: any, ctx: any) => {
+    if (event.toolName === "subagent") {
+      const count = Math.max(1, Array.isArray(event.args?.tasks) ? event.args.tasks.length : 1);
+      ctx.ui.setWidget(`agent-os-subagent-${clean(event.toolCallId, 80)}`, [
+        `Running ${count} ${count === 1 ? "task" : "tasks"}`,
+      ]);
+      return;
+    }
     const todos = event.args?.todoList;
-    if (event.toolName !== "manage_todo_list" || !Array.isArray(todos)) return;
-    ctx.ui.setWidget("agent-os-todos", todoLines(todos));
+    if (event.toolName === "manage_todo_list" && Array.isArray(todos)) {
+      ctx.ui.setWidget("agent-os-todos", todoLines(todos));
+    }
+  });
+
+  pi.on("tool_execution_end", (event: any, ctx: any) => {
+    if (event.toolName === "subagent") {
+      ctx.ui.setWidget(`agent-os-subagent-${clean(event.toolCallId, 80)}`, undefined);
+    }
   });
 }
 
