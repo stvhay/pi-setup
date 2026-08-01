@@ -18,6 +18,7 @@ This matrix covers the packages configured in `pi/agent/settings.json` and track
 | `npm:pi-observational-memory@3.0.3` | 3.0.3 | Unchanged | Uses portable notifications for status, warnings, and `/om:*` command output. |
 | `npm:pi-langfuse@1.5.7` | 1.5.7 | Preconfigured + unchanged | Commands use portable select/input/notifications. Agent-os provisions `pi-langfuse/config.json` before launch, preventing its blocking startup setup flow; other RPC deployments must do the same or defer setup until ready. |
 | `git:github.com/langfuse/skills@13a79944c3c16cde049bb39576102cd768baa06b` | 13a79944 | Unchanged / no UI | Skill files add instructions, not Pi extension UI. |
+| `git:github.com/mattpocock/skills@2ab958093e83e0ec752e6c1c5932da465bf23e0c` | 2ab95809 | Unchanged / no UI | Filtered skill files add instructions, not Pi extension UI. |
 | `git:github.com/DietrichGebert/ponytail` | 16f2980 tested | Unchanged | Uses portable keyed status updates and a startup notification. |
 | `npm:pi-caveman` | 1.0.7 | Unchanged / partial | Level commands, notifications, and keyed status work unchanged. The custom `/caveman config` TUI remains unavailable; direct `/caveman <level>` commands preserve the essential workflow. |
 | `npm:betterwright` | 1.5.2 | Unchanged | Browser download approval uses portable confirm. BetterWright browser rendering remains its own host integration. |

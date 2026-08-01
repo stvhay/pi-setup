@@ -107,7 +107,8 @@ def test_compatibility_matrix_covers_every_configured_package():
     text = MATRIX.read_text(encoding="utf-8")
     packages = json.loads(SETTINGS.read_text(encoding="utf-8"))["packages"]
     for package in packages:
-        assert f"`{package}`" in text, f"missing compatibility row for {package}"
+        source = package["source"] if isinstance(package, dict) else package
+        assert f"`{source}`" in text, f"missing compatibility row for {source}"
 
 
 def test_tracked_extensions_use_only_portable_ui_calls():
