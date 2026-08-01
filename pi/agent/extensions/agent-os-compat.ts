@@ -121,6 +121,16 @@ export function isRPCMode(argv = process.argv): boolean {
 export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void {
   if (!rpc) return;
 
+  pi.registerCommand("reload", {
+    description: "Reload Pi settings, extensions, skills, prompts, and context files",
+    handler: async (args, ctx) => {
+      if (clean(args)) throw new Error("Usage: /reload");
+      await ctx.waitForIdle();
+      await ctx.reload();
+      return;
+    },
+  });
+
   pi.on("session_start", () => {
     pi.registerTool({
       name: "ask",

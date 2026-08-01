@@ -28,11 +28,23 @@ def test_rpc_adapter_uses_portable_ask_and_text_todo_widget():
 
       const handlers = {{}};
       let tool;
+      let command;
       const pi = {{
         on(name, handler) {{ handlers[name] = handler; }},
         registerTool(candidate) {{ tool = candidate; }},
+        registerCommand(name, candidate) {{ command = {{ name, ...candidate }}; }},
       }};
       installAgentOSCompat(pi, true);
+
+      assert.equal(command.name, "reload");
+      const reloadCalls = [];
+      const commandContext = {{
+        waitForIdle: async () => reloadCalls.push("idle"),
+        reload: async () => reloadCalls.push("reload"),
+      }};
+      assert.equal(await command.handler("", commandContext), undefined);
+      assert.deepEqual(reloadCalls, ["idle", "reload"]);
+      await assert.rejects(() => command.handler("now", commandContext), new RegExp("Usage: /reload"));
 
       let startupUICalls = 0;
       await handlers.session_start({{ type: "session_start" }}, {{
@@ -137,6 +149,7 @@ def test_adapter_stays_inactive_outside_rpc_mode():
       installAgentOSCompat({{
         on() {{ registrations++; }},
         registerTool() {{ registrations++; }},
+        registerCommand() {{ registrations++; }},
       }}, false);
       assert.equal(registrations, 0);
     """
