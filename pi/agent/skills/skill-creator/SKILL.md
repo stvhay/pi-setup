@@ -142,6 +142,21 @@ pi/agent/bin/agnt context-health --strict
 
 For behavior evidence, run the original scenario with the candidate skill available. Compare against its assertions; do not substitute a new, easier prompt.
 
+### Isolated loaded-skill check
+
+For a self-contained no-tool scenario, run direct Pi JSON mode with only the candidate skill available and force-load its body:
+
+```bash
+pi --provider <provider> --model <model> --thinking <level> \
+  --mode json --print --no-tools --no-skills --skill <skill-directory> \
+  --no-extensions --no-context-files --no-prompt-templates --no-session \
+  "/skill:<skill-name> <original scenario prompt>" > <events.jsonl>
+```
+
+Explicit `--skill` remains additive with `--no-skills`; `/skill:<skill-name>` force-loads the body and requires skill commands to be enabled. Do not use helper one-shot mode for this check because it disables skills.
+
+Validate output and scenario assertions locally. Read usage only from assistant `message_end` events that contain usage: `input` is fresh input, `cacheRead` is reused input, and `output` is output. Count those events as model calls and `auto_retry_start` events as provider retries. Report `unavailable` for any requested field absent from the event stream. If the scenario needs tools, replace `--no-tools` with the smallest explicit `--tools` allowlist.
+
 For important skills, test more than one model family. Newer models may need less prescription, while other models still benefit from explicit scope and output constraints.
 
 ### 5. Test trigger precision
