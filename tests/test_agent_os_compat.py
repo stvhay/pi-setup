@@ -191,6 +191,23 @@ def test_rpc_adapter_uses_portable_ask_and_text_todo_widget():
         ["agent-os-subagent-peer-2", ["Running 1 task"]],
       ]);
       assert.doesNotMatch(JSON.stringify([...activities.values()]), /private/);
+      assert.equal(typeof handlers.tool_execution_update, "function");
+      handlers.tool_execution_update({{
+        toolName: "subagent",
+        toolCallId: "peer-1",
+        partialResult: {{ details: {{ progress: [
+          {{ status: "running", agent: "reviewer", currentTool: "read", toolCount: 2, task: "private first task" }},
+          {{ status: "completed", agent: "subagent", toolCount: 0, task: "private second task" }},
+        ] }} }},
+      }}, {{ ui: activityUI }});
+      assert.deepEqual(activities.get("agent-os-subagent-peer-1"), [
+        "→ 1. reviewer · read · 2 tools",
+        "✓ 2. subagent",
+      ]);
+      assert.doesNotMatch(JSON.stringify([...activities.values()]), /private/);
+      handlers.tool_execution_update({{ toolName: "read", toolCallId: "peer-1" }}, {{ ui: activityUI }});
+      handlers.tool_execution_update({{ toolName: "subagent", toolCallId: "peer-1", partialResult: {{}} }}, {{ ui: activityUI }});
+      assert.equal(activities.get("agent-os-subagent-peer-1").length, 2);
       handlers.tool_execution_end({{ toolName: "subagent", toolCallId: "peer-1" }}, {{ ui: activityUI }});
       assert.deepEqual([...activities], [
         ["agent-os-subagent-peer-2", ["Running 1 task"]],

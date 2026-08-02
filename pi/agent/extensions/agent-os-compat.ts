@@ -222,6 +222,19 @@ function todoLines(value: unknown): string[] | undefined {
   return value.slice(0, 50).map((todo: any) => `${icon[todo?.status] || "○"} ${clean(todo?.title, 120) || "Untitled"}`);
 }
 
+function subagentLines(result: any): string[] | undefined {
+  const progress = result?.details?.progress;
+  if (!Array.isArray(progress) || progress.length === 0) return undefined;
+  const icon: Record<string, string> = { completed: "✓", failed: "✗", running: "→" };
+  return progress.slice(0, 50).map((task: any, index) => {
+    const parts = [`${icon[task?.status] || "→"} ${index + 1}. ${clean(task?.agent, 60) || "subagent"}`];
+    const tool = clean(task?.currentTool, 60);
+    if (tool) parts.push(tool);
+    if (Number.isSafeInteger(task?.toolCount) && task.toolCount > 0) parts.push(`${task.toolCount} tools`);
+    return parts.join(" · ");
+  });
+}
+
 export function isRPCMode(argv = process.argv): boolean {
   return argv.includes("--mode=rpc") || argv.some((arg, index) => arg === "--mode" && argv[index + 1] === "rpc");
 }
@@ -273,6 +286,12 @@ export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void 
     if (event.toolName === "manage_todo_list" && Array.isArray(todos)) {
       ctx.ui.setWidget("agent-os-todos", todoLines(todos));
     }
+  });
+
+  pi.on("tool_execution_update", (event: any, ctx: any) => {
+    if (event.toolName !== "subagent") return;
+    const lines = subagentLines(event.partialResult);
+    if (lines) ctx.ui.setWidget(`agent-os-subagent-${clean(event.toolCallId, 80)}`, lines);
   });
 
   pi.on("tool_execution_end", (event: any, ctx: any) => {
