@@ -6,7 +6,7 @@ This matrix covers the packages configured in `pi/agent/settings.json` and track
 
 - Portable `select`, `confirm`, `input`, `editor`, `notify`, `setStatus`, text-array `setWidget`, `setTitle`, and editor-text calls work unchanged after RPC readiness.
 - Pi 0.83.0 binds extensions before attaching its RPC stdin reader. Blocking `session_start` prompts therefore cannot consume browser responses. Runtime configuration must be provisioned first or the extension must defer the prompt.
-- `agent-os-compat.ts` activates only for `--mode rpc`. It supplies portable `ask` behavior and `/reload`, whose handler rejects arguments, waits for idle, calls `ctx.reload()`, and returns without reusing stale extension state. Pi TUI and headless subagent behavior remain unchanged.
+- `agent-os-compat.ts` activates only for `--mode rpc`. It supplies portable `ask` behavior, `/reload`, and the browser-internal `/agent-os-package` adapter. The package adapter accepts only strict `install npm:<name> <approved-version>` or `remove npm:<name>` operations after browser approval, installs the approved version exactly while retaining an unpinned project setting for update discovery, flushes settings, clears progress, then treats `ctx.reload()` as terminal. Pi TUI and headless subagent behavior remain unchanged.
 - Arbitrary TUI components, component widgets, custom headers/footers/editors, terminal input listeners, themes, and autocomplete have no exact browser parity. Browser-owned controls replace decorative chrome; unsupported management screens remain unavailable.
 
 ## Configured packages
@@ -27,7 +27,7 @@ This matrix covers the packages configured in `pi/agent/settings.json` and track
 
 | Extension | Classification | Browser behavior |
 | --- | --- | --- |
-| `agent-os-compat.ts` | RPC adapter | Portable `ask` dialogs, text-only todo/subagent widgets, and terminal in-process `/reload`; inactive outside `--mode rpc`. |
+| `agent-os-compat.ts` | RPC adapter | Portable `ask` dialogs, text-only todo/subagent widgets, terminal in-process `/reload`, and strict project-local catalog package install/remove after agent-os approval; inactive outside `--mode rpc`. User-scope baseline packages remain source-controlled and read-only. |
 | `beads-ask-bridge.ts` | Unchanged | Portable select/confirm after durable Beads decision creation. |
 | `guidance-edit-guard.ts` | Unchanged | Portable warning notifications. |
 | `langfuse-config-env.ts` | Unchanged | Non-blocking startup notification only; reads pre-provisioned config. |
@@ -45,4 +45,4 @@ scripts/check-pi-config.sh
 .venv/bin/python -m pytest tests/
 ```
 
-`tests/test_agent_os_compat.py` executes the RPC adapter with fake Pi contexts, verifies `/reload` idle/reload ordering and argument rejection, verifies no startup UI call occurs, covers single/multi-question responses and text todo rendering, checks inactivity outside RPC, requires one matrix row per configured package, and rejects TUI-only APIs in tracked extensions.
+`tests/test_agent_os_compat.py` executes the RPC adapter with fake Pi contexts, verifies `/reload` idle/reload ordering and argument rejection, exercises install/remove against Pi's real package manager with a fake npm process, covers trust, duplicate, baseline, missing-package, flush-before-reload, and terminal reload behavior, verifies no startup UI call occurs, covers single/multi-question responses and text todo rendering, checks inactivity outside RPC, requires one matrix row per configured package, and rejects TUI-only APIs in tracked extensions.

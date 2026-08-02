@@ -1,4 +1,11 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  DefaultPackageManager,
+  getAgentDir,
+  SettingsManager,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type PackageSource,
+} from "@earendil-works/pi-coding-agent";
 
 type Question = {
   id: string;
@@ -18,6 +25,65 @@ type Answer = {
   selectedOptions: string[];
   customInput?: string;
 };
+
+const packageSourcePattern = /^npm:(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/;
+const packageVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+function parsePackageOperation(args: string): { operation: "install" | "remove"; source: string; version?: string } | undefined {
+  const [operation, source, version, extra] = clean(args).split(" ");
+  if (extra || !packageSourcePattern.test(source || "")) return undefined;
+  if (operation === "install" && packageVersionPattern.test(version || "")) return { operation, source, version };
+  if (operation === "remove" && !version) return { operation, source };
+  return undefined;
+}
+
+function npmPackageName(source: PackageSource): string | undefined {
+  const value = typeof source === "string" ? source : source.source;
+  if (!value.startsWith("npm:")) return undefined;
+  const spec = value.slice(4);
+  const slash = spec.startsWith("@") ? spec.indexOf("/") : -1;
+  const versionAt = spec.lastIndexOf("@");
+  return versionAt > slash ? spec.slice(0, versionAt) : spec;
+}
+
+async function applyProjectPackage(args: string, ctx: ExtensionCommandContext): Promise<void> {
+  const parsed = parsePackageOperation(args);
+  if (!parsed) throw new Error("Usage: /agent-os-package install npm:<package> <version> | remove npm:<package>");
+
+  const { operation, source, version } = parsed;
+  if (!ctx.isProjectTrusted()) throw new Error("Project is not trusted; package change cancelled");
+  const settings = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: true });
+  const packages = new DefaultPackageManager({ cwd: ctx.cwd, agentDir: getAgentDir(), settingsManager: settings });
+  const configured = packages.listConfiguredPackages().filter((pkg) => npmPackageName(pkg.source) === npmPackageName(source));
+  const projectPackage = configured.find((pkg) => pkg.scope === "project");
+  if (operation === "install" && configured.length > 0) {
+    throw new Error(`${source} is already configured in ${configured[0].scope} scope`);
+  }
+  if (operation === "remove" && !projectPackage) {
+    if (configured.length > 0) throw new Error(`${source} is managed by the Pi baseline and cannot be removed here`);
+    throw new Error(`${source} is not installed in project scope`);
+  }
+  packages.setProgressCallback((event) => {
+    if (event.type === "start") ctx.ui.setStatus("agent-os-packages", event.message || `${operation} ${source}`);
+  });
+  try {
+    if (operation === "install") {
+      await packages.installAndPersist(`${source}@${version}`, { local: true });
+      settings.setProjectPackages(
+        (settings.getProjectSettings().packages || []).map((configuredSource) =>
+          npmPackageName(configuredSource) === npmPackageName(source) ? source : configuredSource,
+        ),
+      );
+    } else await packages.removeAndPersist(source, { local: true });
+    await settings.flush();
+    const errors = settings.drainErrors();
+    if (errors.length > 0) throw errors[0].error;
+    ctx.ui.notify(`${operation === "install" ? "Installed" : "Removed"} ${source}. Reloading Pi resources.`, "info");
+  } finally {
+    ctx.ui.setStatus("agent-os-packages", undefined);
+  }
+  await ctx.reload();
+}
 
 const askParameters = {
   type: "object",
@@ -129,6 +195,11 @@ export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void 
       await ctx.reload();
       return;
     },
+  });
+
+  pi.registerCommand("agent-os-package", {
+    description: "Apply an approved project package change from the agent-os Packages control",
+    handler: applyProjectPackage,
   });
 
   pi.on("session_start", () => {
