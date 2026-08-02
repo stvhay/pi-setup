@@ -59,6 +59,19 @@ def test_langfuse_skill_is_pinned_and_reuses_extension_config(tmp_path):
     run_extension_script(script, home=tmp_path)
 
 
+def test_langfuse_image_payloads_are_not_truncated():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      delete process.env.PI_LANGFUSE_MAX_STRING_LENGTH;
+      install();
+
+      assert.equal(process.env.PI_LANGFUSE_MAX_STRING_LENGTH, "off");
+    """
+    run_extension_script(script)
+
+
 def test_subscription_models_keep_runtime_id_with_zero_cost():
     script = f"""
       import assert from "node:assert/strict";

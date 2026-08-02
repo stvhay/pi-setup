@@ -6,6 +6,9 @@ import { resolve } from "node:path";
 const agentDir = process.env.PI_CODING_AGENT_DIR || resolve(homedir(), ".pi", "agent");
 
 export default function langfuseConfigEnv(pi?: ExtensionAPI) {
+  // Truncating data URIs corrupts media before Langfuse can extract it.
+  process.env.PI_LANGFUSE_MAX_STRING_LENGTH ||= "off";
+
   try {
     const config = JSON.parse(
       readFileSync(resolve(agentDir, "pi-langfuse", "config.json"), "utf8"),
