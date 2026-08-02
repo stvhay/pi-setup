@@ -87,9 +87,10 @@ type ModelMetadata = {
 
 type ThinkingLevelMap = Record<string, string | null>;
 
+const CLOUD_OUTPUT_CAP = 16384;
 const DEFAULT_METADATA: ModelMetadata = {
   contextWindow: 128000,
-  maxTokens: 16384,
+  maxTokens: CLOUD_OUTPUT_CAP,
 };
 
 const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -144,7 +145,10 @@ const OLLAMA_METADATA: Array<[RegExp, ModelMetadata]> = [
 
 function getMetadata(id: string, surface: ProviderSurface): ModelMetadata {
   const table = surface === "cloud" ? CLOUD_METADATA : OLLAMA_METADATA;
-  return table.find(([pattern]) => pattern.test(id))?.[1] ?? DEFAULT_METADATA;
+  const metadata = table.find(([pattern]) => pattern.test(id))?.[1] ?? DEFAULT_METADATA;
+  return surface === "cloud"
+    ? { ...metadata, maxTokens: Math.min(metadata.maxTokens, CLOUD_OUTPUT_CAP) }
+    : metadata;
 }
 
 function getCost(id: string, surface: ProviderSurface): ModelCost {

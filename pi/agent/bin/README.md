@@ -34,9 +34,9 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
   - Lists preferred/qualified models for one task or all tasks.
 
 - `agnt route --task TASK [--risk low|medium|high] [--budget cheap|balanced|quality] [--context-tokens N] [--modality text|image|audio|video] [--local-ok] [--monthly-paid-spend USD]`
-  - Recommends a model, fallback models, thinking level, and whether fanout is useful.
-  - Uses the existing task files as policy, filters by `agent/settings.json` `enabledModels` plus runtime constraints, and includes metrics hints when available.
-  - For `review`, emits a risk-specific `reviewPolicyTargets` fanout and a deterministic monthly spend state. It counts OpenRouter plus catalog venues marked `billingClass: metered`, while excluding local and subscription-backed GPT opportunity cost. It uses `AGNT_REVIEW_PAID_SPEND_USD` as an operator floor, accepts an authoritative `--monthly-paid-spend` override, removes Kimi at the `$18` reserve threshold, and routes only to local Gemma at the `$20` hard cap. K3 is not an automatic review candidate.
+  - Recommends a model, fallback models, thinking level, context policy, and whether fanout is useful. Subscription-backed models rank before metered models when capability is comparable.
+  - Uses the existing task files as policy, filters by `agent/settings.json` `enabledModels` plus runtime constraints, and includes metrics hints when available. `contextPolicy: fresh` means the selected Olla/OpenRouter model must run through a new `subagent` or `agnt invoke` worker, not as a root-conversation continuation.
+  - For `review`, emits a Codex-first risk-specific `reviewPolicyTargets` fanout and a deterministic monthly spend state. It counts OpenRouter plus catalog venues marked `billingClass: metered`, while excluding local and subscription-backed GPT opportunity cost. It uses `AGNT_REVIEW_PAID_SPEND_USD` as an operator floor, accepts an authoritative `--monthly-paid-spend` override, and keeps only subscription-backed Codex plus local Gemma at the `$18` reserve and `$20` hard-cap thresholds. Kimi is not an automatic review candidate; K3 is escalation-only.
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason. Evidence gathered on one venue applies to every venue of the same weights.
   - `agnt recommend` is an alias.
 
@@ -212,6 +212,8 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 
 - `agnt improve link BEAD [--json]`
   - Idempotently links the current private Pi session to an exact public work-item ID; run after claiming interactive work. Runner sessions link automatically.
+- `agnt improve outcome BEAD success|partial|failure|unclear [--json]`
+  - Idempotently backfills the work-item link and records an explicit final session outcome; run at interactive closeout. Scans prefer this score over sampled evaluator output.
 - `agnt improve scan [--since ISO] [--limit N] [--recheck] [--dry-run] [--json]`
   - Reads a bounded Langfuse cohort and writes a private packet under `~/.pi/improvement/`; `--dry-run` writes nothing. Projected outcomes and payload-free tool-error signals join through the private session ID.
 - `agnt improve review REPORT DECISIONS [--apply] [--json]`

@@ -176,6 +176,16 @@ def test_interactive_results_emit_evaluator_ready_observations():
         options: {{ asType: "agent", sessionId: "2026-07-28T00-00-00Z_private-session" }},
       }}]);
 
+      await handlers.before_agent_start({{ prompt: "Ask for a choice" }});
+      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [] }}] }});
+      await handlers.agent_settled({{}}, ctx);
+      assert.equal(observations.length, 1, "empty assistant output must not be evaluated");
+
+      await handlers.before_agent_start({{ prompt: "No captured result" }});
+      await handlers.agent_end({{ messages: [{{ role: "assistant", content: null }}] }});
+      await handlers.agent_settled({{}}, ctx);
+      assert.equal(observations.length, 1, "null assistant output must not be evaluated");
+
       process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
       await handlers.before_agent_start({{ prompt: "Headless work" }});
       await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Done" }}] }}] }});

@@ -7,9 +7,8 @@ preferred:
 qualified:
   - claude-sonnet-4-6
   - olla-cloud/glm-5.2
-  - olla-cloud/kimi-k2.7-code
-  - olla-cloud/kimi-k3
   - olla-cloud/gpt-4.1-mini
+  - olla-cloud/kimi-k2.7-code
 ---
 
-Use for plan writing, task sizing, dependency checks, and verification command selection. Prefer OpenAI/Codex for routine planning because Anthropic usage is retail-priced extra usage. Use GLM-5.2 or Kimi K3 as long-context planning specialists for large codebases and complex refactors; use Kimi K2.7 Code when the plan is tightly focused on long-horizon software engineering.
+Use for plan writing, task sizing, dependency checks, and verification command selection. Prefer OpenAI/Codex for routine planning because metered Olla and Anthropic usage add cash spend. Use Kimi K2.7 Code only for an explicitly justified long-horizon software plan in a fresh worker.

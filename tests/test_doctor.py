@@ -26,6 +26,17 @@ def test_doctor_report_schema_and_strict_failure(agnt, monkeypatch):
         assert agnt.cmd_doctor(["--strict", "--check", "command.pi"]) == 1
 
 
+def test_doctor_catalog_parse_does_not_require_removed_models_json(agnt, tmp_path):
+    (tmp_path / "catalog.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "settings.json").write_text("{}\n", encoding="utf-8")
+
+    with patch.dict(agnt.check_catalog_parse.__globals__, {"ROOT": tmp_path}):
+        report = agnt.doctor_report(check_names=["catalog.parse"])
+
+    assert report["passed"] is True
+    assert report["checks"][0]["evidence"]["parsed"] == ["catalog.json", "settings.json"]
+
+
 def test_doctor_redacts_provider_env_vars(agnt, monkeypatch):
     monkeypatch.setenv("OLLA_HOST", "https://secret-host.example")
     report = agnt.doctor_report(check_names=["provider.env"])

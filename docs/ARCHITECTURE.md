@@ -35,7 +35,8 @@ catalog.json      model families -> venues, cost classes, watt/rate facts
 tasks/*.md        routing policy per task (preferred/qualified/avoid targets)
       │
 agnt route        constraint filter (enabledModels, modality, context window,
-      │           local-ok) + budget/risk gates + outcome-history demotion
+      │           local-ok) + billing/risk gates + outcome-history demotion
+      │           (subscription before metered; metered contextPolicy=fresh)
       │
       ├─ Archimedes `subagent` for interactive streaming/TUI peer work
       └─ agnt invoke for cold `--one-shot`, headless, and run-artifact workers
@@ -55,8 +56,10 @@ or OpenRouter. The catalog is the single source for venue facts: cost class,
 billing class, modalities, context window, reasoning capability, GPU-watt assumptions, and
 OpenRouter opportunity-cost rates for subscription-backed models. `agnt` and
 `agent-instructions` read it via the shared `bin/_agnt_common.py`; no model
-facts live in code. OpenRouter cash pricing stays in `models.json` because Pi
-itself reads provider config there.
+facts live in code. Dynamic Olla provider registration applies the cataloged
+cash-rate policy and caps cloud output requests; metered Olla models run only in
+fresh subagent or `agnt invoke` workers, never as continuation models for a long
+root conversation.
 
 ### Work, tasks, prompts, skills, roles, and tools
 

@@ -47,18 +47,31 @@ def test_tracked_models_use_server_backed_olla_providers_only():
         "qwen3-coder-flash", "deepseek-v4-flash", "deepseek-v4-pro",
     ])
     assert models["gemma-4-31b-it"]["contextWindow"] == 262_144
-    assert models["gemma-4-31b-it"]["maxTokens"] == 262_144
-    assert models["gemma-4-31b-it:free"]["maxTokens"] == 32_768
+    assert models["gemma-4-31b-it"]["maxTokens"] == 16_384
+    assert models["gemma-4-31b-it:free"]["maxTokens"] == 16_384
     assert models["qwen3.5-9b"]["input"] == ["text", "image"]
-    assert models["qwen3.5-9b"]["maxTokens"] == 262_144
+    assert models["qwen3.5-9b"]["maxTokens"] == 16_384
     assert models["qwen3-coder-flash"]["contextWindow"] == 1_000_000
-    assert models["qwen3-coder-flash"]["maxTokens"] == 65_536
+    assert models["qwen3-coder-flash"]["maxTokens"] == 16_384
     assert models["deepseek-v4-flash"]["contextWindow"] == 1_048_576
-    assert models["deepseek-v4-flash"]["maxTokens"] == 393_216
-    assert models["deepseek-v4-pro"]["maxTokens"] == 384_000
+    assert models["deepseek-v4-flash"]["maxTokens"] == 16_384
+    assert models["deepseek-v4-pro"]["maxTokens"] == 16_384
 
     deploy = (ROOT / "scripts" / "update-pi-config.sh").read_text(encoding="utf-8")
     assert "agent/extensions/*.local.ts" in deploy
+
+
+def test_metered_olla_models_require_fresh_delegation_context():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Metered `olla-cloud` models must run in fresh workers" in instructions
+    assert "never switch a long-running root conversation to them" in instructions
+
+
+def test_review_skill_uses_codex_first_and_never_automatic_kimi():
+    skill = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
+    assert "**Subscription-backed default:** `openai-codex/gpt-5.6-sol`" in skill
+    assert "Kimi K2.7 and Kimi K3 are never automatic review targets" in skill
+    assert "never switch a long-running root conversation to it" in skill
 
 
 def test_kimi_models_are_enabled_through_olla_only():
@@ -90,7 +103,7 @@ def test_kimi_olla_metadata_matches_verified_capabilities():
     assert k27["thinkingLevelMap"]["off"] is None
     assert k27["input"] == ["text", "image"]
     assert k27["contextWindow"] == 262_144
-    assert k27["maxTokens"] == 32_768
+    assert k27["maxTokens"] == 16_384
     assert k27["compat"]["supportsReasoningEffort"] is False
 
     k3 = models["kimi-k3"]
@@ -106,7 +119,7 @@ def test_kimi_olla_metadata_matches_verified_capabilities():
     }
     assert k3["input"] == ["text", "image"]
     assert k3["contextWindow"] == 1_048_576
-    assert k3["maxTokens"] == 131_072
+    assert k3["maxTokens"] == 16_384
     assert k3["compat"]["supportsReasoningEffort"] is False
 
 
@@ -144,7 +157,7 @@ def test_deepseek_v4_flash_is_enabled_as_a_cheap_review_challenger():
             "input": ["text"],
             "contextWindow": 1_048_576,
             "billingClass": "metered",
-            "maxTokens": 393_216,
+            "maxTokens": 16_384,
         }
     ]
     review = (AGENT / "tasks" / "review.md").read_text(encoding="utf-8")
@@ -173,7 +186,7 @@ def test_openrouter_challengers_replace_unrouted_legacy_models():
     expected = {
         "olla-cloud/qwen3-coder-flash": {
             "contextWindow": 1_000_000,
-            "maxTokens": 65_536,
+            "maxTokens": 16_384,
             "cost": {
                 "input": 0.195,
                 "output": 0.975,
@@ -184,7 +197,7 @@ def test_openrouter_challengers_replace_unrouted_legacy_models():
         "olla-cloud/deepseek-v4-pro": {
             "reasoning": True,
             "contextWindow": 1_048_576,
-            "maxTokens": 384_000,
+            "maxTokens": 16_384,
             "cost": {
                 "input": 0.435,
                 "output": 0.87,
@@ -223,7 +236,7 @@ def test_kimi_families_and_dispatch_roles_are_cataloged():
             "thinkingLevelMap": {"off": None},
             "input": ["text", "image"],
             "contextWindow": 262_144,
-            "maxTokens": 32_768,
+            "maxTokens": 16_384,
         }
     ]
     assert catalog["kimi-k3"]["venues"] == [
@@ -243,13 +256,13 @@ def test_kimi_families_and_dispatch_roles_are_cataloged():
             },
             "input": ["text", "image"],
             "contextWindow": 1_048_576,
-            "maxTokens": 131_072,
+            "maxTokens": 16_384,
         }
     ]
 
     expected_roles = {
-        "kimi-k2.7-code": {"implementation", "planning", "review"},
-        "kimi-k3": {"frontier-advisor", "implementation", "planning", "research"},
+        "kimi-k2.7-code": {"implementation", "planning"},
+        "kimi-k3": {"frontier-advisor"},
     }
     for model, roles in expected_roles.items():
         target = f"olla-cloud/{model}"
@@ -259,6 +272,10 @@ def test_kimi_families_and_dispatch_roles_are_cataloged():
 
     orchestration = (AGENT / "tasks" / "orchestration.md").read_text(encoding="utf-8")
     assert "olla-cloud/kimi-" not in orchestration
+    routine_tasks = ["cheap-peer", "implementation", "planning", "research", "review"]
+    for role in routine_tasks:
+        task = (AGENT / "tasks" / f"{role}.md").read_text(encoding="utf-8")
+        assert "  - olla-cloud/kimi-k3" not in task
     review = (AGENT / "tasks" / "review.md").read_text(encoding="utf-8")
-    assert "  - olla-cloud/kimi-k3" not in review
+    assert "  - olla-cloud/kimi-k2.7-code" not in review
     assert "escalationTarget: olla-cloud/kimi-k3" in review

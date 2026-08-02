@@ -544,6 +544,53 @@ def test_scan_uses_explicit_private_work_item_link(tmp_path):
     assert packet["sessions"][0]["correlation"] == {"status": "linked", "beadId": "pi-work.1"}
 
 
+def test_scan_prefers_explicit_linked_outcome_over_sampled_evaluator(tmp_path):
+    class OutcomeClient(FakeScanClient):
+        def list_scores(self, **kwargs):
+            if kwargs.get("name") == improvement.WORK_LINK_SCORE:
+                return [{
+                    "value": "linked",
+                    "metadata": {"schemaVersion": 1, "beadId": "pi-work.1"},
+                    "subject": {"kind": "session", "id": kwargs["session_id"]},
+                }]
+            if kwargs.get("name") == improvement.OUTCOME_SCORE:
+                return [{
+                    "name": improvement.OUTCOME_SCORE,
+                    "value": "success",
+                    "source": "API",
+                    "metadata": {"schemaVersion": 1, "beadId": "pi-work.1"},
+                    "subject": {"kind": "session", "id": kwargs["session_id"]},
+                }]
+            return super().list_scores(**kwargs)
+
+    client = OutcomeClient(
+        [_private_trace("interactive-session", "private-trace")],
+        {"private-trace": _private_observations()},
+        trace_scores={
+            "private-trace": [{
+                "name": "Apparent task outcome",
+                "value": "failure",
+                "source": "EVAL",
+            }],
+        },
+    )
+
+    _, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    features = packet["sessions"][0]["features"]
+    assert features["finalOutcome"] == "success"
+    assert "missing-outcome" not in features["captureGaps"]
+
+
 def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
     reviewed = _private_trace("reviewed-session", "reviewed-trace")
     eligible = _private_trace("eligible-session", "eligible-trace")
@@ -632,7 +679,7 @@ def test_scan_score_markers_are_bounded_from_pi_session_start(tmp_path):
     )
 
     session_queries = [query for query in client.score_queries if query.get("session_id") == session_id]
-    assert len(session_queries) == 2
+    assert len(session_queries) == 3
     assert {query["from_timestamp"] for query in session_queries} == {"2026-07-26T12:00:00Z"}
 
 
@@ -1428,6 +1475,31 @@ def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, t
     assert client.calls[0]["session_id"] == "2026-07-28T00-00-00Z_private-session"
     assert client.calls[0]["name"] == improvement.WORK_LINK_SCORE
     assert client.calls[0]["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
+
+
+def test_improve_outcome_cli_links_bead_and_writes_idempotent_final_outcome(monkeypatch, tmp_path, capsys):
+    client = FakeReviewClient()
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setenv("PI_SESSION_FILE", str(tmp_path / "2026-07-28T00-00-00Z_private-session.jsonl"))
+
+    result = improvement.cmd_improve(["outcome", "pi-work.1", "success", "--json"])
+
+    assert result == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "beadId": "pi-work.1",
+        "outcome": "success",
+        "schemaVersion": 1,
+        "status": "recorded",
+    }
+    assert [call["name"] for call in client.calls] == [
+        improvement.WORK_LINK_SCORE,
+        improvement.OUTCOME_SCORE,
+    ]
+    outcome = client.calls[1]
+    assert outcome["session_id"] == "2026-07-28T00-00-00Z_private-session"
+    assert outcome["value"] == "success"
+    assert outcome["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
 
 
 def test_improve_scan_cli_emits_safe_json_only(monkeypatch, tmp_path, capsys):

@@ -314,6 +314,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     interactivePrompt = undefined;
     interactiveOutput = undefined;
     interactiveToolSignals.clear();
+    if (output == null) return;
     try {
       await (await getObserve())("interactive-result", {
         input,

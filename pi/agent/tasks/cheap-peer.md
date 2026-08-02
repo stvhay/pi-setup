@@ -2,6 +2,7 @@
 id: cheap-peer
 summary: Low-cost advisory passes, critique, classification, or simple extraction.
 preferred:
+  - openai-codex/gpt-5.6-luna
   - olla-cloud/gemini-flash
   - olla-cloud/gpt-4.1-mini
   - olla-cloud/qwen3.5-9b
@@ -11,4 +12,4 @@ qualified:
   - olla-local/qwen3:8b
 ---
 
-Use when breadth or a second opinion matters more than frontier reasoning.
+Use when breadth or a second opinion matters more than frontier reasoning. Prefer subscription-backed Codex before metered peers unless model diversity is the point of the call.

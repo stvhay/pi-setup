@@ -68,22 +68,27 @@ def is_local_route_target(target: str) -> bool:
 
 def route_cost_rank(target: str, info: Dict[str, Any], budget: str) -> Tuple[int, str]:
     cost_class = str(info.get("costClass") or "")
+    billing_class = str(info.get("billingClass") or "")
     costs = info.get("cost") if isinstance(info.get("cost"), dict) else {}
     total_rate = float(costs.get("input") or 0.0) + float(costs.get("output") or 0.0)
     if budget == "quality":
         quality_rank = 0 if cost_class == "frontier" else 1 if cost_class == "balanced" else 2 if cost_class == "cheap" else 3
         return quality_rank, target
-    if cost_class == "local" or is_local_route_target(target):
+    if cost_class == "local" or billing_class == "free" or is_local_route_target(target):
         return 0, target
-    if cost_class == "cheap":
+    if billing_class == "subscription":
         return 1, target
-    if total_rate > 0:
+    if billing_class == "metered":
         return 2, f"{total_rate:012.6f}:{target}"
+    if cost_class == "cheap":
+        return 2, target
+    if total_rate > 0:
+        return 3, f"{total_rate:012.6f}:{target}"
     if cost_class == "balanced":
-        return 3, target
-    if cost_class == "frontier":
         return 4, target
-    return 5, target
+    if cost_class == "frontier":
+        return 5, target
+    return 6, target
 
 
 def load_consolidated_records(path: Path | None = None) -> List[Dict[str, Any]]:
@@ -254,8 +259,8 @@ def score_candidate(
     cost_key = route_cost_rank(target, info, budget)
     metric_adjustment, metric_reason = route_metric_adjustment(metrics_hint)
     if risk == "high" and task in {"orchestration", "implementation", "frontier-advisor"}:
-        policy_score = (0 if preferred else 1_000) + base_rank
-        policy_reason = "high-risk preferred ordering"
+        policy_score = (0 if preferred else 1_000) + cost_key[0] * 100 + base_rank
+        policy_reason = "high-risk preferred and cost-class ordering"
     elif task == "review" and budget == "cheap":
         policy_score = (0 if preferred else REVIEW_POLICY_TIER_WEIGHT) + cost_key[0] * 1_000 + base_rank
         policy_reason = "review policy then cheap cost-class ordering"
@@ -266,6 +271,7 @@ def score_candidate(
         policy_score = base_rank * 100 + cost_key[0]
         policy_reason = "task policy ordering"
     score = policy_score + metric_adjustment
+    context_policy = "fresh" if target.startswith("olla-cloud/") or info.get("billingClass") == "metered" else "reuse-ok"
     return {
         "target": target,
         "score": score,
@@ -275,9 +281,16 @@ def score_candidate(
             "costRank": cost_key[0],
             "metricAdjustment": metric_adjustment,
         },
-        "scoreReasons": [reason for reason in [policy_reason, metric_reason] if reason],
+        "scoreReasons": [
+            reason for reason in [
+                policy_reason,
+                metric_reason,
+                "fresh worker context required for Olla/OpenRouter model" if context_policy == "fresh" else None,
+            ] if reason
+        ],
         "costSortKey": list(cost_key),
         "thinkingLevel": choose_thinking_level(risk, budget, target, info),
+        "contextPolicy": context_policy,
         "diversityGroup": diversity_group_for_target(target, info),
         "metricsHint": metrics_hint,
         "preferred": preferred,
@@ -312,6 +325,7 @@ def selection_contract(candidate: Dict[str, Any], rejected: List[Dict[str, str]]
     return {
         "target": candidate["target"],
         "thinkingLevel": candidate["thinkingLevel"],
+        "contextPolicy": candidate["contextPolicy"],
         "reasons": [*reasons, *candidate.get("scoreReasons", [])],
         "rejected": rejected,
         "diversityGroup": candidate["diversityGroup"],
@@ -436,6 +450,7 @@ def select_model(
             "selection": None,
             "fallbacks": [],
             "thinkingLevel": None,
+            "contextPolicy": None,
             "fanoutRecommended": False,
             "fanout": [],
             "candidateOrder": [],
@@ -473,6 +488,7 @@ def select_model(
         "selection": selection,
         "fallbacks": [item["target"] for item in scored[1:3]],
         "thinkingLevel": selected["thinkingLevel"],
+        "contextPolicy": selected["contextPolicy"],
         "fanoutRecommended": fanout_recommended,
         "fanout": fanout,
         "candidateOrder": [item["target"] for item in scored],

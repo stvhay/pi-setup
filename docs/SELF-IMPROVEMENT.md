@@ -39,8 +39,10 @@ result projections share the Pi session ID, allowing sampled outcome scores to
 join the root agent trace without heuristic matching. `agnt improve` reads
 bounded cohorts and writes private packets under `~/.pi/improvement/`.
 Runner sessions correlate from run bundles; interactive work must call
-`agnt improve link <bead>` after claim. Private evidence stays outside git and
-committed Beads.
+`agnt improve link <bead>` after claim and `agnt improve outcome <bead> <outcome>`
+at closeout. The outcome command idempotently backfills the link and records an
+explicit final outcome, which overrides sampled evaluator guesses. Private
+evidence stays outside git and committed Beads.
 
 ### 2. Annotate (the human/orchestrator signal)
 
@@ -87,10 +89,10 @@ contribute to cross-project routing history.
 `agnt route` aggregates outcome history **by model family** (so evidence from
 one venue covers all venues of the same weights) and demotes any candidate
 whose family shows more negative than positive outcomes over ≥5 invocations.
-For review, risk-specific fanout and month-to-date marginal-spend gates apply
-before model output exists: Kimi is removed at the reserve threshold and paid
-review stops at the hard cap. These deterministic gates do not use model
-self-confidence.
+For review, Codex-first risk-specific fanout and month-to-date marginal-spend
+gates apply before model output exists: Kimi is escalation-only, while reserve
+and hard-cap states keep subscription-backed Codex plus local Gemma. These
+deterministic gates do not use model self-confidence.
 The demotion is visible in the `reasons` field. Persistent patterns deserve a
 policy edit: move the model in the relevant `tasks/*.md` frontmatter and
 commit with the evidence summarized in the message
@@ -99,7 +101,8 @@ commit with the evidence summarized in the message
 ### 5. Private review and safe promotion
 
 ```bash
-agnt improve link <bead>                                  # current private session
+agnt improve link <bead>                                  # claim-time correlation
+agnt improve outcome <bead> <success|partial|failure|unclear> # closeout correlation + outcome
 agnt improve scan --since <ISO> --limit 5 --dry-run --json
 agnt improve scan --since <ISO> --limit 5 --json
 agnt improve review <report> <decisions>          # preview
@@ -109,8 +112,10 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 ```
 
 `link` writes an idempotent private session score containing only the public
-work-item ID. `scan` uses bounded reads, exact links, payload-free tool-error
-signals, and skips sessions already reviewed under the current policy.
+work-item ID. `outcome` rewrites that same link and adds one idempotent categorical
+session score; scanners prefer it over sampled judge output. `scan` uses bounded
+reads, exact links, payload-free tool-error signals, and skips sessions already
+reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`
 accepts only allowlisted, generalized text and requires durable approval of the
 exact preview before creating a committed Bead. Private trace IDs, URLs, user

@@ -306,7 +306,7 @@ def check_provider_env() -> Dict[str, Any]:
 
 def check_catalog_parse() -> Dict[str, Any]:
     parsed: List[str] = []
-    for path in [ROOT / "catalog.json", ROOT / "models.json", ROOT / "settings.json"]:
+    for path in [ROOT / "catalog.json", ROOT / "settings.json"]:
         try:
             json.loads(path.read_text(encoding="utf-8"))
             parsed.append(str(path.relative_to(ROOT)))

@@ -7,7 +7,7 @@
     {
       "name": "review-fast-cheap-default",
       "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok", "--monthly-paid-spend", "0"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "olla-cloud/gemma-4-31b-it", "fanoutRecommended": true}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "fanoutRecommended": true}
     },
     {
       "name": "orchestration-high-quality",
@@ -17,7 +17,7 @@
     {
       "name": "research-long-context",
       "args": ["--task", "research", "--context-tokens", "200000"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "olla-cloud/gemini-flash"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-luna"}
     },
     {
       "name": "review-impossible-video-context",

@@ -76,7 +76,7 @@ Metrics record best-effort model usage and outcomes. Code-review metrics can lin
 - `agnt eval` runs deterministic or model-backed checks.
 - `agnt doctor` checks local operational readiness before agents rely on tools, providers, Beads, Node, or project config.
 - `agnt context-health` checks active context for drift, unsafe weakening, and entropy signals.
-- `agnt improve` scans bounded private telemetry, records reviewed sessions, and promotes only approved public-safe findings.
+- `agnt improve` links interactive sessions to Beads, records explicit closeout outcomes, scans bounded private telemetry, records reviewed sessions, and promotes only approved public-safe findings.
 
 See the [agnt command reference](../pi/agent/bin/README.md) for syntax and examples.
 

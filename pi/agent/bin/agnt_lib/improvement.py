@@ -24,6 +24,8 @@ from .runs import default_runs_dir
 
 REVIEW_SCORE = "improvement_review_status"
 WORK_LINK_SCORE = "improvement_work_item"
+OUTCOME_SCORE = "improvement_task_outcome"
+TASK_OUTCOMES = {"success", "partial", "failure", "unclear"}
 REVIEW_POLICY_VERSION = "v1"
 TRACE_LIMIT_MULTIPLIER = 10
 MAX_TRACE_READ = 500
@@ -220,15 +222,19 @@ def _features(
                 evaluator_timeouts += 1
 
     evaluator_outcomes = []
-    final_outcome: Any = "unknown"
+    explicit_outcome: Any = "unknown"
+    sampled_outcome: Any = "unknown"
     for score in scores:
         score_name = str(score.get("name") or "")
         if score.get("source") != "EVAL" and "outcome" not in score_name.lower():
             continue
         item = {key: score.get(key) for key in ("name", "value", "dataType", "source") if score.get(key) is not None}
         evaluator_outcomes.append(item)
-        if "outcome" in score_name.lower():
-            final_outcome = score.get("value")
+        if score_name == OUTCOME_SCORE and score.get("value") in TASK_OUTCOMES:
+            explicit_outcome = score["value"]
+        elif "outcome" in score_name.lower():
+            sampled_outcome = score.get("value")
+    final_outcome = explicit_outcome if explicit_outcome != "unknown" else sampled_outcome
     for trace in traces:
         metadata = trace.get("metadata") or {}
         if final_outcome == "unknown" and isinstance(metadata, dict) and metadata.get("semanticOutcome"):
@@ -297,6 +303,10 @@ def _work_link_score_id(session_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"urn:agnt:improvement-work-item:{session_id}"))
 
 
+def _outcome_score_id(session_id: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"urn:agnt:improvement-task-outcome:{session_id}"))
+
+
 def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: Any) -> dict[str, Any]:
     if not session_id or len(session_id) > 200:
         raise ValueError("current Pi session is unavailable")
@@ -314,6 +324,28 @@ def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: An
         metadata={"schemaVersion": 1, "beadId": bead_id},
     )
     return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
+
+
+def record_session_outcome(
+    client: Any,
+    *,
+    session_id: str,
+    bead_id: str,
+    outcome: str,
+    beads_runner: Any,
+) -> dict[str, Any]:
+    if outcome not in TASK_OUTCOMES:
+        raise ValueError("task outcome is unsupported")
+    link_session(client, session_id=session_id, bead_id=bead_id, beads_runner=beads_runner)
+    client.put_session_score(
+        score_id=_outcome_score_id(session_id),
+        session_id=session_id,
+        name=OUTCOME_SCORE,
+        value=outcome,
+        data_type="CATEGORICAL",
+        metadata={"schemaVersion": 1, "beadId": bead_id},
+    )
+    return {"schemaVersion": 1, "status": "recorded", "beadId": bead_id, "outcome": outcome}
 
 
 def _write_private_json(output_dir: Path, filename: str, value: dict[str, Any]) -> Path:
@@ -906,15 +938,23 @@ def scan_sessions(
                 trace_id=str(trace["id"]),
                 limit=100,
             ))
+        score_since = _session_score_since(session_id, since)
         link_scores = client.list_scores(
-            from_timestamp=_session_score_since(session_id, since),
+            from_timestamp=score_since,
             to_timestamp=until,
             session_id=session_id,
             name=WORK_LINK_SCORE,
             limit=100,
         )
+        outcome_scores = client.list_scores(
+            from_timestamp=score_since,
+            to_timestamp=until,
+            session_id=session_id,
+            name=OUTCOME_SCORE,
+            limit=100,
+        )
         correlation = _correlate(session_id, runs_dir, link_scores)
-        features = _features(selected_traces, observations, trace_scores)
+        features = _features(selected_traces, observations, [*trace_scores, *outcome_scores])
         if len(session_traces) > len(selected_traces):
             features["captureGaps"].append("trace-limit")
         if observations_truncated:
@@ -1011,6 +1051,10 @@ def cmd_improve(argv: list[str]) -> int:
     link = sub.add_parser("link", help="link the current private session to a public work item")
     link.add_argument("bead")
     link.add_argument("--json", action="store_true")
+    outcome = sub.add_parser("outcome", help="record a linked final outcome for the current private session")
+    outcome.add_argument("bead")
+    outcome.add_argument("outcome", choices=sorted(TASK_OUTCOMES))
+    outcome.add_argument("--json", action="store_true")
     review = sub.add_parser("review", help="validate private review decisions and optionally mark sessions")
     review.add_argument("report", type=Path)
     review.add_argument("decisions", type=Path)
@@ -1024,6 +1068,29 @@ def cmd_improve(argv: list[str]) -> int:
     promote.add_argument("--approval")
     promote.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.action == "outcome":
+        try:
+            session_file = os.environ.get("PI_SESSION_FILE")
+            if not session_file:
+                raise ValueError("current Pi session is unavailable")
+            summary = record_session_outcome(
+                _client_from_env(),
+                session_id=Path(session_file).stem,
+                bead_id=args.bead,
+                outcome=args.outcome,
+                beads_runner=_beads,
+            )
+        except (LangfuseError, OSError, ValueError):
+            if args.json:
+                print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement outcome failed"}))
+            else:
+                print("Improvement outcome failed.", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(summary, indent=2, sort_keys=True))
+        else:
+            print(f"Recorded {summary['outcome']} for {summary['beadId']}.")
+        return 0
     if args.action == "link":
         try:
             session_file = os.environ.get("PI_SESSION_FILE")

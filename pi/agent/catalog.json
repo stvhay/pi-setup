@@ -13,6 +13,7 @@
         {
           "target": "openai-codex/gpt-5.6-sol",
           "costClass": "frontier",
+          "billingClass": "subscription",
           "reasoning": true,
           "thinkingLevelMap": {
             "minimal": null,
@@ -32,6 +33,7 @@
         {
           "target": "openai-codex/gpt-5.6-terra",
           "costClass": "frontier",
+          "billingClass": "subscription",
           "reasoning": true,
           "thinkingLevelMap": {
             "minimal": null,
@@ -52,6 +54,7 @@
         {
           "target": "openai-codex/gpt-5.6-luna",
           "costClass": "balanced",
+          "billingClass": "subscription",
           "reasoning": true,
           "thinkingLevelMap": {
             "minimal": null,
@@ -94,8 +97,10 @@
         {
           "target": "olla-cloud/gpt-4.1",
           "costClass": "cheap",
+          "billingClass": "metered",
           "input": ["text"],
-          "contextWindow": 1000000
+          "contextWindow": 1000000,
+          "maxTokens": 16384
         }
       ]
     },
@@ -105,8 +110,10 @@
         {
           "target": "olla-cloud/gpt-4.1-mini",
           "costClass": "cheap",
+          "billingClass": "metered",
           "input": ["text"],
-          "contextWindow": 1000000
+          "contextWindow": 1000000,
+          "maxTokens": 16384
         }
       ]
     },
@@ -115,8 +122,10 @@
         {
           "target": "olla-cloud/gemini-flash",
           "costClass": "cheap",
+          "billingClass": "metered",
           "input": ["text", "image", "audio", "video"],
-          "contextWindow": 1000000
+          "contextWindow": 1000000,
+          "maxTokens": 16384
         }
       ]
     },
@@ -125,9 +134,11 @@
         {
           "target": "olla-cloud/glm-5.2",
           "costClass": "frontier",
+          "billingClass": "metered",
           "reasoning": true,
           "input": ["text"],
-          "contextWindow": 999424
+          "contextWindow": 999424,
+          "maxTokens": 16384
         }
       ]
     },
@@ -142,7 +153,7 @@
           "thinkingLevelMap": {"off": null},
           "input": ["text", "image"],
           "contextWindow": 262144,
-          "maxTokens": 32768
+          "maxTokens": 16384
         }
       ]
     },
@@ -165,7 +176,7 @@
           },
           "input": ["text", "image"],
           "contextWindow": 1048576,
-          "maxTokens": 131072
+          "maxTokens": 16384
         }
       ]
     },
@@ -186,7 +197,7 @@
           "equivalence": "exact-family",
           "input": ["text", "image"],
           "contextWindow": 262144,
-          "maxTokens": 262144
+          "maxTokens": 16384
         },
         {
           "target": "olla-cloud/gemma-4-31b-it:free",
@@ -195,7 +206,7 @@
           "equivalence": "exact-family",
           "input": ["text", "image"],
           "contextWindow": 262144,
-          "maxTokens": 32768
+          "maxTokens": 16384
         }
       ]
     },
@@ -226,7 +237,7 @@
           "equivalence": "approximate-family",
           "input": ["text"],
           "contextWindow": 262144,
-          "maxTokens": 262144
+          "maxTokens": 16384
         }
       ]
     },
@@ -239,7 +250,7 @@
           "billingClass": "metered",
           "input": ["text"],
           "contextWindow": 1000000,
-          "maxTokens": 65536
+          "maxTokens": 16384
         }
       ]
     },
@@ -253,7 +264,7 @@
           "reasoning": true,
           "input": ["text"],
           "contextWindow": 1048576,
-          "maxTokens": 393216
+          "maxTokens": 16384
         }
       ]
     },
@@ -267,7 +278,7 @@
           "reasoning": true,
           "input": ["text"],
           "contextWindow": 1048576,
-          "maxTokens": 384000
+          "maxTokens": 16384
         }
       ]
     },
