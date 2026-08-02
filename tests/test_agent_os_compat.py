@@ -191,7 +191,6 @@ def test_rpc_adapter_uses_portable_ask_and_text_todo_widget():
         ["agent-os-subagent-peer-2", ["Running 1 task"]],
       ]);
       assert.doesNotMatch(JSON.stringify([...activities.values()]), /private/);
-      assert.equal(typeof handlers.tool_execution_update, "function");
       handlers.tool_execution_update({{
         toolName: "subagent",
         toolCallId: "peer-1",
