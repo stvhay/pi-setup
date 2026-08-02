@@ -29,12 +29,29 @@ type Answer = {
 const packageSourcePattern = /^npm:(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/;
 const packageVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
-function parsePackageOperation(args: string): { operation: "install" | "remove"; source: string; version?: string } | undefined {
-  const [operation, source, version, extra] = clean(args).split(" ");
-  if (extra || !packageSourcePattern.test(source || "")) return undefined;
-  if (operation === "install" && packageVersionPattern.test(version || "")) return { operation, source, version };
-  if (operation === "remove" && !version) return { operation, source };
-  return undefined;
+type PackageTarget = { source: string; version?: string };
+type PackageOperation = { operation: "install" | "remove" | "update"; targets: PackageTarget[] };
+
+function parsePackageOperation(args: string): PackageOperation | undefined {
+  const [operation, ...values] = clean(args, 8000).split(" ");
+  if (operation === "remove" && values.length === 1 && packageSourcePattern.test(values[0])) {
+    return { operation, targets: [{ source: values[0] }] };
+  }
+  if (operation !== "install" && operation !== "update") return undefined;
+  if (values.length < 2 || values.length % 2 !== 0 || values.length > (operation === "install" ? 2 : 40)) return undefined;
+  const targets: PackageTarget[] = [];
+  const names = new Set<string>();
+  for (let index = 0; index < values.length; index += 2) {
+    const source = values[index];
+    const version = values[index + 1];
+    if (!packageSourcePattern.test(source) || !packageVersionPattern.test(version)) return undefined;
+    const name = npmPackageName(source);
+    if (names.has(name || "")) throw new Error(`Duplicate package update: ${source}`);
+    names.add(name || "");
+    targets.push({ source, version });
+  }
+  if (operation === "install" && targets.length !== 1) return undefined;
+  return { operation, targets };
 }
 
 function npmPackageName(source: PackageSource): string | undefined {
@@ -46,39 +63,76 @@ function npmPackageName(source: PackageSource): string | undefined {
   return versionAt > slash ? spec.slice(0, versionAt) : spec;
 }
 
+function npmPackagePinned(source: string): boolean {
+  const spec = source.slice(4);
+  const slash = spec.startsWith("@") ? spec.indexOf("/") : -1;
+  return spec.lastIndexOf("@") > slash;
+}
+
 async function applyProjectPackage(args: string, ctx: ExtensionCommandContext): Promise<void> {
   const parsed = parsePackageOperation(args);
-  if (!parsed) throw new Error("Usage: /agent-os-package install npm:<package> <version> | remove npm:<package>");
+  if (!parsed) {
+    throw new Error(
+      "Usage: /agent-os-package install npm:<package> <version> | remove npm:<package> | update npm:<package> <version> [...]",
+    );
+  }
 
-  const { operation, source, version } = parsed;
   if (!ctx.isProjectTrusted()) throw new Error("Project is not trusted; package change cancelled");
   const settings = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: true });
   const packages = new DefaultPackageManager({ cwd: ctx.cwd, agentDir: getAgentDir(), settingsManager: settings });
-  const configured = packages.listConfiguredPackages().filter((pkg) => npmPackageName(pkg.source) === npmPackageName(source));
-  const projectPackage = configured.find((pkg) => pkg.scope === "project");
-  if (operation === "install" && configured.length > 0) {
-    throw new Error(`${source} is already configured in ${configured[0].scope} scope`);
-  }
-  if (operation === "remove" && !projectPackage) {
-    if (configured.length > 0) throw new Error(`${source} is managed by the Pi baseline and cannot be removed here`);
-    throw new Error(`${source} is not installed in project scope`);
+  const configuredPackages = packages.listConfiguredPackages();
+  for (const target of parsed.targets) {
+    const configured = configuredPackages.filter((pkg) => npmPackageName(pkg.source) === npmPackageName(target.source));
+    const projectPackage = configured.find((pkg) => pkg.scope === "project");
+    if (parsed.operation === "install" && configured.length > 0) {
+      throw new Error(`${target.source} is already configured in ${configured[0].scope} scope`);
+    }
+    if ((parsed.operation === "remove" || parsed.operation === "update") && !projectPackage) {
+      if (configured.length > 0) throw new Error(`${target.source} is managed by the Pi baseline and cannot be changed here`);
+      throw new Error(`${target.source} is not installed in project scope`);
+    }
+    if (parsed.operation === "update" && projectPackage && npmPackagePinned(projectPackage.source)) {
+      throw new Error(`${target.source} is a pinned project package; reinstall a chosen version explicitly`);
+    }
   }
   packages.setProgressCallback((event) => {
-    if (event.type === "start") ctx.ui.setStatus("agent-os-packages", event.message || `${operation} ${source}`);
+    if (event.type === "start") ctx.ui.setStatus("agent-os-packages", event.message || "Changing project packages");
   });
   try {
-    if (operation === "install") {
-      await packages.installAndPersist(`${source}@${version}`, { local: true });
-      settings.setProjectPackages(
-        (settings.getProjectSettings().packages || []).map((configuredSource) =>
-          npmPackageName(configuredSource) === npmPackageName(source) ? source : configuredSource,
-        ),
+    if (parsed.operation === "update") {
+      const updated: string[] = [];
+      const failed: string[] = [];
+      for (const { source, version } of parsed.targets) {
+        try {
+          await packages.install(`${source}@${version}`, { local: true });
+          updated.push(`${source}@${version}`);
+        } catch (error) {
+          failed.push(`${source}: ${clean(error instanceof Error ? error.message : error, 300)}`);
+        }
+      }
+      if (updated.length === 0) throw new Error(`No package updates succeeded. ${failed.join("; ")}`);
+      await settings.flush();
+      const errors = settings.drainErrors();
+      if (errors.length > 0) throw errors[0].error;
+      ctx.ui.notify(
+        `Updated ${updated.join(", ")}.${failed.length ? ` Failed ${failed.join("; ")}.` : ""} Reloading Pi resources.`,
+        failed.length ? "warning" : "info",
       );
-    } else await packages.removeAndPersist(source, { local: true });
-    await settings.flush();
-    const errors = settings.drainErrors();
-    if (errors.length > 0) throw errors[0].error;
-    ctx.ui.notify(`${operation === "install" ? "Installed" : "Removed"} ${source}. Reloading Pi resources.`, "info");
+    } else {
+      const { source, version } = parsed.targets[0];
+      if (parsed.operation === "install") {
+        await packages.installAndPersist(`${source}@${version}`, { local: true });
+        settings.setProjectPackages(
+          (settings.getProjectSettings().packages || []).map((configuredSource) =>
+            npmPackageName(configuredSource) === npmPackageName(source) ? source : configuredSource,
+          ),
+        );
+      } else await packages.removeAndPersist(source, { local: true });
+      await settings.flush();
+      const errors = settings.drainErrors();
+      if (errors.length > 0) throw errors[0].error;
+      ctx.ui.notify(`${parsed.operation === "install" ? "Installed" : "Removed"} ${source}. Reloading Pi resources.`, "info");
+    }
   } finally {
     ctx.ui.setStatus("agent-os-packages", undefined);
   }
