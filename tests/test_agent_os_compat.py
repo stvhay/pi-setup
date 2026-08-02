@@ -268,59 +268,42 @@ def test_rpc_package_command_updates_selected_versions_and_reports_partial_failu
         registerCommand(name, command) {{ commands.set(name, command); }},
       }}, true);
       const events = [];
+      const ctx = {{
+        cwd: {str(project)!r},
+        isProjectTrusted: () => true,
+        ui: {{
+          setStatus: (_key, value) => events.push(`status:${{value ?? "clear"}}`),
+          notify: (message, type) => events.push(`notify:${{type}}:${{message}}`),
+        }},
+        reload: async () => {{
+          const settings = JSON.parse(readFileSync({str(project / ".pi" / "settings.json")!r}, "utf8"));
+          assert.deepEqual(settings.packages, {json.dumps(project_settings)});
+          events.push("reload");
+        }},
+      }};
       await commands.get("agent-os-package").handler(
         "update npm:update-package 2.0.0 npm:broken-package 2.0.0",
-        {{
-          cwd: {str(project)!r},
-          isProjectTrusted: () => true,
-          ui: {{
-            setStatus: (_key, value) => events.push(`status:${{value ?? "clear"}}`),
-            notify: (message, type) => events.push(`notify:${{type}}:${{message}}`),
-          }},
-          reload: async () => {{
-            const settings = JSON.parse(readFileSync({str(project / ".pi" / "settings.json")!r}, "utf8"));
-            assert.deepEqual(settings.packages, {json.dumps(project_settings)});
-            events.push("reload");
-          }},
-        }},
+        ctx,
       );
       assert.equal(JSON.parse(readFileSync({str(project / ".pi" / "npm" / "node_modules" / "update-package" / "package.json")!r}, "utf8")).version, "2.0.0");
       assert.equal(JSON.parse(readFileSync({str(project / ".pi" / "npm" / "node_modules" / "broken-package" / "package.json")!r}, "utf8")).version, "1.0.0");
       assert.match(events.find((event) => event.startsWith("notify:warning:")), /broken-package/);
       assert.equal(events.at(-2), "status:clear");
       assert.equal(events.at(-1), "reload");
-    """
-    run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
-
-
-def test_rpc_package_command_does_not_reload_when_all_updates_fail(tmp_path):
-    agent_dir, project = package_fixture(tmp_path)
-    (project / ".pi" / "settings.json").write_text(
-        json.dumps({"packages": ["npm:broken-package"]}), encoding="utf-8"
-    )
-    script = f"""
-      import assert from "node:assert/strict";
-      import {{ installAgentOSCompat }} from {EXTENSION.as_uri()!r};
-      const commands = new Map();
-      installAgentOSCompat({{
-        on() {{}}, registerTool() {{}},
-        registerCommand(name, command) {{ commands.set(name, command); }},
-      }}, true);
+      const reloads = events.filter((event) => event === "reload").length;
       await assert.rejects(
-        () => commands.get("agent-os-package").handler("update npm:broken-package 2.0.0", {{
-          cwd: {str(project)!r},
-          isProjectTrusted: () => true,
-          ui: {{ setStatus() {{}}, notify() {{}} }},
-          reload: async () => assert.fail("all-failed update must not reload"),
-        }}),
+        () => commands.get("agent-os-package").handler("update npm:broken-package 2.0.0", ctx),
         new RegExp("No package updates succeeded.*broken-package"),
       );
+      assert.equal(events.filter((event) => event === "reload").length, reloads);
     """
     run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
 
 
-def test_rpc_package_command_rejects_managed_or_pinned_updates(tmp_path):
-    agent_dir, project = package_fixture(tmp_path, ["npm:baseline-package"])
+def test_rpc_package_command_rejects_disallowed_changes(tmp_path):
+    agent_dir, project = package_fixture(
+        tmp_path, ["npm:baseline-package", "npm:catalog-package@1.0.0"]
+    )
     (project / ".pi" / "settings.json").write_text(
         json.dumps({"packages": ["npm:pinned-package@1.0.0"]}), encoding="utf-8"
     )
@@ -332,47 +315,24 @@ def test_rpc_package_command_rejects_managed_or_pinned_updates(tmp_path):
         on() {{}}, registerTool() {{}},
         registerCommand(name, command) {{ commands.set(name, command); }},
       }}, true);
+      const command = commands.get("agent-os-package");
       const ctx = {{
         cwd: {str(project)!r},
         isProjectTrusted: () => true,
         ui: {{ setStatus() {{}}, notify() {{}} }},
-        reload: async () => assert.fail("rejected update must not reload"),
+        reload: async () => assert.fail("rejected change must not reload"),
       }};
+      for (const [args, error] of [
+        ["update npm:baseline-package 2.0.0", /managed by the Pi baseline/],
+        ["update npm:pinned-package 2.0.0", /pinned project package/],
+        ["update npm:missing-package 2.0.0", /not installed in project scope/],
+        ["install npm:catalog-package 1.2.3", /already configured in user scope/],
+        ["remove npm:baseline-package", /managed by the Pi baseline/],
+        ["remove npm:missing-package", /not installed in project scope/],
+      ]) await assert.rejects(() => command.handler(args, ctx), error);
       await assert.rejects(
-        () => commands.get("agent-os-package").handler("update npm:baseline-package 2.0.0", ctx),
-        new RegExp("managed by the Pi baseline"),
-      );
-      await assert.rejects(
-        () => commands.get("agent-os-package").handler("update npm:pinned-package 2.0.0", ctx),
-        new RegExp("pinned project package"),
-      );
-      await assert.rejects(
-        () => commands.get("agent-os-package").handler("update npm:missing-package 2.0.0", ctx),
-        new RegExp("not installed in project scope"),
-      );
-    """
-    run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
-
-
-def test_rpc_package_command_rejects_baseline_duplicate(tmp_path):
-    agent_dir, project = package_fixture(tmp_path, ["npm:catalog-package@1.0.0"])
-    script = f"""
-      import assert from "node:assert/strict";
-      import {{ installAgentOSCompat }} from {EXTENSION.as_uri()!r};
-      const commands = new Map();
-      installAgentOSCompat({{
-        on() {{}}, registerTool() {{}},
-        registerCommand(name, command) {{ commands.set(name, command); }},
-      }}, true);
-      const ctx = {{
-        cwd: {str(project)!r},
-        isProjectTrusted: () => true,
-        ui: {{ setStatus() {{}}, notify() {{}} }},
-        reload: async () => assert.fail("duplicate must not reload"),
-      }};
-      await assert.rejects(
-        () => commands.get("agent-os-package").handler("install npm:catalog-package 1.2.3", ctx),
-        new RegExp("already configured in user scope"),
+        () => command.handler("install npm:new-package 1.2.3", {{ ...ctx, isProjectTrusted: () => false }}),
+        /Project is not trusted/,
       );
     """
     run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
@@ -410,57 +370,6 @@ def test_rpc_package_command_removes_project_package_before_reload(tmp_path):
         }},
       }});
       assert.deepEqual(events, ["reload"]);
-    """
-    run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
-
-
-def test_rpc_package_command_rejects_baseline_and_missing_removal(tmp_path):
-    agent_dir, project = package_fixture(tmp_path, ["npm:baseline-package@1.0.0"])
-    script = f"""
-      import assert from "node:assert/strict";
-      import {{ installAgentOSCompat }} from {EXTENSION.as_uri()!r};
-      const commands = new Map();
-      installAgentOSCompat({{
-        on() {{}}, registerTool() {{}},
-        registerCommand(name, command) {{ commands.set(name, command); }},
-      }}, true);
-      const ctx = {{
-        cwd: {str(project)!r},
-        isProjectTrusted: () => true,
-        ui: {{ setStatus() {{}}, notify() {{}} }},
-        reload: async () => assert.fail("rejected removal must not reload"),
-      }};
-      await assert.rejects(
-        () => commands.get("agent-os-package").handler("remove npm:baseline-package", ctx),
-        new RegExp("managed by the Pi baseline"),
-      );
-      await assert.rejects(
-        () => commands.get("agent-os-package").handler("remove npm:missing-package", ctx),
-        new RegExp("not installed in project scope"),
-      );
-    """
-    run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
-
-
-def test_rpc_package_command_rejects_untrusted_project(tmp_path):
-    agent_dir, project = package_fixture(tmp_path)
-    script = f"""
-      import assert from "node:assert/strict";
-      import {{ installAgentOSCompat }} from {EXTENSION.as_uri()!r};
-      const commands = new Map();
-      installAgentOSCompat({{
-        on() {{}}, registerTool() {{}},
-        registerCommand(name, command) {{ commands.set(name, command); }},
-      }}, true);
-      await assert.rejects(
-        () => commands.get("agent-os-package").handler("install npm:catalog-package 1.2.3", {{
-          cwd: {str(project)!r},
-          isProjectTrusted: () => false,
-          ui: {{ setStatus() {{}}, notify() {{}} }},
-          reload: async () => assert.fail("untrusted install must not reload"),
-        }}),
-        new RegExp("Project is not trusted"),
-      );
     """
     run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
 

@@ -45,12 +45,10 @@ function parsePackageOperation(args: string): PackageOperation | undefined {
     const source = values[index];
     const version = values[index + 1];
     if (!packageSourcePattern.test(source) || !packageVersionPattern.test(version)) return undefined;
-    const name = npmPackageName(source);
-    if (names.has(name || "")) throw new Error(`Duplicate package update: ${source}`);
-    names.add(name || "");
+    if (names.has(source)) throw new Error(`Duplicate package update: ${source}`);
+    names.add(source);
     targets.push({ source, version });
   }
-  if (operation === "install" && targets.length !== 1) return undefined;
   return { operation, targets };
 }
 
@@ -61,12 +59,6 @@ function npmPackageName(source: PackageSource): string | undefined {
   const slash = spec.startsWith("@") ? spec.indexOf("/") : -1;
   const versionAt = spec.lastIndexOf("@");
   return versionAt > slash ? spec.slice(0, versionAt) : spec;
-}
-
-function npmPackagePinned(source: string): boolean {
-  const spec = source.slice(4);
-  const slash = spec.startsWith("@") ? spec.indexOf("/") : -1;
-  return spec.lastIndexOf("@") > slash;
 }
 
 async function applyProjectPackage(args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -91,7 +83,7 @@ async function applyProjectPackage(args: string, ctx: ExtensionCommandContext): 
       if (configured.length > 0) throw new Error(`${target.source} is managed by the Pi baseline and cannot be changed here`);
       throw new Error(`${target.source} is not installed in project scope`);
     }
-    if (parsed.operation === "update" && projectPackage && npmPackagePinned(projectPackage.source)) {
+    if (parsed.operation === "update" && projectPackage?.source !== target.source) {
       throw new Error(`${target.source} is a pinned project package; reinstall a chosen version explicitly`);
     }
   }
@@ -121,12 +113,8 @@ async function applyProjectPackage(args: string, ctx: ExtensionCommandContext): 
     } else {
       const { source, version } = parsed.targets[0];
       if (parsed.operation === "install") {
-        await packages.installAndPersist(`${source}@${version}`, { local: true });
-        settings.setProjectPackages(
-          (settings.getProjectSettings().packages || []).map((configuredSource) =>
-            npmPackageName(configuredSource) === npmPackageName(source) ? source : configuredSource,
-          ),
-        );
+        await packages.install(`${source}@${version}`, { local: true });
+        packages.addSourceToSettings(source, { local: true });
       } else await packages.removeAndPersist(source, { local: true });
       await settings.flush();
       const errors = settings.drainErrors();
