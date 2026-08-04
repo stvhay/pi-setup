@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .langfuse import LangfuseError, _client_from_env
+from .langfuse import DEFAULT_MAX_TRACES, LangfuseError, _client_from_env
 from .metrics import git_root
 from .runs import default_runs_dir
 
@@ -27,8 +27,6 @@ WORK_LINK_SCORE = "improvement_work_item"
 OUTCOME_SCORE = "improvement_task_outcome"
 TASK_OUTCOMES = {"success", "partial", "failure", "unclear"}
 REVIEW_POLICY_VERSION = "v1"
-TRACE_LIMIT_MULTIPLIER = 10
-MAX_TRACE_READ = 500
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
 SESSION_DECISIONS = {"no-action", "actions-created", "needs-human", "excluded"}
@@ -883,6 +881,7 @@ def scan_sessions(
     output_dir: Path,
     runs_dir: Path,
     repository_root: Path,
+    max_traces: int = DEFAULT_MAX_TRACES,
     recheck: bool = False,
     dry_run: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -893,29 +892,39 @@ def scan_sessions(
     if _inside(output_dir, repository_root):
         raise ValueError("improvement directory must be outside repository")
 
-    trace_limit = min(max(limit * TRACE_LIMIT_MULTIPLIER, 10), MAX_TRACE_READ)
+    discovery = client.list_traces_with_metadata(
+        from_timestamp=since,
+        to_timestamp=until,
+        max_traces=max_traces,
+    )
+    traces = discovery["traces"]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    attributable = 0
+    for trace in traces:
+        session_id = trace.get("sessionId")
+        if isinstance(session_id, str) and session_id:
+            attributable += 1
+            groups.setdefault(session_id, []).append(trace)
+    trace_discovery = {
+        "totalAvailable": discovery.get("totalAvailable"),
+        "scanned": len(traces),
+        "maxTraces": max_traces,
+        "attributable": attributable,
+        "unattributed": len(traces) - attributable,
+        "complete": discovery["complete"],
+        "continuation": discovery["continuation"],
+    }
     review_cache: dict[str, bool] = {}
-    while True:
-        traces = client.list_traces(from_timestamp=since, to_timestamp=until, limit=trace_limit)
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for trace in traces:
-            session_id = trace.get("sessionId")
-            if isinstance(session_id, str) and session_id:
-                groups.setdefault(session_id, []).append(trace)
-        for session_id in groups:
-            if session_id not in review_cache:
-                scores = [] if recheck else client.list_scores(
-                    from_timestamp=_session_score_since(session_id, since),
-                    to_timestamp=until,
-                    session_id=session_id,
-                    name=REVIEW_SCORE,
-                    limit=100,
-                )
-                review_cache[session_id] = _is_current_review(scores)
-        eligible_groups = [(session_id, items) for session_id, items in groups.items() if not review_cache[session_id]]
-        if len(eligible_groups) >= limit or len(traces) < trace_limit or trace_limit == MAX_TRACE_READ:
-            break
-        trace_limit = min(trace_limit * 2, MAX_TRACE_READ)
+    for session_id in groups:
+        scores = [] if recheck else client.list_scores(
+            from_timestamp=_session_score_since(session_id, since),
+            to_timestamp=until,
+            session_id=session_id,
+            name=REVIEW_SCORE,
+            limit=100,
+        )
+        review_cache[session_id] = _is_current_review(scores)
+    eligible_groups = [(session_id, items) for session_id, items in groups.items() if not review_cache[session_id]]
 
     sessions = []
     for session_id, session_traces in eligible_groups[:limit]:
@@ -977,6 +986,7 @@ def scan_sessions(
             "limit": limit,
             "recheck": recheck,
             "reviewPolicyVersion": REVIEW_POLICY_VERSION,
+            "traceDiscovery": trace_discovery,
         },
         "sessions": sessions,
     }
@@ -984,6 +994,7 @@ def scan_sessions(
         "schemaVersion": 1,
         "status": "ok",
         "scannedTraces": len(traces),
+        "traceDiscovery": trace_discovery,
         "candidateSessions": len(groups),
         "eligibleSessions": len(sessions),
         "reviewedSessionsSkipped": sum(review_cache.get(session_id, False) for session_id in groups),
@@ -1039,12 +1050,20 @@ def _scan_limit(value: str) -> int:
     return limit
 
 
+def _max_traces(value: str) -> int:
+    limit = int(value)
+    if limit < 1:
+        raise argparse.ArgumentTypeError("max traces must be positive")
+    return limit
+
+
 def cmd_improve(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt improve", description="Review private Langfuse telemetry safely.")
     sub = parser.add_subparsers(dest="action")
     scan = sub.add_parser("scan", help="write a bounded private review packet")
     scan.add_argument("--since", type=_timestamp)
     scan.add_argument("--limit", type=_scan_limit, default=20)
+    scan.add_argument("--max-traces", type=_max_traces, default=DEFAULT_MAX_TRACES)
     scan.add_argument("--recheck", action="store_true")
     scan.add_argument("--dry-run", action="store_true")
     scan.add_argument("--json", action="store_true")
@@ -1183,6 +1202,7 @@ def cmd_improve(argv: list[str]) -> int:
             output_dir=improvement_dir(),
             runs_dir=default_runs_dir(),
             repository_root=git_root(),
+            max_traces=args.max_traces,
             recheck=args.recheck,
             dry_run=args.dry_run,
         )

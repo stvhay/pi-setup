@@ -94,7 +94,7 @@ def test_observation_reads_reject_missing_bounds_or_nonpositive_limits():
     assert client.calls == []
 
 
-def test_trace_reads_are_time_bounded_and_paginated():
+def test_legacy_list_traces_return_contract_is_paginated():
     client = FakeTelemetryClient([
         {"data": [{"id": "first"}], "meta": {"page": 1, "totalPages": 2}},
         {"data": [{"id": "second"}], "meta": {"page": 2, "totalPages": 2}},
@@ -107,6 +107,7 @@ def test_trace_reads_are_time_bounded_and_paginated():
         page_size=1,
     )
 
+    assert isinstance(rows, list)
     assert [row["id"] for row in rows] == ["first", "second"]
     assert client.calls == [
         (
@@ -130,6 +131,258 @@ def test_trace_reads_are_time_bounded_and_paginated():
             },
         ),
     ]
+
+
+def test_trace_discovery_paginates_until_api_end():
+    client = FakeTelemetryClient([
+        {"data": [{"id": "first"}], "meta": {}},
+        {"data": [{"id": "second"}], "meta": {}},
+        {"data": [], "meta": {}},
+    ])
+
+    assert hasattr(client, "list_traces_with_metadata")
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        page_size=1,
+    )
+
+    assert discovery == {
+        "traces": [{"id": "first"}, {"id": "second"}],
+        "totalAvailable": None,
+        "scanned": 2,
+        "maxTraces": 500,
+        "complete": True,
+        "continuation": {"hasMore": False, "nextPage": None, "reason": "api-end"},
+    }
+    assert [call[2]["page"] for call in client.calls] == [1, 2, 3]
+
+
+def test_trace_discovery_reports_lower_bounds_from_api_total():
+    client = FakeTelemetryClient([
+        {
+            "data": [{"id": "first"}, {"id": "second"}],
+            "meta": {"page": 1, "totalPages": 1, "totalItems": 3},
+        },
+    ])
+
+    assert hasattr(client, "list_traces_with_metadata")
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+    )
+
+    assert discovery["totalAvailable"] == 3
+    assert discovery["scanned"] == 2
+    assert discovery["complete"] is False
+    assert discovery["continuation"] == {
+        "hasMore": True,
+        "nextPage": 2,
+        "reason": "api-incomplete",
+    }
+
+
+def test_trace_discovery_stops_at_operator_max_and_reports_lower_bound():
+    client = FakeTelemetryClient([{
+        "data": [{"id": "first"}, {"id": "second"}],
+        "meta": {"page": 1, "totalPages": 3, "totalItems": 5},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=2,
+    )
+
+    assert discovery == {
+        "traces": [{"id": "first"}, {"id": "second"}],
+        "totalAvailable": 5,
+        "scanned": 2,
+        "maxTraces": 2,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
+    }
+
+
+def test_trace_discovery_validates_total_against_raw_page_before_operator_cap():
+    client = FakeTelemetryClient([{
+        "data": [{"id": "first"}, {"id": "overflow"}],
+        "meta": {"totalItems": 1},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=1,
+    )
+
+    assert discovery == {
+        "traces": [{"id": "first"}],
+        "totalAvailable": None,
+        "scanned": 1,
+        "maxTraces": 1,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
+    }
+
+
+def test_trace_discovery_at_cap_honors_later_total_pages():
+    client = FakeTelemetryClient([{
+        "data": [{"id": "first"}],
+        "meta": {"page": 1, "totalPages": 2, "totalItems": 1},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=1,
+    )
+
+    assert discovery == {
+        "traces": [{"id": "first"}],
+        "totalAvailable": 1,
+        "scanned": 1,
+        "maxTraces": 1,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
+    }
+
+
+def test_trace_discovery_keeps_empty_nonterminal_page_incomplete():
+    client = FakeTelemetryClient([{
+        "data": [],
+        "meta": {"page": 1, "totalPages": 2},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=10,
+    )
+
+    assert discovery == {
+        "traces": [],
+        "totalAvailable": None,
+        "scanned": 0,
+        "maxTraces": 10,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 2, "reason": "api-incomplete"},
+    }
+
+
+def test_trace_discovery_has_finite_safe_default():
+    client = FakeTelemetryClient([{"data": [], "meta": {}}])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+    )
+
+    assert discovery["maxTraces"] == 500
+
+
+def test_trace_discovery_stops_on_repeated_page_without_counting_it_twice():
+    page = {"data": [{"id": "first"}], "meta": {}}
+    client = FakeTelemetryClient([page, page])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=10,
+    )
+
+    assert discovery["traces"] == [{"id": "first"}]
+    assert discovery["complete"] is False
+    assert discovery["continuation"] == {
+        "hasMore": True,
+        "nextPage": 2,
+        "reason": "non-advancing-page",
+    }
+    assert len(client.calls) == 2
+
+
+def test_trace_discovery_does_not_false_complete_on_empty_page_before_valid_total():
+    client = FakeTelemetryClient([
+        {"data": [{"id": "first"}], "meta": {"totalItems": 2}},
+        {"data": [], "meta": {"totalItems": 2}},
+    ])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=10,
+    )
+
+    assert discovery["totalAvailable"] == 2
+    assert discovery["complete"] is False
+    assert discovery["continuation"] == {
+        "hasMore": True,
+        "nextPage": 3,
+        "reason": "api-incomplete",
+    }
+
+
+def test_trace_discovery_validates_total_before_stopping_on_repeated_page():
+    client = FakeTelemetryClient([
+        {"data": [{"id": "first"}], "meta": {"totalItems": 3}},
+        {"data": [{"id": "first"}], "meta": {"totalItems": 4}},
+    ])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=10,
+    )
+
+    assert discovery["traces"] == [{"id": "first"}]
+    assert discovery["totalAvailable"] is None
+    assert discovery["complete"] is False
+    assert discovery["continuation"]["reason"] == "non-advancing-page"
+
+
+@pytest.mark.parametrize("invalid_total", [True, 1.5, -1])
+def test_trace_discovery_treats_invalid_totals_as_unavailable_without_false_completion(invalid_total):
+    client = FakeTelemetryClient([{
+        "data": [{"id": "first"}, {"id": "second"}],
+        "meta": {"totalItems": invalid_total, "totalPages": 1},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=10,
+    )
+
+    assert discovery["totalAvailable"] is None
+    assert discovery["scanned"] == 2
+    assert discovery["complete"] is False
+    assert discovery["continuation"] == {
+        "hasMore": True,
+        "nextPage": 2,
+        "reason": "api-incomplete",
+    }
+
+
+def test_trace_discovery_treats_inconsistent_totals_as_unavailable_without_false_completion():
+    client = FakeTelemetryClient([
+        {"data": [{"id": "first"}], "meta": {"totalItems": 3, "totalPages": 2}},
+        {"data": [{"id": "second"}], "meta": {"totalItems": 4, "totalPages": 2}},
+    ])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=10,
+    )
+
+    assert discovery["totalAvailable"] is None
+    assert discovery["scanned"] == 2
+    assert discovery["complete"] is False
+    assert discovery["continuation"] == {
+        "hasMore": True,
+        "nextPage": 3,
+        "reason": "api-incomplete",
+    }
 
 
 def test_score_reads_follow_cursor_and_stop_at_limit():
@@ -317,12 +570,24 @@ class FakeScanClient:
         self.reviewed = dict(reviewed) if isinstance(reviewed, dict) else {item: "v1" for item in reviewed}
         self.trace_scores = trace_scores or {}
         self.trace_limits = []
+        self.trace_maxima = []
         self.score_sessions = []
         self.observation_traces = []
 
     def list_traces(self, **kwargs):
         self.trace_limits.append(kwargs["limit"])
         return self.traces[: kwargs["limit"]]
+
+    def list_traces_with_metadata(self, **kwargs):
+        self.trace_maxima.append(kwargs.get("max_traces"))
+        return {
+            "traces": self.traces,
+            "totalAvailable": len(self.traces),
+            "scanned": len(self.traces),
+            "maxTraces": kwargs.get("max_traces"),
+            "complete": True,
+            "continuation": {"hasMore": False, "nextPage": None, "reason": "api-end"},
+        }
 
     def list_scores(self, **kwargs):
         if kwargs.get("trace_id"):
@@ -616,6 +881,15 @@ def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
         "schemaVersion": 1,
         "status": "ok",
         "scannedTraces": 2,
+        "traceDiscovery": {
+            "totalAvailable": 2,
+            "scanned": 2,
+            "maxTraces": 500,
+            "attributable": 2,
+            "unattributed": 0,
+            "complete": True,
+            "continuation": {"hasMore": False, "nextPage": None, "reason": "api-end"},
+        },
         "candidateSessions": 2,
         "eligibleSessions": 1,
         "reviewedSessionsSkipped": 1,
@@ -712,7 +986,7 @@ def test_scan_checks_multiple_review_markers_for_current_policy(tmp_path):
     assert packet["sessions"] == []
 
 
-def test_scan_expands_bounded_trace_window_past_reviewed_prefix(tmp_path):
+def test_scan_trace_discovery_paginates_past_reviewed_prefix(tmp_path):
     traces = [_private_trace(f"reviewed-{index}", f"trace-{index}") for index in range(10)]
     traces.append(_private_trace("eligible-session", "eligible-trace"))
     client = FakeScanClient(
@@ -732,9 +1006,53 @@ def test_scan_expands_bounded_trace_window_past_reviewed_prefix(tmp_path):
         dry_run=True,
     )
 
-    assert client.trace_limits == [10, 20]
+    assert client.trace_limits == []
     assert summary["eligibleSessions"] == 1
     assert packet["sessions"][0]["sessionId"] == "eligible-session"
+
+
+def test_trace_discovery_reports_lower_bounds_and_unattributed_traces(tmp_path):
+    attributed = _private_trace("eligible-session", "attributed-trace")
+    unattributed = _private_trace("", "unattributed-trace")
+
+    class IncompleteScanClient(FakeScanClient):
+        def list_traces_with_metadata(self, **kwargs):
+            return {
+                "traces": self.traces,
+                "totalAvailable": 3,
+                "scanned": 2,
+                "complete": False,
+                "continuation": {"hasMore": True, "nextPage": 3, "reason": "api-incomplete"},
+            }
+
+    client = IncompleteScanClient(
+        [attributed, unattributed],
+        {"attributed-trace": []},
+    )
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    expected = {
+        "totalAvailable": 3,
+        "scanned": 2,
+        "maxTraces": 500,
+        "attributable": 1,
+        "unattributed": 1,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 3, "reason": "api-incomplete"},
+    }
+    assert "traceDiscovery" in summary
+    assert summary["traceDiscovery"] == expected
+    assert packet["scan"]["traceDiscovery"] == expected
 
 
 def test_scan_marks_truncated_observations_as_capture_gap(tmp_path):
@@ -1527,5 +1845,28 @@ def test_improve_scan_cli_emits_safe_json_only(monkeypatch, tmp_path, capsys):
     summary = json.loads(output)
     assert summary["eligibleSessions"] == 1
     assert summary["reportWritten"] is False
+    assert client.trace_maxima == [500]
     for private in ("private-session", "private-trace", "private system prompt", "private user content"):
         assert private not in output
+
+
+def test_improve_scan_cli_forwards_operator_max_traces(monkeypatch, tmp_path, capsys):
+    client = FakeScanClient([], {})
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "git_root", lambda: tmp_path / "repo")
+    monkeypatch.setattr(improvement, "default_runs_dir", lambda: tmp_path / "runs")
+    monkeypatch.setenv("AGNT_IMPROVEMENT_DIR", str(tmp_path / "private"))
+
+    result = improvement.cmd_improve([
+        "scan",
+        "--since",
+        "2026-07-26T00:00:00Z",
+        "--max-traces",
+        "7",
+        "--dry-run",
+        "--json",
+    ])
+
+    assert result == 0
+    assert client.trace_maxima == [7]
+    assert json.loads(capsys.readouterr().out)["traceDiscovery"]["maxTraces"] == 7

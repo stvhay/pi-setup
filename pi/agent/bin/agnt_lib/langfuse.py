@@ -12,6 +12,7 @@ from typing import Any
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[2] / "langfuse" / "evaluators.json"
 MAX_PAGE_SIZE = 100
+DEFAULT_MAX_TRACES = 500
 
 
 class LangfuseError(RuntimeError):
@@ -170,6 +171,99 @@ class LangfuseClient:
             limit=limit,
             page_size=page_size,
         )
+
+    def list_traces_with_metadata(
+        self,
+        *,
+        from_timestamp: str,
+        to_timestamp: str,
+        page_size: int = 100,
+        max_traces: int = DEFAULT_MAX_TRACES,
+    ) -> dict[str, Any]:
+        if not from_timestamp or not to_timestamp:
+            raise ValueError("Langfuse reads require time bounds")
+        if page_size < 1 or type(max_traces) is not int or max_traces < 1:
+            raise ValueError("Langfuse read limits must be positive")
+        traces: list[dict[str, Any]] = []
+        page = 1
+        total_available: int | None = None
+        total_unavailable = False
+        previous_items: list[dict[str, Any]] | None = None
+        complete = False
+        reason = "max-traces"
+        next_page: int | None = 1
+        while len(traces) < max_traces:
+            payload = self._request("GET", "/api/public/traces", params={
+                "fromTimestamp": from_timestamp,
+                "toTimestamp": to_timestamp,
+                "limit": min(page_size, MAX_PAGE_SIZE, max_traces - len(traces)),
+                "page": page,
+            })
+            items = self._data(payload)
+            meta = self._meta(payload)
+            repeated_page = bool(items and items == previous_items)
+            uncapped_count = len(traces) + (0 if repeated_page else len(items))
+
+            raw_total = meta.get("totalItems")
+            if raw_total is not None:
+                if (
+                    type(raw_total) is not int
+                    or raw_total < uncapped_count
+                    or (total_available is not None and raw_total != total_available)
+                ):
+                    total_available = None
+                    total_unavailable = True
+                elif not total_unavailable:
+                    total_available = raw_total
+
+            if not repeated_page:
+                previous_items = items
+                traces.extend(items[: max_traces - len(traces)])
+
+            if total_available is not None and len(traces) > total_available:
+                total_available = None
+                total_unavailable = True
+
+            if repeated_page:
+                reason = "non-advancing-page"
+                next_page = page
+                break
+
+            raw_total_pages = meta.get("totalPages")
+            total_pages = raw_total_pages if type(raw_total_pages) is int and raw_total_pages > 0 else None
+            if not items:
+                complete = (
+                    not total_unavailable
+                    and (total_available is None or len(traces) >= total_available)
+                    and (total_pages is None or page >= total_pages)
+                )
+                reason = "api-end" if complete else "api-incomplete"
+                next_page = None if complete else page + 1
+                break
+            if total_pages is not None and page >= total_pages:
+                complete = not total_unavailable and (total_available is None or len(traces) >= total_available)
+                reason = "api-end" if complete else "api-incomplete"
+                next_page = None if complete else page + 1
+                break
+            if len(traces) >= max_traces:
+                complete = not total_unavailable and total_available == len(traces) and (total_pages is None or page >= total_pages)
+                reason = "api-end" if complete else "max-traces"
+                next_page = None if complete else page + 1
+                break
+            page += 1
+
+        return {
+            "traces": traces,
+            "totalAvailable": total_available,
+            "scanned": len(traces),
+            "maxTraces": max_traces,
+            "complete": complete,
+            "continuation": {
+                "hasMore": not complete,
+                "nextPage": next_page,
+                "reason": reason,
+            },
+        }
 
     def list_scores(
         self,
