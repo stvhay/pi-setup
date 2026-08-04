@@ -121,13 +121,13 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt runs create ...`
   - Creates a generic invocation/result run bundle. Optional orchestration fields include selected model/thinking, ticket metadata, ephemeral todo seed, worktree, dispatch policy, session policy, and memory policy. See [Run Artifacts](../../../docs/RUN-ARTIFACTS.md) for schema details.
 
-- `agnt runs invoke .pi/runs/<run-id> [--model provider/model] [--no-metrics]`
+- `agnt runs invoke <runtime-runs-dir>/<run-id> [--model provider/model] [--no-metrics]`
   - Reads `invocation.yaml`, invokes a worker, writes prompt/response/stderr/metrics artifacts, and updates `result.yaml`.
 
-- `agnt runs update .pi/runs/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--artifact PATH ...] [--follow-up ID ...] [--metrics-ref PATH] [--session-ref REF] [--approval-ref ID] [--decision-ref ID] [--health-check name=passed] [--closeout-check name=passed]`
+- `agnt runs update <runtime-runs-dir>/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--artifact PATH ...] [--follow-up ID ...] [--metrics-ref PATH] [--session-ref REF] [--approval-ref ID] [--decision-ref ID] [--health-check name=passed] [--closeout-check name=passed]`
   - Enriches `result.yaml` with evidence, artifacts, follow-up beads, metrics refs, session/transcript/memory refs, approval/decision refs, health/closeout checks, and terminal statuses.
 
-- `agnt runs validate .pi/runs/<run-id> [--require-followups-exist]`
+- `agnt runs validate <runtime-runs-dir>/<run-id> [--require-followups-exist]`
   - Validates required `invocation.yaml` and `result.yaml` fields. With `--require-followups-exist`, every `result.yaml.followUps[]` id must resolve to a Beads item.
 
 - `agnt work next --json`
@@ -165,7 +165,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt work maintenance create-beads --dry-run --json | --apply --json`
   - Previews or explicitly creates maintenance checkpoint Beads. Dry-run is non-mutating. `--apply` is required for live Beads creation. Simplification/refactor implementation specs are created with `approved: false`.
 
-- `agnt work finish .pi/runs/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--close-bead]`
+- `agnt work finish <runtime-runs-dir>/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--close-bead]`
   - Updates `result.yaml`; closes the invocation bead only when `--close-bead` is supplied and status is `succeeded` with evidence, reconciled follow-up ids, resolved approval/decision refs, and passing health/closeout checks.
 
 ## Approvals and ticket gateway

@@ -59,7 +59,7 @@ Keep these concepts distinct:
 - **Role:** delegated-peer stance and output contract.
 - **Tool/eval:** deterministic behavior or validation.
 
-Routing, prompts, and roles do not replace skill methods or project safety gates. Use Beads for durable workflow state; `.pi/runs` is additional evidence only when optional orchestration is selected.
+Routing, prompts, and roles do not replace skill methods or project safety gates. Use Beads for durable workflow state; private run artifacts are additional evidence only when optional orchestration is selected.
 
 # Research
 

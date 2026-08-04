@@ -5,10 +5,12 @@ tracked policy and Beads. It improves routing, prompts, tools, and monitoring.
 For broader workflow/context design principles, see
 [Self-Improvement Principles](SELF-IMPROVEMENT-PRINCIPLES.md).
 
-Principle: telemetry is runtime state; policy is config. Metrics live in
-`~/.pi/metrics/` and per-project `.pi/metrics/` and are never tracked. What
-git tracks — and what makes the learning auditable — are the policy files the
-metrics justify changing:
+Principle: telemetry is runtime state; policy is config. Consolidated metrics
+live in `~/.pi/metrics/`; raw records use the resolver-selected private metrics
+directory and are never tracked. Project `.pi/metrics/` is used only when Git
+proves it safe, with a repository-keyed `~/.pi/runtime/` fallback otherwise.
+What git tracks — and what makes the learning auditable — are the policy files
+the metrics justify changing:
 
 - `pi/agent/tasks/*.md` — preferred/qualified/avoid model lists per task
 - `pi/agent/catalog.json` — model families, venues, cost facts
@@ -28,9 +30,9 @@ Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
 ### 1. Capture
 
 Every `agnt invoke` writes a metric record (model, family, task, tokens,
-cost, latency) to `<git-root>/.pi/metrics/invocations/`. Interactive Archimedes
-unnamed `subagent` results are converted to the same schema by the tracked
-observer. The observer stores usage, timing, and payload lengths—not prompt or
+cost, latency) to the resolved private `metrics/invocations` directory.
+The tracked observer converts interactive Archimedes unnamed `subagent` results
+to the same schema. The observer stores usage, timing, and payload lengths—not prompt or
 response bodies. Named-profile results are skipped because Archimedes does not
 expose their final provider.
 

@@ -52,6 +52,16 @@ def test_runtime_directory_rejects_unignored_project_path(agnt, tmp_path):
     assert path != repo / ".pi" / "runs"
 
 
+def test_runtime_directory_rejects_unrelated_probe_ignore_rule(agnt, tmp_path):
+    repo = init_repo(tmp_path / "repo", "*.agnt-runtime-probe\n")
+    global_root = tmp_path / "global"
+
+    path = resolve(agnt, "runs", repo, global_root)
+
+    assert global_root in path.parents
+    assert path != repo / ".pi" / "runs"
+
+
 def test_runtime_directory_rejects_tracked_project_path(agnt, tmp_path):
     repo = init_repo(tmp_path / "repo", ".pi/runs/\n")
     tracked = repo / ".pi" / "runs" / "owned.txt"

@@ -14,7 +14,7 @@ Review the tracked settings, provider assumptions, and model policy before deplo
 | --- | --- |
 | **Pi configuration** | Global instructions, settings, model/provider data, tasks, actions, skills, roles, extensions, packages, and evals under `pi/`. |
 | **`agnt` controls** | Model routing, context composition, peer invocation, evidence-backed review, operational health, private improvement analysis, metrics, and deterministic evals. |
-| **Durable work and evidence** | Beads for work state, `.pi/plans/` for plans, runtime metrics for outcomes, and optional `.pi/runs/` bundles for replayable execution evidence. |
+| **Durable work and evidence** | Beads for work state, `.pi/plans/` for plans, private runtime metrics for outcomes, and optional private run bundles for replayable execution evidence. |
 | **Optional orchestration** | Manual artifact-backed dispatch, Beads-backed approvals, constrained gateways, and a project-local runner for scheduled or unusually strict work. |
 | **Feedback loop** | Runtime metrics and private Langfuse reviews inform human-approved, eval-gated changes to tracked routing, prompts, tools, and policy. Telemetry does not edit policy automatically. |
 
@@ -114,7 +114,7 @@ These concepts compose; they do not replace one another. See [Self-Improvement P
 
 The default deployment does not start a runner or require structured run bundles.
 
-- [Run Artifacts](docs/RUN-ARTIFACTS.md) documents manual `agnt runs` and `agnt work` invocation/result bundles under `.pi/runs/`.
+- [Run Artifacts](docs/RUN-ARTIFACTS.md) documents manual `agnt runs` and `agnt work` invocation/result bundles under the resolver-selected private runs directory.
 - [Project-Local Runner Service](docs/RUNNER-SERVICE.md) documents the explicitly started, loopback-only service for scheduling and executor lifecycle.
 - [Knowledge graphs](pi/agent/bin/README.md#knowledge-graphs) documents the optional Graphify integration and its explicit hook-management commands.
 - [Pi Config](pi/README.md#optional-service-endpoints) documents optional search and model-provider endpoints.
@@ -130,7 +130,7 @@ pi-setup/
 ├── scripts/       # checks, deployment helpers, and behavioral evals
 ├── tests/         # pytest coverage for agnt/agent-instructions internals
 ├── .beads/        # Beads work graph export/config; local DB ignored
-└── .pi/           # project-local plans/runs/scratch; not deployable config
+└── .pi/           # project plans; optional ignored runtime/scratch
 ```
 
 ## Documentation map

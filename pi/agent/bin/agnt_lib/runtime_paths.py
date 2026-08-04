@@ -60,7 +60,7 @@ def _safe_project_candidate(git: str, root: Path, parts: Sequence[str]) -> Path 
     ignored = _git(
         git,
         root,
-        ["check-ignore", "-q", "--no-index", "--", (relative / ".agnt-runtime-probe").as_posix()],
+        ["check-ignore", "-q", "--no-index", "--", f"{relative.as_posix()}/"],
     )
     if ignored.returncode != 0:
         return None

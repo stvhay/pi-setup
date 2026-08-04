@@ -15,8 +15,8 @@ canonical working directory outside Git). Selected runtime directories use mode
 
 This supports linked worktrees where `.git` is file, avoids dirtying projects
 with different ignore policy, and keeps ordinary run records private runtime
-state. Examples below use common project-local path; use resolved path when
-fallback is selected.
+state. Examples below use `<runtime-runs-dir>` and `<runtime-metrics-dir>` for
+resolver-selected paths.
 
 ## Bundle shape
 
@@ -146,7 +146,7 @@ agnt action render review \
 Invoke a worker from a run bundle and update `result.yaml` automatically:
 
 ```bash
-agnt runs invoke .pi/runs/<run-id> --model olla-cloud/gpt-4.1-mini
+agnt runs invoke <runtime-runs-dir>/<run-id> --model olla-cloud/gpt-4.1-mini
 ```
 
 `agnt runs invoke` reads `invocation.yaml`, renders a worker prompt, writes
@@ -157,21 +157,21 @@ agnt runs invoke .pi/runs/<run-id> --model olla-cloud/gpt-4.1-mini
 Update and validate a run bundle manually:
 
 ```bash
-agnt runs update .pi/runs/<run-id> \
+agnt runs update <runtime-runs-dir>/<run-id> \
   --status succeeded \
   --summary "Verified with tests" \
   --evidence "pytest tests/ → PASS" \
   --artifact artifacts/report.md \
   --follow-up pi-next.1 \
-  --metrics-ref .pi/metrics/example.metrics.json \
+  --metrics-ref <runtime-metrics-dir>/example.metrics.json \
   --session-ref pi-session-id:run-123 \
   --approval-ref pi-decision.1 \
   --decision-ref pi-decision.1 \
   --health-check pytest=passed \
   --closeout-check followups=passed
 
-agnt runs validate .pi/runs/<run-id>
-agnt runs validate .pi/runs/<run-id> --require-followups-exist
+agnt runs validate <runtime-runs-dir>/<run-id>
+agnt runs validate <runtime-runs-dir>/<run-id> --require-followups-exist
 ```
 
 Use `--require-followups-exist` before treating follow-up refs as reconciled;
@@ -195,7 +195,7 @@ Start and finish bead-backed work manually through the gated work surface:
 
 ```bash
 agnt work start pi-e4t.1 --action verify --target docs/RUN-ARTIFACTS.md --claim
-agnt work finish .pi/runs/<run-id> \
+agnt work finish <runtime-runs-dir>/<run-id> \
   --status succeeded \
   --summary "Verified and complete" \
   --evidence "scripts/check-pi-config.sh → PASS" \
