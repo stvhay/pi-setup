@@ -336,6 +336,82 @@ def test_context_health_reports_skill_discovery_budget(agnt):
     }
 
 
+def _skill_discovery_root(agnt, monkeypatch, tmp_path):
+    descriptions = {
+        "alpha": "Use when alpha needs a deliberately longer description",
+        "beta": "Use when beta applies",
+    }
+    for name, description in descriptions.items():
+        path = tmp_path / "skills" / name / "SKILL.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"---\nname: {name}\ndescription: {description}\n---\n", encoding="utf-8")
+    monkeypatch.setitem(agnt.scan_skill_metadata.__globals__, "ROOT", tmp_path)
+    contributors = [
+        {
+            "skill": name,
+            "chars": len(f"{name}\t{description}\tskills/{name}/SKILL.md\n"),
+            "path": f"skills/{name}/SKILL.md",
+        }
+        for name, description in descriptions.items()
+    ]
+    return sorted(contributors, key=lambda row: (-row["chars"], row["skill"]))
+
+
+def test_context_health_skill_discovery_warning_reports_budget_and_contributors(agnt, monkeypatch, tmp_path):
+    contributors = _skill_discovery_root(agnt, monkeypatch, tmp_path)
+    used = sum(row["chars"] for row in contributors)
+
+    report = agnt.context_health_report(skill_discovery_limit=used + 1000)
+
+    warning = next(item for item in report["warnings"] if item["kind"] == "skill-discovery-budget-warning")
+    assert warning == {
+        "kind": "skill-discovery-budget-warning",
+        "used": used,
+        "limit": used + 1000,
+        "remaining": 1000,
+        "threshold": 1000,
+        "topContributors": contributors,
+    }
+
+
+def test_context_health_skill_discovery_warning_is_silent_below_threshold(agnt, monkeypatch, tmp_path):
+    contributors = _skill_discovery_root(agnt, monkeypatch, tmp_path)
+    used = sum(row["chars"] for row in contributors)
+
+    report = agnt.context_health_report(skill_discovery_limit=used + 1001)
+
+    assert not any(item["kind"] == "skill-discovery-budget-warning" for item in report["warnings"])
+
+
+def test_context_health_skill_discovery_warning_threshold_cli_override(agnt, monkeypatch, tmp_path, capsys):
+    contributors = _skill_discovery_root(agnt, monkeypatch, tmp_path)
+    used = sum(row["chars"] for row in contributors)
+
+    rc = agnt.cmd_context_health(
+        [
+            "--skill-discovery-limit",
+            str(used + 1000),
+            "--skill-discovery-warning-remaining",
+            "999",
+        ]
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert report["summary"]["skillDiscoveryWarningRemaining"] == 999
+    assert not any(item["kind"] == "skill-discovery-budget-warning" for item in report["warnings"])
+
+
+def test_context_health_skill_discovery_warning_preserves_over_limit_failure(agnt, monkeypatch, tmp_path):
+    contributors = _skill_discovery_root(agnt, monkeypatch, tmp_path)
+    used = sum(row["chars"] for row in contributors)
+
+    report = agnt.context_health_report(skill_discovery_limit=used - 1)
+
+    assert {failure["kind"] for failure in report["failures"]} == {"skill-discovery-budget"}
+    assert not any(item["kind"] == "skill-discovery-budget-warning" for item in report["warnings"])
+
+
 @pytest.mark.parametrize("value", [">", ">-", ">+", "|", "|-", "|+"])
 def test_context_health_rejects_yaml_block_scalar_descriptions(agnt, value):
     assert agnt.unsupported_description(value)

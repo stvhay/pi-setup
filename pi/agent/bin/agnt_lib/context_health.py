@@ -12,6 +12,7 @@ import _agnt_common as common
 from .core import ROOT
 
 SKILL_DISCOVERY_LIMIT = 8000
+SKILL_DISCOVERY_WARNING_REMAINING = 1000
 
 LARGE_SKILL_ALLOWLIST = {
     "code-simplification",
@@ -85,13 +86,15 @@ def unsupported_description(value: str) -> bool:
     return value.startswith((">", "|"))
 
 
-def scan_skill_metadata(limit: int) -> tuple[List[Dict[str, Any]], int]:
+def scan_skill_metadata(limit: int) -> tuple[List[Dict[str, Any]], int, List[Dict[str, Any]]]:
     failures: List[Dict[str, Any]] = []
+    contributors: List[Dict[str, Any]] = []
     discovery_chars = 0
     for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
         text = path.read_text(encoding="utf-8")
         meta, _body = common.split_frontmatter(text)
         rel_path = str(path.relative_to(ROOT))
+        skill = path.parent.name
         description = str(meta.get("description") or "")
         description_line = next(
             (line for line in text.splitlines() if line.startswith("description:")),
@@ -107,7 +110,9 @@ def scan_skill_metadata(limit: int) -> tuple[List[Dict[str, Any]], int]:
                     "replacement": "Use one supported single-line scalar.",
                 }
             )
-        discovery_chars += len(f"{path.parent.name}\t{description}\t{rel_path}\n")
+        chars = len(f"{skill}\t{description}\t{rel_path}\n")
+        discovery_chars += chars
+        contributors.append({"skill": skill, "chars": chars, "path": rel_path})
     if discovery_chars > limit:
         failures.append(
             {
@@ -116,7 +121,8 @@ def scan_skill_metadata(limit: int) -> tuple[List[Dict[str, Any]], int]:
                 "limit": limit,
             }
         )
-    return failures, discovery_chars
+    contributors.sort(key=lambda row: (-row["chars"], row["skill"]))
+    return failures, discovery_chars, contributors
 
 
 def scan_large_skills(max_lines: int) -> List[Dict[str, Any]]:
@@ -206,9 +212,22 @@ def context_health_report(
     max_skill_lines: int = 220,
     overlap_threshold: float = 0.65,
     skill_discovery_limit: int = SKILL_DISCOVERY_LIMIT,
+    skill_discovery_warning_remaining: int = SKILL_DISCOVERY_WARNING_REMAINING,
 ) -> Dict[str, Any]:
     warnings: List[Dict[str, Any]] = []
-    failures, discovery_chars = scan_skill_metadata(skill_discovery_limit)
+    failures, discovery_chars, contributors = scan_skill_metadata(skill_discovery_limit)
+    remaining = skill_discovery_limit - discovery_chars
+    if 0 <= remaining <= skill_discovery_warning_remaining:
+        warnings.append(
+            {
+                "kind": "skill-discovery-budget-warning",
+                "used": discovery_chars,
+                "limit": skill_discovery_limit,
+                "remaining": remaining,
+                "threshold": skill_discovery_warning_remaining,
+                "topContributors": contributors[:5],
+            }
+        )
     warnings.extend(scan_large_skills(max_skill_lines))
     warnings.extend(scan_overlapping_skill_descriptions(overlap_threshold))
     failures.extend(scan_stale_terms())
@@ -223,6 +242,8 @@ def context_health_report(
             "warningCount": len(warnings),
             "skillDiscoveryChars": discovery_chars,
             "skillDiscoveryLimit": skill_discovery_limit,
+            "skillDiscoveryRemaining": remaining,
+            "skillDiscoveryWarningRemaining": skill_discovery_warning_remaining,
         },
     }
 
@@ -248,6 +269,7 @@ def cmd_context_health(argv: List[str]) -> int:
     parser.add_argument("--max-skill-lines", type=int, default=220)
     parser.add_argument("--overlap-threshold", type=float, default=0.65)
     parser.add_argument("--skill-discovery-limit", type=int, default=SKILL_DISCOVERY_LIMIT)
+    parser.add_argument("--skill-discovery-warning-remaining", type=int, default=SKILL_DISCOVERY_WARNING_REMAINING)
     parser.add_argument("--strict", action="store_true", help="exit nonzero when failures are found")
     scan_group = parser.add_argument_group("per-file scan", "scan a single file body instead of the active context (used by the guidance-edit guard)")
     scan_source = scan_group.add_mutually_exclusive_group()
@@ -273,6 +295,7 @@ def cmd_context_health(argv: List[str]) -> int:
         max_skill_lines=args.max_skill_lines,
         overlap_threshold=args.overlap_threshold,
         skill_discovery_limit=args.skill_discovery_limit,
+        skill_discovery_warning_remaining=args.skill_discovery_warning_remaining,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 1 if args.strict and report["failures"] else 0
