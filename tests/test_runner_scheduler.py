@@ -348,6 +348,7 @@ def test_scheduler_creates_actionable_blocker_for_semantic_worker_failure(tmp_pa
 
     def create_blocker(**kwargs):
         assert kwargs["run_bundle"] is None
+        assert kwargs["selection_mode"] == "single"
         blockers.append(kwargs)
         return {"decisionBead": "pi-retry-gate"}
 
@@ -487,6 +488,7 @@ def test_scheduler_creates_blocker_when_unapproved_work_also_has_invalid_dispatc
 
     assert result["actions"][0]["action"] == "blocked"
     assert blockers[0]["target_bead"] == "pi-invalid.1"
+    assert blockers[0]["selection_mode"] == "single"
     assert "metadata.pi.epicId" in blockers[0]["context"]
 
 
@@ -507,6 +509,24 @@ def test_scheduler_skips_unmanaged_ready_items_without_creating_blockers(tmp_pat
 
     assert [action["action"] for action in result["actions"]] == ["skipped_unmanaged", "started"]
     assert blocked == []
+
+
+def test_scheduler_worktree_blocker_declares_single_selection_mode(tmp_path):
+    blockers = []
+
+    result = runner_scheduler_tick(
+        root=tmp_path,
+        dry_run=False,
+        limit=1,
+        beads_runner=_ready(_review_bead("pi-blocked.1")),
+        runner_start=lambda bead, **kwargs: (_ for _ in ()).throw(AssertionError("must not start")),
+        blocker_creator=lambda **kwargs: blockers.append(kwargs) or {"decisionBead": "pi-worktree-blocker.1"},
+        worktree_resolver=lambda _bead, _validation: {"dispatchable": False, "status": "blocked", "reason": "bad worktree"},
+        maintenance_due_provider=lambda **_kwargs: {"due": False},
+    )
+
+    assert result["actions"][0]["action"] == "blocked"
+    assert blockers[0]["selection_mode"] == "single"
 
 
 def test_scheduler_scans_past_blocked_ready_item_to_dispatch_next_candidate(tmp_path):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import patch
+from uuid import UUID
 
 
 VALID_REVIEW_META = {
@@ -443,6 +444,106 @@ def test_create_run_bundle_initializes_live_logs_and_lessons_handoff(agnt, tmp_p
     assert "artifacts/handoff.md" in result["artifacts"]
 
 
+def test_canonical_invocation_id_survives_run_start_result_and_metrics(agnt, monkeypatch, tmp_path):
+    bundle = agnt.create_run_bundle(
+        action="verify",
+        routing_task="review",
+        bead="pi-test.canonical",
+        selected_model="olla-cloud/gpt-4.1-mini",
+        parent_session_id="parent-session",
+        output_contract="verification-review",
+        runs_dir=tmp_path / "runs",
+        id_value="readable-run-id",
+    )
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    invocation_id = invocation["invocationId"]
+    UUID(invocation_id)
+    assert invocation["schemaVersion"] == 2
+    assert invocation_id != invocation["id"]
+    assert agnt.load_yaml_json(bundle / "result.yaml")["invocationId"] == invocation_id
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        assert kwargs["invocation_id"] == invocation_id
+        assert kwargs["parent_session_id"] == "parent-session"
+        assert kwargs["work_item"] == "pi-test.canonical"
+        return 0, "OK: verified", "", {
+            "schemaVersion": 2,
+            "invocationId": invocation_id,
+            "recordId": "legacy-selector",
+            "target": target,
+            "artifactRefs": [],
+        }
+
+    monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", fake_invoke_one)
+    agnt.invoke_run_bundle(bundle, metrics_dir=tmp_path / "metrics")
+
+    result = agnt.load_yaml_json(bundle / "result.yaml")
+    metric = agnt.load_yaml_json(bundle / result["metricsRef"])
+    events = [json.loads(line) for line in (bundle / "live" / "session.jsonl").read_text(encoding="utf-8").splitlines()]
+    invoke_events = [event for event in events if event["event"].startswith("worker_invocation_")]
+
+    assert result["schemaVersion"] == 2
+    assert result["invocationId"] == invocation_id
+    assert metric["invocationId"] == invocation_id
+    assert all(event["invocationId"] == invocation_id for event in invoke_events)
+    assert metric["artifactRefs"]
+    assert set(metric["artifactRefs"]).issubset(result["artifacts"])
+    assert agnt.validate_run_bundle(bundle) == []
+
+
+def test_legacy_v1_bundle_execution_migrates_to_fresh_canonical_invocation_id(agnt, monkeypatch, tmp_path):
+    bundle = tmp_path / "legacy-readable-id"
+    bundle.mkdir()
+    agnt.write_yaml_json(bundle / "invocation.yaml", {
+        "schemaVersion": 1,
+        "id": "legacy-readable-id",
+        "action": "review",
+        "routingTask": "review",
+        "model": "olla-cloud/gpt-4.1-mini",
+        "allowedEffects": ["read_workspace", "write_artifacts"],
+        "createdAt": "2026-06-27T01:02:03Z",
+    })
+    agnt.write_yaml_json(bundle / "result.yaml", {
+        "schemaVersion": 1,
+        "invocationId": "legacy-readable-id",
+        "status": "needs-human",
+        "summary": "Legacy bundle",
+        "evidence": [],
+        "artifacts": [],
+        "followUps": [],
+    })
+    assert agnt.validate_run_bundle(bundle) == []
+    captured = {}
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        captured.update(kwargs)
+        return 0, "OK: legacy bundle executed", "", {
+            "schemaVersion": 2,
+            "invocationId": kwargs["invocation_id"],
+            "recordId": "legacy-selector",
+            "target": target,
+            "artifactRefs": [],
+        }
+
+    monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", fake_invoke_one)
+    agnt.invoke_run_bundle(bundle, metrics_dir=tmp_path / "metrics")
+
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    result = agnt.load_yaml_json(bundle / "result.yaml")
+    metric = agnt.load_yaml_json(next((tmp_path / "metrics").glob("*.metrics.json")))
+    events = [json.loads(line) for line in (bundle / "live" / "session.jsonl").read_text(encoding="utf-8").splitlines()]
+    invocation_id = captured["invocation_id"]
+    UUID(invocation_id)
+    assert invocation_id != invocation["id"]
+    assert invocation["schemaVersion"] == 2
+    assert invocation["invocationId"] == invocation_id
+    assert result["schemaVersion"] == 2
+    assert result["invocationId"] == invocation_id
+    assert metric["invocationId"] == invocation_id
+    assert all(event["invocationId"] == invocation_id for event in events)
+    assert agnt.validate_run_bundle(bundle) == []
+
+
 def test_render_invocation_prompt_includes_ticket_description(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="review",
@@ -531,6 +632,37 @@ def test_invoke_run_bundle_fails_explicit_error_terminal_response(agnt, monkeypa
     assert any("semantic outcome was ERROR" in item for item in result_doc["evidence"])
     live_status = agnt.load_yaml_json(bundle / "live" / "status.json")
     assert live_status["semanticOutcome"] == "error"
+
+
+def test_invoke_run_bundle_semantic_failure_metrics_use_effective_exit(agnt, monkeypatch, tmp_path):
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        bead="pi-ready.semantic-metrics",
+        runs_dir=tmp_path,
+        id_value="semantic-metrics",
+    )
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        return 0, "ERROR: verification failed.\n", "", {
+            "schemaVersion": 2,
+            "invocationId": kwargs["invocation_id"],
+            "recordId": "semantic-metrics",
+            "target": target,
+            "status": "succeeded",
+            "exitCode": 0,
+            "failureClass": None,
+            "artifactRefs": [],
+        }
+
+    monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", fake_invoke_one)
+
+    result = agnt.invoke_run_bundle(bundle, metrics_dir=tmp_path / "metrics")
+    metric = agnt.load_yaml_json(bundle / result["metricsRef"])
+
+    assert result["exitCode"] == metric["exitCode"] != 0
+    assert metric["status"] == "failed"
+    assert metric["failureClass"] == "process"
 
 
 def test_invoke_run_bundle_accepts_markdown_ok_terminal_response(agnt, monkeypatch, tmp_path):

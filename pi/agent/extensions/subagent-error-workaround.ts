@@ -1,10 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, parse, resolve } from "node:path";
+import { join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
+import { runAgntJson } from "./lib/run-agnt-json.ts";
 
 const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 
@@ -16,6 +17,7 @@ type SubagentInput = {
 };
 
 type SubagentResult = {
+  agent?: string;
   exitCode?: number;
   task?: string;
   model?: string;
@@ -62,6 +64,11 @@ type ToolErrorSignal = {
 };
 
 type Dependencies = { observe?: Observe };
+
+type InvocationStart = {
+  startedMs: number;
+  invocationIds: string[];
+};
 
 function assistantOutput(messages: unknown): unknown {
   if (!Array.isArray(messages)) return undefined;
@@ -156,18 +163,10 @@ function providerError(message?: string): string {
   return message || "unknown upstream error";
 }
 
-async function repositoryRoot(cwd: string): Promise<string> {
-  let current = resolve(cwd);
-  const filesystemRoot = parse(current).root;
-  while (true) {
-    try {
-      await access(join(current, ".git"));
-      return current;
-    } catch {
-      if (current === filesystemRoot) return resolve(cwd);
-      current = dirname(current);
-    }
-  }
+async function runtimeDirectory(kind: string, cwd: string): Promise<string> {
+  const result = await runAgntJson(["runtime-path", kind], cwd, undefined, "agnt runtime-path");
+  if (typeof result.path !== "string" || !result.path) throw new Error("agnt runtime-path returned no path");
+  return result.path;
 }
 
 function targetFor(
@@ -186,6 +185,7 @@ function metricRecord(
   input: SubagentInput,
   result: SubagentResult,
   index: number,
+  invocationId: string,
   toolCallId: string,
   startedMs: number,
   endedMs: number,
@@ -218,12 +218,21 @@ function metricRecord(
     .digest("hex")
     .slice(0, 16);
 
+  const exitCode = result.exitCode ?? 1;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    invocationId,
     recordId,
+    parentSessionId: langfuseSessionId(ctx) ?? null,
+    workItem: null,
+    childIndex: index,
     startedAt,
     endedAt,
+    durationMs,
     elapsedMs: durationMs,
+    status: exitCode === 0 ? "succeeded" : "failed",
+    failureClass: exitCode === 0 ? null : exitCode === 124 ? "timeout" : "process",
+    artifactRefs: [],
     workerElapsedMs,
     task: "peer",
     riskCategory: null,
@@ -238,7 +247,7 @@ function metricRecord(
     provider,
     model,
     target,
-    exitCode: result.exitCode ?? 1,
+    exitCode,
     usageSource: "archimedes-subagent",
     usage: {
       input: inputTokens,
@@ -258,7 +267,7 @@ function metricRecord(
 async function recordSubagentMetrics(
   event: { toolCallId: string; input: Record<string, unknown>; details?: unknown },
   ctx: ExtensionContext,
-  startedMs: number,
+  invocation: InvocationStart,
 ): Promise<void> {
   const details = event.details as SubagentDetails | undefined;
   if (!details?.results?.length) return;
@@ -266,12 +275,11 @@ async function recordSubagentMetrics(
   const input = event.input as SubagentInput;
   const endedMs = Date.now();
   const records = details.results
-    .map((result, index) => metricRecord(input, result, index, event.toolCallId, startedMs, endedMs, ctx))
+    .map((result, index) => metricRecord(input, result, index, invocation.invocationIds[index], event.toolCallId, invocation.startedMs, endedMs, ctx))
     .filter((record): record is Record<string, unknown> => record !== undefined);
   if (records.length === 0) return;
 
-  const root = await repositoryRoot(ctx.cwd);
-  const metricsDir = join(root, ".pi", "metrics", "invocations");
+  const metricsDir = await runtimeDirectory("metrics/invocations", ctx.cwd);
   await mkdir(metricsDir, { recursive: true });
   await Promise.all(records.map((record) => {
     const target = String(record.target).replace(/[^a-zA-Z0-9._-]+/g, "__");
@@ -281,7 +289,7 @@ async function recordSubagentMetrics(
 }
 
 export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: Dependencies = {}): void {
-  const starts = new Map<string, number>();
+  const starts = new Map<string, InvocationStart>();
   let observe = dependencies.observe;
   let observeLoad: Promise<Observe> | undefined;
   const getObserve = () => observe
@@ -335,49 +343,29 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
   });
 
   pi.on("tool_call", (event) => {
-    if (event.toolName === "subagent") starts.set(event.toolCallId, Date.now());
+    if (event.toolName !== "subagent") return;
+    const input = event.input as SubagentInput;
+    const count = Math.max(1, input.tasks?.length ?? 1);
+    starts.set(event.toolCallId, {
+      startedMs: Date.now(),
+      invocationIds: Array.from({ length: count }, () => randomUUID()),
+    });
   });
 
   pi.on("tool_result", async (event, ctx) => {
     if (!process.env.PI_SUBAGENT_SOCKET) recordToolSignal(interactiveToolSignals, event);
     if (event.toolName !== "subagent") return;
 
-    const startedMs = starts.get(event.toolCallId) ?? Date.now();
+    let details = event.details as SubagentDetails | undefined;
+    const invocation = starts.get(event.toolCallId) ?? { startedMs: Date.now(), invocationIds: [] };
     starts.delete(event.toolCallId);
-    try {
-      await recordSubagentMetrics(event, ctx, startedMs);
-    } catch (error) {
-      console.error("[subagent-metrics] could not record invocation:", error);
-    }
-
-    const details = event.details as SubagentDetails | undefined;
-    if (details?.results?.length) {
-      await Promise.all(details.results.map(async (result, index) => {
-        const task = (event.input as SubagentInput).tasks?.[index]?.task ?? (event.input as SubagentInput).task ?? result.task;
-        try {
-          await (await getObserve())("subagent-result", {
-            input: task,
-            output: result.finalOutput ?? result.error,
-            metadata: { index, model: result.model, exitCode: result.exitCode ?? 1 },
-            level: result.exitCode === 0 ? "DEFAULT" : "ERROR",
-          }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
-        } catch (error) {
-          console.error("[langfuse-projection] could not record subagent result:", error);
-        }
-      }));
-    }
     if (!details || !Array.isArray(details.results)) return;
-    if (details.results.some((result) => result.exitCode !== 0)) return { isError: true };
-    if (details.results.length > 0) return;
 
     const input = event.input as SubagentInput;
-    const error = event.content.find((part) => part.type === "text")?.text
-      ?? "Subagent failed without error details";
-    const tasks = input.tasks ?? [];
-
-    return {
-      isError: true,
-      details: {
+    const synthesized = details.results.length === 0;
+    if (synthesized) {
+      const tasks = input.tasks ?? [];
+      details = {
         ...details,
         results: [{
           agent: input.agent ?? (tasks.map((task) => task.agent).filter(Boolean).join(", ") || "subagent"),
@@ -385,12 +373,34 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
           exitCode: 1,
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 },
           model: input.model ?? tasks[0]?.model,
-          finalOutput: undefined,
-          error,
-          progress: undefined,
-          progressSummary: undefined,
+          error: event.content.find((part) => part.type === "text")?.text
+            ?? "Subagent failed without error details",
         }],
-      },
-    };
+      };
+    }
+    while (invocation.invocationIds.length < Math.max(1, details.results.length)) {
+      invocation.invocationIds.push(randomUUID());
+    }
+    try {
+      await recordSubagentMetrics({ ...event, details }, ctx, invocation);
+    } catch (error) {
+      console.error("[subagent-metrics] could not record invocation:", error);
+    }
+
+    await Promise.all(details.results.map(async (result, index) => {
+      const task = input.tasks?.[index]?.task ?? input.task ?? result.task;
+      try {
+        await (await getObserve())("subagent-result", {
+          input: task,
+          output: result.finalOutput ?? result.error,
+          metadata: { invocationId: invocation.invocationIds[index], index, model: result.model, exitCode: result.exitCode ?? 1 },
+          level: result.exitCode === 0 ? "DEFAULT" : "ERROR",
+        }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
+      } catch (error) {
+        console.error("[langfuse-projection] could not record subagent result:", error);
+      }
+    }));
+    if (synthesized) return { isError: true, details };
+    if (details.results.some((result) => result.exitCode !== 0)) return { isError: true };
   });
 }

@@ -26,7 +26,7 @@ Agent work becomes safer and more useful when orchestration is explicit:
 work graph -> invocation artifact -> worker run -> result artifact -> state transition
 ```
 
-The system favors small, inspectable primitives over hidden automation. The default development path is a direct Pi session: establish a Bead before changing code, then inspect, edit, and verify in the current session. For work that benefits from delegation or strict dispatch gates, the preserved optional path uses Beads for durable work state, `.pi/runs` for execution evidence, and a project-local loopback runner for scheduling/executor lifecycle.
+The system favors small, inspectable primitives over hidden automation. The default development path is a direct Pi session: establish a Bead before changing code, then inspect, edit, and verify in the current session. For work that benefits from delegation or strict dispatch gates, the preserved optional path uses Beads for durable work state, private run artifacts for execution evidence, and a project-local loopback runner for scheduling/executor lifecycle.
 
 ## Core primitives
 
@@ -52,11 +52,17 @@ An action template is a verb-like invocation pattern. It binds routing task, ski
 
 ### Run artifacts
 
-Run artifacts live under `.pi/runs/<run-id>/` and contain `invocation.yaml`, `result.yaml`, and output files. They answer: **what was requested, what happened, and what evidence supports it?** Worker sessions are recorded by default for inspectable execution history. Observational memory may provide session-local recall, but it is advisory until promoted into Beads or `.pi/runs` evidence.
+Run artifacts live under `<runtime-runs-dir>/<run-id>/`, where `agnt runtime-path runs` resolves the private base directory. Project `.pi/runs/` is selected only when Git proves it ignored, untracked, and symlink-safe; otherwise the resolver uses a repository-keyed directory under `~/.pi/runtime/`. Bundles contain `invocation.yaml`, `result.yaml`, and output files. They answer: **what was requested, what happened, and what evidence supports it?** Worker sessions are recorded by default for inspectable execution history. Observational memory may provide session-local recall, but it is advisory until promoted into Beads or private run evidence.
 
 ### Metrics and evals
 
-Metrics record best-effort model usage and outcomes. Code-review metrics can link a validated structured finding artifact, separating discovery from fresh-context confirmation, refutation, or unresolved evidence. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code or model confidence as ground truth.
+Metrics record best-effort model usage and outcomes. Telemetry schema v2 assigns
+one collision-resistant, payload-free `invocationId` at invocation start and
+reuses it across run events, results, metrics, and unnamed-subagent projections.
+The normalized record includes parent session/work item, provider/model/target,
+status, failure class, usage, duration, and bounded artifact refs. `recordId`
+remains a backward-compatible selector, and schema-v1 records remain readable.
+Code-review metrics can link a validated structured finding artifact, separating discovery from fresh-context confirmation, refutation, or unresolved evidence. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code or model confidence as ground truth.
 
 ## What agnt commands do
 
@@ -112,7 +118,7 @@ Behind that flow, `agnt`:
 1. reads the Beads work item;
 2. validates `metadata.pi` and dispatch policy;
 3. selects a model/thinking level through routing policy, not ad hoc override;
-4. creates a run bundle under `.pi/runs/` with ticket, worktree, session, memory, and todo-seed snapshots;
+4. creates a run bundle under the resolved private runs directory with ticket, worktree, session, memory, and todo-seed snapshots;
 5. invokes a recorded Pi worker session from that artifact;
 6. captures response, stderr, metrics, session refs, and evidence;
 7. updates the result artifact with approvals, decisions, health checks, closeout checks, follow-ups, and artifacts; and
@@ -150,7 +156,7 @@ metrics -> annotate -> consolidate -> adjust routing/prompts -> eval -> commit p
 private telemetry -> scan -> review marker -> approved safe Bead -> implement/eval -> monitor
 ```
 
-Raw metrics, private improvement packets, observational-memory ledgers, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals. Maintenance due signals are derived from Beads, git, `.pi/runs`, health reports, and context-health warnings rather than hidden counters.
+Raw metrics, private improvement packets, observational-memory ledgers, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals. Maintenance due signals are derived from Beads, git, private run artifacts, health reports, and context-health warnings rather than hidden counters.
 
 This means the system can learn from observed model behavior while preserving an auditable source-of-truth boundary.
 
@@ -174,7 +180,7 @@ Relatively stable:
 - repository/runtime separation;
 - `agnt route`, `invoke`, `instructions`, `metrics`, and basic evals;
 - Beads as the repository’s canonical agent-facing work graph;
-- action/run artifact schemas at their current v1 level;
+- additive telemetry and action/run artifact schemas at v2, with v1 reader compatibility;
 - the single-user project-local runner service boundary, CLI client commands, and opt-in orchestrator startup gate.
 
 Still evolving:

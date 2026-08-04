@@ -6,14 +6,22 @@ before code edits but a run bundle is not. When selected, these files are the
 inspectable handoff between a work item, a worker, verification, and downstream
 work.
 
-Runtime run bundles live under `.pi/runs/<run-id>/` and are gitignored by
-default. Curated examples may be documented elsewhere, but ordinary run records
-are local runtime state.
+Runtime run bundles use directory returned by `agnt runtime-path runs`. Resolver
+uses project `.pi/runs/` only when Git proves path is ignored, contains no
+tracked files, and crosses no symlink. Otherwise it uses
+`~/.pi/runtime/<sha256>/runs/`, keyed by canonical Git common directory (or
+canonical working directory outside Git). Selected runtime directories use mode
+`0700`; JSON output contains only schema version and resolved path.
+
+This supports linked worktrees where `.git` is file, avoids dirtying projects
+with different ignore policy, and keeps ordinary run records private runtime
+state. Examples below use `<runtime-runs-dir>` and `<runtime-metrics-dir>` for
+resolver-selected paths.
 
 ## Bundle shape
 
 ```text
-.pi/runs/<run-id>/
+<runtime-runs-dir>/<run-id>/
 ├── invocation.yaml
 ├── result.yaml
 └── artifacts/
@@ -23,11 +31,14 @@ are local runtime state.
 files. JSON is a YAML subset, keeps the helper dependency-free, and preserves
 stable filenames for future richer YAML support.
 
-## `invocation.yaml` v1
+## `invocation.yaml` v2
 
 ```yaml
-schemaVersion: 1
+schemaVersion: 2
 id: 20260627-010203-pi-8su-3
+invocationId: 018f47a8-62c4-7e91-a969-7b4f6c78d308
+parentSessionId: null
+workItem: pi-8su.3
 bead: pi-8su.3
 action: review
 routingTask: review
@@ -56,6 +67,13 @@ createdAt: 2026-06-27T01:02:03Z
 
 Fields:
 
+- `id`: readable run/bundle identifier; it is not telemetry identity.
+- `invocationId`: collision-resistant, payload-free identity generated once when
+  the bundle is created. Start/completion events, `result.yaml`, and metrics
+  reuse it.
+- `parentSessionId`: optional parent Pi session identity.
+- `workItem`: optional Bead/work-item identity; `bead` remains available for
+  compatibility and workflow operations.
 - `bead`: optional work-graph node that initiated the run.
 - `action`: verb-like prompt/action template id.
 - `routingTask`: model/tool routing category.
@@ -64,22 +82,22 @@ Fields:
 - `role`: delegated-worker output contract.
 - `selectedModel`, `thinkingLevel`, and `modelSelection`: policy-selected model, thinking level, score, and reasons. `agnt work run` rejects direct model overrides.
 - `ticketMetadata`: snapshot of source bead identity and metadata validation.
-- `ephemeralTodoSeed`: optional live-UX todo seed. Archimedes todos are transient; durable outcomes belong in Beads and `.pi/runs`.
+- `ephemeralTodoSeed`: optional live-UX todo seed. Archimedes todos are transient; durable outcomes belong in Beads and private run bundles.
 - `worktree`: dispatch worktree snapshot. Implementation work uses one worktree per epic: `.worktrees/epic/<epic-id>-<slug>` on branch `epic/<epic-id>-<slug>`.
 - `dispatchPolicy`: action, routing task, role, allowed effects, risk, budget, model policy, session policy, memory policy, and closeout policy.
 - `sessionPolicy`: `recorded` by default for worker sessions, or `no-session` when explicitly allowed.
-- `memoryPolicy`: `auto` by default. Observational memory is advisory recall/context; promote important findings into Beads or `.pi/runs` before closeout.
+- `memoryPolicy`: `auto` by default. Observational memory is advisory recall/context; promote important findings into Beads or private run bundles before closeout.
 - `allowedEffects`: declared side-effect budget for the run.
 - `outputContract`: concise result shape name or path.
 - `acceptanceCriteria`: criteria copied from the source bead when the bundle is
   created through `agnt work`; workers should address them in their result
   evidence.
 
-## `result.yaml` v1
+## `result.yaml` v2
 
 ```yaml
-schemaVersion: 1
-invocationId: 20260627-010203-pi-8su-3
+schemaVersion: 2
+invocationId: 018f47a8-62c4-7e91-a969-7b4f6c78d308
 status: needs-human
 summary: Invocation artifact created; worker has not run yet.
 evidence: []
@@ -96,6 +114,12 @@ healthChecks: []
 closeoutChecks: []
 completedAt: null
 ```
+
+`result.yaml.invocationId` must match the canonical identity in
+`invocation.yaml`, not the readable bundle `id`. Validators still accept legacy
+v1 bundles, where `result.yaml.invocationId` matched `invocation.yaml.id`.
+Invoking one upgrades both records to v2 with a fresh canonical ID while
+retaining the readable `invocation.yaml.id`.
 
 Allowed statuses:
 
@@ -138,32 +162,34 @@ agnt action render review \
 Invoke a worker from a run bundle and update `result.yaml` automatically:
 
 ```bash
-agnt runs invoke .pi/runs/<run-id> --model olla-cloud/gpt-4.1-mini
+agnt runs invoke <runtime-runs-dir>/<run-id> --model olla-cloud/gpt-4.1-mini
 ```
 
 `agnt runs invoke` reads `invocation.yaml`, renders a worker prompt, writes
 `artifacts/prompt.md`, `artifacts/<model>.response.md`,
 `artifacts/<model>.stderr.txt`, optional metrics artifacts, and updates
-`result.yaml` with status, evidence, artifact refs, and `metricsRef`.
+`result.yaml` with status, evidence, artifact refs, and `metricsRef`. Metrics
+use telemetry schema v2 and carry the same `invocationId`; bounded artifact refs
+are relative to the private bundle. Legacy schema-v1 metrics remain readable.
 
 Update and validate a run bundle manually:
 
 ```bash
-agnt runs update .pi/runs/<run-id> \
+agnt runs update <runtime-runs-dir>/<run-id> \
   --status succeeded \
   --summary "Verified with tests" \
   --evidence "pytest tests/ → PASS" \
   --artifact artifacts/report.md \
   --follow-up pi-next.1 \
-  --metrics-ref .pi/metrics/example.metrics.json \
+  --metrics-ref <runtime-metrics-dir>/example.metrics.json \
   --session-ref pi-session-id:run-123 \
   --approval-ref pi-decision.1 \
   --decision-ref pi-decision.1 \
   --health-check pytest=passed \
   --closeout-check followups=passed
 
-agnt runs validate .pi/runs/<run-id>
-agnt runs validate .pi/runs/<run-id> --require-followups-exist
+agnt runs validate <runtime-runs-dir>/<run-id>
+agnt runs validate <runtime-runs-dir>/<run-id> --require-followups-exist
 ```
 
 Use `--require-followups-exist` before treating follow-up refs as reconciled;
@@ -187,7 +213,7 @@ Start and finish bead-backed work manually through the gated work surface:
 
 ```bash
 agnt work start pi-e4t.1 --action verify --target docs/RUN-ARTIFACTS.md --claim
-agnt work finish .pi/runs/<run-id> \
+agnt work finish <runtime-runs-dir>/<run-id> \
   --status succeeded \
   --summary "Verified and complete" \
   --evidence "scripts/check-pi-config.sh → PASS" \
@@ -223,7 +249,7 @@ Those effects require explicit approval and stronger verification gates.
 
 - Beads hold work state, dependencies, approvals, blockers, maintenance checkpoints, and closeout.
 - `.pi/plans/` holds larger design/implementation plans.
-- `.pi/runs/` holds per-run invocation/result evidence and recorded session refs.
-- Observational-memory ledgers are session-local recall aids; promote important findings into Beads or `.pi/runs` before relying on them.
+- Resolved private runs directory holds per-run invocation/result evidence and recorded session refs.
+- Observational-memory ledgers are session-local recall aids; promote important findings into Beads or private run bundles before relying on them.
 - Beads should reference relevant plan/run paths in notes, metadata, or issue
   descriptions when downstream work depends on them.

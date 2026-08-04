@@ -132,6 +132,7 @@ def test_scheduler_blocks_new_dispatch_and_pauses_when_enforced_budget_exhausted
     assert result["actions"][0]["action"] == "blocked_budget"
     assert result["actions"][0]["budget"]["remainingUsd"] == 0.0
     assert blockers[0]["target_bead"] == "pi-budget.1"
+    assert blockers[0]["selection_mode"] == "single"
     assert "budget" in blockers[0]["question"].lower()
     state = json.loads((tmp_path / ".pi" / "runner" / "state.json").read_text(encoding="utf-8"))
     assert state["paused"] is True

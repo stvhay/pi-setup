@@ -11,7 +11,7 @@ The repository supports two execution paths:
 1. direct Pi coding in the current session; and
 2. optional Beads-backed dispatch through run artifacts and a project-local runner.
 
-Both paths use Beads as the durable work graph. The optional path adds `.pi/runs` evidence and a scheduling boundary, but also adds lifecycle, state, and recovery machinery.
+Both paths use Beads as the durable work graph. The optional path adds private run-bundle evidence and a scheduling boundary, but also adds lifecycle, state, and recovery machinery.
 
 ## Decision
 

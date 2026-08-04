@@ -7,25 +7,6 @@ import {
   type PackageSource,
 } from "@earendil-works/pi-coding-agent";
 
-type Question = {
-  id: string;
-  question: string;
-  description?: string;
-  options: Array<{ label: string }>;
-  multi?: boolean;
-  recommended?: number;
-};
-
-type Answer = {
-  id: string;
-  question: string;
-  description?: string;
-  options: string[];
-  multi: boolean;
-  selectedOptions: string[];
-  customInput?: string;
-};
-
 const packageSourcePattern = /^npm:(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/;
 const packageVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -127,37 +108,6 @@ async function applyProjectPackage(args: string, ctx: ExtensionCommandContext): 
   await ctx.reload();
 }
 
-const askParameters = {
-  type: "object",
-  properties: {
-    questions: {
-      type: "array",
-      minItems: 1,
-      items: {
-        type: "object",
-        required: ["id", "question", "options"],
-        properties: {
-          id: { type: "string" },
-          question: { type: "string" },
-          description: { type: "string" },
-          options: {
-            type: "array",
-            minItems: 1,
-            items: {
-              type: "object",
-              required: ["label"],
-              properties: { label: { type: "string" } },
-            },
-          },
-          multi: { type: "boolean" },
-          recommended: { type: "number" },
-        },
-      },
-    },
-  },
-  required: ["questions"],
-};
-
 function clean(value: unknown, limit = 500): string {
   return String(value ?? "")
     .replace(/[\r\n\t]+/g, " ")
@@ -165,55 +115,6 @@ function clean(value: unknown, limit = 500): string {
     .replace(/\s{2,}/g, " ")
     .trim()
     .slice(0, limit);
-}
-
-function questionTitle(question: Question): string {
-  const description = clean(question.description, 1000);
-  return description ? `${clean(question.question)} — ${description}` : clean(question.question);
-}
-
-async function answerQuestion(question: Question, ui: any): Promise<Answer> {
-  const labels = question.options.map(({ label }) => clean(label));
-  const selectedOptions: string[] = [];
-  let customInput: string | undefined;
-
-  if (question.multi) {
-    for (const label of labels) {
-      if (await ui.confirm(questionTitle(question), `Select “${label}”?`)) selectedOptions.push(label);
-    }
-    if (await ui.confirm(questionTitle(question), "Add another answer?")) {
-      customInput = clean(await ui.input("Other answer", "Type another answer")) || undefined;
-    }
-  } else {
-    const choices = labels.map(
-      (label, index) => `${index + 1}. ${label}${index === question.recommended ? " (Recommended)" : ""}`,
-    );
-    const selected = await ui.select(questionTitle(question), [...choices, "Other…"]);
-    const index = choices.indexOf(selected);
-    if (index >= 0) selectedOptions.push(labels[index]);
-    if (selected === "Other…") {
-      customInput = clean(await ui.input("Other answer", "Type another answer")) || undefined;
-    }
-  }
-
-  return {
-    id: clean(question.id) || "unknown",
-    question: clean(question.question),
-    description: clean(question.description, 1000) || undefined,
-    options: labels,
-    multi: question.multi ?? false,
-    selectedOptions,
-    customInput,
-  };
-}
-
-function formatAnswer(answer: Answer): string {
-  const selected = answer.multi
-    ? `[${answer.selectedOptions.join(", ")}]`
-    : answer.selectedOptions[0];
-  if (selected && answer.customInput) return `${answer.id}: ${selected} + Other: “${answer.customInput}”`;
-  if (answer.customInput) return `${answer.id}: “${answer.customInput}”`;
-  return `${answer.id}: ${selected || "(cancelled)"}`;
 }
 
 function todoLines(value: unknown): string[] | undefined {
@@ -255,23 +156,6 @@ export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void 
   pi.registerCommand("agent-os-package", {
     description: "Apply an approved project package change from the agent-os Packages control",
     handler: applyProjectPackage,
-  });
-
-  pi.on("session_start", () => {
-    pi.registerTool({
-      name: "ask",
-      label: "Ask",
-      description: "Ask the user one or more questions when their choice materially affects the outcome.",
-      parameters: askParameters as any,
-      async execute(_toolCallId, params: { questions: Question[] }, _signal, _onUpdate, ctx) {
-        const results: Answer[] = [];
-        for (const question of params.questions) results.push(await answerQuestion(question, ctx.ui));
-        return {
-          content: [{ type: "text", text: `User answers:\n${results.map(formatAnswer).join("\n")}` }],
-          details: { results },
-        };
-      },
-    });
   });
 
   pi.on("tool_execution_start", (event: any, ctx: any) => {

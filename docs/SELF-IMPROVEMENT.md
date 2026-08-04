@@ -5,10 +5,12 @@ tracked policy and Beads. It improves routing, prompts, tools, and monitoring.
 For broader workflow/context design principles, see
 [Self-Improvement Principles](SELF-IMPROVEMENT-PRINCIPLES.md).
 
-Principle: telemetry is runtime state; policy is config. Metrics live in
-`~/.pi/metrics/` and per-project `.pi/metrics/` and are never tracked. What
-git tracks — and what makes the learning auditable — are the policy files the
-metrics justify changing:
+Principle: telemetry is runtime state; policy is config. Consolidated metrics
+live in `~/.pi/metrics/`; raw records use the resolver-selected private metrics
+directory and are never tracked. Project `.pi/metrics/` is used only when Git
+proves it safe, with a repository-keyed `~/.pi/runtime/` fallback otherwise.
+What git tracks — and what makes the learning auditable — are the policy files
+the metrics justify changing:
 
 - `pi/agent/tasks/*.md` — preferred/qualified/avoid model lists per task
 - `pi/agent/catalog.json` — model families, venues, cost facts
@@ -28,9 +30,9 @@ Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
 ### 1. Capture
 
 Every `agnt invoke` writes a metric record (model, family, task, tokens,
-cost, latency) to `<git-root>/.pi/metrics/invocations/`. Interactive Archimedes
-unnamed `subagent` results are converted to the same schema by the tracked
-observer. The observer stores usage, timing, and payload lengths—not prompt or
+cost, latency) to the resolved private `metrics/invocations` directory.
+The tracked observer converts interactive Archimedes unnamed `subagent` results
+to the same schema. The observer stores usage, timing, and payload lengths—not prompt or
 response bodies. Named-profile results are skipped because Archimedes does not
 expose their final provider.
 
@@ -103,8 +105,8 @@ commit with the evidence summarized in the message
 ```bash
 agnt improve link <bead>                                  # claim-time correlation
 agnt improve outcome <bead> <success|partial|failure|unclear> # closeout correlation + outcome
-agnt improve scan --since <ISO> --limit 5 --dry-run --json
-agnt improve scan --since <ISO> --limit 5 --json
+agnt improve scan --since <ISO> --limit 5 --max-traces 500 --dry-run --json
+agnt improve scan --since <ISO> --limit 5 --max-traces 500 --json
 agnt improve review <report> <decisions>          # preview
 agnt improve review <report> <decisions> --apply  # private session markers
 agnt improve promote <report> <decisions> --finding <id>          # preview
@@ -113,9 +115,13 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 
 `link` writes an idempotent private session score containing only the public
 work-item ID. `outcome` rewrites that same link and adds one idempotent categorical
-session score; scanners prefer it over sampled judge output. `scan` uses bounded
-reads, exact links, payload-free tool-error signals, and skips sessions already
-reviewed under the current policy.
+session score; scanners prefer it over sampled judge output. `scan` traverses pages
+in its bounded time window up to the operator trace cap (default 500) and reports that
+cap, valid API total when available, scanned/attributable/unattributed lower bounds,
+and explicit completeness/continuation state. Repeated pages stop as incomplete.
+Selected sessions retain 20-trace and 500-observation-per-trace caps with
+capture-gap markers. It uses exact links and payload-free tool-error signals, and
+skips sessions already reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`
 accepts only allowlisted, generalized text and requires durable approval of the
 exact preview before creating a committed Bead. Private trace IDs, URLs, user
