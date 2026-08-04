@@ -45,7 +45,10 @@
       "prompts": [],
       "themes": []
     },
-    "git:github.com/DietrichGebert/ponytail",
+    {
+      "source": "git:github.com/DietrichGebert/ponytail",
+      "skills": []
+    },
     "npm:pi-caveman",
     "npm:betterwright"
   ],
