@@ -35,6 +35,62 @@ const SAFE_PAYLOAD_FIELDS = [
   "frequency_penalty",
   "reasoning_effort",
 ] as const;
+const SAFE_EVENT_FIELDS = [
+  "id",
+  "requestId",
+  "request_id",
+  "providerRequestId",
+  "messageId",
+  "turnId",
+  "turnIndex",
+  "sessionId",
+  "provider",
+  "model",
+  "modelId",
+  "url",
+  "method",
+] as const;
+const SAFE_MESSAGE_FIELDS = [
+  ...SAFE_EVENT_FIELDS,
+  "api",
+  "timestamp",
+  "finishReason",
+  "stopReason",
+] as const;
+const SAFE_USAGE_FIELDS = [
+  "input",
+  "inputTokens",
+  "prompt_tokens",
+  "promptTokens",
+  "output",
+  "outputTokens",
+  "completion_tokens",
+  "completionTokens",
+  "total",
+  "totalTokens",
+  "total_tokens",
+  "cacheRead",
+  "cache_read",
+  "cachedTokens",
+  "cacheWrite",
+  "cache_write",
+] as const;
+const SAFE_COST_FIELDS = [
+  "input",
+  "inputCost",
+  "output",
+  "outputCost",
+  "total",
+  "totalCost",
+  "cacheRead",
+  "cache_read",
+  "cacheWrite",
+  "cache_write",
+] as const;
+const PROVIDER_PAYLOAD_ALIASES = ["request", "payload", "body", "providerPayload", "messages"] as const;
+const PACKAGE_CONVERSATION_EVENTS = new Set(["message_update", "message_end", "turn_end", "agent_end"]);
+const PROVIDER_ROLES = ["user", "assistant", "model"] as const;
+const CONVERSATION_ROLES = ["user", "assistant"] as const;
 
 function asObject(value: unknown): JsonObject | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -82,8 +138,6 @@ function sanitizeContentBlock(value: unknown, role: string, budget: { remaining:
     if (text === undefined) return undefined;
     return type === undefined ? { text } : { type, text };
   }
-  if (role !== "user") return undefined;
-
   if ((type === "image" || type === "document") && block.source) {
     const source = sanitizeMediaSource(block.source, budget);
     return source ? { type, source } : undefined;
@@ -110,49 +164,141 @@ function sanitizeContentBlock(value: unknown, role: string, budget: { remaining:
   return undefined;
 }
 
-function sanitizeMessages(value: unknown, budget: { remaining: number }): JsonObject[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const messages: JsonObject[] = [];
-  for (const item of value.slice(0, MAX_TELEMETRY_MESSAGES)) {
-    const message = asObject(item);
-    const role = message?.role;
-    if (role !== "user" && role !== "assistant" && role !== "model") continue;
-    if (typeof message.content === "string") {
-      const content = takeText(message.content, budget);
-      if (content !== undefined) messages.push({ role, content });
-      continue;
-    }
+function copyScalarFields(source: JsonObject, output: JsonObject, fields: readonly string[]) {
+  for (const key of fields) {
+    const value = source[key];
+    if (typeof value === "string") output[key] = value.slice(0, 512);
+    else if (typeof value === "number" && Number.isFinite(value)) output[key] = value;
+  }
+}
+
+function sanitizeNumbers(value: unknown, fields: readonly string[]): JsonObject | undefined {
+  const source = asObject(value);
+  if (!source) return undefined;
+  const output: JsonObject = {};
+  for (const key of fields) {
+    const field = source[key];
+    if (typeof field === "number" && Number.isFinite(field)) output[key] = field;
+    else if (typeof field === "string" && field.trim() && Number.isFinite(Number(field))) output[key] = field;
+  }
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
+function sanitizeUsage(value: unknown): JsonObject | undefined {
+  const source = asObject(value);
+  if (!source) return undefined;
+  const output = sanitizeNumbers(source, SAFE_USAGE_FIELDS) ?? {};
+  const cost = sanitizeNumbers(source.cost, SAFE_COST_FIELDS);
+  if (cost) output.cost = cost;
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
+function sanitizeMessage(
+  value: unknown,
+  budget: { remaining: number },
+  roles: readonly string[],
+): JsonObject | undefined {
+  const message = asObject(value);
+  const role = message?.role;
+  if (typeof role !== "string" || !roles.includes(role)) return undefined;
+
+  const output: JsonObject = { role };
+  copyScalarFields(message, output, SAFE_MESSAGE_FIELDS);
+  const usage = sanitizeUsage(message.usage);
+  if (usage) output.usage = usage;
+  const cost = sanitizeNumbers(message.cost, SAFE_COST_FIELDS);
+  if (cost) output.cost = cost;
+  const costDetails = sanitizeNumbers(message.costDetails, SAFE_COST_FIELDS);
+  if (costDetails) output.costDetails = costDetails;
+
+  if (typeof message.content === "string") {
+    const content = takeText(message.content, budget);
+    if (content !== undefined) output.content = content;
+  } else {
     const source = Array.isArray(message.content)
       ? message.content
       : Array.isArray(message.parts) ? message.parts : undefined;
-    if (!source) continue;
     const content = source
-      .slice(0, MAX_TELEMETRY_BLOCKS)
+      ?.slice(0, MAX_TELEMETRY_BLOCKS)
       .map((block) => sanitizeContentBlock(block, role, budget))
       .filter((block): block is JsonObject => block !== undefined);
-    if (content.length > 0) messages.push({ role, [Array.isArray(message.parts) ? "parts" : "content"]: content });
+    if (content?.length) output[Array.isArray(message.parts) ? "parts" : "content"] = content;
   }
+
+  return Object.keys(output).length > 1 ? output : undefined;
+}
+
+function sanitizeMessages(
+  value: unknown,
+  budget: { remaining: number },
+  roles: readonly string[] = PROVIDER_ROLES,
+): JsonObject[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const messages = value
+    .slice(0, MAX_TELEMETRY_MESSAGES)
+    .map((message) => sanitizeMessage(message, budget, roles))
+    .filter((message): message is JsonObject => message !== undefined);
   return messages.length > 0 ? messages : undefined;
 }
 
-function sanitizeProviderPayload(value: unknown): JsonObject | undefined {
+function sanitizeProviderPayload(
+  value: unknown,
+  budget = { remaining: MAX_TELEMETRY_MEDIA_CHARS },
+): JsonObject | undefined {
   const payload = asObject(value);
   if (!payload) return undefined;
   const output: JsonObject = {};
-  for (const key of SAFE_PAYLOAD_FIELDS) {
-    const field = payload[key];
-    if (typeof field === "number" || typeof field === "string") {
-      output[key] = typeof field === "string" ? field.slice(0, 512) : field;
-    }
+  copyScalarFields(payload, output, SAFE_PAYLOAD_FIELDS);
+  for (const key of ["messages", "input", "contents"] as const) {
+    const messages = sanitizeMessages(payload[key], budget);
+    if (messages) output[key] = messages;
   }
+  return output;
+}
+
+function sanitizeProviderEvent(value: unknown): JsonObject {
+  const event = asObject(value);
+  const output: JsonObject = { type: "before_provider_request" };
+  if (!event) {
+    output.payload = {};
+    return output;
+  }
+  copyScalarFields(event, output, SAFE_EVENT_FIELDS);
 
   const budget = { remaining: MAX_TELEMETRY_MEDIA_CHARS };
-  const messages = sanitizeMessages(payload.messages, budget);
+  let foundAlias = false;
+  for (const alias of PROVIDER_PAYLOAD_ALIASES) {
+    if (!Object.hasOwn(event, alias)) continue;
+    foundAlias = true;
+    output[alias] = alias === "messages"
+      ? sanitizeMessages(event[alias], budget)
+      : sanitizeProviderPayload(event[alias], budget);
+  }
+  if (!foundAlias) output.payload = sanitizeProviderPayload(event, budget) ?? {};
+  return output;
+}
+
+function sanitizeConversationEvent(eventName: string, value: unknown): JsonObject {
+  const event = asObject(value);
+  const output: JsonObject = { type: eventName };
+  if (!event) return output;
+  copyScalarFields(event, output, SAFE_MESSAGE_FIELDS);
+  const usage = sanitizeUsage(event.usage);
+  if (usage) output.usage = usage;
+  const cost = sanitizeNumbers(event.cost, SAFE_COST_FIELDS);
+  if (cost) output.cost = cost;
+  const costDetails = sanitizeNumbers(event.costDetails, SAFE_COST_FIELDS);
+  if (costDetails) output.costDetails = costDetails;
+
+  const budget = { remaining: MAX_TELEMETRY_MEDIA_CHARS };
+  const message = sanitizeMessage(event.message, budget, CONVERSATION_ROLES);
+  if (message) output.message = message;
+  const messages = sanitizeMessages(event.messages, budget, CONVERSATION_ROLES);
   if (messages) output.messages = messages;
-  const input = sanitizeMessages(payload.input, budget);
-  if (input) output.input = input;
-  const contents = sanitizeMessages(payload.contents, budget);
-  if (contents) output.contents = contents;
+  if (!Object.hasOwn(event, "message") && !Object.hasOwn(event, "messages")) {
+    const direct = sanitizeMessage(event, budget, CONVERSATION_ROLES);
+    if (direct) Object.assign(output, direct);
+  }
   return output;
 }
 
@@ -161,12 +307,17 @@ function langfuseTelemetryApi(pi: ExtensionAPI): ExtensionAPI {
     get(target, property, receiver) {
       if (property === "on") {
         return (event: string, handler: EventHandler) => {
-          if (event !== "before_provider_request") {
+          if (event !== "before_provider_request" && !PACKAGE_CONVERSATION_EVENTS.has(event)) {
             (target.on as unknown as (event: string, handler: EventHandler) => void)(event, handler);
             return;
           }
-          target.on("before_provider_request", async (providerEvent, ctx) => {
-            await handler({ ...providerEvent, payload: sanitizeProviderPayload(providerEvent.payload) }, ctx);
+          (target.on as unknown as (event: string, handler: EventHandler) => void)(event, async (packageEvent, ctx) => {
+            await handler(
+              event === "before_provider_request"
+                ? sanitizeProviderEvent(packageEvent)
+                : sanitizeConversationEvent(event, packageEvent),
+              ctx,
+            );
           });
         };
       }
