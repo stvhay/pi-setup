@@ -113,9 +113,12 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 
 `link` writes an idempotent private session score containing only the public
 work-item ID. `outcome` rewrites that same link and adds one idempotent categorical
-session score; scanners prefer it over sampled judge output. `scan` uses bounded
-reads, exact links, payload-free tool-error signals, and skips sessions already
-reviewed under the current policy.
+session score; scanners prefer it over sampled judge output. `scan` traverses every
+trace page in its bounded time window and reports API total (when supplied), scanned,
+attributable, and unattributed trace counts plus explicit completeness/continuation
+state. Selected sessions retain 20-trace and 500-observation-per-trace caps with
+capture-gap markers. It uses exact links and payload-free tool-error signals, and
+skips sessions already reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`
 accepts only allowlisted, generalized text and requires durable approval of the
 exact preview before creating a committed Bead. Private trace IDs, URLs, user

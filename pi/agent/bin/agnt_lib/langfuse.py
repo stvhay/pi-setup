@@ -171,6 +171,58 @@ class LangfuseClient:
             page_size=page_size,
         )
 
+    def list_traces_with_metadata(
+        self,
+        *,
+        from_timestamp: str,
+        to_timestamp: str,
+        page_size: int = 100,
+    ) -> dict[str, Any]:
+        if not from_timestamp or not to_timestamp:
+            raise ValueError("Langfuse reads require time bounds")
+        if page_size < 1:
+            raise ValueError("Langfuse read limits must be positive")
+        traces: list[dict[str, Any]] = []
+        page = 1
+        total_available: int | None = None
+        while True:
+            payload = self._request("GET", "/api/public/traces", params={
+                "fromTimestamp": from_timestamp,
+                "toTimestamp": to_timestamp,
+                "limit": min(page_size, MAX_PAGE_SIZE),
+                "page": page,
+            })
+            items = self._data(payload)
+            traces.extend(items)
+            meta = self._meta(payload)
+            if meta.get("totalItems") is not None:
+                try:
+                    total_available = int(meta["totalItems"])
+                except (TypeError, ValueError):
+                    raise LangfuseError("Langfuse response total was not an integer") from None
+                if total_available < 0:
+                    raise LangfuseError("Langfuse response total was negative")
+            total_pages = None
+            if meta.get("totalPages") is not None:
+                try:
+                    total_pages = int(meta["totalPages"])
+                except (TypeError, ValueError):
+                    raise LangfuseError("Langfuse response page count was not an integer") from None
+            if not items or (total_pages is not None and page >= total_pages):
+                complete = total_available is None or len(traces) >= total_available
+                return {
+                    "traces": traces,
+                    "totalAvailable": total_available,
+                    "scanned": len(traces),
+                    "complete": complete,
+                    "continuation": {
+                        "hasMore": not complete,
+                        "nextPage": None if complete else page + 1,
+                        "reason": "api-end" if complete else "api-incomplete",
+                    },
+                }
+            page += 1
+
     def list_scores(
         self,
         *,

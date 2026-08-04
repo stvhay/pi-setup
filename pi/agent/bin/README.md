@@ -215,7 +215,7 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 - `agnt improve outcome BEAD success|partial|failure|unclear [--json]`
   - Idempotently backfills the work-item link and records an explicit final session outcome; run at interactive closeout. Scans prefer this score over sampled evaluator output.
 - `agnt improve scan [--since ISO] [--limit N] [--recheck] [--dry-run] [--json]`
-  - Reads a bounded Langfuse cohort and writes a private packet under `~/.pi/improvement/`; `--dry-run` writes nothing. Projected outcomes and payload-free tool-error signals join through the private session ID.
+  - Reads every trace page in the bounded Langfuse window and writes a private packet under `~/.pi/improvement/`; `--dry-run` writes nothing. `traceDiscovery` reports API total when available, scanned/attributable/unattributed counts, completeness, and continuation state. Selected sessions remain capped at 20 traces and 500 observations per trace with capture-gap markers. Projected outcomes and payload-free tool-error signals join through the private session ID.
 - `agnt improve review REPORT DECISIONS [--apply] [--json]`
   - Validates private review decisions. `--apply` writes idempotent private session markers; preview is default.
 - `agnt improve promote REPORT DECISIONS --finding ID [--apply] [--approval ID] [--json]`
