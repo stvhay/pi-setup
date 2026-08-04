@@ -1665,6 +1665,75 @@ def test_metrics_record_includes_family_and_invocation_shape(agnt):
     assert record["providerRequests"] == 1
 
 
+def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
+    invocation_id = "018f47a8-62c4-7e91-a969-7b4f6c78d308"
+    usage = usage_tokens(input_tokens=10, output_tokens=2)
+    record = agnt.metrics_record(
+        invocation_id=invocation_id,
+        target="olla-cloud/gpt-4.1-mini",
+        task="review",
+        started_at="2026-06-09T00:00:00Z",
+        ended_at="2026-06-09T00:00:01Z",
+        elapsed_ms=1000,
+        code=0,
+        prompt="SECRET prompt",
+        out="SECRET output",
+        err="SECRET stderr",
+        usage=usage,
+        usage_source="message_end",
+        parent_session_id="parent-session",
+        work_item="pi-test.2",
+        artifact_refs=[
+            "artifacts/report.md",
+            "/private/secret.txt",
+            "x" * 257,
+            *[f"artifacts/{index}.txt" for index in range(20)],
+        ],
+    )
+
+    assert record["schemaVersion"] == 2
+    assert record["invocationId"] == invocation_id
+    assert record["recordId"]
+    assert record["parentSessionId"] == "parent-session"
+    assert record["workItem"] == "pi-test.2"
+    assert record["provider"] == "olla-cloud"
+    assert record["model"] == "gpt-4.1-mini"
+    assert record["target"] == "olla-cloud/gpt-4.1-mini"
+    assert record["status"] == "succeeded"
+    assert record["failureClass"] is None
+    assert record["durationMs"] == 1000
+    assert record["artifactRefs"][0] == "artifacts/report.md"
+    assert len(record["artifactRefs"]) == 16
+    assert all(not Path(ref).is_absolute() and len(ref) <= 256 for ref in record["artifactRefs"])
+    assert "SECRET" not in json.dumps(record)
+
+
+def test_legacy_metrics_record_remains_readable(agnt, tmp_path):
+    path = tmp_path / "legacy.metrics.json"
+    path.write_text(json.dumps({
+        "schemaVersion": 1,
+        "recordId": "legacy-record",
+        "startedAt": "2026-06-09T00:00:00Z",
+        "elapsedMs": 1000,
+        "provider": "olla-cloud",
+        "model": "gpt-4.1-mini",
+        "target": "olla-cloud/gpt-4.1-mini",
+        "exitCode": 0,
+    }), encoding="utf-8")
+
+    records, warnings = agnt.load_metric_records([path], include_annotations=False)
+    compact = agnt.compact_metric_record(records[0])
+    selected, selected_path, selector_warnings = agnt.resolve_metric_selector("legacy-record", tmp_path)
+
+    assert warnings == []
+    assert compact["schemaVersion"] == 1
+    assert compact["recordId"] == "legacy-record"
+    assert compact["invocationId"] is None
+    assert selected["recordId"] == "legacy-record"
+    assert selected_path == path
+    assert selector_warnings == []
+
+
 def test_route_reports_no_candidate_when_constraints_eliminate_all_models():
     proc = subprocess.run(
         [

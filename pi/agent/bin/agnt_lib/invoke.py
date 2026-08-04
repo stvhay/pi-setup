@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Tuple
 from .core import VALID_OUTCOMES, die, split_target
 from .doctor import doctor_report
 from .tasks import list_models, preferred_models
-from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, utc_now, write_json
+from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, new_invocation_id, utc_now, write_json
 
 ONE_SHOT_SYSTEM_PROMPT = (
     "You are a read-only reviewer. Analyze only the complete packet in the user message. "
@@ -108,8 +108,12 @@ def invoke_one(
     pi_args: List[str] | None = None,
     timeout_seconds: int | float | None = None,
     one_shot: bool = False,
+    invocation_id: str | None = None,
+    parent_session_id: str | None = None,
+    work_item: str | None = None,
 ) -> Tuple[int, str, str, Dict[str, Any] | None]:
     provider, model = split_target(target)
+    invocation_id = invocation_id or new_invocation_id()
     started_at = utc_now()
     started = time.monotonic()
     session_args: List[str] = []
@@ -181,6 +185,10 @@ def invoke_one(
                 err=err,
                 usage=usage,
                 usage_source="timeout",
+                invocation_id=invocation_id,
+                parent_session_id=parent_session_id,
+                work_item=work_item,
+                failure_class="timeout",
                 risk_category=risk_category,
                 thinking_level=thinking_level,
                 outcome=outcome,
@@ -209,6 +217,10 @@ def invoke_one(
             err=err,
             usage=usage,
             usage_source=usage_source,
+            invocation_id=invocation_id,
+            parent_session_id=parent_session_id,
+            work_item=work_item,
+            failure_class="provider" if provider_error else ("process" if code != 0 else None),
             risk_category=risk_category,
             thinking_level=thinking_level,
             outcome=outcome,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import patch
+from uuid import UUID
 
 
 VALID_REVIEW_META = {
@@ -441,6 +442,53 @@ def test_create_run_bundle_initializes_live_logs_and_lessons_handoff(agnt, tmp_p
     assert "live/status.json" in result["artifacts"]
     assert "artifacts/lessons.md" in result["artifacts"]
     assert "artifacts/handoff.md" in result["artifacts"]
+
+
+def test_canonical_invocation_id_survives_run_start_result_and_metrics(agnt, monkeypatch, tmp_path):
+    bundle = agnt.create_run_bundle(
+        action="verify",
+        routing_task="review",
+        bead="pi-test.canonical",
+        selected_model="olla-cloud/gpt-4.1-mini",
+        parent_session_id="parent-session",
+        output_contract="verification-review",
+        runs_dir=tmp_path / "runs",
+        id_value="readable-run-id",
+    )
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    invocation_id = invocation["invocationId"]
+    UUID(invocation_id)
+    assert invocation["schemaVersion"] == 2
+    assert invocation_id != invocation["id"]
+    assert agnt.load_yaml_json(bundle / "result.yaml")["invocationId"] == invocation_id
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        assert kwargs["invocation_id"] == invocation_id
+        assert kwargs["parent_session_id"] == "parent-session"
+        assert kwargs["work_item"] == "pi-test.canonical"
+        return 0, "OK: verified", "", {
+            "schemaVersion": 2,
+            "invocationId": invocation_id,
+            "recordId": "legacy-selector",
+            "target": target,
+            "artifactRefs": [],
+        }
+
+    monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", fake_invoke_one)
+    agnt.invoke_run_bundle(bundle, metrics_dir=tmp_path / "metrics")
+
+    result = agnt.load_yaml_json(bundle / "result.yaml")
+    metric = agnt.load_yaml_json(bundle / result["metricsRef"])
+    events = [json.loads(line) for line in (bundle / "live" / "session.jsonl").read_text(encoding="utf-8").splitlines()]
+    invoke_events = [event for event in events if event["event"].startswith("worker_invocation_")]
+
+    assert result["schemaVersion"] == 2
+    assert result["invocationId"] == invocation_id
+    assert metric["invocationId"] == invocation_id
+    assert all(event["invocationId"] == invocation_id for event in invoke_events)
+    assert metric["artifactRefs"]
+    assert set(metric["artifactRefs"]).issubset(result["artifacts"])
+    assert agnt.validate_run_bundle(bundle) == []
 
 
 def test_render_invocation_prompt_includes_ticket_description(agnt, tmp_path):
