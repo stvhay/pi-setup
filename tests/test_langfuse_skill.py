@@ -99,6 +99,118 @@ def fake_langfuse_agent_dir(tmp_path: Path) -> Path:
     return agent_dir
 
 
+def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
+    agent_dir = tmp_path / "agent"
+    package_dir = agent_dir / "npm" / "node_modules" / "pi-langfuse"
+    package_dir.mkdir(parents=True)
+    (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
+    (package_dir / "package.json").write_text(
+        json.dumps({"name": "pi-langfuse", "type": "module", "main": "./index.js"}),
+        encoding="utf-8",
+    )
+    (package_dir / "index.js").write_text(
+        """
+        import { readFileSync } from "node:fs";
+        import { join } from "node:path";
+
+        export default function register(pi) {
+          const config = JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR, "pi-langfuse", "config.json")));
+          const source = { ...(config.capture ?? {}), ...process.env };
+          const policy = Object.fromEntries(Object.entries({
+            LANGFUSE_CAPTURE_INPUTS: "captureInputs",
+            LANGFUSE_CAPTURE_OUTPUTS: "captureOutputs",
+            LANGFUSE_CAPTURE_TOOL_IO: "captureToolIo",
+            LANGFUSE_CAPTURE_SYSTEM_PROMPT: "captureSystemPrompt",
+            LANGFUSE_CAPTURE_CWD: "captureCwd",
+          }).map(([name, field]) => [field, /^(1|true|yes|on)$/i.test(String(source[name]))]));
+          globalThis.__piLangfuseRegistration = {
+            env: {
+              preset: process.env.LANGFUSE_PRIVACY_PRESET,
+              inputs: process.env.LANGFUSE_CAPTURE_INPUTS,
+              outputs: process.env.LANGFUSE_CAPTURE_OUTPUTS,
+              toolIo: process.env.LANGFUSE_CAPTURE_TOOL_IO,
+              systemPrompt: process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT,
+              cwd: process.env.LANGFUSE_CAPTURE_CWD,
+            },
+            policy,
+          };
+          pi.registerCommand("langfuse-status", {
+            handler: async (_args, ctx) => ctx.ui.notify(JSON.stringify(policy)),
+          });
+        }
+        """,
+        encoding="utf-8",
+    )
+    config = agent_dir / "pi-langfuse" / "config.json"
+    config.parent.mkdir()
+    config.write_text(
+        json.dumps(
+            {
+                "publicKey": "pk-config",
+                "secretKey": "sk-config",
+                "host": "https://langfuse.example.com",
+                "privacyPreset": "full-debug",
+                "capture": {
+                    "LANGFUSE_CAPTURE_INPUTS": "true",
+                    "LANGFUSE_CAPTURE_OUTPUTS": "true",
+                    "LANGFUSE_CAPTURE_TOOL_IO": "true",
+                    "LANGFUSE_CAPTURE_SYSTEM_PROMPT": "true",
+                    "LANGFUSE_CAPTURE_CWD": "true",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return agent_dir
+
+
+def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
+    agent_dir = fake_privacy_langfuse_agent_dir(tmp_path)
+    script = f"""
+      import assert from "node:assert/strict";
+
+      process.env.PI_CODING_AGENT_DIR = {str(agent_dir)!r};
+      process.env.LANGFUSE_PUBLIC_KEY = "pk-explicit";
+      delete process.env.LANGFUSE_SECRET_KEY;
+      process.env.LANGFUSE_PRIVACY_PRESET = "full-debug";
+      process.env.LANGFUSE_CAPTURE_INPUTS = "false";
+      process.env.LANGFUSE_CAPTURE_OUTPUTS = "false";
+      process.env.LANGFUSE_CAPTURE_TOOL_IO = "true";
+      process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT = "true";
+      process.env.LANGFUSE_CAPTURE_CWD = "true";
+
+      const {{ default: install }} = await import({EXTENSION.as_uri()!r});
+      const commands = new Map();
+      const pi = {{
+        on() {{}},
+        registerCommand(name, command) {{ commands.set(name, command); }},
+      }};
+      await install(pi);
+
+      assert.deepEqual(globalThis.__piLangfuseRegistration.env, {{
+        preset: "conversations",
+        inputs: "false",
+        outputs: "false",
+        toolIo: "false",
+        systemPrompt: "false",
+        cwd: "false",
+      }});
+      assert.deepEqual(globalThis.__piLangfuseRegistration.policy, {{
+        captureInputs: false,
+        captureOutputs: false,
+        captureToolIo: false,
+        captureSystemPrompt: false,
+        captureCwd: false,
+      }});
+      let status;
+      await commands.get("langfuse-status").handler("", {{ ui: {{ notify(value) {{ status = JSON.parse(value); }} }} }});
+      assert.deepEqual(status, globalThis.__piLangfuseRegistration.policy);
+      assert.equal(process.env.LANGFUSE_PUBLIC_KEY, "pk-explicit");
+      assert.equal(process.env.LANGFUSE_SECRET_KEY, "sk-config");
+    """
+    run_extension_script(script)
+
+
 def test_emitted_generation_preserves_explicit_zero_cost_and_runtime_model_id(tmp_path):
     agent_dir = fake_langfuse_agent_dir(tmp_path)
     script = f"""
