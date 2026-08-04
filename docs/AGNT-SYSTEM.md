@@ -56,7 +56,13 @@ Run artifacts live under `<runtime-runs-dir>/<run-id>/`, where `agnt runtime-pat
 
 ### Metrics and evals
 
-Metrics record best-effort model usage and outcomes. Code-review metrics can link a validated structured finding artifact, separating discovery from fresh-context confirmation, refutation, or unresolved evidence. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code or model confidence as ground truth.
+Metrics record best-effort model usage and outcomes. Telemetry schema v2 assigns
+one collision-resistant, payload-free `invocationId` at invocation start and
+reuses it across run events, results, metrics, and unnamed-subagent projections.
+The normalized record includes parent session/work item, provider/model/target,
+status, failure class, usage, duration, and bounded artifact refs. `recordId`
+remains a backward-compatible selector, and schema-v1 records remain readable.
+Code-review metrics can link a validated structured finding artifact, separating discovery from fresh-context confirmation, refutation, or unresolved evidence. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code or model confidence as ground truth.
 
 ## What agnt commands do
 
@@ -174,7 +180,7 @@ Relatively stable:
 - repository/runtime separation;
 - `agnt route`, `invoke`, `instructions`, `metrics`, and basic evals;
 - Beads as the repository’s canonical agent-facing work graph;
-- action/run artifact schemas at their current v1 level;
+- additive telemetry and action/run artifact schemas at v2, with v1 reader compatibility;
 - the single-user project-local runner service boundary, CLI client commands, and opt-in orchestrator startup gate.
 
 Still evolving:
