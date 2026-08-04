@@ -8,12 +8,12 @@ The service owns scheduling and executor lifecycle for one project root:
 
 - attach Pi TUI sessions as informational client records;
 - expose runner health, status, events, active work, budget, context, and cost state;
-- schedule ready Beads work through the same `agnt work` validators and `.pi/runs` artifacts used by manual dispatch;
+- schedule ready Beads work through the same `agnt work` validators and private run artifacts used by manual dispatch;
 - prevent duplicate active bead dispatch and serialize overlapping implementation write sets;
 - honor pause, resume, bounded concurrency, retry/backoff, budget gates, and graceful drain;
-- keep runtime state under `.pi/runner/` and evidence under `.pi/runs/`.
+- keep runtime state under `.pi/runner/` and evidence under the resolved private runs directory.
 
-Beads remains the durable work graph. `.pi/runs` remains the execution evidence store. The runner state files are local runtime coordination data, not source of truth.
+Beads remains the durable work graph. `agnt runtime-path runs` selects the execution evidence store: project `.pi/runs/` only when Git proves it ignored, untracked, and symlink-safe, otherwise a repository-keyed directory under `~/.pi/runtime/`. Runner state files are local runtime coordination data, not source of truth.
 
 ## Startup flow
 
@@ -86,7 +86,7 @@ All service runtime files live under `.pi/runner/` and are gitignored.
 .pi/runner/service.log         # daemon child stdout/stderr
 ```
 
-Do not commit these files. Do not treat them as durable closeout evidence. Promote important evidence to Beads or `.pi/runs`.
+Do not commit these files. Do not treat them as durable closeout evidence. Promote important evidence to Beads or a resolved private run bundle.
 
 ## API contract
 
@@ -124,7 +124,7 @@ Status payloads expose compact active-work summaries:
   "thinkingLevel": "high",
   "context": {"used": 12345, "limit": null, "percent": null, "source": "metrics"},
   "cost": {"usd": 0.42, "source": "metrics"},
-  "bundle": ".pi/runs/<run-id>",
+  "bundle": "<runtime-runs-dir>/<run-id>",
   "blockers": []
 }
 ```
@@ -141,7 +141,7 @@ A completed worker appends a compact terminal event after its durable run result
   "bead": "pi-abc.1",
   "outcome": "succeeded",
   "runId": "runner-pi-abc.1-YYYYmmddHHMMSS",
-  "bundle": ".pi/runs/<run-id>"
+  "bundle": "<runtime-runs-dir>/<run-id>"
 }
 ```
 

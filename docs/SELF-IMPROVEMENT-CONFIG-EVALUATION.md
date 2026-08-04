@@ -84,8 +84,8 @@ stay small and orthogonal.
 ### 2. Invocation/result artifacts now have a v1 schema
 
 `docs/RUN-ARTIFACTS.md` defines the v1 run bundle shape, and `agnt runs` plus
-`agnt action render` can create and validate `.pi/runs/<run-id>/` bundles with
-`invocation.yaml`, `result.yaml`, and `artifacts/`.
+`agnt action render` can create and validate `<runtime-runs-dir>/<run-id>/`
+bundles with `invocation.yaml`, `result.yaml`, and `artifacts/`.
 
 `agnt runs update` and `agnt work finish` can now enrich `result.yaml` with
 status, summary, evidence, artifacts, follow-up beads, metrics refs, and

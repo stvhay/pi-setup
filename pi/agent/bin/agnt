@@ -24,6 +24,7 @@ from agnt_lib.core import (  # noqa: E402
     run,
 )
 from agnt_lib.tasks import *  # noqa: E402,F401,F403
+from agnt_lib.runtime_paths import *  # noqa: E402,F401,F403
 from agnt_lib.metrics import *  # noqa: E402,F401,F403
 from agnt_lib.review import *  # noqa: E402,F401,F403
 from agnt_lib.invoke import *  # noqa: E402,F401,F403
@@ -93,6 +94,7 @@ def main(argv: List[str]) -> int:
         "soul": ("emit or validate communication preferences", cmd_soul),
         "route": ("recommend a model for a task", cmd_route),
         "recommend": ("alias for route", cmd_route),
+        "runtime-path": ("resolve a safe private runtime directory", cmd_runtime_path),
         "metrics": ("inspect and consolidate invocation metrics", cmd_metrics),
         "review": ("validate and summarize structured review findings", cmd_review),
         "eval": ("run filesystem-defined agnt evals", cmd_eval),

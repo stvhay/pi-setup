@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -8,12 +9,13 @@ ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "subagent-error-workaround.ts"
 
 
-def run_node(script: str):
+def run_node(script: str, env: dict[str, str] | None = None):
     subprocess.run(
         ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
         check=True,
         capture_output=True,
         text=True,
+        env={**os.environ, **(env or {})},
     )
 
 
@@ -313,6 +315,8 @@ def test_subagent_results_emit_evaluator_ready_observations():
 
 
 def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n", encoding="utf-8")
     script = f"""
       import assert from "node:assert/strict";
       import {{ readFile, readdir }} from "node:fs/promises";
@@ -366,10 +370,12 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
       assert.equal(JSON.stringify(records).includes("SECRET"), false);
     """
-    run_node(script)
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
 
 
 def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n", encoding="utf-8")
     script = f"""
       import assert from "node:assert/strict";
       import {{ readFile, readdir }} from "node:fs/promises";
@@ -412,17 +418,20 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       assert.equal(observations[0].attributes.metadata.invocationId, invocationId);
       assert.equal(/^[0-9a-f-]{{36}}$/.test(invocationId), true);
     """
-    run_node(script)
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
 
 
 def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
     script = f"""
       import assert from "node:assert/strict";
       import {{ readFile, readdir }} from "node:fs/promises";
+      import {{ join }} from "node:path";
       import install from {EXTENSION.as_uri()!r};
 
       const handlers = {{}};
-      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }});
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{ observe() {{}} }});
       assert.equal(typeof handlers.tool_call, "function");
       assert.equal(typeof handlers.tool_result, "function");
 
@@ -506,7 +515,11 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       }}, {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
 
       const finished = Date.now();
-      const dir = `${{cwd}}/.pi/metrics/invocations`;
+      const runtimeRoot = join({str(home)!r}, ".pi", "runtime");
+      const keys = await readdir(runtimeRoot);
+      assert.equal(keys.length, 1);
+      assert.match(keys[0], /^[0-9a-f]{{64}}$/);
+      const dir = join(runtimeRoot, keys[0], "metrics", "invocations");
       const files = await readdir(dir);
       assert.equal(files.length, 4, "named profiles must be skipped when actual provider is unavailable");
       const records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(`${{dir}}/${{file}}`, "utf8"))));
@@ -535,4 +548,7 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
         assert.equal(serialized.includes(secret), false, `persisted secret: ${{secret}}`);
       }}
     """
-    run_node(script)
+    run_node(script, env={
+        "HOME": str(home),
+        "PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent"),
+    })

@@ -15,7 +15,7 @@ pi-setup/ (this repo, source of truth)
 ├── docs/                architecture, procedures, design decisions, audits
 ├── scripts/             deploy, layout checks, behavioral eval suite
 ├── tests/               pytest for agnt/agent-instructions internals
-└── .pi/                 project-local plans/runs/scratch (not deployable)
+└── .pi/                 project plans; optional ignored runtime/scratch
 ```
 
 - `scripts/update-pi-config.sh` deploys `pi/` → `~/.pi` by default;
@@ -43,9 +43,9 @@ agnt route        constraint filter (enabledModels, modality, context window,
                          │
 subagent observer + invoke metrics
                          │
-.pi/metrics/      per-project raw records ──consolidate──▶ ~/.pi/metrics/
-      │                                                       (global store)
-      └───────────── outcome annotations feed back into `agnt route` ─────┘
+resolved private metrics records ──consolidate──▶ ~/.pi/metrics/
+      │                                              (global store)
+      └──────── outcome annotations feed back into `agnt route` ───────┘
 ```
 
 ### Model catalog (`pi/agent/catalog.json`)
@@ -152,9 +152,12 @@ editing, and verification in the current session. Nontrivial work should leave
 durable artifacts — plans, reports, patches, metrics, verification logs, or
 optional run records — with enough structure for a human, tool, or later agent
 to inspect, retry, verify, or continue the work. Current pieces are: `.beads/`
-for work graph export/config, `.pi/plans/` for plans, optional `.pi/runs/` for
-invocation/result artifacts, `.pi/metrics/` for runtime telemetry, `agnt action render` and
-`agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch plans,
+for work graph export/config, `.pi/plans/` for plans, resolver-selected private
+directories for optional invocation/result artifacts and runtime telemetry
+(project `.pi/runs/` and `.pi/metrics/` only when Git proves each candidate
+ignored, untracked, and symlink-safe; hashed `~/.pi/runtime/` fallback
+otherwise), `agnt action render` and `agnt runs` for message artifacts, `agnt
+work` for dry-run bead dispatch plans,
 plan trees, daemon lifecycle, service-backed runner client operations, health
 checks, and maintenance checkpoints, `agnt approvals` for durable human
 decisions, `agnt gateway` for constrained Pi extension access and service-backed
@@ -168,10 +171,13 @@ Beads-first gated workflow and its project-local loopback service boundary.
 
 ### Metrics and feedback
 
-Raw per-invocation records land in `<git-root>/.pi/metrics/invocations/`
-(project-local, gitignored). `agnt invoke` writes its own records; the tracked
-subagent observer converts completed unnamed Archimedes results to the same
-schema using counts and lengths without prompt or response bodies. Named-profile
+Raw per-invocation records land in the resolver-selected private
+`metrics/invocations` directory. The resolver uses
+`<git-root>/.pi/metrics/invocations/` only when Git proves the candidate safe;
+otherwise it uses the repository-keyed `~/.pi/runtime/<sha256>/` fallback.
+`agnt invoke` writes its own records; the tracked subagent observer converts
+completed unnamed Archimedes results to the same schema using counts and
+lengths without prompt or response bodies. Named-profile
 results are skipped because Archimedes does not expose their final provider.
 `agnt metrics consolidate`
 appends compact records
