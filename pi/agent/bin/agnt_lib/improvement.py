@@ -27,6 +27,7 @@ WORK_LINK_SCORE = "improvement_work_item"
 OUTCOME_SCORE = "improvement_task_outcome"
 TASK_OUTCOMES = {"success", "partial", "failure", "unclear"}
 REVIEW_POLICY_VERSION = "v1"
+TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
 SESSION_DECISIONS = {"no-action", "actions-created", "needs-human", "excluded"}
@@ -118,6 +119,52 @@ def _sum_trace_metadata(traces: list[dict[str, Any]], key: str) -> tuple[int, bo
     return sum(values), bool(values)
 
 
+def _tool_payload_bytes(tools: list[dict[str, Any]]) -> tuple[int | None, int | None, dict[str, Any], str | None]:
+    totals = {"inputBytes": 0, "outputBytes": 0}
+    available = {"inputBytes": True, "outputBytes": True}
+    matched = 0
+    for tool in tools:
+        metadata = tool.get("metadata") if isinstance(tool.get("metadata"), dict) else {}
+        if (
+            "input" in tool
+            and tool["input"] is None
+            and "output" in tool
+            and tool["output"] is None
+            and type(metadata.get("inputBytes")) is int
+            and metadata["inputBytes"] == 26
+            and type(metadata.get("outputBytes")) is int
+            and metadata["outputBytes"] == 26
+        ):
+            matched += 1
+        for key in totals:
+            value = metadata.get(key)
+            if type(value) is int and value >= 0:
+                totals[key] += value
+            else:
+                available[key] = False
+
+    if matched:
+        input_bytes = output_bytes = None
+        status = "inferred-unavailable"
+        gap = "inferred-tool-payload-bytes"
+    elif not tools:
+        input_bytes = output_bytes = 0
+        status = "not-observed"
+        gap = None
+    else:
+        input_bytes = totals["inputBytes"] if available["inputBytes"] else None
+        output_bytes = totals["outputBytes"] if available["outputBytes"] else None
+        status = "available" if all(available.values()) else "unavailable"
+        gap = None if status == "available" else "missing-tool-payload-bytes"
+
+    return input_bytes, output_bytes, {
+        "status": status,
+        "rule": TOOL_PAYLOAD_BYTE_RULE,
+        "matchedObservations": matched,
+        "examinedObservations": len(tools),
+    }, gap
+
+
 def _tool_error_signals(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     signals = []
     for observation in observations:
@@ -206,9 +253,7 @@ def _features(
         if isinstance(metadata, dict) and metadata.get("model"):
             models.add(str(metadata["model"]))
 
-    tool_metadata = [item["metadata"] for item in tools if isinstance(item.get("metadata"), dict)]
-    tool_input_bytes = sum(_int(metadata.get("inputBytes")) for metadata in tool_metadata)
-    tool_output_bytes = sum(_int(metadata.get("outputBytes")) for metadata in tool_metadata)
+    tool_input_bytes, tool_output_bytes, tool_payload_metadata, tool_payload_gap = _tool_payload_bytes(tools)
     signatures = Counter()
     evaluator_timeouts = 0
     for observation in observations:
@@ -247,6 +292,8 @@ def _features(
         capture_gaps.append("missing-model")
     if final_outcome == "unknown":
         capture_gaps.append("missing-outcome")
+    if tool_payload_gap:
+        capture_gaps.append(tool_payload_gap)
 
     return {
         "finalOutcome": final_outcome,
@@ -263,6 +310,7 @@ def _features(
             "toolInput": tool_input_bytes,
             "toolOutput": tool_output_bytes,
         },
+        "payloadByteMetadata": {"toolIo": tool_payload_metadata},
         "models": sorted(models),
         "promptHash": _hash(prompt_parts),
         "evaluatorOutcomes": evaluator_outcomes,
@@ -977,7 +1025,7 @@ def scan_sessions(
 
     report_id = _hash({"since": since, "until": until, "sessions": [item["sessionId"] for item in sessions]})[:16]
     packet = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "reportId": report_id,
         "createdAt": until,
         "scan": {

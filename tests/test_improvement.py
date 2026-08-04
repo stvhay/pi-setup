@@ -651,6 +651,132 @@ def _private_observations():
     ]
 
 
+def _tool_observation(*, input_marker=..., output_marker=..., metadata=None):
+    observation = {
+        "id": "private-tool-observation",
+        "type": "TOOL",
+        "name": "private-tool",
+        "metadata": metadata if metadata is not None else {},
+    }
+    if input_marker is not ...:
+        observation["input"] = input_marker
+    if output_marker is not ...:
+        observation["output"] = output_marker
+    return observation
+
+
+@pytest.mark.parametrize(
+    ("observations", "expected_bytes", "status", "matched", "gap"),
+    [
+        ([], {"toolInput": 0, "toolOutput": 0}, "not-observed", 0, None),
+        (
+            [_tool_observation(input_marker=None, output_marker=None, metadata={"inputBytes": 26, "outputBytes": 26})],
+            {"toolInput": None, "toolOutput": None},
+            "inferred-unavailable",
+            1,
+            "inferred-tool-payload-bytes",
+        ),
+        (
+            [
+                _tool_observation(metadata={"inputBytes": 5, "outputBytes": 7}),
+                _tool_observation(metadata={"outputBytes": 11}),
+            ],
+            {"toolInput": None, "toolOutput": 18},
+            "unavailable",
+            0,
+            "missing-tool-payload-bytes",
+        ),
+        (
+            [_tool_observation(metadata={"inputBytes": 5, "outputBytes": False})],
+            {"toolInput": 5, "toolOutput": None},
+            "unavailable",
+            0,
+            "missing-tool-payload-bytes",
+        ),
+        (
+            [_tool_observation(input_marker=None, metadata={"inputBytes": 26, "outputBytes": 26})],
+            {"toolInput": 26, "toolOutput": 26},
+            "available",
+            0,
+            None,
+        ),
+        (
+            [_tool_observation(input_marker=None, output_marker=None, metadata={"inputBytes": 26.0, "outputBytes": 26})],
+            {"toolInput": None, "toolOutput": 26},
+            "unavailable",
+            0,
+            "missing-tool-payload-bytes",
+        ),
+        (
+            [
+                _tool_observation(metadata={"inputBytes": 5, "outputBytes": 7}),
+                _tool_observation(input_marker=None, output_marker=None, metadata={"inputBytes": 26, "outputBytes": 26}),
+            ],
+            {"toolInput": None, "toolOutput": None},
+            "inferred-unavailable",
+            1,
+            "inferred-tool-payload-bytes",
+        ),
+    ],
+)
+def test_tool_payload_byte_aggregation_is_availability_aware(observations, expected_bytes, status, matched, gap):
+    features = improvement._features([], observations, [])
+
+    assert {name: features["payloadBytes"][name] for name in expected_bytes} == expected_bytes
+    assert features["payloadByteMetadata"]["toolIo"] == {
+        "status": status,
+        "rule": "pi-langfuse-1.5.7-dual-null-dual-26",
+        "matchedObservations": matched,
+        "examinedObservations": len(observations),
+    }
+    assert (gap in features["captureGaps"]) if gap else not {
+        "inferred-tool-payload-bytes",
+        "missing-tool-payload-bytes",
+    }.intersection(features["captureGaps"])
+
+
+def test_scan_normalizes_exact_tool_fingerprint_without_copying_payload(tmp_path):
+    observations = [
+        _tool_observation(input_marker=None, output_marker=None, metadata={"inputBytes": 26, "outputBytes": 26}),
+        _tool_observation(
+            input_marker="PRIVATE TOOL INPUT",
+            output_marker="PRIVATE TOOL OUTPUT",
+            metadata={"inputBytes": 18, "outputBytes": 19},
+        ),
+    ]
+    client = FakeScanClient(
+        [_private_trace("private-session", "private-trace")],
+        {"private-trace": observations},
+    )
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    assert summary["schemaVersion"] == 1
+    assert packet["schemaVersion"] == 2
+    assert packet["scan"]["reviewPolicyVersion"] == "v1"
+    features = packet["sessions"][0]["features"]
+    assert features["payloadBytes"]["toolInput"] is None
+    assert features["payloadBytes"]["toolOutput"] is None
+    assert features["payloadByteMetadata"]["toolIo"] == {
+        "status": "inferred-unavailable",
+        "rule": "pi-langfuse-1.5.7-dual-null-dual-26",
+        "matchedObservations": 1,
+        "examinedObservations": 2,
+    }
+    assert "inferred-tool-payload-bytes" in features["captureGaps"]
+    assert "PRIVATE TOOL INPUT" not in json.dumps(packet)
+    assert "PRIVATE TOOL OUTPUT" not in json.dumps(packet)
+
+
 def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path):
     output_dir = tmp_path / "private-runtime"
     repo_root = tmp_path / "repo"
@@ -1056,7 +1182,13 @@ def test_trace_discovery_reports_lower_bounds_and_unattributed_traces(tmp_path):
 
 
 def test_scan_marks_truncated_observations_as_capture_gap(tmp_path):
-    observations = [{"id": str(index), "type": "TOOL", "metadata": {}} for index in range(501)]
+    observations = [
+        _tool_observation(input_marker=None, output_marker=None, metadata={"inputBytes": 26, "outputBytes": 26}),
+        *[
+            {"id": str(index), "type": "TOOL", "metadata": {"inputBytes": 1, "outputBytes": 2}}
+            for index in range(500)
+        ],
+    ]
     client = FakeScanClient(
         [_private_trace("eligible-session", "eligible-trace")],
         {"eligible-trace": observations},
@@ -1073,7 +1205,15 @@ def test_scan_marks_truncated_observations_as_capture_gap(tmp_path):
         dry_run=True,
     )
 
-    assert "observation-limit" in packet["sessions"][0]["features"]["captureGaps"]
+    features = packet["sessions"][0]["features"]
+    assert "observation-limit" in features["captureGaps"]
+    assert "inferred-tool-payload-bytes" in features["captureGaps"]
+    assert features["payloadByteMetadata"]["toolIo"] == {
+        "status": "inferred-unavailable",
+        "rule": "pi-langfuse-1.5.7-dual-null-dual-26",
+        "matchedObservations": 1,
+        "examinedObservations": 500,
+    }
 
 
 def test_scan_never_correlates_parent_directory_session_ids(tmp_path):
@@ -1186,12 +1326,12 @@ def test_review_rubric_requires_unknown_and_evidence_thresholds():
         assert required in rubric
 
 
-def test_review_decisions_accept_strict_private_schema():
+def test_historical_schema_1_private_packet_remains_reviewable():
+    packet = _review_packet()
     decisions = _review_decisions()
 
-    validated = improvement.validate_decisions(_review_packet(), decisions)
-
-    assert validated == decisions
+    assert packet["schemaVersion"] == 1
+    assert improvement.validate_decisions(packet, decisions) == decisions
 
 
 @pytest.mark.parametrize(

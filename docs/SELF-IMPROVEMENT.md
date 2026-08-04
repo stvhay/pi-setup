@@ -120,8 +120,18 @@ in its bounded time window up to the operator trace cap (default 500) and report
 cap, valid API total when available, scanned/attributable/unattributed lower bounds,
 and explicit completeness/continuation state. Repeated pages stop as incomplete.
 Selected sessions retain 20-trace and 500-observation-per-trace caps with
-capture-gap markers. It uses exact links and payload-free tool-error signals, and
-skips sessions already reviewed under the current policy.
+capture-gap markers. Private scan packets use schema 2; safe scan summaries and
+review decisions remain schema 1, review policy remains `v1`, and historical
+schema-1 packets remain reviewable. For the exact
+`pi-langfuse-1.5.7-dual-null-dual-26` TOOL fingerprint, scans report both tool
+payload-byte aggregates as unavailable (`null`) and record rule status plus
+matched/examined observation counts under `payloadByteMetadata.toolIo`. Missing
+or invalid nonfingerprint metadata makes only the affected aggregate unavailable;
+no TOOL observations still report zero. Gaps distinguish
+`inferred-tool-payload-bytes`, `missing-tool-payload-bytes`, and the preserved
+`observation-limit`. Raw Langfuse records remain unchanged, and packets never
+copy tool payloads. Scans use exact links and payload-free tool-error signals,
+and skip sessions already reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`
 accepts only allowlisted, generalized text and requires durable approval of the
 exact preview before creating a committed Bead. Private trace IDs, URLs, user

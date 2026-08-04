@@ -12,6 +12,11 @@ export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
   // Truncating data URIs corrupts media before Langfuse can extract it.
   process.env.PI_LANGFUSE_MAX_STRING_LENGTH ||= "off";
 
+  process.env.LANGFUSE_PRIVACY_PRESET = "conversations";
+  process.env.LANGFUSE_CAPTURE_TOOL_IO = "false";
+  process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT = "false";
+  process.env.LANGFUSE_CAPTURE_CWD = "false";
+
   try {
     const config = JSON.parse(
       readFileSync(resolve(agentDir, "pi-langfuse", "config.json"), "utf8"),
