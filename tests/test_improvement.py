@@ -204,6 +204,50 @@ def test_trace_discovery_stops_at_operator_max_and_reports_lower_bound():
     }
 
 
+def test_trace_discovery_validates_total_against_raw_page_before_operator_cap():
+    client = FakeTelemetryClient([{
+        "data": [{"id": "first"}, {"id": "overflow"}],
+        "meta": {"totalItems": 1},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=1,
+    )
+
+    assert discovery == {
+        "traces": [{"id": "first"}],
+        "totalAvailable": None,
+        "scanned": 1,
+        "maxTraces": 1,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
+    }
+
+
+def test_trace_discovery_keeps_empty_nonterminal_page_incomplete():
+    client = FakeTelemetryClient([{
+        "data": [],
+        "meta": {"page": 1, "totalPages": 2},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=10,
+    )
+
+    assert discovery == {
+        "traces": [],
+        "totalAvailable": None,
+        "scanned": 0,
+        "maxTraces": 10,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 2, "reason": "api-incomplete"},
+    }
+
+
 def test_trace_discovery_has_finite_safe_default():
     client = FakeTelemetryClient([{"data": [], "meta": {}}])
 

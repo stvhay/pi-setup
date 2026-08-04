@@ -202,21 +202,24 @@ class LangfuseClient:
             items = self._data(payload)
             meta = self._meta(payload)
             repeated_page = bool(items and items == previous_items)
-            if not repeated_page:
-                previous_items = items
-                traces.extend(items[: max_traces - len(traces)])
+            uncapped_count = len(traces) + (0 if repeated_page else len(items))
 
             raw_total = meta.get("totalItems")
             if raw_total is not None:
                 if (
                     type(raw_total) is not int
-                    or raw_total < len(traces)
+                    or raw_total < uncapped_count
                     or (total_available is not None and raw_total != total_available)
                 ):
                     total_available = None
                     total_unavailable = True
                 elif not total_unavailable:
                     total_available = raw_total
+
+            if not repeated_page:
+                previous_items = items
+                traces.extend(items[: max_traces - len(traces)])
+
             if total_available is not None and len(traces) > total_available:
                 total_available = None
                 total_unavailable = True
@@ -229,7 +232,11 @@ class LangfuseClient:
             raw_total_pages = meta.get("totalPages")
             total_pages = raw_total_pages if type(raw_total_pages) is int and raw_total_pages > 0 else None
             if not items:
-                complete = not total_unavailable and (total_available is None or len(traces) >= total_available)
+                complete = (
+                    not total_unavailable
+                    and (total_available is None or len(traces) >= total_available)
+                    and (total_pages is None or page >= total_pages)
+                )
                 reason = "api-end" if complete else "api-incomplete"
                 next_page = None if complete else page + 1
                 break
