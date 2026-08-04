@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 
@@ -23,12 +25,142 @@ ARCHITECTURE_SKILL_PACKAGE = {
     "prompts": [],
     "themes": [],
 }
+PONYTAIL_PACKAGE = {
+    "source": "git:github.com/DietrichGebert/ponytail",
+    "skills": [],
+}
+PONYTAIL_INPUT = ROOT / "pi" / "agent" / "extensions" / "ponytail-skill-input.ts"
+
+
+def run_node(script: str):
+    subprocess.run(
+        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=os.environ,
+    )
 
 
 def test_architecture_skill_package_is_pinned_and_filtered_to_dependencies():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
 
     assert ARCHITECTURE_SKILL_PACKAGE in settings["packages"]
+
+
+def test_ponytail_discovery_filters_package_skills_without_disabling_extension():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+
+    assert PONYTAIL_PACKAGE in settings["packages"]
+    assert "git:github.com/DietrichGebert/ponytail" not in settings["packages"]
+    assert "extensions" not in PONYTAIL_PACKAGE
+
+
+def test_ponytail_discovery_package_filter_disables_skills_only(tmp_path):
+    agent_dir = tmp_path / "agent"
+    project = tmp_path / "project"
+    package_root = tmp_path / "ponytail-package"
+    (package_root / "skills" / "ponytail").mkdir(parents=True)
+    agent_dir.mkdir()
+    project.mkdir()
+    (package_root / "package.json").write_text(
+        json.dumps({"pi": {"extensions": ["./extension.js"], "skills": ["./skills"]}}),
+        encoding="utf-8",
+    )
+    (package_root / "extension.js").write_text("export default () => {};\n", encoding="utf-8")
+    (package_root / "skills" / "ponytail" / "SKILL.md").write_text(
+        "---\nname: ponytail\ndescription: fixture\n---\nbody\n",
+        encoding="utf-8",
+    )
+    (agent_dir / "settings.json").write_text(
+        json.dumps({"packages": [{"source": str(package_root), "skills": []}]}),
+        encoding="utf-8",
+    )
+
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ DefaultPackageManager, SettingsManager }} from "@earendil-works/pi-coding-agent";
+
+      const cwd = {str(project)!r};
+      const agentDir = {str(agent_dir)!r};
+      const settings = SettingsManager.create(cwd, agentDir, {{ projectTrusted: true }});
+      const resources = await new DefaultPackageManager({{ cwd, agentDir, settingsManager: settings }}).resolve();
+      assert.equal(resources.extensions.filter((resource) => resource.enabled).length, 1);
+      assert.match(resources.extensions.find((resource) => resource.enabled).path, /extension\\.js$/);
+      assert.equal(resources.skills.length, 1);
+      assert.equal(resources.skills[0].enabled, false);
+    """
+    run_node(script)
+
+
+def test_ponytail_discovery_preserves_explicit_skills_and_args(tmp_path):
+    assert PONYTAIL_INPUT.is_file(), "tracked Ponytail skill input extension is required"
+    package_root = tmp_path / "ponytail"
+    skill_names = [
+        "ponytail",
+        "ponytail-review",
+        "ponytail-audit",
+        "ponytail-debt",
+        "ponytail-gain",
+        "ponytail-help",
+    ]
+    for name in skill_names:
+        skill_dir = package_root / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: fixture\n---\n\n# {name}\n\nBody {name}\n",
+            encoding="utf-8",
+        )
+
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readFile, writeFile }} from "node:fs/promises";
+      import {{ join }} from "node:path";
+      import ponytailSkillInput from {PONYTAIL_INPUT.as_uri()!r};
+
+      const packageRoot = {str(package_root)!r};
+      const packageSource = "git:github.com/DietrichGebert/ponytail";
+      const handlers = {{}};
+      ponytailSkillInput({{
+        on(name, handler) {{ handlers[name] = handler; }},
+        getCommands() {{
+          return [
+            {{ source: "extension", sourceInfo: {{ source: "git:github.com/other/ponytail", origin: "package", baseDir: "/wrong" }} }},
+            {{ source: "extension", sourceInfo: {{ source: packageSource, origin: "package", baseDir: packageRoot }} }},
+          ];
+        }},
+      }});
+
+      assert.deepEqual(Object.keys(handlers), ["input"]);
+      for (const [index, name] of {json.dumps(skill_names)}.entries()) {{
+        const args = "keep  internal   spacing";
+        const result = await handlers.input({{
+          text: `/skill:${{name}}   ${{args}}  `,
+          source: index === 1 ? "extension" : "interactive",
+        }});
+        const skillPath = join(packageRoot, "skills", name, "SKILL.md");
+        assert.equal(result.action, "transform");
+        assert.equal(
+          result.text,
+          `<skill name="${{name}}" location="${{skillPath}}">\nReferences are relative to ${{join(packageRoot, "skills", name)}}.\n\n# ${{name}}\n\nBody ${{name}}\n</skill>\n\n${{args}}`,
+        );
+      }}
+
+      const reviewPath = join(packageRoot, "skills", "ponytail-review", "SKILL.md");
+      await writeFile(reviewPath, `---
+name: ponytail-review
+description: fixture
+---
+
+Replacement body
+`);
+      const reloaded = await handlers.input({{ text: "/skill:ponytail-review", source: "extension" }});
+      assert.match(reloaded.text, /Replacement body/);
+      assert.doesNotMatch(reloaded.text, /Body ponytail-review/);
+      assert.equal((await readFile(reviewPath, "utf8")).includes("Replacement body"), true);
+      assert.deepEqual(await handlers.input({{ text: "/skill:other", source: "interactive" }}), {{ action: "continue" }});
+    """
+    run_node(script)
 
 
 def test_archimedes_package_entrypoint_is_disabled_for_tracked_public_wrapper():
