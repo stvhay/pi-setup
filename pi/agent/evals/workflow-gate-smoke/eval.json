@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "workflow-gate-smoke",
-  "summary": "Smoke-test closeout phase selection without redundant skill stacking or weakened gates.",
+  "summary": "Smoke-test independent closeout scenarios without redundant skill stacking or weakened gates.",
   "kind": "invoke",
   "task": "orchestration",
   "defaultModels": ["openai-codex/gpt-5.6-luna"],
@@ -10,14 +10,28 @@
   "assert": {
     "nonEmptyOutput": true,
     "contains": [
-      "COORDINATOR: finishing-a-development-branch",
-      "NOW: verification-before-completion",
-      "POST_VERIFY: code-simplification, verification-before-completion",
-      "FINAL_GATES: documentation-standards, requesting-code-review",
-      "WRAP_UP: session-to-skill-extractor",
-      "TINY_SKIP: documentation-standards, requesting-code-review, code-simplification, session-to-skill-extractor",
-      "SUBSUMED: writing-clearly-and-concisely, generic cleanup prose",
+      "CLEAN_COORDINATOR: finishing-a-development-branch",
+      "CLEAN_INITIAL_VERIFY: verification-before-completion",
+      "CLEAN_LOAD: none",
+      "CLEAN_SKIP: documentation-standards, requesting-code-review, code-simplification, session-to-skill-extractor",
+      "CLEAN_RERUN_VERIFY: none",
+      "CHANGED_COORDINATOR: finishing-a-development-branch",
+      "CHANGED_INITIAL_VERIFY: verification-before-completion",
+      "CHANGED_LOAD: documentation-standards, requesting-code-review",
+      "CHANGED_SKIP: code-simplification, session-to-skill-extractor",
+      "CHANGED_RERUN_VERIFY: review, documentation",
       "REMOTE_ACTIONS: STOP"
+    ],
+    "notContains": [
+      "CLEAN_LOAD: documentation-standards",
+      "CLEAN_LOAD: requesting-code-review",
+      "CLEAN_LOAD: code-simplification",
+      "CLEAN_LOAD: session-to-skill-extractor",
+      "CLEAN_SKIP: verification-before-completion",
+      "CHANGED_LOAD: code-simplification",
+      "CHANGED_LOAD: session-to-skill-extractor",
+      "CHANGED_SKIP: verification-before-completion",
+      "CHANGED_RERUN_VERIFY: none"
     ]
   }
 }

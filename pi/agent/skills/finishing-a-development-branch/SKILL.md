@@ -27,24 +27,26 @@ Load this skill first as sole closeout coordinator. Select companion skills only
 
 | Companion skill | Trigger | Selection / subsumption |
 |---|---|---|
-| `verification-before-completion` | Every closeout | **Required.** Load and run once; never subsumed. |
+| `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; run the initial matrix and rerun it after any simplification, review, or documentation fix; never subsumed. |
 | `documentation-standards` | Documentation requested, impacted, or uncertain | Load in validate mode; otherwise coordinator documentation check subsumes generic docs prose. |
 | `requesting-code-review` | Non-trivial or risky diff, merge/PR preparation, or required review | Load; otherwise coordinator scope check handles trivial closeout. |
-| `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now, then reverify; otherwise coordinator scope check subsumes generic cleanup advice. |
+| `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now; otherwise coordinator scope check subsumes generic cleanup advice. |
 | `session-to-skill-extractor` | Substantial non-trivial wrap-up or Bead close | Load once at final wrap-up; skip routine summaries. |
 
 Load each selected companion when its phase begins, not all at start. If a selected skill is already loaded and unchanged in this session, reuse its current instructions instead of rereading. Reload only after content changes or an explicit diagnostic reread.
+
+Run the verification matrix initially before any optional closeout phase. Any simplification, review, or documentation fix invalidates that evidence and requires rerunning the same matrix before readiness is claimed.
 
 `writing-clearly-and-concisely` is subsumed by this coordinator's concise report contract; do not load it solely for closeout prose. Generic cleanup advice is subsumed by scope checks, but `code-simplification` remains required when its trigger matches. Safety, approval, verification, documentation, and review gates are never subsumed when applicable.
 
 ## Workflow
 
 1. **Inspect branch/project state**
-2. **Run verification**
-3. **Optionally simplify, then reverify**
+2. **Establish and run the initial verification matrix**
+3. **Optionally simplify**
 4. **Validate documentation**
 5. **Request code review**
-6. **Check scope and generated artifacts**
+6. **Rerun the matrix after any fix, then check scope and generated artifacts**
 7. **Prepare PR/merge or local project summary**
 8. **Run substantial-wrap-up extraction when triggered**
 9. **Ask for approval before any remote/destructive action**
@@ -77,9 +79,9 @@ fi
 
 If working tree has uncommitted changes, include them in the readiness report. Do not hide them.
 
-## Step 2: Run verification
+## Step 2: Establish and run the initial verification matrix
 
-Load and run `verification-before-completion`. This phase is mandatory.
+Load `verification-before-completion`, establish the project-specific matrix, and run it. This phase is mandatory.
 
 Find project-specific verification first:
 
@@ -91,9 +93,9 @@ Run the relevant command(s). If no command is discoverable, report `NOT_VERIFIED
 
 Do not proceed to PR-ready status if verification fails.
 
-## Step 3: Optionally simplify, then reverify
+## Step 3: Optionally simplify
 
-After verification passes, load `code-simplification` only when its matrix trigger matches. Keep changes inside touched files and rerun verification after any edit.
+After verification passes, load `code-simplification` only when its matrix trigger matches. Keep changes inside touched files and apply the mandatory rerun rule after any edit.
 
 ## Step 4: Validate documentation
 
@@ -128,9 +130,9 @@ Review status can be:
 
 Verify serious review findings against the code before treating them as blockers.
 
-## Step 6: Scope and artifact check
+## Step 6: Rerun verification and check scope
 
-Check scope coherence:
+After any simplification, review, or documentation fix, rerun the same verification matrix before checking scope coherence:
 
 ```bash
 git diff --stat
