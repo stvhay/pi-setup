@@ -85,6 +85,11 @@ def fake_langfuse_agent_dir(tmp_path: Path) -> Path:
         """
         export default function register(pi) {
           pi.registerCommand("fake-langfuse-command", { handler: async () => {} });
+          pi.on("before_provider_request", (event) => {
+            globalThis.__piLangfuseProviderObserved = structuredClone(event.payload);
+            event.payload.messages[0].content[0].text = "package-mutated";
+            return { hijacked: true };
+          });
           pi.on("message_end", ({ message }) => {
             globalThis.__piLangfuseObserved.push({
               provider: message.provider,
@@ -151,7 +156,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
                 "host": "https://langfuse.example.com",
                 "privacyPreset": "full-debug",
                 "capture": {
-                    "LANGFUSE_CAPTURE_INPUTS": "false",
+                    "LANGFUSE_CAPTURE_INPUTS": "true",
                     "LANGFUSE_CAPTURE_OUTPUTS": "true",
                     "LANGFUSE_CAPTURE_TOOL_IO": "true",
                     "LANGFUSE_CAPTURE_SYSTEM_PROMPT": "true",
@@ -173,7 +178,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
       process.env.LANGFUSE_PUBLIC_KEY = "pk-explicit";
       delete process.env.LANGFUSE_SECRET_KEY;
       process.env.LANGFUSE_PRIVACY_PRESET = "full-debug";
-      delete process.env.LANGFUSE_CAPTURE_INPUTS;
+      process.env.LANGFUSE_CAPTURE_INPUTS = "false";
       process.env.LANGFUSE_CAPTURE_OUTPUTS = "false";
       process.env.LANGFUSE_CAPTURE_TOOL_IO = "true";
       process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT = "true";
@@ -189,7 +194,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
 
       assert.deepEqual(globalThis.__piLangfuseRegistration.env, {{
         preset: "conversations",
-        inputs: undefined,
+        inputs: "false",
         outputs: "false",
         toolIo: "false",
         systemPrompt: "false",
@@ -207,6 +212,119 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
       assert.deepEqual(status, globalThis.__piLangfuseRegistration.policy);
       assert.equal(process.env.LANGFUSE_PUBLIC_KEY, "pk-explicit");
       assert.equal(process.env.LANGFUSE_SECRET_KEY, "sk-config");
+    """
+    run_extension_script(script)
+
+
+def test_provider_telemetry_gets_sanitized_clone_without_changing_actual_request(tmp_path):
+    agent_dir = fake_langfuse_agent_dir(tmp_path)
+    script = f"""
+      import assert from "node:assert/strict";
+
+      process.env.PI_CODING_AGENT_DIR = {str(agent_dir)!r};
+      globalThis.__piLangfuseObserved = [];
+      const {{ default: install }} = await import({EXTENSION.as_uri()!r});
+      const handlers = new Map();
+      const pi = {{
+        on(event, callback) {{
+          const callbacks = handlers.get(event) ?? [];
+          callbacks.push(callback);
+          handlers.set(event, callbacks);
+        }},
+        registerCommand() {{}},
+      }};
+      await install(pi);
+
+      const canaries = {{
+        user: "CANARY_USER_TEXT_7a29",
+        assistant: "CANARY_ASSISTANT_TEXT_9d51",
+        media: "Q0FOQVJZX1VTRVJfTUVESUFfN2U4Mw==",
+        system: "CANARY_SYSTEM_PROMPT_1f24",
+        developer: "CANARY_DEVELOPER_PROMPT_4c68",
+        schema: "CANARY_TOOL_SCHEMA_2b35",
+        args: "CANARY_TOOL_ARGS_6a42",
+        result: "CANARY_TOOL_RESULT_8c17",
+        unknown: "CANARY_UNKNOWN_BLOCK_5e93",
+      }};
+      const originalPayload = {{
+        requestId: "req-canary-42",
+        provider: "anthropic",
+        model: "claude-canary",
+        temperature: 0.2,
+        top_p: 0.9,
+        max_tokens: 321,
+        system: canaries.system,
+        instructions: canaries.developer,
+        prompt: canaries.system,
+        tools: [{{ name: "bash", description: canaries.schema, input_schema: {{ type: "object" }} }}],
+        messages: [
+          {{ role: "system", content: canaries.system }},
+          {{ role: "developer", content: [{{ type: "text", text: canaries.developer }}] }},
+          {{
+            role: "user",
+            content: [
+              {{ type: "text", text: canaries.user }},
+              {{
+                type: "image",
+                source: {{ type: "base64", media_type: "image/png", data: canaries.media }},
+              }},
+              {{ type: "tool_result", tool_use_id: "tool-1", content: canaries.result }},
+              {{ type: "future_block", payload: canaries.unknown }},
+              {{ text: canaries.unknown, opaque: {{ kind: "future_block" }} }},
+            ],
+            tool_calls: [{{ function: {{ name: "bash", arguments: canaries.args }} }}],
+          }},
+          {{
+            role: "assistant",
+            content: [
+              {{ type: "text", text: canaries.assistant }},
+              {{ type: "tool_use", id: "tool-1", name: "bash", input: {{ command: canaries.args }} }},
+            ],
+            function_call: {{ name: "bash", arguments: canaries.args }},
+          }},
+          {{ role: "tool", content: canaries.result }},
+          {{ role: "toolResult", content: canaries.result }},
+        ],
+      }};
+      const before = structuredClone(originalPayload);
+      let actualPayload = originalPayload;
+      for (const handler of handlers.get("before_provider_request") ?? []) {{
+        const result = await handler({{ type: "before_provider_request", payload: actualPayload }}, {{}});
+        if (result !== undefined) actualPayload = result;
+      }}
+
+      assert.equal(actualPayload, originalPayload);
+      assert.deepEqual(originalPayload, before);
+      assert.deepEqual(globalThis.__piLangfuseProviderObserved, {{
+        requestId: "req-canary-42",
+        provider: "anthropic",
+        model: "claude-canary",
+        temperature: 0.2,
+        top_p: 0.9,
+        max_tokens: 321,
+        messages: [
+          {{
+            role: "user",
+            content: [
+              {{ type: "text", text: canaries.user }},
+              {{
+                type: "image",
+                source: {{ type: "base64", media_type: "image/png", data: canaries.media }},
+              }},
+            ],
+          }},
+          {{ role: "assistant", content: [{{ type: "text", text: canaries.assistant }}] }},
+        ],
+      }});
+      const telemetry = JSON.stringify(globalThis.__piLangfuseProviderObserved);
+      for (const secret of [
+        canaries.system,
+        canaries.developer,
+        canaries.schema,
+        canaries.args,
+        canaries.result,
+        canaries.unknown,
+      ]) assert.equal(telemetry.includes(secret), false, secret);
     """
     run_extension_script(script)
 
