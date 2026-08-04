@@ -205,10 +205,11 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 
 ## Context health
 
-- `agnt context-health [--strict] [--max-skill-lines N] [--overlap-threshold N] [--skill-discovery-limit N]`
+- `agnt context-health [--strict] [--max-skill-lines N] [--overlap-threshold N] [--skill-discovery-limit N] [--skill-discovery-warning-remaining N]`
   - Checks root/overlay guidance, routing tasks, and all loadable skill Markdown for stale helpers and gate-weakening phrases.
   - Fails on unsupported multiline skill descriptions or discovery metadata above the default 8,000-character budget.
-  - Warns on oversized unallowlisted skills and overlapping skill descriptions.
+  - Warns at or below the configurable remaining-character threshold (default 1,000), reporting used, limit, remaining, threshold, and the five largest skill contributors.
+  - Also warns on oversized unallowlisted skills and overlapping skill descriptions.
   - `--strict` exits nonzero when failures are found; warnings remain entropy signals.
 
 ## Private improvement review

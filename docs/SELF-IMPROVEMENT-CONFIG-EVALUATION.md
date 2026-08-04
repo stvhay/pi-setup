@@ -113,10 +113,12 @@ validation.
 `agnt context-health` now checks single-line skill descriptions, an 8,000-character
 discovery metadata budget, overlapping description scopes, oversized top-level
 skills, stale helpers, and gate-weakening language across routing tasks and all
-loadable skill Markdown. Four progressively disclosed skills were removed from
-the large-skill allowlist; remaining exemptions should be removed only as their
-behavior is preserved by scenarios and focused checks. Pattern scans remain a
-backstop, not a semantic proof that guidance is safe.
+loadable skill Markdown. Before discovery reaches its hard limit, a configurable
+remaining-character threshold (default 1,000) warns with used, limit, remaining,
+threshold, and the five largest skill contributors. Four progressively disclosed
+skills were removed from the large-skill allowlist; remaining exemptions should
+be removed only as their behavior is preserved by scenarios and focused checks.
+Pattern scans remain a backstop, not a semantic proof that guidance is safe.
 
 ### 5. Role validation is improving but not complete
 
