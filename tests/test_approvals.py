@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -102,6 +104,7 @@ def test_create_question_request_records_decision_ref_without_approval_ref(agnt,
 
     result = agnt.create_beads_approval_request(
         kind="question",
+        selection_mode="multi",
         target_bead="pi-work.2",
         question="Which implementation surface first?",
         context="Need a durable human preference before proceeding.",
@@ -114,9 +117,32 @@ def test_create_question_request_records_decision_ref_without_approval_ref(agnt,
     )
 
     assert result["decisionBead"] == "pi-decision.1"
+    create_call = fake.calls[0]
+    metadata = json.loads(create_call[create_call.index("--metadata") + 1])
+    assert metadata["pi"]["approval"]["selectionMode"] == "multi"
+    assert "Selection mode: multi" in create_call[create_call.index("--description") + 1]
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert run_result["decisionRefs"] == ["pi-decision.1"]
     assert run_result["approvalRefs"] == []
+
+
+def test_question_selection_mode_is_required_and_validated(agnt):
+    kwargs = {
+        "kind": "question",
+        "target_bead": "pi-work.2",
+        "question": "Which implementation surface first?",
+        "context": "Need a durable human preference before proceeding.",
+        "options": ["CLI core", "Pi extension"],
+        "default": "CLI core",
+        "requesting_run": None,
+        "preview": approval_preview(),
+    }
+
+    with pytest.raises(ValueError, match="selection_mode is required"):
+        agnt.approval_request_payload(**kwargs)
+
+    with pytest.raises(ValueError, match="selection_mode must be one of"):
+        agnt.approval_request_payload(**kwargs, selection_mode="either")
 
 
 def test_approval_preview_requires_informed_consent_fields(agnt):
@@ -203,6 +229,53 @@ def test_resolve_approved_decision_accepts_bd_show_list_shape_and_preserves_targ
     assert updated_metadata["pi"]["approval"]["status"] == "approved"
 
 
+def test_legacy_question_resolution_defaults_to_single_selection_mode(agnt):
+    fake = FakeBeads(show_metadata={
+        "pi": {
+            "approval": {
+                "kind": "question",
+                "targetBead": "pi-work.2",
+                "status": "pending",
+            }
+        }
+    })
+
+    result = agnt.resolve_beads_approval_request(
+        decision_bead="pi-decision.1",
+        outcome="answered",
+        answer="CLI core",
+        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+        beads_runner=fake,
+    )
+
+    assert result["metadata"]["pi"]["approval"]["selectionMode"] == "single"
+    update_call = next(call for call in fake.calls if call[0] == "update")
+    updated_metadata = json.loads(update_call[update_call.index("--metadata") + 1])
+    assert updated_metadata["pi"]["approval"]["selectionMode"] == "single"
+
+
+def test_question_cannot_approve_and_approval_cannot_answer(agnt):
+    resolver = {"kind": "human-ui", "sessionId": "pi-session-1"}
+    question = FakeBeads(show_metadata={"pi": {"approval": {"kind": "question", "targetBead": "pi-work.2"}}})
+    with pytest.raises(ValueError, match="question decisions cannot resolve as approved"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            answer="approve",
+            resolver=resolver,
+            beads_runner=question,
+        )
+
+    with pytest.raises(ValueError, match="approval decisions cannot resolve as answered"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="answered",
+            answer="approve",
+            resolver=resolver,
+            beads_runner=FakeBeads(),
+        )
+
+
 def test_approved_resolution_requires_human_ui_provenance(agnt):
     with pytest.raises(ValueError, match="human-ui resolver provenance"):
         agnt.resolve_beads_approval_request(
@@ -261,6 +334,74 @@ def test_tracked_beads_have_public_safe_approval_provenance():
     assert unsafe == []
 
 
+def test_beads_question_bridge_returns_all_multi_selected_options(tmp_path):
+    agent_dir = tmp_path / "agent"
+    bin_dir = agent_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    calls = tmp_path / "agnt-calls.txt"
+    agnt = bin_dir / "agnt"
+    agnt.write_text(
+        """#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE_AGNT_CALLS"
+if [ "$2" = request ]; then
+  printf '%s\\n' '{"decisionBead":"pi-decision.1"}'
+else
+  printf '%s\\n' '{"blockerVisible":false}'
+fi
+""",
+        encoding="utf-8",
+    )
+    agnt.chmod(0o755)
+    extension = Path("pi/agent/extensions/beads-ask-bridge.ts").resolve()
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ dirname, resolve }} from "node:path";
+      import {{ fileURLToPath, pathToFileURL }} from "node:url";
+      const piEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+      const loader = await import(pathToFileURL(resolve(dirname(piEntry), "core/extensions/loader.js")).href);
+      const loaded = await loader.loadExtensions([{str(extension)!r}], process.cwd());
+      assert.deepEqual(loaded.errors, []);
+      const tool = loaded.extensions[0].tools.get("ticket_question").definition;
+      assert(tool.parameters.required.includes("selectionMode"));
+      const confirmations = [true, false, true];
+      const result = await tool.execute("call", {{
+        targetBead: "pi-work.2",
+        question: "Choose components",
+        context: "Need durable selection.",
+        options: ["A", "B", "C"],
+        selectionMode: "multi",
+        preview: {{
+          action: "Choose components",
+          scope: "Selection only",
+          consequences: "Records answer",
+          reversibility: "Can ask again",
+          closeoutPath: "Resolve decision",
+        }},
+      }}, undefined, undefined, {{
+        cwd: {str(tmp_path)!r},
+        hasUI: true,
+        ui: {{ confirm: async () => confirmations.shift() }},
+        sessionManager: {{ getSessionId: () => "session-1" }},
+      }});
+      assert.match(result.content[0].text, /answered/);
+    """
+    subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PI_CODING_AGENT_DIR": str(agent_dir),
+            "FAKE_AGNT_CALLS": str(calls),
+        },
+    )
+    request, resolve = calls.read_text(encoding="utf-8").splitlines()
+    assert "--selection-mode multi" in request
+    assert "--outcome answered" in resolve
+    assert "--answer Answered in Pi UI: [A, C]" in resolve
+
+
 def test_beads_ask_bridge_extension_registers_ticket_tools():
     path = Path("pi/agent/extensions/beads-ask-bridge.ts")
     assert path.is_file()
@@ -269,8 +410,13 @@ def test_beads_ask_bridge_extension_registers_ticket_tools():
     assert "ticket_approval" in text
     assert "agnt" in text and "approvals" in text and "request" in text and "resolve" in text
     assert "ctx.hasUI" in text
-    assert "ctx.ui.select" in text
+    assert "ui.select" in text
     assert "Approved in Pi UI" in text
     assert "Answered in Pi UI" in text
     assert "Human confirmation required" in text
     assert "decision resolution requires an interactive human UI" in text
+    assert 'selectionMode: StringEnum(["single", "multi"] as const)' in text
+    assert 'args.push("--selection-mode", params.selectionMode)' in text
+    approval_tool = text.split('name: "ticket_approval"', 1)[1].split('name: "ticket_decision_resolve"', 1)[0]
+    assert "ctx.ui.confirm" in approval_tool
+    assert "ctx.ui.input" not in approval_tool

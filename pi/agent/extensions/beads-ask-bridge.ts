@@ -29,7 +29,10 @@ const RequestProperties = {
 	preview: PreviewSchema,
 };
 
-const RequestSchema = Type.Object(RequestProperties);
+const RequestSchema = Type.Object({
+	...RequestProperties,
+	selectionMode: StringEnum(["single", "multi"] as const),
+});
 
 const ApprovalSchema = Type.Object({
 	...RequestProperties,
@@ -58,6 +61,7 @@ interface RequestParams {
 		reversibility: string;
 		closeoutPath: string;
 	};
+	selectionMode?: "single" | "multi";
 	promptUser?: boolean;
 }
 
@@ -94,6 +98,10 @@ function requestArgs(kind: "question" | "approval", params: RequestParams): stri
 		"--json",
 	];
 	for (const option of params.options) args.push("--option", option);
+	if (kind === "question") {
+		if (!params.selectionMode) throw new Error("selectionMode is required for questions");
+		args.push("--selection-mode", params.selectionMode);
+	}
 	if (params.default) args.push("--default", params.default);
 	if (params.requestingRun) args.push("--requesting-run", params.requestingRun);
 	if (params.runBundle) args.push("--run-bundle", params.runBundle);
@@ -106,6 +114,18 @@ function resolveArgs(params: ResolveParams, resolver?: { kind: "human-ui"; sessi
 	if (params.answer) args.push("--answer", params.answer);
 	if (params.runBundle) args.push("--run-bundle", params.runBundle);
 	return args;
+}
+
+async function askQuestion(params: RequestParams, ui: any, title: string): Promise<{ answered: boolean; answer: string }> {
+	if (params.selectionMode === "multi") {
+		const selected: string[] = [];
+		for (const option of params.options) {
+			if (await ui.confirm(title, `Select “${option}”?`)) selected.push(option);
+		}
+		return { answered: true, answer: `[${selected.join(", ")}]` };
+	}
+	const answer = await ui.select(title, params.options);
+	return { answered: Boolean(answer), answer: answer ?? "" };
 }
 
 function approvalMessage(params: RequestParams, decisionBead: string): string {
@@ -143,12 +163,12 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 				};
 			}
 
-			const answer = await ctx.ui.select(approvalMessage(params, decisionBead), params.options);
-			const outcome = answer ? "answered" : "cancelled";
+			const answer = await askQuestion(params, ctx.ui, approvalMessage(params, decisionBead));
+			const outcome = answer.answered ? "answered" : "cancelled";
 			const resolution = await runAgntJson(resolveArgs({
 				decisionBead,
 				outcome,
-				answer: answer ? `Answered in Pi UI: ${answer}` : "Cancelled in Pi UI",
+				answer: answer.answered ? `Answered in Pi UI: ${answer.answer}` : "Cancelled in Pi UI",
 				runBundle: params.runBundle,
 			}, { kind: "human-ui", sessionId: ctx.sessionManager.getSessionId() }), ctx.cwd, signal);
 			return {

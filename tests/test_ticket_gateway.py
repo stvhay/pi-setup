@@ -111,12 +111,13 @@ def test_gateway_create_draft_rejects_caller_supplied_implementation_approval(ag
         )
 
 
-def test_gateway_model_resolution_rejects_approval_outcomes(agnt):
-    with pytest.raises(ValueError, match="cannot resolve approved or answered"):
-        agnt.ticket_gateway(
-            {"operation": "resolve_blocker", "decisionBead": "pi-decision.1", "outcome": "approved"},
-            approval_resolver=lambda **_kwargs: {},
-        )
+def test_gateway_model_resolution_rejects_approved_or_answered_outcomes(agnt):
+    for outcome in ("approved", "answered"):
+        with pytest.raises(ValueError, match="cannot resolve approved or answered"):
+            agnt.ticket_gateway(
+                {"operation": "resolve_blocker", "decisionBead": "pi-decision.1", "outcome": outcome},
+                approval_resolver=lambda **_kwargs: {},
+            )
 
 
 def test_gateway_request_approval_rejects_unknown_target_alias(agnt):
