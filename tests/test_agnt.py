@@ -996,6 +996,209 @@ def test_work_dispatch_plan_uses_action_template(agnt):
     assert plan["inputRefs"] == ["docs/example.md"]
 
 
+def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path, capsys):
+    cmd_work = getattr(agnt, "cmd_work", None)
+    assert cmd_work is not None, "agnt work command is missing"
+    bead = {"id": "pi-test.direct", "title": "Direct task", "status": "open"}
+    bead_calls = []
+    link_calls = []
+
+    def fake_beads(args):
+        bead_calls.append(args)
+        return 0, [bead], ""
+
+    def fake_link(bead_id):
+        link_calls.append(bead_id)
+        return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
+
+    def fail_bundle(*_args, **_kwargs):
+        pytest.fail("direct start must not create a run bundle")
+
+    with patch.dict(cmd_work.__globals__, {
+        "run_beads_json": fake_beads,
+        "link_current_session": fake_link,
+        "create_run_bundle": fail_bundle,
+    }):
+        assert agnt.main(["work", "direct-start", "pi-test.direct"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "bead": bead,
+        "repair": None,
+        "schemaVersion": 1,
+        "stages": {
+            "claim": {"reason": "not-requested", "status": "skipped"},
+            "link": {"status": "succeeded"},
+            "show": {"status": "succeeded"},
+        },
+        "status": "started",
+    }
+    assert bead_calls == [["show", "pi-test.direct"]]
+    assert link_calls == ["pi-test.direct"]
+    assert not (tmp_path / "runs").exists()
+
+
+def test_direct_start_exists_only_under_work_namespace(agnt, capsys):
+    assert getattr(agnt, "cmd_direct", None) is None
+    assert agnt.main(["direct"]) == 2
+    capsys.readouterr()
+
+    assert agnt.cmd_work([]) == 0
+    assert "direct-start" in capsys.readouterr().out
+
+
+def test_direct_start_claim_is_explicit_and_idempotent(agnt):
+    direct_start = getattr(agnt, "direct_start", None)
+    assert direct_start is not None, "direct_start is missing"
+    bead = {"id": "pi-test.claim", "title": "Claim task", "status": "open"}
+    bead_calls = []
+    link_calls = []
+
+    def fake_beads(args):
+        bead_calls.append(args)
+        if args[0] == "update":
+            bead["status"] = "in_progress"
+            return 0, [bead], ""
+        return 0, [bead.copy()], ""
+
+    def fake_link(bead_id):
+        link_calls.append(bead_id)
+        return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
+
+    with patch.dict(direct_start.__globals__, {
+        "run_beads_json": fake_beads,
+        "link_current_session": fake_link,
+    }):
+        first = direct_start("pi-test.claim", claim=True)
+        second = direct_start("pi-test.claim", claim=True)
+
+    assert first["status"] == second["status"] == "started"
+    assert first["stages"]["claim"] == {"status": "succeeded"}
+    assert second["stages"]["claim"] == {
+        "reason": "already-in-progress",
+        "status": "skipped",
+    }
+    assert bead_calls == [
+        ["show", "pi-test.claim"],
+        ["update", "pi-test.claim", "--claim"],
+        ["show", "pi-test.claim"],
+    ]
+    assert link_calls == ["pi-test.claim", "pi-test.claim"]
+
+
+def test_direct_start_reports_retryable_partial_link_failure(agnt, capsys):
+    cmd_work = getattr(agnt, "cmd_work", None)
+    assert cmd_work is not None, "agnt work command is missing"
+    bead = {"id": "pi-test.partial", "title": "Partial task", "status": "open"}
+
+    def fake_beads(args):
+        return 0, [bead], ""
+
+    def fail_link(_bead_id):
+        raise RuntimeError("private failure detail")
+
+    with patch.dict(cmd_work.__globals__, {
+        "run_beads_json": fake_beads,
+        "link_current_session": fail_link,
+    }):
+        assert agnt.main(["work", "direct-start", "pi-test.partial", "--claim"]) == 3
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "partial"
+    assert result["stages"] == {
+        "claim": {"status": "succeeded"},
+        "link": {"error": "session link failed", "status": "failed"},
+        "show": {"status": "succeeded"},
+    }
+    assert result["repair"] == {
+        "failedStage": "link",
+        "retryCommand": "agnt work direct-start pi-test.partial --claim",
+        "safeToRetry": True,
+    }
+    assert "private failure detail" not in json.dumps(result)
+
+
+def test_direct_start_reports_retryable_partial_claim_failure(agnt):
+    direct_start = getattr(agnt, "direct_start", None)
+    assert direct_start is not None, "direct_start is missing"
+    bead = {"id": "pi-test.claim-failure", "title": "Claim failure", "status": "open"}
+
+    def fake_beads(args):
+        if args[0] == "update":
+            return 1, None, "private claim detail"
+        return 0, [bead], ""
+
+    with patch.dict(direct_start.__globals__, {
+        "run_beads_json": fake_beads,
+        "link_current_session": lambda _bead_id: pytest.fail("failed claim must not link"),
+    }):
+        result = direct_start("pi-test.claim-failure", claim=True)
+
+    assert result["status"] == "partial"
+    assert result["stages"] == {
+        "claim": {"error": "bead claim failed", "status": "failed"},
+        "link": {"reason": "claim-failed", "status": "skipped"},
+        "show": {"status": "succeeded"},
+    }
+    assert result["repair"] == {
+        "failedStage": "claim",
+        "retryCommand": "agnt work direct-start pi-test.claim-failure --claim",
+        "safeToRetry": True,
+    }
+    assert "private claim detail" not in json.dumps(result)
+
+
+def test_direct_start_rejects_malformed_bead_before_commands(agnt):
+    direct_start = getattr(agnt, "direct_start", None)
+    assert direct_start is not None, "direct_start is missing"
+
+    with patch.dict(direct_start.__globals__, {
+        "run_beads_json": lambda _args: pytest.fail("malformed bead must not reach Beads"),
+        "link_current_session": lambda _bead_id: pytest.fail("malformed bead must not link"),
+    }):
+        result = direct_start("bad bead; echo unsafe", claim=True)
+
+    assert result == {
+        "bead": {"id": "bad bead; echo unsafe"},
+        "repair": None,
+        "schemaVersion": 1,
+        "stages": {
+            "claim": {"reason": "show-failed", "status": "skipped"},
+            "link": {"reason": "show-failed", "status": "skipped"},
+            "show": {"error": "bead ID is malformed", "status": "failed"},
+        },
+        "status": "error",
+    }
+
+
+def test_direct_start_reports_bead_validation_failure(agnt, capsys):
+    cmd_work = getattr(agnt, "cmd_work", None)
+    assert cmd_work is not None, "agnt work command is missing"
+
+    with patch.dict(cmd_work.__globals__, {
+        "run_beads_json": lambda _args: (1, None, "missing bead"),
+        "link_current_session": lambda _bead_id: pytest.fail("failed show must not link"),
+    }):
+        assert agnt.main(["work", "direct-start", "pi-test.missing"]) == 2
+
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "bead": {"id": "pi-test.missing"},
+        "repair": {
+            "failedStage": "show",
+            "retryCommand": "agnt work direct-start pi-test.missing",
+            "safeToRetry": True,
+        },
+        "schemaVersion": 1,
+        "stages": {
+            "claim": {"reason": "show-failed", "status": "skipped"},
+            "link": {"reason": "show-failed", "status": "skipped"},
+            "show": {"error": "could not load bead", "status": "failed"},
+        },
+        "status": "error",
+    }
+    assert "missing bead" not in json.dumps(result)
+
+
 def test_start_work_rejects_explicit_implement_override_of_read_only_metadata(agnt, tmp_path):
     bead = {
         "id": "pi-test.no-action-override",

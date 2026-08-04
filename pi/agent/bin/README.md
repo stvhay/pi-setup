@@ -130,6 +130,10 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt runs validate <runtime-runs-dir>/<run-id> [--require-followups-exist]`
   - Validates required `invocation.yaml` and `result.yaml` fields. With `--require-followups-exist`, every `result.yaml.followUps[]` id must resolve to a Beads item.
 
+- `agnt work direct-start BEAD [--claim]`
+  - Starts ordinary direct work by validating and showing the Bead, optionally claiming it only when `--claim` is explicit and the Bead is not already in progress, then idempotently linking the current Pi session.
+  - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle, runner, or worktree creation.
+
 - `agnt work next --json`
   - Reads Beads ready work and selects the first non-epic ready bead when available.
 
@@ -215,7 +219,7 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 ## Private improvement review
 
 - `agnt improve link BEAD [--json]`
-  - Idempotently links the current private Pi session to an exact public work-item ID; run after claiming interactive work. Runner sessions link automatically.
+  - Idempotently links the current private Pi session to an exact public work-item ID, using `PI_SESSION_FILE` or the exact `PI_SESSION_ID` fallback. `agnt work direct-start` normally handles this for interactive work; runner sessions link automatically.
 - `agnt improve outcome BEAD success|partial|failure|unclear [--json]`
   - Idempotently backfills the work-item link and records an explicit final session outcome; run at interactive closeout. Scans prefer this score over sampled evaluator output.
 - `agnt improve scan [--since ISO] [--limit N] [--max-traces N] [--recheck] [--dry-run] [--json]`

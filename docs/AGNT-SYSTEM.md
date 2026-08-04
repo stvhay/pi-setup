@@ -75,7 +75,8 @@ Code-review metrics can link a validated structured finding artifact, separating
 - `agnt instructions` composes global, project, model, and role context packages.
 - `agnt action` lists, validates, and renders action templates.
 - `agnt runs` creates, validates, invokes, and updates invocation/result bundles.
-- `agnt work` connects Beads work items to action/run artifacts, plan/tree views, daemon lifecycle, service-backed runner clients, health checks, and maintenance checkpoints.
+- `agnt work direct-start` validates and shows a Bead, explicitly claims when requested, and idempotently links the current session without orchestration artifacts.
+- Other `agnt work` commands connect Beads work items to action/run artifacts, plan/tree views, daemon lifecycle, service-backed runner clients, health checks, and maintenance checkpoints.
 - `agnt approvals` creates and resolves Beads-backed questions and approval gates.
 - `agnt gateway` exposes a constrained ticket control surface for Pi extensions without raw shell/Beads passthrough.
 - `agnt metrics` annotates, consolidates, prunes, and reports invocation metrics.
@@ -91,9 +92,11 @@ See the [agnt command reference](../pi/agent/bin/README.md) for syntax and examp
 The normal coding lifecycle is:
 
 ```bash
-bd show <bead-id>  # a Bead must exist before code edits
+agnt work direct-start <bead-id> [--claim]
 # inspect, edit, and run focused tests directly in Pi
 ```
+
+This direct start is safe to repeat. Its structured result shows validation, optional claim, and session-link stages plus a retry command after partial failure. It creates no run bundle, runner, or worktree.
 
 A delegated run is an explicit optional workflow and can be manual and gated:
 

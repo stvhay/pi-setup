@@ -35,7 +35,7 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 # Development workflow
 
 - Work directly in the current Pi session by default: inspect, edit tracked files, and run focused verification.
-- Before code changes in a repository with `.beads/`, confirm a Bead exists and inspect it with `bd show <id>`; use `bd prime` and `bd ready` for context and unblocked work. After claiming interactive work, run `agnt improve link <id>` so private telemetry uses an exact work-item link; runner sessions link automatically. At interactive closeout, run `agnt improve outcome <id> <success|partial|failure|unclear>` to guarantee both link and final outcome.
+- Before code changes in a repository with `.beads/`, use `bd prime` and `bd ready` for context, then start interactive work with `agnt work direct-start <id> [--claim]`. This validates and shows the Bead, claims only with the explicit flag when needed, and links the current session; it does not create run bundles, runners, or worktrees. At interactive closeout, run `agnt improve outcome <id> <success|partial|failure|unclear>` to guarantee both link and final outcome.
 - Documentation-only and read-only work may proceed without a Bead unless project instructions say otherwise.
 - Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads or tracked artifacts.
 - Prefer exact paths and filesystem retrieval (`rg`, `find`, `git grep`, `git diff`, `read`) over large pasted context.
