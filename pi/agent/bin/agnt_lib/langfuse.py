@@ -246,7 +246,7 @@ class LangfuseClient:
                 next_page = None if complete else page + 1
                 break
             if len(traces) >= max_traces:
-                complete = not total_unavailable and total_available == len(traces)
+                complete = not total_unavailable and total_available == len(traces) and (total_pages is None or page >= total_pages)
                 reason = "api-end" if complete else "max-traces"
                 next_page = None if complete else page + 1
                 break

@@ -226,6 +226,28 @@ def test_trace_discovery_validates_total_against_raw_page_before_operator_cap():
     }
 
 
+def test_trace_discovery_at_cap_honors_later_total_pages():
+    client = FakeTelemetryClient([{
+        "data": [{"id": "first"}],
+        "meta": {"page": 1, "totalPages": 2, "totalItems": 1},
+    }])
+
+    discovery = client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z",
+        to_timestamp="2026-07-27T00:00:00Z",
+        max_traces=1,
+    )
+
+    assert discovery == {
+        "traces": [{"id": "first"}],
+        "totalAvailable": 1,
+        "scanned": 1,
+        "maxTraces": 1,
+        "complete": False,
+        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
+    }
+
+
 def test_trace_discovery_keeps_empty_nonterminal_page_incomplete():
     client = FakeTelemetryClient([{
         "data": [],
