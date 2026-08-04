@@ -21,15 +21,35 @@ Do not push, create a PR, merge, delete branches, remove worktrees, force-clean 
 
 Default behavior: verify, validate, optionally review, prepare a PR body, and present next-step commands/options. If the user says not to edit/create files, do not create `.pi/reviews`, `.pi/pr-body.md`, or other artifacts; keep outputs in the response or use temporary files under `/tmp` only when necessary.
 
+## Closeout routing
+
+Load this skill first as sole closeout coordinator. Select companion skills only when their phase triggers:
+
+| Companion skill | Trigger | Selection / subsumption |
+|---|---|---|
+| `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; run the initial matrix and rerun it after any simplification, review, or documentation fix; never subsumed. |
+| `documentation-standards` | Documentation requested, impacted, or uncertain | Load in validate mode; otherwise coordinator documentation check subsumes generic docs prose. |
+| `requesting-code-review` | Non-trivial or risky diff, merge/PR preparation, or required review | Load; otherwise coordinator scope check handles trivial closeout. |
+| `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now; otherwise coordinator scope check subsumes generic cleanup advice. |
+| `session-to-skill-extractor` | Substantial non-trivial wrap-up or Bead close | Load once at final wrap-up; skip routine summaries. |
+
+Load each selected companion when its phase begins, not all at start. If a selected skill is already loaded and unchanged in this session, reuse its current instructions instead of rereading. Reload only after content changes or an explicit diagnostic reread.
+
+Run the verification matrix initially before any optional closeout phase. Any simplification, review, or documentation fix invalidates that evidence and requires rerunning the same matrix before readiness is claimed.
+
+`writing-clearly-and-concisely` is subsumed by this coordinator's concise report contract; do not load it solely for closeout prose. Generic cleanup advice is subsumed by scope checks, but `code-simplification` remains required when its trigger matches. Safety, approval, verification, documentation, and review gates are never subsumed when applicable.
+
 ## Workflow
 
 1. **Inspect branch/project state**
-2. **Run verification**
-3. **Validate documentation**
-4. **Request code review**
-5. **Check scope and generated artifacts**
-6. **Prepare PR/merge or local project summary**
-7. **Ask for approval before any remote/destructive action**
+2. **Establish and run the initial verification matrix**
+3. **Optionally simplify**
+4. **Validate documentation**
+5. **Request code review**
+6. **Rerun the matrix after any fix, then check scope and generated artifacts**
+7. **Prepare PR/merge or local project summary**
+8. **Run substantial-wrap-up extraction when triggered**
+9. **Ask for approval before any remote/destructive action**
 
 Use local project-readiness mode when the project uses local Beads/issues plus atomic commits and no PR/remote workflow. In that mode, verify the tracked task is complete, summarize commits and evidence, and present safe next actions instead of forcing PR language.
 
@@ -59,9 +79,9 @@ fi
 
 If working tree has uncommitted changes, include them in the readiness report. Do not hide them.
 
-## Step 2: Run verification
+## Step 2: Establish and run the initial verification matrix
 
-Use `verification-before-completion` or follow its gate directly.
+Load `verification-before-completion`, establish the project-specific matrix, and run it. This phase is mandatory.
 
 Find project-specific verification first:
 
@@ -73,7 +93,11 @@ Run the relevant command(s). If no command is discoverable, report `NOT_VERIFIED
 
 Do not proceed to PR-ready status if verification fails.
 
-## Step 3: Validate documentation
+## Step 3: Optionally simplify
+
+After verification passes, load `code-simplification` only when its matrix trigger matches. Keep changes inside touched files and apply the mandatory rerun rule after any edit.
+
+## Step 4: Validate documentation
 
 Use `documentation-standards` in validate mode for documentation-impacting changes. If uncertain whether docs are impacted, report `NOT_SURE` rather than PASS. Public API/user-visible changes usually require docs unless the project has no user-facing docs or the user explicitly says documentation is unnecessary.
 
@@ -89,7 +113,7 @@ If deferred, record:
 **Documentation deferred:** <reason>
 ```
 
-## Step 4: Request code review
+## Step 5: Request code review
 
 Use `requesting-code-review` for non-trivial diffs unless the user requested no file creation/artifacts. Prefer local model diversity:
 
@@ -106,9 +130,9 @@ Review status can be:
 
 Verify serious review findings against the code before treating them as blockers.
 
-## Step 5: Scope and artifact check
+## Step 6: Rerun verification and check scope
 
-Check scope coherence:
+After any simplification, review, or documentation fix, rerun the same verification matrix before checking scope coherence:
 
 ```bash
 git diff --stat
@@ -125,7 +149,7 @@ Flag:
 
 Do not delete artifacts unless the user approves, but recommend cleanup commands when appropriate.
 
-## Step 6: Prepare PR / project summary
+## Step 7: Prepare PR / project summary
 
 Look for plan/design artifacts:
 
@@ -176,7 +200,11 @@ Closes #<issue>  <!-- only if known -->
 2. <ask user approval for push/PR/merge if desired>
 ```
 
-## Optional actions after approval
+## Step 8: Extract substantial learning when triggered
+
+At substantial non-trivial wrap-up or Bead close, load `session-to-skill-extractor` once. Routine summaries skip extraction.
+
+## Step 9: Optional actions after approval
 
 Only after explicit user approval:
 

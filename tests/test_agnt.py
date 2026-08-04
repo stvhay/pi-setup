@@ -539,6 +539,44 @@ def test_action_inventory_and_validation(agnt):
     assert agnt.validate_all_actions() == []
 
 
+def test_workflow_gate_eval_checks_independent_closeout_scenarios():
+    eval_dir = AGNT.parents[1] / "evals" / "workflow-gate-smoke"
+    spec = json.loads((eval_dir / "eval.json").read_text(encoding="utf-8"))
+    prompt = (eval_dir / "prompt.md").read_text(encoding="utf-8")
+
+    assert spec["skill"] == "../../skills/finishing-a-development-branch/SKILL.md"
+    expected = [
+        "CLEAN_COORDINATOR: finishing-a-development-branch",
+        "CLEAN_INITIAL_VERIFY: verification-before-completion",
+        "CLEAN_LOAD: none",
+        "CLEAN_SKIP: documentation-standards, requesting-code-review, code-simplification, session-to-skill-extractor",
+        "CLEAN_RERUN_VERIFY: none",
+        "CHANGED_COORDINATOR: finishing-a-development-branch",
+        "CHANGED_INITIAL_VERIFY: verification-before-completion",
+        "CHANGED_LOAD: documentation-standards, requesting-code-review",
+        "CHANGED_SKIP: code-simplification, session-to-skill-extractor",
+        "CHANGED_RERUN_VERIFY: review, documentation",
+        "REMOTE_ACTIONS: STOP",
+    ]
+    assert spec["assert"]["contains"] == expected
+    assert spec["assert"]["notContains"] == [
+        "CLEAN_LOAD: documentation-standards",
+        "CLEAN_LOAD: requesting-code-review",
+        "CLEAN_LOAD: code-simplification",
+        "CLEAN_LOAD: session-to-skill-extractor",
+        "CLEAN_SKIP: verification-before-completion",
+        "CHANGED_LOAD: code-simplification",
+        "CHANGED_LOAD: session-to-skill-extractor",
+        "CHANGED_SKIP: verification-before-completion",
+        "CHANGED_RERUN_VERIFY: none",
+    ]
+    assert all(answer not in prompt for answer in expected)
+    assert all(f"{answer.split(':', 1)[0]}: <" in prompt for answer in expected)
+    assert "Use `STOP` when remote actions lack approval and `ALLOW` only when approved" in prompt
+    assert "Do not stack all closeout skills" in prompt
+    assert "Do not weaken verification, documentation, review, safety, or approval gates" in prompt
+
+
 def test_create_run_bundle_writes_invocation_and_result(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="review",
