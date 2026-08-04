@@ -72,13 +72,62 @@ def test_langfuse_image_payloads_are_not_truncated():
     run_extension_script(script)
 
 
-def test_subscription_models_keep_runtime_id_with_zero_cost():
+def fake_langfuse_agent_dir(tmp_path: Path) -> Path:
+    agent_dir = tmp_path / "agent"
+    package_dir = agent_dir / "npm" / "node_modules" / "pi-langfuse"
+    package_dir.mkdir(parents=True)
+    (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
+    (package_dir / "package.json").write_text(
+        json.dumps({"name": "pi-langfuse", "type": "module", "main": "./index.js"}),
+        encoding="utf-8",
+    )
+    (package_dir / "index.js").write_text(
+        """
+        export default function register(pi) {
+          pi.registerCommand("fake-langfuse-command", { handler: async () => {} });
+          pi.on("message_end", ({ message }) => {
+            globalThis.__piLangfuseObserved.push({
+              provider: message.provider,
+              model: message.model,
+              cost: message.usage.cost.total,
+            });
+          });
+        }
+        """,
+        encoding="utf-8",
+    )
+    return agent_dir
+
+
+def test_emitted_generation_preserves_explicit_zero_cost_and_runtime_model_id(tmp_path):
+    agent_dir = fake_langfuse_agent_dir(tmp_path)
     script = f"""
       import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
 
-      let handler;
-      install({{ on: (event, callback) => {{ if (event === "message_end") handler = callback; }} }});
+      process.env.PI_CODING_AGENT_DIR = {str(agent_dir)!r};
+      globalThis.__piLangfuseObserved = [];
+      const {{ default: install }} = await import({EXTENSION.as_uri()!r});
+      const handlers = new Map();
+      const commands = [];
+      const pi = {{
+        on(event, callback) {{
+          const callbacks = handlers.get(event) ?? [];
+          callbacks.push(callback);
+          handlers.set(event, callbacks);
+        }},
+        registerCommand(name) {{ commands.push(name); }},
+      }};
+      await install(pi);
+
+      async function emitMessageEnd(message) {{
+        let current = message;
+        for (const handler of handlers.get("message_end") ?? []) {{
+          const result = await handler({{ type: "message_end", message: current }}, {{}});
+          if (result?.message) current = result.message;
+        }}
+        return current;
+      }}
+
       const message = {{
         role: "assistant",
         provider: "openai-codex",
@@ -90,39 +139,65 @@ def test_subscription_models_keep_runtime_id_with_zero_cost():
           cost: {{ input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 }},
         }},
       }};
-      const result = await handler({{ message }});
+      const persisted = await emitMessageEnd(message);
 
-      assert.equal(result.message.model, "gpt-5.6-sol");
-      assert.deepEqual(result.message.usage.cost, {{
+      assert.deepEqual(globalThis.__piLangfuseObserved, [{{
+        provider: "openai-codex",
+        model: "gpt-5.6-sol-subscription",
+        cost: 0,
+      }}]);
+      assert.deepEqual(commands, ["fake-langfuse-command"]);
+      assert.equal(persisted.model, "gpt-5.6-sol");
+      assert.deepEqual(persisted.usage.cost, {{
         input: 0,
         output: 0,
         cacheRead: 0,
         cacheWrite: 0,
         total: 0,
       }});
-      assert.equal(result.message.usage.input, 12);
-      assert.equal(result.message.usage.output, 3);
-      assert.equal(result.message.usage.cacheRead, 5);
+      assert.equal(persisted.usage.input, 12);
+      assert.equal(persisted.usage.output, 3);
+      assert.equal(persisted.usage.cacheRead, 5);
     """
     run_extension_script(script)
 
 
-def test_metered_models_are_not_changed():
+def test_metered_models_are_not_changed(tmp_path):
+    agent_dir = fake_langfuse_agent_dir(tmp_path)
     script = f"""
       import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
 
-      let handler;
-      install({{ on: (event, callback) => {{ if (event === "message_end") handler = callback; }} }});
+      process.env.PI_CODING_AGENT_DIR = {str(agent_dir)!r};
+      globalThis.__piLangfuseObserved = [];
+      const {{ default: install }} = await import({EXTENSION.as_uri()!r});
+      const handlers = new Map();
+      const pi = {{
+        on(event, callback) {{
+          const callbacks = handlers.get(event) ?? [];
+          callbacks.push(callback);
+          handlers.set(event, callbacks);
+        }},
+        registerCommand() {{}},
+      }};
+      await install(pi);
+
       const message = {{
         role: "assistant",
         provider: "olla-cloud",
         model: "gpt-5.6-sol",
         usage: {{ cost: {{ total: 10 }} }},
       }};
+      let persisted = message;
+      for (const handler of handlers.get("message_end") ?? []) {{
+        const result = await handler({{ type: "message_end", message: persisted }}, {{}});
+        if (result?.message) persisted = result.message;
+      }}
 
-      assert.equal(await handler({{ message }}), undefined);
-      assert.equal(message.model, "gpt-5.6-sol");
-      assert.equal(message.usage.cost.total, 10);
+      assert.deepEqual(globalThis.__piLangfuseObserved, [{{
+        provider: "olla-cloud",
+        model: "gpt-5.6-sol",
+        cost: 10,
+      }}]);
+      assert.equal(persisted, message);
     """
     run_extension_script(script)
