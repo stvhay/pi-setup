@@ -1681,6 +1681,79 @@ def test_cmd_invoke_duplicate_fanout_targets_keep_each_local_metric(agnt, monkey
     assert {record["invocationId"] for record in records} == {"id-first", "id-second"}
 
 
+def test_cmd_invoke_duplicate_fanout_targets_keep_each_output(agnt, monkeypatch, tmp_path):
+    target = "openai-codex/gpt-5.6-luna"
+    prompts = []
+    for name in ("first", "second"):
+        path = tmp_path / f"{name}.md"
+        path.write_text(name, encoding="utf-8")
+        prompts.append(path)
+
+    invocation_ids = iter(("id-first", "id-second"))
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "new_invocation_id", lambda: next(invocation_ids))
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        invocation_id = kwargs.get("invocation_id", f"id-{prompt}")
+        return 0, f"out-{prompt}", f"err-{prompt}", {
+            "schemaVersion": 2,
+            "invocationId": invocation_id,
+            "recordId": f"record-{prompt}",
+            "target": target,
+            "elapsedMs": 1,
+            "usage": None,
+        }
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+    out_dir = tmp_path / "out"
+
+    assert agnt.cmd_invoke([
+        "--fanout",
+        "--output",
+        str(out_dir),
+        "--metrics-dir",
+        str(tmp_path / "central"),
+        target,
+        str(prompts[0]),
+        target,
+        str(prompts[1]),
+    ]) == 0
+
+    safe = agnt.safe_target_name(target)
+    outputs = {path.name: path.read_text(encoding="utf-8") for path in out_dir.glob("*.md")}
+    errors = {path.name: path.read_text(encoding="utf-8") for path in out_dir.glob("*.err")}
+    assert outputs == {
+        f"{safe}-id-first.md": "out-first",
+        f"{safe}-id-second.md": "out-second",
+    }
+    assert errors == {
+        f"{safe}-id-first.err": "err-first",
+        f"{safe}-id-second.err": "err-second",
+    }
+
+
+def test_cmd_invoke_single_fanout_target_keeps_simple_output_names(agnt, monkeypatch, tmp_path):
+    target = "openai-codex/gpt-5.6-luna"
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        return 0, "only-output", "only-error", None
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+    out_dir = tmp_path / "out"
+
+    assert agnt.cmd_invoke([
+        "--fanout",
+        "--no-metrics",
+        "--output",
+        str(out_dir),
+        target,
+        "only prompt",
+    ]) == 0
+
+    safe = agnt.safe_target_name(target)
+    assert (out_dir / f"{safe}.md").read_text(encoding="utf-8") == "only-output"
+    assert (out_dir / f"{safe}.err").read_text(encoding="utf-8") == "only-error"
+
+
 def test_metrics_record_includes_family_and_invocation_shape(agnt):
     usage = usage_tokens(input_tokens=10, output_tokens=2)
     usage["providerRequests"] = 1

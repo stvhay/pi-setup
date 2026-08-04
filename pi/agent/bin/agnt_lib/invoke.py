@@ -330,8 +330,10 @@ def cmd_invoke(argv: List[str]) -> int:
     status = 0
     records: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
-        futures = {
-            pool.submit(
+        futures = {}
+        for target, prompt in pairs:
+            invocation_id = new_invocation_id()
+            future = pool.submit(
                 invoke_one,
                 target,
                 prompt,
@@ -344,15 +346,16 @@ def cmd_invoke(argv: List[str]) -> int:
                 fallback_used=args.fallback_used,
                 one_shot=args.one_shot,
                 timeout_seconds=timeout_seconds,
-            ): target
-            for target, prompt in pairs
-        }
+                invocation_id=invocation_id,
+            )
+            futures[future] = (target, invocation_id)
         for fut in as_completed(futures):
-            target = futures[fut]
+            target, invocation_id = futures[fut]
             safe = safe_target_name(target)
+            artifact_stem = safe if len(pairs) == 1 else f"{safe}-{invocation_id}"
             code, out, err, record = fut.result()
-            (out_dir / f"{safe}.md").write_text(out, encoding="utf-8")
-            (out_dir / f"{safe}.err").write_text(err, encoding="utf-8")
+            (out_dir / f"{artifact_stem}.md").write_text(out, encoding="utf-8")
+            (out_dir / f"{artifact_stem}.err").write_text(err, encoding="utf-8")
             if use_metrics and record is not None:
                 records.append(record)
                 write_json(out_dir / f"{safe}-{record['invocationId']}.metrics.json", record)
