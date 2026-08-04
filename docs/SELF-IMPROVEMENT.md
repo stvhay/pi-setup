@@ -129,7 +129,8 @@ matched/examined observation counts under `payloadByteMetadata.toolIo`. Missing
 or invalid nonfingerprint metadata makes only the affected aggregate unavailable;
 no TOOL observations still report zero. Gaps distinguish
 `inferred-tool-payload-bytes`, `missing-tool-payload-bytes`, and the preserved
-`observation-limit`. Raw Langfuse records remain unchanged, and packets never
+`observation-limit`. Non-null payload-byte values are bounded-preview estimates,
+not raw payload sizes. Raw Langfuse records remain unchanged, and packets never
 copy tool payloads. Scans use exact links and payload-free tool-error signals,
 and skip sessions already reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`
