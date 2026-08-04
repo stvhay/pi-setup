@@ -103,8 +103,8 @@ commit with the evidence summarized in the message
 ```bash
 agnt improve link <bead>                                  # claim-time correlation
 agnt improve outcome <bead> <success|partial|failure|unclear> # closeout correlation + outcome
-agnt improve scan --since <ISO> --limit 5 --dry-run --json
-agnt improve scan --since <ISO> --limit 5 --json
+agnt improve scan --since <ISO> --limit 5 --max-traces 500 --dry-run --json
+agnt improve scan --since <ISO> --limit 5 --max-traces 500 --json
 agnt improve review <report> <decisions>          # preview
 agnt improve review <report> <decisions> --apply  # private session markers
 agnt improve promote <report> <decisions> --finding <id>          # preview
@@ -113,10 +113,11 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 
 `link` writes an idempotent private session score containing only the public
 work-item ID. `outcome` rewrites that same link and adds one idempotent categorical
-session score; scanners prefer it over sampled judge output. `scan` traverses every
-trace page in its bounded time window and reports API total (when supplied), scanned,
-attributable, and unattributed trace counts plus explicit completeness/continuation
-state. Selected sessions retain 20-trace and 500-observation-per-trace caps with
+session score; scanners prefer it over sampled judge output. `scan` traverses pages
+in its bounded time window up to the operator trace cap (default 500) and reports that
+cap, valid API total when available, scanned/attributable/unattributed lower bounds,
+and explicit completeness/continuation state. Repeated pages stop as incomplete.
+Selected sessions retain 20-trace and 500-observation-per-trace caps with
 capture-gap markers. It uses exact links and payload-free tool-error signals, and
 skips sessions already reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`

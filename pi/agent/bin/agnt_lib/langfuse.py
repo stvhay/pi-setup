@@ -12,6 +12,7 @@ from typing import Any
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[2] / "langfuse" / "evaluators.json"
 MAX_PAGE_SIZE = 100
+DEFAULT_MAX_TRACES = 500
 
 
 class LangfuseError(RuntimeError):
@@ -177,51 +178,85 @@ class LangfuseClient:
         from_timestamp: str,
         to_timestamp: str,
         page_size: int = 100,
+        max_traces: int = DEFAULT_MAX_TRACES,
     ) -> dict[str, Any]:
         if not from_timestamp or not to_timestamp:
             raise ValueError("Langfuse reads require time bounds")
-        if page_size < 1:
+        if page_size < 1 or type(max_traces) is not int or max_traces < 1:
             raise ValueError("Langfuse read limits must be positive")
         traces: list[dict[str, Any]] = []
         page = 1
         total_available: int | None = None
-        while True:
+        total_unavailable = False
+        previous_items: list[dict[str, Any]] | None = None
+        complete = False
+        reason = "max-traces"
+        next_page: int | None = 1
+        while len(traces) < max_traces:
             payload = self._request("GET", "/api/public/traces", params={
                 "fromTimestamp": from_timestamp,
                 "toTimestamp": to_timestamp,
-                "limit": min(page_size, MAX_PAGE_SIZE),
+                "limit": min(page_size, MAX_PAGE_SIZE, max_traces - len(traces)),
                 "page": page,
             })
             items = self._data(payload)
-            traces.extend(items)
             meta = self._meta(payload)
-            if meta.get("totalItems") is not None:
-                try:
-                    total_available = int(meta["totalItems"])
-                except (TypeError, ValueError):
-                    raise LangfuseError("Langfuse response total was not an integer") from None
-                if total_available < 0:
-                    raise LangfuseError("Langfuse response total was negative")
-            total_pages = None
-            if meta.get("totalPages") is not None:
-                try:
-                    total_pages = int(meta["totalPages"])
-                except (TypeError, ValueError):
-                    raise LangfuseError("Langfuse response page count was not an integer") from None
-            if not items or (total_pages is not None and page >= total_pages):
-                complete = total_available is None or len(traces) >= total_available
-                return {
-                    "traces": traces,
-                    "totalAvailable": total_available,
-                    "scanned": len(traces),
-                    "complete": complete,
-                    "continuation": {
-                        "hasMore": not complete,
-                        "nextPage": None if complete else page + 1,
-                        "reason": "api-end" if complete else "api-incomplete",
-                    },
-                }
+            repeated_page = bool(items and items == previous_items)
+            if not repeated_page:
+                previous_items = items
+                traces.extend(items[: max_traces - len(traces)])
+
+            raw_total = meta.get("totalItems")
+            if raw_total is not None:
+                if (
+                    type(raw_total) is not int
+                    or raw_total < len(traces)
+                    or (total_available is not None and raw_total != total_available)
+                ):
+                    total_available = None
+                    total_unavailable = True
+                elif not total_unavailable:
+                    total_available = raw_total
+            if total_available is not None and len(traces) > total_available:
+                total_available = None
+                total_unavailable = True
+
+            if repeated_page:
+                reason = "non-advancing-page"
+                next_page = page
+                break
+
+            raw_total_pages = meta.get("totalPages")
+            total_pages = raw_total_pages if type(raw_total_pages) is int and raw_total_pages > 0 else None
+            if not items:
+                complete = not total_unavailable and (total_available is None or len(traces) >= total_available)
+                reason = "api-end" if complete else "api-incomplete"
+                next_page = None if complete else page + 1
+                break
+            if total_pages is not None and page >= total_pages:
+                complete = not total_unavailable and (total_available is None or len(traces) >= total_available)
+                reason = "api-end" if complete else "api-incomplete"
+                next_page = None if complete else page + 1
+                break
+            if len(traces) >= max_traces:
+                complete = not total_unavailable and total_available == len(traces)
+                reason = "api-end" if complete else "max-traces"
+                next_page = None if complete else page + 1
+                break
             page += 1
+
+        return {
+            "traces": traces,
+            "totalAvailable": total_available,
+            "scanned": len(traces),
+            "maxTraces": max_traces,
+            "complete": complete,
+            "continuation": {
+                "hasMore": not complete,
+                "nextPage": next_page,
+                "reason": reason,
+            },
+        }
 
     def list_scores(
         self,

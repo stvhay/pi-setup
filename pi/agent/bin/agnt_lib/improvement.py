@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .langfuse import LangfuseError, _client_from_env
+from .langfuse import DEFAULT_MAX_TRACES, LangfuseError, _client_from_env
 from .metrics import git_root
 from .runs import default_runs_dir
 
@@ -881,6 +881,7 @@ def scan_sessions(
     output_dir: Path,
     runs_dir: Path,
     repository_root: Path,
+    max_traces: int = DEFAULT_MAX_TRACES,
     recheck: bool = False,
     dry_run: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -891,7 +892,11 @@ def scan_sessions(
     if _inside(output_dir, repository_root):
         raise ValueError("improvement directory must be outside repository")
 
-    discovery = client.list_traces_with_metadata(from_timestamp=since, to_timestamp=until)
+    discovery = client.list_traces_with_metadata(
+        from_timestamp=since,
+        to_timestamp=until,
+        max_traces=max_traces,
+    )
     traces = discovery["traces"]
     groups: dict[str, list[dict[str, Any]]] = {}
     attributable = 0
@@ -903,6 +908,7 @@ def scan_sessions(
     trace_discovery = {
         "totalAvailable": discovery.get("totalAvailable"),
         "scanned": len(traces),
+        "maxTraces": max_traces,
         "attributable": attributable,
         "unattributed": len(traces) - attributable,
         "complete": discovery["complete"],
@@ -1044,12 +1050,20 @@ def _scan_limit(value: str) -> int:
     return limit
 
 
+def _max_traces(value: str) -> int:
+    limit = int(value)
+    if limit < 1:
+        raise argparse.ArgumentTypeError("max traces must be positive")
+    return limit
+
+
 def cmd_improve(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt improve", description="Review private Langfuse telemetry safely.")
     sub = parser.add_subparsers(dest="action")
     scan = sub.add_parser("scan", help="write a bounded private review packet")
     scan.add_argument("--since", type=_timestamp)
     scan.add_argument("--limit", type=_scan_limit, default=20)
+    scan.add_argument("--max-traces", type=_max_traces, default=DEFAULT_MAX_TRACES)
     scan.add_argument("--recheck", action="store_true")
     scan.add_argument("--dry-run", action="store_true")
     scan.add_argument("--json", action="store_true")
@@ -1188,6 +1202,7 @@ def cmd_improve(argv: list[str]) -> int:
             output_dir=improvement_dir(),
             runs_dir=default_runs_dir(),
             repository_root=git_root(),
+            max_traces=args.max_traces,
             recheck=args.recheck,
             dry_run=args.dry_run,
         )
