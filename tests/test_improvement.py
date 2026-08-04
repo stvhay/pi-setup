@@ -1795,6 +1795,29 @@ def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, t
     assert client.calls[0]["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
 
 
+def test_improve_link_cli_uses_pi_session_id_fallback_idempotently(monkeypatch, capsys):
+    client = FakeReviewClient()
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.delenv("PI_SESSION_FILE", raising=False)
+    monkeypatch.setenv("PI_SESSION_ID", "current-session-id")
+
+    outputs = []
+    for _ in range(2):
+        assert improvement.cmd_improve(["link", "pi-work.1", "--json"]) == 0
+        outputs.append(json.loads(capsys.readouterr().out))
+
+    assert outputs == [
+        {"beadId": "pi-work.1", "schemaVersion": 1, "status": "linked"},
+        {"beadId": "pi-work.1", "schemaVersion": 1, "status": "linked"},
+    ]
+    assert [call["session_id"] for call in client.calls] == [
+        "current-session-id",
+        "current-session-id",
+    ]
+    assert client.calls[0]["score_id"] == client.calls[1]["score_id"]
+
+
 def test_improve_outcome_cli_links_bead_and_writes_idempotent_final_outcome(monkeypatch, tmp_path, capsys):
     client = FakeReviewClient()
     monkeypatch.setattr(improvement, "_client_from_env", lambda: client)

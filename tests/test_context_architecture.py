@@ -89,6 +89,14 @@ def test_approved_implementation_defaults_through_local_commit():
     assert "implementation_honors_no_commit" in workflow_eval
 
 
+def test_global_instructions_use_direct_lifecycle_start():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "`agnt direct start <id> [--claim]`" in instructions
+    assert "run `agnt improve link <id>`" not in instructions
+    assert "does not create run bundles, runners, or worktrees" in instructions
+
+
 def test_brainstorming_distinguishes_transient_todos_from_durable_work_state():
     brainstorming = (AGENT / "skills" / "brainstorming" / "SKILL.md").read_text(encoding="utf-8")
 

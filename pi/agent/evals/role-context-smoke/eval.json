@@ -12,7 +12,7 @@
     {
       "name": "implementation-worker-role",
       "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-5.6-luna"],
-      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "Before code changes in a repository with `.beads/`, confirm a Bead exists", "Work directly in the current Pi session by default", "implementation approval includes staging and one local atomic commit", "Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in", "# Project Instructions"]
+      "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "agnt direct start <id> [--claim]", "Work directly in the current Pi session by default", "implementation approval includes staging and one local atomic commit", "Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in", "# Project Instructions"]
     },
     {
       "name": "verifier-role",

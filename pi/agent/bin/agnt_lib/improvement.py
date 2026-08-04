@@ -1024,6 +1024,23 @@ def _beads(args: list[str]) -> tuple[int, Any, str]:
     return run_beads_json(args)
 
 
+def current_session_id() -> str:
+    session_file = os.environ.get("PI_SESSION_FILE")
+    session_id = Path(session_file).stem if session_file else os.environ.get("PI_SESSION_ID")
+    if not session_id:
+        raise ValueError("current Pi session is unavailable")
+    return session_id
+
+
+def link_current_session(bead_id: str) -> dict[str, Any]:
+    return link_session(
+        _client_from_env(),
+        session_id=current_session_id(),
+        bead_id=bead_id,
+        beads_runner=_beads,
+    )
+
+
 def _load_private_object(path: Path, repository_root: Path) -> dict[str, Any]:
     if _inside(path, repository_root):
         raise ValueError("improvement review files must be outside repository")
@@ -1112,15 +1129,7 @@ def cmd_improve(argv: list[str]) -> int:
         return 0
     if args.action == "link":
         try:
-            session_file = os.environ.get("PI_SESSION_FILE")
-            if not session_file:
-                raise ValueError("current Pi session is unavailable")
-            summary = link_session(
-                _client_from_env(),
-                session_id=Path(session_file).stem,
-                bead_id=args.bead,
-                beads_runner=_beads,
-            )
+            summary = link_current_session(args.bead)
         except (LangfuseError, OSError, ValueError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement link failed"}))

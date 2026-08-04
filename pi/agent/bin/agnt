@@ -101,6 +101,7 @@ def main(argv: List[str]) -> int:
         "prompt": ("inventory prompts and manage prompt pattern notes", cmd_prompt),
         "action": ("list, validate, and render prompt/action templates", cmd_action),
         "runs": ("create and validate invocation/result run artifacts", cmd_runs),
+        "direct": ("start ordinary direct work without orchestration artifacts", cmd_direct),
         "work": ("inspect beads-backed ready work and dispatch/run artifacts", cmd_work),
         "approvals": ("create and resolve Beads-backed questions/approval gates", cmd_approvals),
         "gateway": ("execute strict ticket gateway operations", cmd_gateway),

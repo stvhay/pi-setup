@@ -15,6 +15,7 @@ from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
+from .improvement import BEAD_ID, link_current_session
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .runner_client import (
     RunnerClientError,
@@ -736,6 +737,91 @@ def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str],
         code, data, err = run_beads_json(["close", str(bead_id), "--reason", reason])
         close_result = {"code": code, "result": data, "error": err if code else None}
     return {"result": result, "beadClose": close_result}
+
+
+def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
+    bead: Dict[str, Any] = {"id": bead_id}
+    stages: Dict[str, Any] = {}
+    if not BEAD_ID.fullmatch(bead_id):
+        stages.update({
+            "show": {"status": "failed", "error": "bead ID is malformed"},
+            "claim": {"status": "skipped", "reason": "show-failed"},
+            "link": {"status": "skipped", "reason": "show-failed"},
+        })
+        return {"schemaVersion": 1, "status": "error", "bead": bead, "stages": stages, "repair": None}
+
+    retry_command = f"agnt direct start {bead_id}" + (" --claim" if claim else "")
+    code, data, _error = run_beads_json(["show", bead_id])
+    shown = normalize_bead(data)
+    if code != 0 or not shown:
+        stages.update({
+            "show": {"status": "failed", "error": "could not load bead"},
+            "claim": {"status": "skipped", "reason": "show-failed"},
+            "link": {"status": "skipped", "reason": "show-failed"},
+        })
+        return {
+            "schemaVersion": 1,
+            "status": "error",
+            "bead": bead,
+            "stages": stages,
+            "repair": {"failedStage": "show", "retryCommand": retry_command, "safeToRetry": True},
+        }
+
+    bead = shown
+    stages["show"] = {"status": "succeeded"}
+    if not claim:
+        stages["claim"] = {"status": "skipped", "reason": "not-requested"}
+    elif str(bead.get("status") or "").lower().replace("-", "_") == "in_progress":
+        stages["claim"] = {"status": "skipped", "reason": "already-in-progress"}
+    else:
+        code, data, _error = run_beads_json(["update", bead_id, "--claim"])
+        if code != 0:
+            stages.update({
+                "claim": {"status": "failed", "error": "bead claim failed"},
+                "link": {"status": "skipped", "reason": "claim-failed"},
+            })
+            return {
+                "schemaVersion": 1,
+                "status": "partial",
+                "bead": bead,
+                "stages": stages,
+                "repair": {"failedStage": "claim", "retryCommand": retry_command, "safeToRetry": True},
+            }
+        bead = normalize_bead(data) or bead
+        stages["claim"] = {"status": "succeeded"}
+
+    try:
+        link_current_session(bead_id)
+    except (OSError, RuntimeError, ValueError):
+        stages["link"] = {"status": "failed", "error": "session link failed"}
+        return {
+            "schemaVersion": 1,
+            "status": "partial",
+            "bead": bead,
+            "stages": stages,
+            "repair": {"failedStage": "link", "retryCommand": retry_command, "safeToRetry": True},
+        }
+
+    stages["link"] = {"status": "succeeded"}
+    return {"schemaVersion": 1, "status": "started", "bead": bead, "stages": stages, "repair": None}
+
+
+def cmd_direct(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(prog="agnt direct", description="Start ordinary direct work without orchestration artifacts.")
+    sub = parser.add_subparsers(dest="command")
+    start = sub.add_parser("start", help="validate a bead, optionally claim it, and link this Pi session")
+    start.add_argument("bead_id")
+    start.add_argument("--claim", action="store_true", help="claim the bead only when it is not already in progress")
+    if not argv:
+        parser.print_help()
+        return 0
+    args = parser.parse_args(argv)
+    if args.command != "start":
+        parser.print_help(sys.stderr)
+        return 2
+    result = direct_start(args.bead_id, claim=args.claim)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
 
 
 def cmd_work(argv: List[str]) -> int:
