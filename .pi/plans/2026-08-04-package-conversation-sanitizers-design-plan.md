@@ -5,14 +5,14 @@
 **Date:** 2026-08-04
 **Branch:** fix/pi-4tg9-6-derived-payload-metrics
 
-**Goal:** Prevent raw provider and message-bearing events from reaching package-owned pi-langfuse handlers while preserving required conversation and generation metadata.
+**Goal:** Prevent raw content-bearing events from reaching package-owned pi-langfuse handlers while preserving required conversation, correlation, and accounting metadata.
 
-**Architecture:** Keep local extension handlers on the real `ExtensionAPI`. Give only pi-langfuse registration a proxy that wraps five sensitive events, constructs allowlisted fresh clones, discards package mutations/results, and reuses existing bounded text/media sanitizers.
+**Architecture:** Keep local extension handlers on the real `ExtensionAPI`. Give only pi-langfuse registration a proxy that wraps every 1.5.7 content-bearing event, constructs event-specific allowlisted clones, discards package mutations/results, and reuses existing bounded text/media sanitizers.
 
 **Acceptance Criteria:**
 - [ ] Every provider payload alias is independently sanitized; alias-free input gets a sanitized `payload` fallback.
 - [ ] Cyclic, nonobject, and unknown values never expose the raw provider event.
-- [ ] Package `message_update`, `message_end`, `turn_end`, and `agent_end` handlers receive safe conversation clones with generation-close metadata but no tool or unknown structured content.
+- [ ] Package agent/turn/provider/message handlers receive only required safe conversation and correlation metadata; tool handlers receive payload-free IDs/status/accounting; compaction receives counters/status only.
 - [ ] Original events, local pre/post handlers, subscription zero-cost alias, and persisted runtime model remain unchanged.
 - [ ] Focused/full tests, lint, evals, config checks, shell checks, and diff checks pass.
 
@@ -42,7 +42,7 @@ Add parameterized provider-alias and message-event tests, alias-free/nonobject/c
 **Files:**
 - Modify: `pi/agent/extensions/langfuse-config-env.ts`
 
-Reuse bounded conversation helpers, add allowlisted scalar/usage/cost copying, and wrap only package registrations for five sensitive events. Run focused tests green.
+Reuse bounded conversation helpers, add event-specific allowlists, and wrap only package registrations for content-bearing events. Run focused tests green.
 
 ### Task 3: Align composition docs and verify
 

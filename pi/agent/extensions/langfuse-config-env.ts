@@ -89,8 +89,49 @@ const SAFE_COST_FIELDS = [
 ] as const;
 const PROVIDER_PAYLOAD_ALIASES = ["request", "payload", "body", "providerPayload", "messages"] as const;
 const PACKAGE_CONVERSATION_EVENTS = new Set(["message_update", "message_end", "turn_end", "agent_end"]);
+const PACKAGE_AGENT_EVENTS = new Set(["before_agent_start", "agent_start"]);
+const PACKAGE_TOOL_EVENTS = new Set(["tool_execution_start", "tool_call", "tool_result", "tool_execution_end"]);
 const PROVIDER_ROLES = ["user", "assistant", "model"] as const;
 const CONVERSATION_ROLES = ["user", "assistant"] as const;
+const SAFE_STATUSES = new Set([
+  "running",
+  "ok",
+  "success",
+  "succeeded",
+  "complete",
+  "completed",
+  "error",
+  "failed",
+  "warning",
+  "cancelled",
+  "canceled",
+]);
+const SAFE_TOOL_FIELDS = [
+  "toolCallId",
+  "id",
+  "callId",
+  "tool_use_id",
+  "toolUseId",
+  "toolName",
+  "name",
+  "tool",
+  "functionName",
+  "durationMs",
+  "duration",
+  "elapsedMs",
+] as const;
+const SAFE_COMPACTION_COUNTERS = [
+  "tokensBefore",
+  "tokensAfter",
+  "tokenCount",
+  "messageCount",
+  "messagesBefore",
+  "messagesAfter",
+  "compactedMessages",
+  "retainedMessages",
+  "turnCount",
+  "durationMs",
+] as const;
 
 function asObject(value: unknown): JsonObject | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -141,6 +182,11 @@ function sanitizeContentBlock(value: unknown, role: string, budget: { remaining:
   if ((type === "image" || type === "document") && block.source) {
     const source = sanitizeMediaSource(block.source, budget);
     return source ? { type, source } : undefined;
+  }
+
+  if (type === "image" && typeof block.mimeType === "string") {
+    const data = takeMedia(block.data, budget);
+    if (data !== undefined) return { type, data, mimeType: block.mimeType.slice(0, 128) };
   }
 
   if (type === "image_url" || type === "input_image") {
@@ -241,6 +287,27 @@ function sanitizeMessages(
   return messages.length > 0 ? messages : undefined;
 }
 
+function sanitizeMediaBlocks(value: unknown, budget: { remaining: number }): JsonObject[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const media = value
+    .slice(0, MAX_TELEMETRY_BLOCKS)
+    .map((item) => {
+      const block = asObject(item);
+      const type = block?.type;
+      if (!["image", "document", "image_url", "input_image"].includes(String(type)) && !block?.inlineData) {
+        return undefined;
+      }
+      return sanitizeContentBlock(block, "user", budget);
+    })
+    .filter((item): item is JsonObject => item !== undefined);
+  return media.length > 0 ? media : undefined;
+}
+
+function sanitizeConversationContext(value: unknown, budget: { remaining: number }): JsonObject[] | undefined {
+  const context = asObject(value);
+  return sanitizeMessages(Array.isArray(value) ? value : context?.messages, budget, CONVERSATION_ROLES);
+}
+
 function sanitizeProviderPayload(
   value: unknown,
   budget = { remaining: MAX_TELEMETRY_MEDIA_CHARS },
@@ -278,6 +345,107 @@ function sanitizeProviderEvent(value: unknown): JsonObject {
   return output;
 }
 
+function sanitizeAgentEvent(eventName: string, value: unknown): JsonObject {
+  const event = asObject(value);
+  const output: JsonObject = { type: eventName };
+  if (!event) return output;
+
+  const budget = { remaining: MAX_TELEMETRY_MEDIA_CHARS };
+  const prompt = takeText(event.prompt, budget);
+  if (prompt !== undefined) output.prompt = prompt;
+  const images = sanitizeMediaBlocks(event.images, budget);
+  if (images) output.images = images;
+  const context = sanitizeConversationContext(event.context ?? event.attachments ?? event.messages, budget);
+  if (context) output.context = context;
+  return output;
+}
+
+function sanitizeTurnStartEvent(value: unknown): JsonObject {
+  const event = asObject(value);
+  const output: JsonObject = { type: "turn_start" };
+  if (!event) return output;
+  const context = sanitizeConversationContext(
+    event.context ?? event.messages,
+    { remaining: MAX_TELEMETRY_MEDIA_CHARS },
+  );
+  if (context) output.context = context;
+  return output;
+}
+
+function copyStatus(source: JsonObject, output: JsonObject) {
+  for (const key of ["status", "statusCode", "httpStatus"] as const) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) output[key] = value;
+    else if (typeof value === "string" && SAFE_STATUSES.has(value.toLowerCase())) output[key] = value.toLowerCase();
+  }
+}
+
+function isErrorEvent(event: JsonObject): boolean {
+  const statuses = [event.status, event.statusCode, event.httpStatus];
+  return event.isError === true
+    || Boolean(event.error)
+    || statuses.some((status) => typeof status === "number" && status >= 400)
+    || statuses.some((status) => typeof status === "string" && ["error", "failed"].includes(status.toLowerCase()));
+}
+
+function sanitizeProviderResponseEvent(value: unknown): JsonObject {
+  const event = asObject(value);
+  const output: JsonObject = { type: "after_provider_response" };
+  if (!event) return output;
+  copyScalarFields(event, output, SAFE_EVENT_FIELDS);
+  copyStatus(event, output);
+  const isError = isErrorEvent(event);
+  if (isError || typeof event.isError === "boolean") output.isError = isError;
+  if (isError) output.error = "Provider request failed";
+  return output;
+}
+
+function sanitizeToolEvent(eventName: string, value: unknown): JsonObject {
+  const event = asObject(value);
+  const output: JsonObject = { type: eventName };
+  if (!event) return output;
+  copyScalarFields(event, output, SAFE_TOOL_FIELDS);
+  if (!output.toolName) {
+    const call = asObject(event.call);
+    if (typeof call?.name === "string") output.toolName = call.name.slice(0, 512);
+  }
+  copyStatus(event, output);
+  const isError = isErrorEvent(event);
+  output.isError = isError;
+  if (isError) output.error = "Tool failed";
+  return output;
+}
+
+function sanitizeCounters(value: unknown, fields: readonly string[]): JsonObject | undefined {
+  const source = asObject(value);
+  if (!source) return undefined;
+  const output: JsonObject = {};
+  for (const key of fields) {
+    const field = source[key];
+    if (typeof field === "number" && Number.isSafeInteger(field) && field >= 0) output[key] = field;
+  }
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
+function sanitizeCompactEvent(value: unknown): JsonObject {
+  const event = asObject(value);
+  const output: JsonObject = { type: "session_compact" };
+  if (!event) return output;
+  copyStatus(event, output);
+  if (typeof event.fromHook === "boolean") output.fromHook = event.fromHook;
+  Object.assign(output, sanitizeCounters(event, SAFE_COMPACTION_COUNTERS));
+
+  const source = asObject(event.compactionEntry);
+  if (source) {
+    const compaction = sanitizeCounters(source, SAFE_COMPACTION_COUNTERS) ?? {};
+    const usage = sanitizeCounters(source.usage, SAFE_USAGE_FIELDS);
+    if (usage) compaction.usage = usage;
+    if (typeof source.fromHook === "boolean") compaction.fromHook = source.fromHook;
+    if (Object.keys(compaction).length > 0) output.compactionEntry = compaction;
+  }
+  return output;
+}
+
 function sanitizeConversationEvent(eventName: string, value: unknown): JsonObject {
   const event = asObject(value);
   const output: JsonObject = { type: eventName };
@@ -307,17 +475,27 @@ function langfuseTelemetryApi(pi: ExtensionAPI): ExtensionAPI {
     get(target, property, receiver) {
       if (property === "on") {
         return (event: string, handler: EventHandler) => {
-          if (event !== "before_provider_request" && !PACKAGE_CONVERSATION_EVENTS.has(event)) {
+          const sanitize = event === "before_provider_request"
+            ? sanitizeProviderEvent
+            : PACKAGE_CONVERSATION_EVENTS.has(event)
+              ? (value: unknown) => sanitizeConversationEvent(event, value)
+              : PACKAGE_AGENT_EVENTS.has(event)
+                ? (value: unknown) => sanitizeAgentEvent(event, value)
+                : event === "turn_start"
+                  ? sanitizeTurnStartEvent
+                  : event === "after_provider_response"
+                    ? sanitizeProviderResponseEvent
+                    : PACKAGE_TOOL_EVENTS.has(event)
+                      ? (value: unknown) => sanitizeToolEvent(event, value)
+                      : event === "session_compact"
+                        ? sanitizeCompactEvent
+                        : undefined;
+          if (!sanitize) {
             (target.on as unknown as (event: string, handler: EventHandler) => void)(event, handler);
             return;
           }
           (target.on as unknown as (event: string, handler: EventHandler) => void)(event, async (packageEvent, ctx) => {
-            await handler(
-              event === "before_provider_request"
-                ? sanitizeProviderEvent(packageEvent)
-                : sanitizeConversationEvent(event, packageEvent),
-              ctx,
-            );
+            await handler(sanitize(packageEvent), ctx);
           });
         };
       }

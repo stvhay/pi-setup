@@ -1334,6 +1334,25 @@ def test_historical_schema_1_private_packet_remains_reviewable():
     assert improvement.validate_decisions(packet, decisions) == decisions
 
 
+def test_schema_2_private_packet_is_reviewable():
+    packet = _review_packet()
+    packet["schemaVersion"] = 2
+
+    assert improvement.validate_decisions(packet, _review_decisions()) == _review_decisions()
+
+
+@pytest.mark.parametrize("schema_version", [True, False, 99, None])
+def test_review_rejects_missing_bool_or_unsupported_packet_schema(schema_version):
+    packet = _review_packet()
+    if schema_version is None:
+        packet.pop("schemaVersion")
+    else:
+        packet["schemaVersion"] = schema_version
+
+    with pytest.raises(ValueError, match="packet schemaVersion"):
+        improvement.validate_decisions(packet, _review_decisions())
+
+
 @pytest.mark.parametrize(
     ("case", "message"),
     [

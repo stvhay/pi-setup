@@ -154,6 +154,42 @@ def fake_sanitizer_langfuse_agent_dir(tmp_path: Path) -> Path:
     return agent_dir
 
 
+def fake_all_paths_langfuse_agent_dir(tmp_path: Path) -> Path:
+    agent_dir = tmp_path / "agent"
+    package_dir = agent_dir / "npm" / "node_modules" / "pi-langfuse"
+    package_dir.mkdir(parents=True)
+    (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
+    (package_dir / "package.json").write_text(
+        json.dumps({"name": "pi-langfuse", "type": "module", "main": "./index.js"}),
+        encoding="utf-8",
+    )
+    (package_dir / "index.js").write_text(
+        """
+        export default function register(pi) {
+          for (const eventName of [
+            "before_agent_start",
+            "agent_start",
+            "turn_start",
+            "after_provider_response",
+            "tool_execution_start",
+            "tool_call",
+            "tool_result",
+            "tool_execution_end",
+            "session_compact",
+          ]) {
+            pi.on(eventName, (event) => {
+              globalThis.__piLangfuseAllPathsObserved[eventName] = structuredClone(event);
+              event.packageMutation = "CANARY_PACKAGE_MUTATION";
+              return { replacement: "CANARY_PACKAGE_REPLACEMENT" };
+            });
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    return agent_dir
+
+
 def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
     agent_dir = tmp_path / "agent"
     package_dir = agent_dir / "npm" / "node_modules" / "pi-langfuse"
@@ -727,6 +763,279 @@ def test_package_message_events_keep_safe_conversation_metadata_without_mutation
       for (const secret of [canaries.system, canaries.args, canaries.result, canaries.unknown]) {{
         assert.equal(telemetry.includes(secret), false, secret);
       }}
+    """
+    run_extension_script(script)
+
+
+def test_all_package_content_paths_are_sanitized_without_changing_local_events(tmp_path):
+    agent_dir = fake_all_paths_langfuse_agent_dir(tmp_path)
+    script = f"""
+      import assert from "node:assert/strict";
+
+      process.env.PI_CODING_AGENT_DIR = {str(agent_dir)!r};
+      globalThis.__piLangfuseAllPathsObserved = {{}};
+      const {{ default: install }} = await import({EXTENSION.as_uri()!r});
+      const handlers = new Map();
+      const localBefore = {{}};
+      const localAfter = {{}};
+      const eventNames = [
+        "before_agent_start",
+        "agent_start",
+        "turn_start",
+        "after_provider_response",
+        "tool_execution_start",
+        "tool_call",
+        "tool_result",
+        "tool_execution_end",
+        "session_compact",
+      ];
+      for (const eventName of eventNames) {{
+        handlers.set(eventName, [(event) => {{ localBefore[eventName] = event; }}]);
+      }}
+      const pi = {{
+        on(event, callback) {{
+          const callbacks = handlers.get(event) ?? [];
+          callbacks.push(callback);
+          handlers.set(event, callbacks);
+        }},
+        registerCommand() {{}},
+      }};
+      await install(pi);
+      for (const eventName of eventNames) {{
+        handlers.get(eventName).push((event) => {{ localAfter[eventName] = event; }});
+      }}
+
+      const canaries = {{
+        prompt: "SAFE_ROOT_PROMPT_7a29",
+        user: "SAFE_CONTEXT_USER_9d51",
+        assistant: "SAFE_CONTEXT_ASSISTANT_7e83",
+        media: "Q0FOQVJZX1NBRkVfTUVESUFfMWYyNA==",
+        system: "CANARY_ROOT_SYSTEM_4c68",
+        developer: "CANARY_ROOT_DEVELOPER_2b35",
+        input: "CANARY_TOOL_INPUT_6a42",
+        output: "CANARY_TOOL_OUTPUT_8c17",
+        error: "CANARY_TOOL_ERROR_5e93",
+        summary: "CANARY_COMPACTION_SUMMARY_3f71",
+        details: "CANARY_COMPACTION_DETAILS_8b26",
+        response: "CANARY_PROVIDER_RESPONSE_9c14",
+        unknown: "CANARY_UNKNOWN_PATH_1d52",
+      }};
+      const context = [
+        {{ role: "system", content: canaries.system }},
+        {{
+          role: "user",
+          content: [
+            {{ type: "text", text: canaries.user }},
+            {{ type: "image", data: canaries.media, mimeType: "image/png" }},
+            {{ type: "tool_result", content: canaries.output }},
+          ],
+        }},
+        {{ role: "assistant", content: [{{ type: "text", text: canaries.assistant }}] }},
+        {{ role: "tool", content: canaries.output }},
+      ];
+      const roots = {{
+        before_agent_start: {{
+          type: "before_agent_start",
+          prompt: canaries.prompt,
+          images: [{{ type: "image", data: canaries.media, mimeType: "image/png" }}],
+          context,
+          systemPrompt: canaries.system,
+          resources: {{ secret: canaries.unknown }},
+          attachments: {{ secret: canaries.details }},
+        }},
+        agent_start: {{
+          type: "agent_start",
+          prompt: canaries.prompt,
+          images: [{{ type: "image", data: canaries.media, mimeType: "image/png" }}],
+          context,
+          systemPrompt: canaries.system,
+          instructions: canaries.developer,
+        }},
+      }};
+      const events = {{
+        ...roots,
+        turn_start: {{
+          type: "turn_start",
+          context,
+          prompt: canaries.system,
+          details: {{ secret: canaries.details }},
+        }},
+        after_provider_response: {{
+          type: "after_provider_response",
+          requestId: "request-42",
+          providerRequestId: "provider-request-42",
+          provider: "anthropic",
+          model: "claude-canary",
+          status: 503,
+          headers: {{ authorization: canaries.unknown }},
+          responseHeaders: {{ "x-secret": canaries.unknown }},
+          body: canaries.response,
+          response: canaries.response,
+          providerPayload: {{ secret: canaries.response }},
+          error: canaries.error,
+        }},
+        tool_execution_start: {{
+          type: "tool_execution_start",
+          toolCallId: "tool-42",
+          toolName: "bash",
+          status: "running",
+          isError: false,
+          durationMs: 1,
+          args: {{ command: canaries.input }},
+        }},
+        tool_call: {{
+          type: "tool_call",
+          toolCallId: "tool-42",
+          toolName: "bash",
+          status: "running",
+          isError: false,
+          durationMs: 2,
+          input: {{ command: canaries.input }},
+        }},
+        tool_result: {{
+          type: "tool_result",
+          toolCallId: "tool-42",
+          toolName: "bash",
+          status: "error",
+          isError: true,
+          durationMs: 41,
+          input: {{ command: canaries.input }},
+          content: [{{ type: "text", text: canaries.output }}],
+          details: {{ secret: canaries.details }},
+          error: canaries.error,
+        }},
+        tool_execution_end: {{
+          type: "tool_execution_end",
+          toolCallId: "tool-42",
+          toolName: "bash",
+          status: "error",
+          isError: true,
+          durationMs: 42,
+          result: {{ content: canaries.output }},
+          output: canaries.output,
+          error: canaries.error,
+        }},
+        session_compact: {{
+          type: "session_compact",
+          status: "completed",
+          fromHook: true,
+          compactionEntry: {{
+            type: "compaction",
+            id: "private-entry-id",
+            timestamp: "2026-08-04T00:00:00Z",
+            summary: canaries.summary,
+            firstKeptEntryId: "private-kept-id",
+            tokensBefore: 4321,
+            details: {{ secret: canaries.details }},
+            usage: {{ input: 12, output: 3, total: 15, private: canaries.unknown }},
+            fromHook: true,
+          }},
+          summary: canaries.summary,
+          details: {{ secret: canaries.details }},
+        }},
+      }};
+
+      for (const eventName of eventNames) {{
+        const event = events[eventName];
+        const before = structuredClone(event);
+        let current = event;
+        for (const handler of handlers.get(eventName) ?? []) {{
+          const result = await handler(current, {{}});
+          if (result !== undefined) current = result;
+        }}
+        assert.equal(current, event, eventName);
+        assert.equal(localBefore[eventName], event, eventName);
+        assert.equal(localAfter[eventName], event, eventName);
+        assert.deepEqual(event, before, eventName);
+      }}
+
+      const observed = globalThis.__piLangfuseAllPathsObserved;
+      const safeContext = [
+        {{
+          role: "user",
+          content: [
+            {{ type: "text", text: canaries.user }},
+            {{ type: "image", data: canaries.media, mimeType: "image/png" }},
+          ],
+        }},
+        {{ role: "assistant", content: [{{ type: "text", text: canaries.assistant }}] }},
+      ];
+      for (const eventName of ["before_agent_start", "agent_start"]) {{
+        assert.deepEqual(observed[eventName], {{
+          type: eventName,
+          prompt: canaries.prompt,
+          images: [{{ type: "image", data: canaries.media, mimeType: "image/png" }}],
+          context: safeContext,
+        }});
+      }}
+      assert.deepEqual(observed.turn_start, {{ type: "turn_start", context: safeContext }});
+      assert.deepEqual(observed.after_provider_response, {{
+        type: "after_provider_response",
+        requestId: "request-42",
+        providerRequestId: "provider-request-42",
+        provider: "anthropic",
+        model: "claude-canary",
+        status: 503,
+        isError: true,
+        error: "Provider request failed",
+      }});
+
+      for (const [eventName, durationMs] of [
+        ["tool_execution_start", 1],
+        ["tool_call", 2],
+      ]) {{
+        assert.deepEqual(Object.keys(observed[eventName]).sort(), [
+          "durationMs", "isError", "status", "toolCallId", "toolName", "type",
+        ].sort());
+        assert.equal(observed[eventName].toolCallId, "tool-42");
+        assert.equal(observed[eventName].toolName, "bash");
+        assert.equal(observed[eventName].status, "running");
+        assert.equal(observed[eventName].isError, false);
+        assert.equal(observed[eventName].durationMs, durationMs);
+      }}
+      for (const [eventName, durationMs] of [
+        ["tool_result", 41],
+        ["tool_execution_end", 42],
+      ]) {{
+        assert.deepEqual(Object.keys(observed[eventName]).sort(), [
+          "durationMs", "error", "isError", "status", "toolCallId", "toolName", "type",
+        ].sort());
+        assert.equal(observed[eventName].toolCallId, "tool-42");
+        assert.equal(observed[eventName].toolName, "bash");
+        assert.equal(observed[eventName].status, "error");
+        assert.equal(observed[eventName].isError, true);
+        assert.equal(observed[eventName].durationMs, durationMs);
+        assert.equal(observed[eventName].error, "Tool failed");
+      }}
+      assert.equal(new Set([
+        observed.tool_execution_start.toolCallId,
+        observed.tool_call.toolCallId,
+        observed.tool_result.toolCallId,
+        observed.tool_execution_end.toolCallId,
+      ]).size, 1);
+      assert.deepEqual(observed.session_compact, {{
+        type: "session_compact",
+        status: "completed",
+        fromHook: true,
+        compactionEntry: {{
+          tokensBefore: 4321,
+          usage: {{ input: 12, output: 3, total: 15 }},
+          fromHook: true,
+        }},
+      }});
+
+      const telemetry = JSON.stringify(observed);
+      for (const secret of [
+        canaries.system,
+        canaries.developer,
+        canaries.input,
+        canaries.output,
+        canaries.error,
+        canaries.summary,
+        canaries.details,
+        canaries.response,
+        canaries.unknown,
+      ]) assert.equal(telemetry.includes(secret), false, secret);
     """
     run_extension_script(script)
 

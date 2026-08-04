@@ -498,6 +498,9 @@ def _public_strings(public: dict[str, Any]) -> list[str]:
 
 
 def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dict[str, Any]:
+    packet_version = packet.get("schemaVersion")
+    if isinstance(packet_version, bool) or not isinstance(packet_version, int) or packet_version not in {1, 2}:
+        raise ValueError("unsupported packet schemaVersion")
     _require_fields(decisions, TOP_DECISION_FIELDS, "decisions")
     if decisions["schemaVersion"] != 1:
         raise ValueError("unsupported decision schemaVersion")
