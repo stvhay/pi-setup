@@ -162,6 +162,32 @@ def test_active_skills_reserve_agnt_invoke_for_cold_or_headless_peers():
     assert not violations, "interactive peer guidance must use subagent: " + ", ".join(violations)
 
 
+def test_finish_action_uses_one_closeout_coordinator(common):
+    action_path = AGENT / "actions" / "finish.md"
+    meta = load_frontmatter(common, action_path)
+    body = action_path.read_text(encoding="utf-8")
+
+    assert meta["skills"] == ["finishing-a-development-branch"]
+    assert "sole closeout coordinator" in body
+    assert "Do not pre-load or stack companion closeout skills" in body
+
+
+def test_finish_coordinator_declares_trigger_and_subsumption_matrix():
+    skill = (AGENT / "skills" / "finishing-a-development-branch" / "SKILL.md").read_text(encoding="utf-8")
+
+    expected_rows = [
+        "| `verification-before-completion` | Every closeout | **Required.** Load and run once; never subsumed. |",
+        "| `documentation-standards` | Documentation requested, impacted, or uncertain | Load in validate mode; otherwise coordinator documentation check subsumes generic docs prose. |",
+        "| `requesting-code-review` | Non-trivial or risky diff, merge/PR preparation, or required review | Load; otherwise coordinator scope check handles trivial closeout. |",
+        "| `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now, then reverify; otherwise coordinator scope check subsumes generic cleanup advice. |",
+        "| `session-to-skill-extractor` | Substantial non-trivial wrap-up or Bead close | Load once at final wrap-up; skip routine summaries. |",
+    ]
+    assert all(row in skill for row in expected_rows)
+    assert "reuse its current instructions instead of rereading" in skill
+    assert "`writing-clearly-and-concisely` is subsumed" in skill
+    assert "Safety, approval, verification, documentation, and review gates are never subsumed" in skill
+
+
 def test_action_templates_reference_existing_architecture(common):
     task_ids = {path.stem for path in (AGENT / "tasks").glob("*.md")}
     skill_ids = {path.parent.name for path in (AGENT / "skills").glob("*/SKILL.md")}

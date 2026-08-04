@@ -539,6 +539,26 @@ def test_action_inventory_and_validation(agnt):
     assert agnt.validate_all_actions() == []
 
 
+def test_workflow_gate_eval_checks_closeout_selection_without_skill_stacking():
+    eval_dir = AGNT.parents[1] / "evals" / "workflow-gate-smoke"
+    spec = json.loads((eval_dir / "eval.json").read_text(encoding="utf-8"))
+    prompt = (eval_dir / "prompt.md").read_text(encoding="utf-8")
+
+    assert spec["skill"] == "../../skills/finishing-a-development-branch/SKILL.md"
+    assert spec["assert"]["contains"] == [
+        "COORDINATOR: finishing-a-development-branch",
+        "NOW: verification-before-completion",
+        "POST_VERIFY: code-simplification, verification-before-completion",
+        "FINAL_GATES: documentation-standards, requesting-code-review",
+        "WRAP_UP: session-to-skill-extractor",
+        "TINY_SKIP: documentation-standards, requesting-code-review, code-simplification, session-to-skill-extractor",
+        "SUBSUMED: writing-clearly-and-concisely, generic cleanup prose",
+        "REMOTE_ACTIONS: STOP",
+    ]
+    assert "Do not stack all closeout skills" in prompt
+    assert "Do not weaken verification, documentation, review, safety, or approval gates" in prompt
+
+
 def test_create_run_bundle_writes_invocation_and_result(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="review",

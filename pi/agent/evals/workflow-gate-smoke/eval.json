@@ -1,10 +1,23 @@
 {
   "schemaVersion": 1,
   "id": "workflow-gate-smoke",
-  "summary": "Smoke-test workflow-gate prompt shape without embedding gate logic in instructions.",
+  "summary": "Smoke-test closeout phase selection without redundant skill stacking or weakened gates.",
   "kind": "invoke",
   "task": "orchestration",
   "defaultModels": ["openai-codex/gpt-5.6-luna"],
+  "skill": "../../skills/finishing-a-development-branch/SKILL.md",
   "prompt": "prompt.md",
-  "assert": {"nonEmptyOutput": true}
+  "assert": {
+    "nonEmptyOutput": true,
+    "contains": [
+      "COORDINATOR: finishing-a-development-branch",
+      "NOW: verification-before-completion",
+      "POST_VERIFY: code-simplification, verification-before-completion",
+      "FINAL_GATES: documentation-standards, requesting-code-review",
+      "WRAP_UP: session-to-skill-extractor",
+      "TINY_SKIP: documentation-standards, requesting-code-review, code-simplification, session-to-skill-extractor",
+      "SUBSUMED: writing-clearly-and-concisely, generic cleanup prose",
+      "REMOTE_ACTIONS: STOP"
+    ]
+  }
 }

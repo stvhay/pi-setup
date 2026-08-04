@@ -13,6 +13,8 @@ outputContract: readiness-report
 
 # Action: finish
 
-Validate project or branch readiness with fresh evidence, summarize remaining
-risks, and prepare safe next actions. Do not push, merge, deploy, or perform
-remote/destructive operations without explicit approval.
+Use `finishing-a-development-branch` as sole closeout coordinator.
+Do not pre-load or stack companion closeout skills; let coordinator select each phase.
+Validate readiness with fresh evidence and prepare safe next actions. Do not
+push, merge, deploy, or perform remote/destructive operations without explicit
+approval.

@@ -54,7 +54,10 @@ The major workflow skills (`writing-plans`, `executing-plans`,
 `verification-before-completion`, `documentation-standards`,
 `requesting-code-review`, `systematic-debugging`) provide reusable procedures
 with explicit filesystem-first behavior. They are discoverable by description
-and mostly atomic enough to load on demand.
+and mostly atomic enough to load on demand. `finishing-a-development-branch`
+is the sole closeout coordinator: it always selects verification, conditionally
+selects docs/review, and delays simplification and extraction until their phase
+triggers.
 
 ### 5. Deterministic helper surface exists
 
@@ -119,6 +122,8 @@ threshold, and the five largest skill contributors. Four progressively disclosed
 skills were removed from the large-skill allowlist; remaining exemptions should
 be removed only as their behavior is preserved by scenarios and focused checks.
 Pattern scans remain a backstop, not a semantic proof that guidance is safe.
+The workflow-gate smoke eval now checks representative closeout selection,
+subsumption, and remote-action boundaries without stacking every closeout skill.
 
 ### 5. Role validation is improving but not complete
 
