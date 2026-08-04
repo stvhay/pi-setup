@@ -40,10 +40,13 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason. Evidence gathered on one venue applies to every venue of the same weights.
   - `agnt recommend` is an alias.
 
-For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and the selected target as `model`. Use its `tasks` array for parallel peers. The tracked observer records completed unnamed-peer usage under `<git-root>/.pi/metrics/invocations/` without storing prompt or response bodies. Named-profile metrics are skipped because Archimedes does not expose their final provider.
+For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and the selected target as `model`. Use its `tasks` array for parallel peers. The tracked observer records completed unnamed-peer usage under resolved private `metrics/invocations` directory without storing prompt or response bodies. Named-profile metrics are skipped because Archimedes does not expose their final provider.
+
+- `agnt runtime-path KIND`
+  - Returns bounded JSON containing safe private directory for runtime kind such as `runs` or `metrics/invocations`. Resolver uses project `.pi/<kind>` only when Git proves path ignored and untracked; otherwise it uses mode-`0700` `~/.pi/runtime/<sha256>/<kind>`. Hash keys canonical Git common directory, including linked worktrees, or canonical working directory outside Git.
 
 - `agnt invoke [--one-shot] [--timeout-seconds N] [--task TASK] [--risk-category LABEL] [--thinking-level LEVEL] [--outcome OUTCOME] [--human-override] [--fallback-used] [--preflight] [--no-metrics] [--metrics-dir DIR] provider/model [filename]`
-  - Runs one ephemeral Pi peer. Metrics are on by default, so `agnt` uses `pi --mode json --no-session`, preserves normal stdout, and writes raw token/cost/wall-clock metrics to `DIR` or `<git-root>/.pi/metrics/invocations/`.
+  - Runs one ephemeral Pi peer. Metrics are on by default, so `agnt` uses `pi --mode json --no-session`, preserves normal stdout, and writes raw token/cost/wall-clock metrics to `DIR` or resolved private `metrics/invocations` directory.
   - `--one-shot` also disables tools, skills, context-file discovery, and prompt templates, supplies a compact read-only system prompt, and defaults to a 180-second subprocess timeout. Use `--timeout-seconds` to override it. Use one-shot only when `filename` embeds the complete task context; it prevents agentic tool loops from multiplying provider requests.
   - Metrics include routing fields when supplied plus `invocationMode` and counted `providerRequests`: task, risk category, thinking level, context size, estimated input tokens, outcome, human override, and fallback-used flags.
   - Use `--no-metrics` to use the older `pi --print --no-session` path and skip metrics.
@@ -62,7 +65,7 @@ For interactive delegation, run `agnt route`, then call the Archimedes `subagent
 
 Metrics use `schemaVersion: 1` and are best-effort: when Pi/provider usage is unavailable, metrics JSON records `usageSource: "unavailable"` and `usage: null`. New records include a stable `recordId`; old records remain loadable. Catalog venues marked `billingClass: free` stay at zero cost with `usage.costSource: "catalog-free"`. Otherwise, when usage is available but the provider reports zero/missing dollars for a known subscription-backed or OpenRouter model, `agnt` fills `usage.cost` with an OpenRouter-price opportunity-cost estimate and marks it with `usage.costSource: "openrouter-assumed"` and `usage.costEstimated: true`. This keeps subscription GPT usage comparable without routing GPT calls through OpenRouter.
 
-Local models keep cash/API `usage.cost.total` at zero with `usage.costSource: "local-free"`. For known local equivalents, metrics add separate `usage.opportunityCost` using metered family rates rather than pretending local inference spent API dollars. Local calls also get a rough marginal GPU electricity estimate in `usage.localCompute`, using `AGNT_LOCAL_GPU_WATTS` when set. Otherwise `olla-local/*` defaults to an assumed remote Olla marginal GPU draw of 208W, and `AGNT_USE_NVIDIA_SMI=1` opts into sampling `nvidia-smi` on the current host. Electricity price uses `AGNT_ELECTRICITY_USD_PER_KWH` or default `$0.1304/kWh`. Raw metrics live under `.pi/metrics/` and are ignored by git.
+Local models keep cash/API `usage.cost.total` at zero with `usage.costSource: "local-free"`. For known local equivalents, metrics add separate `usage.opportunityCost` using metered family rates rather than pretending local inference spent API dollars. Local calls also get a rough marginal GPU electricity estimate in `usage.localCompute`, using `AGNT_LOCAL_GPU_WATTS` when set. Otherwise `olla-local/*` defaults to an assumed remote Olla marginal GPU draw of 208W, and `AGNT_USE_NVIDIA_SMI=1` opts into sampling `nvidia-smi` on the current host. Electricity price uses `AGNT_ELECTRICITY_USD_PER_KWH` or default `$0.1304/kWh`. Raw metrics live under resolved private runtime directory.
 
 Use routed unnamed `subagent` calls for interactive peers. Use `agnt invoke --one-shot` for cold complete packets and `agnt invoke` for headless or artifact-backed execution. Both paths capture compatible metrics. The old `pi-peer`/`pi-fanout` wrappers remain removed.
 
@@ -113,7 +116,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Validates that action templates reference existing routing tasks, skills, roles, allowed effects, and output contracts.
 
 - `agnt action render ACTION [--target REF ...] [--bead ID] [--role ROLE] [--model TARGET] [--dry-run]`
-  - Renders an action template into an invocation artifact bundle under `.pi/runs/` unless `--dry-run` is supplied.
+  - Renders an action template into an invocation artifact bundle under resolved private runs directory unless `--dry-run` is supplied.
 
 - `agnt runs create ...`
   - Creates a generic invocation/result run bundle. Optional orchestration fields include selected model/thinking, ticket metadata, ephemeral todo seed, worktree, dispatch policy, session policy, and memory policy. See [Run Artifacts](../../../docs/RUN-ARTIFACTS.md) for schema details.
@@ -247,14 +250,14 @@ Private telemetry, IDs, excerpts, URLs, user content, and absolute paths stay ou
   - Prints pending raw metric count and aggregate totals as JSON.
 
 - `agnt metrics annotate [selector|latest] [--outcome OUTCOME] [--risk-category LABEL] [--thinking-level LEVEL] [--human-override|--no-human-override] [--fallback-used|--no-fallback-used] [--notes TEXT]`
-  - Appends an annotation to `.pi/metrics/annotations.jsonl` without mutating raw metric files.
+  - Appends annotation under resolved private `metrics` directory without mutating raw metric files.
   - Selectors may be `latest`, a `recordId`, a source file path, or a metrics filename basename.
   - Valid outcomes: `unknown`, `accepted`, `rejected`, `verified-pass`, `verified-fail`, `escalated`.
 
 - `agnt metrics consolidate [--metrics-dir DIR] [--output FILE] [--stage] [--keep-raw]`
   - Appends one compact commit-level JSON line to the global runtime store `~/.pi/metrics/agent-invocations.jsonl` by default (`AGNT_METRICS_OUTPUT` or `--output` override). The store is untracked telemetry shared across projects; it feeds `agnt route` outcome hints. The auditable self-improvement record is the git history of policy files (tasks, catalog, model overlays), not the telemetry itself.
   - Applies annotations before summarizing/compacting records.
-  - Moves consumed raw metrics to `.pi/metrics/consumed/<timestamp>/` unless `--keep-raw` is used.
+  - Moves consumed raw metrics to resolved private `metrics/consumed/<timestamp>/` unless `--keep-raw` is used.
 
 - `agnt metrics reset [--metrics-dir DIR]`
   - Deletes pending raw metrics without appending an aggregate.

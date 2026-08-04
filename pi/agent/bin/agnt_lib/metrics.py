@@ -14,6 +14,7 @@ import _agnt_common as common
 
 from .core import ROOT, VALID_OUTCOMES, capture, split_target
 from .review import load_review_document, review_annotation_fields
+from .runtime_paths import resolve_runtime_directory
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -262,11 +263,11 @@ def git_root() -> Path:
 
 
 def default_metrics_dir() -> Path:
-    return git_root() / ".pi" / "metrics" / "invocations"
+    return resolve_runtime_directory("metrics/invocations")
 
 
 def default_consumed_metrics_dir() -> Path:
-    return git_root() / ".pi" / "metrics" / "consumed"
+    return resolve_runtime_directory("metrics/consumed")
 
 
 def default_metrics_output() -> Path:
@@ -279,7 +280,7 @@ def default_metrics_output() -> Path:
 
 
 def default_annotations_file() -> Path:
-    return git_root() / ".pi" / "metrics" / "annotations.jsonl"
+    return resolve_runtime_directory("metrics") / "annotations.jsonl"
 def metric_files(metrics_dir: Path) -> List[Path]:
     return sorted(metrics_dir.glob("*.metrics.json")) if metrics_dir.is_dir() else []
 

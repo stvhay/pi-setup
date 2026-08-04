@@ -6,14 +6,22 @@ before code edits but a run bundle is not. When selected, these files are the
 inspectable handoff between a work item, a worker, verification, and downstream
 work.
 
-Runtime run bundles live under `.pi/runs/<run-id>/` and are gitignored by
-default. Curated examples may be documented elsewhere, but ordinary run records
-are local runtime state.
+Runtime run bundles use directory returned by `agnt runtime-path runs`. Resolver
+uses project `.pi/runs/` only when Git proves path is ignored, contains no
+tracked files, and crosses no symlink. Otherwise it uses
+`~/.pi/runtime/<sha256>/runs/`, keyed by canonical Git common directory (or
+canonical working directory outside Git). Selected runtime directories use mode
+`0700`; JSON output contains only schema version and resolved path.
+
+This supports linked worktrees where `.git` is file, avoids dirtying projects
+with different ignore policy, and keeps ordinary run records private runtime
+state. Examples below use common project-local path; use resolved path when
+fallback is selected.
 
 ## Bundle shape
 
 ```text
-.pi/runs/<run-id>/
+<runtime-runs-dir>/<run-id>/
 ├── invocation.yaml
 ├── result.yaml
 └── artifacts/
@@ -64,11 +72,11 @@ Fields:
 - `role`: delegated-worker output contract.
 - `selectedModel`, `thinkingLevel`, and `modelSelection`: policy-selected model, thinking level, score, and reasons. `agnt work run` rejects direct model overrides.
 - `ticketMetadata`: snapshot of source bead identity and metadata validation.
-- `ephemeralTodoSeed`: optional live-UX todo seed. Archimedes todos are transient; durable outcomes belong in Beads and `.pi/runs`.
+- `ephemeralTodoSeed`: optional live-UX todo seed. Archimedes todos are transient; durable outcomes belong in Beads and private run bundles.
 - `worktree`: dispatch worktree snapshot. Implementation work uses one worktree per epic: `.worktrees/epic/<epic-id>-<slug>` on branch `epic/<epic-id>-<slug>`.
 - `dispatchPolicy`: action, routing task, role, allowed effects, risk, budget, model policy, session policy, memory policy, and closeout policy.
 - `sessionPolicy`: `recorded` by default for worker sessions, or `no-session` when explicitly allowed.
-- `memoryPolicy`: `auto` by default. Observational memory is advisory recall/context; promote important findings into Beads or `.pi/runs` before closeout.
+- `memoryPolicy`: `auto` by default. Observational memory is advisory recall/context; promote important findings into Beads or private run bundles before closeout.
 - `allowedEffects`: declared side-effect budget for the run.
 - `outputContract`: concise result shape name or path.
 - `acceptanceCriteria`: criteria copied from the source bead when the bundle is
@@ -223,7 +231,7 @@ Those effects require explicit approval and stronger verification gates.
 
 - Beads hold work state, dependencies, approvals, blockers, maintenance checkpoints, and closeout.
 - `.pi/plans/` holds larger design/implementation plans.
-- `.pi/runs/` holds per-run invocation/result evidence and recorded session refs.
-- Observational-memory ledgers are session-local recall aids; promote important findings into Beads or `.pi/runs` before relying on them.
+- Resolved private runs directory holds per-run invocation/result evidence and recorded session refs.
+- Observational-memory ledgers are session-local recall aids; promote important findings into Beads or private run bundles before relying on them.
 - Beads should reference relevant plan/run paths in notes, metadata, or issue
   descriptions when downstream work depends on them.

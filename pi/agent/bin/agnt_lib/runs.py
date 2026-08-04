@@ -12,7 +12,8 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from .core import die
 from .invoke import invoke_one, safe_target_name
-from .metrics import default_metrics_dir, git_root, write_json
+from .metrics import default_metrics_dir, write_json
+from .runtime_paths import resolve_runtime_directory
 from .tasks import preferred_models
 
 VALID_STATUSES = {"succeeded", "failed", "blocked", "needs-human", "superseded"}
@@ -46,7 +47,7 @@ def slugify(value: str) -> str:
 
 
 def default_runs_dir() -> Path:
-    return git_root() / ".pi" / "runs"
+    return resolve_runtime_directory("runs")
 
 
 def run_id(action: str, bead: str | None = None) -> str:
@@ -325,7 +326,7 @@ def render_invocation_prompt(invocation: Dict[str, Any]) -> str:
     lines.extend([
         "",
         "Archimedes todos are transient; durable outcomes must be recorded in Beads and run evidence.",
-        "Promote important observational-memory findings into Beads or .pi/runs before relying on them for closeout.",
+        "Promote important observational-memory findings into Beads or the private run bundle before relying on them for closeout.",
         "Follow project instructions and any referenced skills/roles. Stay within allowed effects.",
         "Return a concise result with evidence and any follow-up work needed.",
         "Include an explicit line-level terminal marker: `OK: <reason/evidence>` or `ERROR: <reason/evidence>`.",

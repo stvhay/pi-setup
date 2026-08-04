@@ -13,6 +13,19 @@ from unittest.mock import patch
 AGNT = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin" / "agnt"
 
 
+def test_runtime_path_command_emits_bounded_json(agnt, monkeypatch, tmp_path, capsys):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/runs/\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert agnt.main(["runtime-path", "runs"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "path": str(tmp_path / ".pi" / "runs"),
+        "schemaVersion": 1,
+    }
+
+
 def usage_tokens(input_tokens=1_000_000, output_tokens=1_000_000):
     return {
         "input": input_tokens,

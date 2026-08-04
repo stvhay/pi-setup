@@ -1,10 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, parse, resolve } from "node:path";
+import { join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
+import { runAgntJson } from "./lib/run-agnt-json.ts";
 
 const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 
@@ -156,18 +157,10 @@ function providerError(message?: string): string {
   return message || "unknown upstream error";
 }
 
-async function repositoryRoot(cwd: string): Promise<string> {
-  let current = resolve(cwd);
-  const filesystemRoot = parse(current).root;
-  while (true) {
-    try {
-      await access(join(current, ".git"));
-      return current;
-    } catch {
-      if (current === filesystemRoot) return resolve(cwd);
-      current = dirname(current);
-    }
-  }
+async function runtimeDirectory(kind: string, cwd: string): Promise<string> {
+  const result = await runAgntJson(["runtime-path", kind], cwd, undefined, "agnt runtime-path");
+  if (typeof result.path !== "string" || !result.path) throw new Error("agnt runtime-path returned no path");
+  return result.path;
 }
 
 function targetFor(
@@ -270,8 +263,7 @@ async function recordSubagentMetrics(
     .filter((record): record is Record<string, unknown> => record !== undefined);
   if (records.length === 0) return;
 
-  const root = await repositoryRoot(ctx.cwd);
-  const metricsDir = join(root, ".pi", "metrics", "invocations");
+  const metricsDir = await runtimeDirectory("metrics/invocations", ctx.cwd);
   await mkdir(metricsDir, { recursive: true });
   await Promise.all(records.map((record) => {
     const target = String(record.target).replace(/[^a-zA-Z0-9._-]+/g, "__");
