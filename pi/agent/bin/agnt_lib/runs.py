@@ -450,6 +450,15 @@ def invoke_run_bundle(
     if failures:
         die("invalid run bundle: " + "; ".join(failures), 1)
     invocation = load_yaml_json(bundle / "invocation.yaml")
+    if invocation.get("schemaVersion") == 1:
+        invocation_id = new_invocation_id()
+        invocation.update({"schemaVersion": 2, "invocationId": invocation_id})
+        write_yaml_json(bundle / "invocation.yaml", invocation)
+        result = load_yaml_json(bundle / "result.yaml")
+        result.update({"schemaVersion": 2, "invocationId": invocation_id})
+        write_yaml_json(bundle / "result.yaml", result)
+    else:
+        invocation_id = str(invocation["invocationId"])
     target = choose_invocation_model(invocation, model)
     artifacts_dir = bundle / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -459,7 +468,6 @@ def invoke_run_bundle(
     timeout_seconds = invocation_timeout_seconds(invocation)
     timeout_deadline = (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat().replace("+00:00", "Z")
     pi_args = invocation_pi_args(invocation)
-    invocation_id = str(invocation.get("invocationId") or invocation.get("id"))
     append_live_event(bundle, {"event": "worker_invocation_started", "phase": "running", "invocationId": invocation_id, "model": target, "timeoutSeconds": timeout_seconds})
     write_live_status(
         bundle,

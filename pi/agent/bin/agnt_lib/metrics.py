@@ -35,7 +35,10 @@ def new_invocation_id() -> str:
 def bounded_artifact_refs(refs: List[str] | None) -> List[str]:
     bounded: List[str] = []
     for value in refs or []:
-        if not isinstance(value, str) or not value or len(value) > MAX_ARTIFACT_REF_CHARS or Path(value).is_absolute():
+        if not isinstance(value, str):
+            continue
+        path = Path(value)
+        if not value or len(value) > MAX_ARTIFACT_REF_CHARS or path.is_absolute() or ".." in path.parts:
             continue
         bounded.append(value)
         if len(bounded) == MAX_ARTIFACT_REFS:

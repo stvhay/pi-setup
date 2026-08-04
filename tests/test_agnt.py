@@ -1643,6 +1643,44 @@ def test_cmd_invoke_one_shot_accepts_explicit_timeout(agnt, monkeypatch, capsys)
     assert capsys.readouterr().out == "ok"
 
 
+def test_cmd_invoke_duplicate_fanout_targets_keep_each_local_metric(agnt, monkeypatch, tmp_path):
+    target = "openai-codex/gpt-5.6-luna"
+    prompts = []
+    for name in ("first", "second"):
+        path = tmp_path / f"{name}.md"
+        path.write_text(name, encoding="utf-8")
+        prompts.append(path)
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        return 0, prompt, "", {
+            "schemaVersion": 2,
+            "invocationId": f"id-{prompt}",
+            "recordId": f"record-{prompt}",
+            "target": target,
+            "elapsedMs": 1,
+            "usage": None,
+        }
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+    out_dir = tmp_path / "out"
+
+    assert agnt.cmd_invoke([
+        "--fanout",
+        "--output",
+        str(out_dir),
+        "--metrics-dir",
+        str(tmp_path / "central"),
+        target,
+        str(prompts[0]),
+        target,
+        str(prompts[1]),
+    ]) == 0
+
+    paths = [path for path in out_dir.glob("*.metrics.json") if path.name != "metrics.summary.json"]
+    records = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    assert {record["invocationId"] for record in records} == {"id-first", "id-second"}
+
+
 def test_metrics_record_includes_family_and_invocation_shape(agnt):
     usage = usage_tokens(input_tokens=10, output_tokens=2)
     usage["providerRequests"] = 1
@@ -1706,6 +1744,20 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
     assert len(record["artifactRefs"]) == 16
     assert all(not Path(ref).is_absolute() and len(ref) <= 256 for ref in record["artifactRefs"])
     assert "SECRET" not in json.dumps(record)
+
+
+def test_bounded_artifact_refs_reject_traversal_absolute_and_unbounded(agnt):
+    safe = [f"artifacts/{index}.txt" for index in range(20)]
+
+    refs = agnt.bounded_artifact_refs([
+        "../outside.txt",
+        "artifacts/../../outside.txt",
+        "/private/secret.txt",
+        "x" * 257,
+        *safe,
+    ])
+
+    assert refs == safe[:16]
 
 
 def test_legacy_metrics_record_remains_readable(agnt, tmp_path):

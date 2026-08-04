@@ -110,6 +110,8 @@ completedAt: null
 `result.yaml.invocationId` must match the canonical identity in
 `invocation.yaml`, not the readable bundle `id`. Validators still accept legacy
 v1 bundles, where `result.yaml.invocationId` matched `invocation.yaml.id`.
+Invoking one upgrades both records to v2 with a fresh canonical ID while
+retaining the readable `invocation.yaml.id`.
 
 Allowed statuses:
 

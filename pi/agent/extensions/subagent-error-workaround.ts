@@ -16,6 +16,7 @@ type SubagentInput = {
 };
 
 type SubagentResult = {
+  agent?: string;
   exitCode?: number;
   task?: string;
   model?: string;
@@ -363,45 +364,16 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     if (!process.env.PI_SUBAGENT_SOCKET) recordToolSignal(interactiveToolSignals, event);
     if (event.toolName !== "subagent") return;
 
-    const details = event.details as SubagentDetails | undefined;
+    let details = event.details as SubagentDetails | undefined;
     const invocation = starts.get(event.toolCallId) ?? { startedMs: Date.now(), invocationIds: [] };
     starts.delete(event.toolCallId);
-    while (invocation.invocationIds.length < Math.max(1, details?.results?.length ?? 0)) {
-      invocation.invocationIds.push(randomUUID());
-    }
-    try {
-      await recordSubagentMetrics(event, ctx, invocation);
-    } catch (error) {
-      console.error("[subagent-metrics] could not record invocation:", error);
-    }
-
-    if (details?.results?.length) {
-      await Promise.all(details.results.map(async (result, index) => {
-        const task = (event.input as SubagentInput).tasks?.[index]?.task ?? (event.input as SubagentInput).task ?? result.task;
-        try {
-          await (await getObserve())("subagent-result", {
-            input: task,
-            output: result.finalOutput ?? result.error,
-            metadata: { invocationId: invocation.invocationIds[index], index, model: result.model, exitCode: result.exitCode ?? 1 },
-            level: result.exitCode === 0 ? "DEFAULT" : "ERROR",
-          }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
-        } catch (error) {
-          console.error("[langfuse-projection] could not record subagent result:", error);
-        }
-      }));
-    }
     if (!details || !Array.isArray(details.results)) return;
-    if (details.results.some((result) => result.exitCode !== 0)) return { isError: true };
-    if (details.results.length > 0) return;
 
     const input = event.input as SubagentInput;
-    const error = event.content.find((part) => part.type === "text")?.text
-      ?? "Subagent failed without error details";
-    const tasks = input.tasks ?? [];
-
-    return {
-      isError: true,
-      details: {
+    const synthesized = details.results.length === 0;
+    if (synthesized) {
+      const tasks = input.tasks ?? [];
+      details = {
         ...details,
         results: [{
           agent: input.agent ?? (tasks.map((task) => task.agent).filter(Boolean).join(", ") || "subagent"),
@@ -409,12 +381,34 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
           exitCode: 1,
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 },
           model: input.model ?? tasks[0]?.model,
-          finalOutput: undefined,
-          error,
-          progress: undefined,
-          progressSummary: undefined,
+          error: event.content.find((part) => part.type === "text")?.text
+            ?? "Subagent failed without error details",
         }],
-      },
-    };
+      };
+    }
+    while (invocation.invocationIds.length < Math.max(1, details.results.length)) {
+      invocation.invocationIds.push(randomUUID());
+    }
+    try {
+      await recordSubagentMetrics({ ...event, details }, ctx, invocation);
+    } catch (error) {
+      console.error("[subagent-metrics] could not record invocation:", error);
+    }
+
+    await Promise.all(details.results.map(async (result, index) => {
+      const task = input.tasks?.[index]?.task ?? input.task ?? result.task;
+      try {
+        await (await getObserve())("subagent-result", {
+          input: task,
+          output: result.finalOutput ?? result.error,
+          metadata: { invocationId: invocation.invocationIds[index], index, model: result.model, exitCode: result.exitCode ?? 1 },
+          level: result.exitCode === 0 ? "DEFAULT" : "ERROR",
+        }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
+      } catch (error) {
+        console.error("[langfuse-projection] could not record subagent result:", error);
+      }
+    }));
+    if (synthesized) return { isError: true, details };
+    if (details.results.some((result) => result.exitCode !== 0)) return { isError: true };
   });
 }

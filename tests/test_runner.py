@@ -491,6 +491,59 @@ def test_canonical_invocation_id_survives_run_start_result_and_metrics(agnt, mon
     assert agnt.validate_run_bundle(bundle) == []
 
 
+def test_legacy_v1_bundle_execution_migrates_to_fresh_canonical_invocation_id(agnt, monkeypatch, tmp_path):
+    bundle = tmp_path / "legacy-readable-id"
+    bundle.mkdir()
+    agnt.write_yaml_json(bundle / "invocation.yaml", {
+        "schemaVersion": 1,
+        "id": "legacy-readable-id",
+        "action": "review",
+        "routingTask": "review",
+        "model": "olla-cloud/gpt-4.1-mini",
+        "allowedEffects": ["read_workspace", "write_artifacts"],
+        "createdAt": "2026-06-27T01:02:03Z",
+    })
+    agnt.write_yaml_json(bundle / "result.yaml", {
+        "schemaVersion": 1,
+        "invocationId": "legacy-readable-id",
+        "status": "needs-human",
+        "summary": "Legacy bundle",
+        "evidence": [],
+        "artifacts": [],
+        "followUps": [],
+    })
+    assert agnt.validate_run_bundle(bundle) == []
+    captured = {}
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        captured.update(kwargs)
+        return 0, "OK: legacy bundle executed", "", {
+            "schemaVersion": 2,
+            "invocationId": kwargs["invocation_id"],
+            "recordId": "legacy-selector",
+            "target": target,
+            "artifactRefs": [],
+        }
+
+    monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", fake_invoke_one)
+    agnt.invoke_run_bundle(bundle, metrics_dir=tmp_path / "metrics")
+
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    result = agnt.load_yaml_json(bundle / "result.yaml")
+    metric = agnt.load_yaml_json(next((tmp_path / "metrics").glob("*.metrics.json")))
+    events = [json.loads(line) for line in (bundle / "live" / "session.jsonl").read_text(encoding="utf-8").splitlines()]
+    invocation_id = captured["invocation_id"]
+    UUID(invocation_id)
+    assert invocation_id != invocation["id"]
+    assert invocation["schemaVersion"] == 2
+    assert invocation["invocationId"] == invocation_id
+    assert result["schemaVersion"] == 2
+    assert result["invocationId"] == invocation_id
+    assert metric["invocationId"] == invocation_id
+    assert all(event["invocationId"] == invocation_id for event in events)
+    assert agnt.validate_run_bundle(bundle) == []
+
+
 def test_render_invocation_prompt_includes_ticket_description(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="review",

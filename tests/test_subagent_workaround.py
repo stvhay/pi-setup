@@ -369,6 +369,52 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
     run_node(script)
 
 
+def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readFile, readdir }} from "node:fs/promises";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const input = {{ task: "private task", model: "openai-codex/gpt-5.6-luna" }};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "empty", input }}, ctx);
+      const result = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "empty",
+        input,
+        content: [{{ type: "text", text: "worker failed before yielding results" }}],
+        details: {{ mode: "single", results: [] }},
+        isError: false,
+      }}, ctx);
+
+      const dir = `${{cwd}}/.pi/metrics/invocations`;
+      let records = [];
+      try {{
+        const files = await readdir(dir);
+        records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(`${{dir}}/${{file}}`, "utf8"))));
+      }} catch {{}}
+
+      assert.equal(result.isError, true);
+      assert.equal(result.details.results.length, 1);
+      assert.equal(records.length, 1);
+      const invocationId = records[0].invocationId;
+      assert.equal(records[0].status, "failed");
+      assert.equal(observations.length, 1);
+      assert.equal(observations[0].attributes.metadata.invocationId, invocationId);
+      assert.equal(/^[0-9a-f-]{{36}}$/.test(invocationId), true);
+    """
+    run_node(script)
+
+
 def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
     script = f"""
       import assert from "node:assert/strict";
