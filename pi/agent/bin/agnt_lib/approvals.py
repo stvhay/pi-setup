@@ -12,6 +12,7 @@ from .work import run_beads_json
 
 VALID_KINDS = {"approval", "question"}
 VALID_OUTCOMES = {"approved", "answered", "rejected", "cancelled", "timed-out"}
+SELECTION_MODES = {"single", "multi"}
 CLOSING_OUTCOMES = {"approved", "answered"}
 BLOCKED_OUTCOMES = VALID_OUTCOMES - CLOSING_OUTCOMES
 REQUIRED_PREVIEW_FIELDS = ["action", "scope", "consequences", "reversibility", "closeoutPath"]
@@ -50,6 +51,7 @@ def _normalize_preview(preview: Dict[str, Any] | None) -> Dict[str, str]:
 def approval_request_payload(
     *,
     kind: str,
+    selection_mode: str | None = None,
     target_bead: str,
     question: str,
     context: str,
@@ -67,6 +69,11 @@ def approval_request_payload(
     """
     if kind not in VALID_KINDS:
         raise ValueError(f"kind must be one of {sorted(VALID_KINDS)}")
+    normalized_selection_mode = None
+    if kind == "question":
+        normalized_selection_mode = _require_nonempty("selection_mode", selection_mode)
+        if normalized_selection_mode not in SELECTION_MODES:
+            raise ValueError(f"selection_mode must be one of {sorted(SELECTION_MODES)}")
     target = _require_nonempty("target_bead", target_bead)
     prompt = _require_nonempty("question", question)
     body_context = _require_nonempty("context", context)
@@ -95,6 +102,8 @@ def approval_request_payload(
         "status": "pending",
         "createdAt": timestamp,
     }
+    if normalized_selection_mode is not None:
+        approval["selectionMode"] = normalized_selection_mode
     metadata = {"pi": {"approval": approval}}
     description = "\n".join([
         f"Beads-backed {kind} request.",
@@ -108,6 +117,7 @@ def approval_request_payload(
         *[f"- {item}" for item in choices],
         "",
         f"Requested default: {chosen_default}",
+        *([f"Selection mode: {normalized_selection_mode}"] if normalized_selection_mode else []),
         f"Target bead: {target}",
         "",
         "Approval preview:",
@@ -148,6 +158,7 @@ def _decision_id_from_create(data: Any) -> str:
 def create_beads_approval_request(
     *,
     kind: str,
+    selection_mode: str | None = None,
     target_bead: str,
     question: str,
     context: str,
@@ -160,6 +171,7 @@ def create_beads_approval_request(
 ) -> Dict[str, Any]:
     payload = approval_request_payload(
         kind=kind,
+        selection_mode=selection_mode,
         target_bead=target_bead,
         question=question,
         context=context,
@@ -234,6 +246,8 @@ def _approval_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     approval = pi.setdefault("approval", {})
     if not isinstance(approval, dict):
         pi["approval"] = approval = {}
+    if approval.get("kind") == "question" and "selectionMode" not in approval:
+        approval["selectionMode"] = "single"
     return approval
 
 
@@ -249,9 +263,6 @@ def resolve_beads_approval_request(
     decision = _require_nonempty("decision_bead", decision_bead)
     if outcome not in VALID_OUTCOMES:
         raise ValueError(f"outcome must be one of {sorted(VALID_OUTCOMES)}")
-    if outcome in CLOSING_OUTCOMES:
-        if not isinstance(resolver, dict) or resolver.get("kind") != "human-ui" or not isinstance(resolver.get("sessionId"), str) or not resolver["sessionId"].strip():
-            raise ValueError("approved or answered outcomes require human-ui resolver provenance")
     answer_text = answer.strip() if isinstance(answer, str) and answer.strip() else outcome
 
     show_code, show_data, show_err = beads_runner(["show", decision])
@@ -259,6 +270,13 @@ def resolve_beads_approval_request(
     metadata = _metadata_from_bead(shown)
     approval = _approval_from_metadata(metadata)
     kind = str(approval.get("kind") or "approval")
+    if kind == "question" and outcome == "approved":
+        raise ValueError("question decisions cannot resolve as approved")
+    if kind == "approval" and outcome == "answered":
+        raise ValueError("approval decisions cannot resolve as answered")
+    if outcome in CLOSING_OUTCOMES:
+        if not isinstance(resolver, dict) or resolver.get("kind") != "human-ui" or not isinstance(resolver.get("sessionId"), str) or not resolver["sessionId"].strip():
+            raise ValueError("approved or answered outcomes require human-ui resolver provenance")
     approval.pop("requestingRun", None)
     approval.update({
         "status": outcome,
@@ -338,6 +356,7 @@ def cmd_approvals(argv: List[str]) -> int:
 
     request = sub.add_parser("request", help="create a durable decision bead and blocker")
     request.add_argument("--kind", choices=sorted(VALID_KINDS), required=True)
+    request.add_argument("--selection-mode", choices=sorted(SELECTION_MODES))
     request.add_argument("--target-bead", required=True)
     request.add_argument("--question", required=True)
     request.add_argument("--context", required=True)
@@ -364,8 +383,11 @@ def cmd_approvals(argv: List[str]) -> int:
     args = parser.parse_args(argv)
     try:
         if args.cmd == "request":
+            if args.kind == "question" and args.selection_mode is None:
+                raise ValueError("selection_mode is required")
             result = create_beads_approval_request(
                 kind=args.kind,
+                selection_mode=args.selection_mode,
                 target_bead=args.target_bead,
                 question=args.question,
                 context=args.context,
