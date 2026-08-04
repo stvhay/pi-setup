@@ -394,6 +394,7 @@ def _block_for_budget(
     save_scheduler_state(root, state, now=now)
     blocker = blocker_creator(
         kind="question",
+        selection_mode="single",
         target_bead=str(base.get("bead") or ""),
         question=f"Resolve runner budget blocker for {base.get('bead')}",
         context=context,
@@ -555,6 +556,7 @@ def runner_scheduler_tick(
                 continue
             blocker = blocker_creator(
                 kind="question",
+                selection_mode="single",
                 target_bead=bead_id,
                 question=f"Resolve runner dispatch blocker for {bead_id}",
                 context=context,
@@ -603,6 +605,7 @@ def runner_scheduler_tick(
                 continue
             blocker = blocker_creator(
                 kind="question",
+                selection_mode="single",
                 target_bead=bead_id,
                 question=f"Resolve runner worktree blocker for {bead_id}",
                 context=context,
@@ -700,6 +703,7 @@ def runner_scheduler_tick(
             )
             blocker = blocker_creator(
                 kind="question",
+                selection_mode="single",
                 target_bead=bead_id,
                 question=f"Resolve failed runner attempt for {bead_id}",
                 context=context,

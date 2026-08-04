@@ -141,6 +141,9 @@ def test_question_selection_mode_is_required_and_validated(agnt):
     with pytest.raises(ValueError, match="selection_mode is required"):
         agnt.approval_request_payload(**kwargs)
 
+    with pytest.raises(ValueError, match="selection_mode is required"):
+        agnt.create_beads_approval_request(**kwargs, beads_runner=FakeBeads())
+
     with pytest.raises(ValueError, match="selection_mode must be one of"):
         agnt.approval_request_payload(**kwargs, selection_mode="either")
 
@@ -334,7 +337,7 @@ def test_tracked_beads_have_public_safe_approval_provenance():
     assert unsafe == []
 
 
-def test_beads_question_bridge_returns_all_multi_selected_options(tmp_path):
+def test_beads_question_bridge_preserves_multi_selection_and_cancellation(tmp_path):
     agent_dir = tmp_path / "agent"
     bin_dir = agent_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -363,8 +366,7 @@ fi
       assert.deepEqual(loaded.errors, []);
       const tool = loaded.extensions[0].tools.get("ticket_question").definition;
       assert(tool.parameters.required.includes("selectionMode"));
-      const confirmations = [true, false, true];
-      const result = await tool.execute("call", {{
+      const params = {{
         targetBead: "pi-work.2",
         question: "Choose components",
         context: "Need durable selection.",
@@ -377,13 +379,31 @@ fi
           reversibility: "Can ask again",
           closeoutPath: "Resolve decision",
         }},
-      }}, undefined, undefined, {{
+      }};
+      const choices = [true, false, true];
+      const result = await tool.execute("call", params, undefined, undefined, {{
         cwd: {str(tmp_path)!r},
         hasUI: true,
-        ui: {{ confirm: async () => confirmations.shift() }},
+        ui: {{ select: async (_title, options) => choices.shift() ? options[0] : options[1] }},
         sessionManager: {{ getSessionId: () => "session-1" }},
       }});
       assert.match(result.content[0].text, /answered/);
+
+      const cancelled = await tool.execute("cancel", params, undefined, undefined, {{
+        cwd: {str(tmp_path)!r},
+        hasUI: true,
+        ui: {{ select: async () => undefined }},
+        sessionManager: {{ getSessionId: () => "session-1" }},
+      }});
+      assert.match(cancelled.content[0].text, /cancelled/);
+
+      const empty = await tool.execute("empty", params, undefined, undefined, {{
+        cwd: {str(tmp_path)!r},
+        hasUI: true,
+        ui: {{ select: async (_title, options) => options[1] }},
+        sessionManager: {{ getSessionId: () => "session-1" }},
+      }});
+      assert.match(empty.content[0].text, /answered/);
     """
     subprocess.run(
         ["node", "--input-type=module", "-e", script],
@@ -396,10 +416,16 @@ fi
             "FAKE_AGNT_CALLS": str(calls),
         },
     )
-    request, resolve = calls.read_text(encoding="utf-8").splitlines()
+    request, resolve, cancel_request, cancel_resolve, empty_request, empty_resolve = calls.read_text(encoding="utf-8").splitlines()
     assert "--selection-mode multi" in request
     assert "--outcome answered" in resolve
     assert "--answer Answered in Pi UI: [A, C]" in resolve
+    assert "--selection-mode multi" in cancel_request
+    assert "--outcome cancelled" in cancel_resolve
+    assert "--answer Cancelled in Pi UI" in cancel_resolve
+    assert "--selection-mode multi" in empty_request
+    assert "--outcome answered" in empty_resolve
+    assert "--answer Answered in Pi UI: []" in empty_resolve
 
 
 def test_beads_ask_bridge_extension_registers_ticket_tools():

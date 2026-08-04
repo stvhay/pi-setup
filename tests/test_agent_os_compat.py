@@ -204,15 +204,17 @@ export default function registerArchimedes(pi) {
   pi.registerTool({
     name: "ask",
     upstream: true,
-    async execute(_id, params) {
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      (globalThis.__upstreamAskCalls ??= []).push({ params, mode: ctx.mode });
       return {
         content: [{ type: "text", text: "legacy" }],
         details: {
+          usedUpstream: true,
           multi: params.questions[0].multi,
           results: params.questions.map((question) => ({
             id: question.id,
             multi: question.multi,
-            selectedOptions: question.multi ? [question.options[0].label] : [],
+            selectedOptions: [question.options[0].label],
           })),
         },
       };
@@ -240,6 +242,7 @@ export default function registerArchimedes(pi) {
       import assert from "node:assert/strict";
       import archimedes from {ARCHIMEDES_WRAPPER.as_uri()!r};
 
+      globalThis.__upstreamAskCalls = [];
       for (const mode of ["tui", "rpc"]) {{
         const tools = [];
         const commands = [];
@@ -273,6 +276,7 @@ export default function registerArchimedes(pi) {
         }});
         assert.equal(missing.questions[0].selectionMode, undefined);
 
+        const upstreamCallsBefore = globalThis.__upstreamAskCalls.length;
         if (mode === "tui") {{
           const result = await ask.execute("single", {{ questions: [{{
             id: "target",
@@ -281,10 +285,16 @@ export default function registerArchimedes(pi) {
             selectionMode: "single",
             recommended: 1,
           }}] }}, undefined, undefined, {{ mode, hasUI: true, ui: {{
-            select: async (_title, options) => options[1],
+            select: async () => assert.fail("portable picker replaced upstream TUI"),
           }} }});
-          assert.deepEqual(result.details.results[0].selectedOptions, ["Beta"]);
+          assert.deepEqual(result.details.results[0].selectedOptions, ["Alpha"]);
           assert.equal(result.details.results[0].selectionMode, "single");
+          assert.equal(result.details.usedUpstream, true);
+          assert.equal(globalThis.__upstreamAskCalls.length, upstreamCallsBefore + 1);
+          const upstreamCall = globalThis.__upstreamAskCalls.at(-1);
+          assert.equal(upstreamCall.mode, "tui");
+          assert.equal(upstreamCall.params.questions[0].multi, false);
+          assert.equal("selectionMode" in upstreamCall.params.questions[0], false);
         }} else {{
           const confirmations = [false, true, true];
           const result = await ask.execute("multi", {{ questions: [{{
@@ -299,8 +309,10 @@ export default function registerArchimedes(pi) {
           assert.deepEqual(result.details.results[0].selectedOptions, ["Two"]);
           assert.equal(result.details.results[0].customInput, "custom value");
           assert.equal(result.details.results[0].selectionMode, "multi");
+          assert.equal(globalThis.__upstreamAskCalls.length, upstreamCallsBefore);
         }}
 
+        const headlessCallsBefore = globalThis.__upstreamAskCalls.length;
         const headless = await ask.execute("headless", {{ questions: [{{
           id: "delegated",
           question: "Delegate?",
@@ -311,6 +323,12 @@ export default function registerArchimedes(pi) {
         assert.equal(headless.details.results[0].selectionMode, "multi");
         assert.equal("multi" in headless.details.results[0], false);
         assert.equal("multi" in headless.details, false);
+        assert.equal(headless.details.usedUpstream, true);
+        assert.equal(globalThis.__upstreamAskCalls.length, headlessCallsBefore + 1);
+        const headlessCall = globalThis.__upstreamAskCalls.at(-1);
+        assert.equal(headlessCall.mode, "print");
+        assert.equal(headlessCall.params.questions[0].multi, true);
+        assert.equal("selectionMode" in headlessCall.params.questions[0], false);
       }}
     """
     run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})

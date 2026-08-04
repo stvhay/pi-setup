@@ -168,7 +168,8 @@ function registerPortableAsk(pi: ExtensionAPI, upstreamAsk?: ToolDefinition, emi
     parameters: askParameters as any,
     prepareArguments: prepareAskArguments,
     async execute(toolCallId, params: { questions: Question[] }, signal, onUpdate, ctx) {
-      if (!ctx.hasUI && upstreamAsk?.execute) {
+      if (ctx.mode !== "rpc") {
+        if (!upstreamAsk?.execute) throw new Error("Archimedes ask tool is unavailable");
         const legacy = {
           questions: params.questions.map(({ selectionMode, ...question }) => ({
             ...question,

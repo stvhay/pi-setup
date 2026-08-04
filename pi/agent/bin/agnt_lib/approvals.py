@@ -171,7 +171,7 @@ def create_beads_approval_request(
 ) -> Dict[str, Any]:
     payload = approval_request_payload(
         kind=kind,
-        selection_mode="single" if kind == "question" and selection_mode is None else selection_mode,
+        selection_mode=selection_mode,
         target_bead=target_bead,
         question=question,
         context=context,

@@ -120,7 +120,10 @@ async function askQuestion(params: RequestParams, ui: any, title: string): Promi
 	if (params.selectionMode === "multi") {
 		const selected: string[] = [];
 		for (const option of params.options) {
-			if (await ui.confirm(title, `Select “${option}”?`)) selected.push(option);
+			const select = `Select “${option}”`;
+			const choice = await ui.select(title, [select, `Skip “${option}”`]);
+			if (choice === undefined) return { answered: false, answer: "" };
+			if (choice === select) selected.push(option);
 		}
 		return { answered: true, answer: `[${selected.join(", ")}]` };
 	}
