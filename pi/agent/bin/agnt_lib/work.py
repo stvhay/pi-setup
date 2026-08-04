@@ -750,7 +750,7 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
         })
         return {"schemaVersion": 1, "status": "error", "bead": bead, "stages": stages, "repair": None}
 
-    retry_command = f"agnt direct start {bead_id}" + (" --claim" if claim else "")
+    retry_command = f"agnt work direct-start {bead_id}" + (" --claim" if claim else "")
     code, data, _error = run_beads_json(["show", bead_id])
     shown = normalize_bead(data)
     if code != 0 or not shown:
@@ -806,27 +806,12 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
     return {"schemaVersion": 1, "status": "started", "bead": bead, "stages": stages, "repair": None}
 
 
-def cmd_direct(argv: List[str]) -> int:
-    parser = argparse.ArgumentParser(prog="agnt direct", description="Start ordinary direct work without orchestration artifacts.")
-    sub = parser.add_subparsers(dest="command")
-    start = sub.add_parser("start", help="validate a bead, optionally claim it, and link this Pi session")
-    start.add_argument("bead_id")
-    start.add_argument("--claim", action="store_true", help="claim the bead only when it is not already in progress")
-    if not argv:
-        parser.print_help()
-        return 0
-    args = parser.parse_args(argv)
-    if args.command != "start":
-        parser.print_help(sys.stderr)
-        return 2
-    result = direct_start(args.bead_id, claim=args.claim)
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
-
-
 def cmd_work(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt work", description="Inspect beads-backed ready work and construct gated dispatch/run artifacts.")
     sub = parser.add_subparsers(dest="command")
+    direct_start_cmd = sub.add_parser("direct-start", help="validate a bead, optionally claim it, and link this Pi session")
+    direct_start_cmd.add_argument("bead_id")
+    direct_start_cmd.add_argument("--claim", action="store_true", help="claim the bead only when it is not already in progress")
     next_cmd = sub.add_parser("next", help="show the next ready bead")
     next_cmd.add_argument("--json", action="store_true")
     plan = sub.add_parser("plan", help="construct a dry-run dispatch plan for a bead")
@@ -939,6 +924,10 @@ def cmd_work(argv: List[str]) -> int:
         parser.print_help()
         return 0
     args = parser.parse_args(argv)
+    if args.command == "direct-start":
+        result = direct_start(args.bead_id, claim=args.claim)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
     if args.command == "next":
         code, data, err = run_beads_json(["ready"])
         if code != 0:

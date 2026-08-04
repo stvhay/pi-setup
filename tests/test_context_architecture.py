@@ -92,7 +92,8 @@ def test_approved_implementation_defaults_through_local_commit():
 def test_global_instructions_use_direct_lifecycle_start():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
 
-    assert "`agnt direct start <id> [--claim]`" in instructions
+    assert "`agnt work direct-start <id> [--claim]`" in instructions
+    assert "`agnt direct start" not in instructions
     assert "run `agnt improve link <id>`" not in instructions
     assert "does not create run bundles, runners, or worktrees" in instructions
 
