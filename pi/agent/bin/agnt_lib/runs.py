@@ -521,14 +521,14 @@ def invoke_run_bundle(
         metrics_path = artifacts_dir / f"{safe}.metrics.json"
         metrics_ref = relative_to_bundle(bundle, metrics_path)
         artifact_paths.append(metrics_ref)
-        record["status"] = status
+        record.update({"status": status, "exitCode": effective_code})
         if effective_code != 0 and not record.get("failureClass"):
             record["failureClass"] = "process"
         record["artifactRefs"] = bounded_artifact_refs(artifact_paths)
         write_json(metrics_path, record)
         central_dir = metrics_dir or default_metrics_dir()
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-        write_json(central_dir / f"{stamp}-{safe}.metrics.json", record)
+        write_json(central_dir / f"{stamp}-{safe}-{invocation_id}.metrics.json", record)
     evidence = [f"invoke {target} exited {code}"]
     summary = f"Invoked {target}; exit code {code}."
     if unresolved_tool_call:

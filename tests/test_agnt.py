@@ -1651,10 +1651,13 @@ def test_cmd_invoke_duplicate_fanout_targets_keep_each_local_metric(agnt, monkey
         path.write_text(name, encoding="utf-8")
         prompts.append(path)
 
+    invocation_ids = iter(("id-first", "id-second"))
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "new_invocation_id", lambda: next(invocation_ids))
+
     def fake_invoke_one(target, prompt, **kwargs):
         return 0, prompt, "", {
             "schemaVersion": 2,
-            "invocationId": f"id-{prompt}",
+            "invocationId": kwargs["invocation_id"],
             "recordId": f"record-{prompt}",
             "target": target,
             "elapsedMs": 1,
@@ -1679,6 +1682,12 @@ def test_cmd_invoke_duplicate_fanout_targets_keep_each_local_metric(agnt, monkey
     paths = [path for path in out_dir.glob("*.metrics.json") if path.name != "metrics.summary.json"]
     records = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
     assert {record["invocationId"] for record in records} == {"id-first", "id-second"}
+    central = {
+        json.loads(path.read_text(encoding="utf-8"))["invocationId"]: path.name
+        for path in (tmp_path / "central").glob("*.metrics.json")
+    }
+    assert set(central) == {"id-first", "id-second"}
+    assert all(invocation_id in filename for invocation_id, filename in central.items())
 
 
 def test_cmd_invoke_duplicate_fanout_targets_keep_each_output(agnt, monkeypatch, tmp_path):

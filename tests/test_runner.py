@@ -634,6 +634,37 @@ def test_invoke_run_bundle_fails_explicit_error_terminal_response(agnt, monkeypa
     assert live_status["semanticOutcome"] == "error"
 
 
+def test_invoke_run_bundle_semantic_failure_metrics_use_effective_exit(agnt, monkeypatch, tmp_path):
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        bead="pi-ready.semantic-metrics",
+        runs_dir=tmp_path,
+        id_value="semantic-metrics",
+    )
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        return 0, "ERROR: verification failed.\n", "", {
+            "schemaVersion": 2,
+            "invocationId": kwargs["invocation_id"],
+            "recordId": "semantic-metrics",
+            "target": target,
+            "status": "succeeded",
+            "exitCode": 0,
+            "failureClass": None,
+            "artifactRefs": [],
+        }
+
+    monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", fake_invoke_one)
+
+    result = agnt.invoke_run_bundle(bundle, metrics_dir=tmp_path / "metrics")
+    metric = agnt.load_yaml_json(bundle / result["metricsRef"])
+
+    assert result["exitCode"] == metric["exitCode"] != 0
+    assert metric["status"] == "failed"
+    assert metric["failureClass"] == "process"
+
+
 def test_invoke_run_bundle_accepts_markdown_ok_terminal_response(agnt, monkeypatch, tmp_path):
     bundle = agnt.create_run_bundle(
         action="review",

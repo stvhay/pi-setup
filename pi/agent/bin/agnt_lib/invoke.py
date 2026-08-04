@@ -299,7 +299,7 @@ def cmd_invoke(argv: List[str]) -> int:
         if use_metrics and record is not None:
             metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-            write_json(metrics_dir / f"{stamp}-{safe_target_name(target)}.metrics.json", record)
+            write_json(metrics_dir / f"{stamp}-{safe_target_name(target)}-{record['invocationId']}.metrics.json", record)
         if err:
             print(err, file=sys.stderr, end="")
         print(out, end="")
@@ -361,7 +361,7 @@ def cmd_invoke(argv: List[str]) -> int:
                 write_json(out_dir / f"{safe}-{record['invocationId']}.metrics.json", record)
                 metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-                write_json(metrics_dir / f"{stamp}-{safe}.metrics.json", record)
+                write_json(metrics_dir / f"{stamp}-{safe}-{invocation_id}.metrics.json", record)
             if code != 0:
                 status = code
     if use_metrics:
