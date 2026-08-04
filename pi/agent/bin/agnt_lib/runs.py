@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from .core import die
 from .invoke import invoke_one, safe_target_name
-from .metrics import default_metrics_dir, git_root, write_json
+from .metrics import bounded_artifact_refs, default_metrics_dir, git_root, new_invocation_id, write_json
 from .tasks import preferred_models
 
 VALID_STATUSES = {"succeeded", "failed", "blocked", "needs-human", "superseded"}
@@ -101,10 +101,12 @@ def create_run_bundle(
     decision_refs: List[str] | None = None,
     human_approval: Dict[str, Any] | None = None,
     continuation: Dict[str, Any] | None = None,
+    parent_session_id: str | None = None,
     runs_dir: Path | None = None,
     id_value: str | None = None,
 ) -> Path:
     rid = id_value or run_id(action, bead)
+    invocation_id = new_invocation_id()
     bundle = (runs_dir or default_runs_dir()) / rid
     artifacts = bundle / "artifacts"
     live = bundle / "live"
@@ -124,7 +126,10 @@ def create_run_bundle(
     )
     normalized_decision_refs = _deduplicated_refs(decision_refs)
     provenance = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
+        "invocationId": invocation_id,
+        "parentSessionId": parent_session_id,
+        "workItem": bead,
         "bead": bead,
         "inputRefs": normalized_input_refs,
         "approvalRefs": normalized_approval_refs,
@@ -147,8 +152,11 @@ def create_run_bundle(
         "worktree": copy.deepcopy(worktree),
     }
     invocation = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "id": rid,
+        "invocationId": invocation_id,
+        "parentSessionId": parent_session_id,
+        "workItem": bead,
         "bead": bead,
         "action": action,
         "routingTask": routing_task,
@@ -176,12 +184,13 @@ def create_run_bundle(
         "provenance": provenance,
         "createdAt": utc_now(),
     }
-    session_log.write_text(json.dumps({"timestamp": utc_now(), "phase": "created", "runId": rid, "event": "run_bundle_created"}, sort_keys=True) + "\n", encoding="utf-8")
+    session_log.write_text(json.dumps({"timestamp": utc_now(), "phase": "created", "runId": rid, "invocationId": invocation_id, "event": "run_bundle_created"}, sort_keys=True) + "\n", encoding="utf-8")
     write_yaml_json(
         live_status,
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "runId": rid,
+            "invocationId": invocation_id,
             "phase": "created",
             "lastActivityAt": utc_now(),
             "currentModel": selected_model or model,
@@ -202,8 +211,8 @@ def create_run_bundle(
         str(handoff_path.relative_to(bundle)),
     ]
     result = {
-        "schemaVersion": 1,
-        "invocationId": rid,
+        "schemaVersion": 2,
+        "invocationId": invocation_id,
         "status": "needs-human",
         "summary": "Invocation artifact created; worker has not run yet.",
         "evidence": [],
@@ -255,7 +264,7 @@ def write_live_status(bundle: Path, **updates: Any) -> Dict[str, Any]:
     path = live / "status.json"
     current = load_yaml_json(path) if path.exists() else {"schemaVersion": 1, "runId": bundle.name}
     current.update(updates)
-    current["schemaVersion"] = 1
+    current["schemaVersion"] = 2
     current.setdefault("runId", bundle.name)
     current["lastActivityAt"] = utc_now()
     current.setdefault("liveLogPath", "live/session.jsonl")
@@ -441,6 +450,15 @@ def invoke_run_bundle(
     if failures:
         die("invalid run bundle: " + "; ".join(failures), 1)
     invocation = load_yaml_json(bundle / "invocation.yaml")
+    if invocation.get("schemaVersion") == 1:
+        invocation_id = new_invocation_id()
+        invocation.update({"schemaVersion": 2, "invocationId": invocation_id})
+        write_yaml_json(bundle / "invocation.yaml", invocation)
+        result = load_yaml_json(bundle / "result.yaml")
+        result.update({"schemaVersion": 2, "invocationId": invocation_id})
+        write_yaml_json(bundle / "result.yaml", result)
+    else:
+        invocation_id = str(invocation["invocationId"])
     target = choose_invocation_model(invocation, model)
     artifacts_dir = bundle / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -450,10 +468,11 @@ def invoke_run_bundle(
     timeout_seconds = invocation_timeout_seconds(invocation)
     timeout_deadline = (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat().replace("+00:00", "Z")
     pi_args = invocation_pi_args(invocation)
-    append_live_event(bundle, {"event": "worker_invocation_started", "phase": "running", "model": target, "timeoutSeconds": timeout_seconds})
+    append_live_event(bundle, {"event": "worker_invocation_started", "phase": "running", "invocationId": invocation_id, "model": target, "timeoutSeconds": timeout_seconds})
     write_live_status(
         bundle,
         phase="running",
+        invocationId=invocation_id,
         currentModel=target,
         currentTool="pi",
         timeoutSeconds=timeout_seconds,
@@ -473,6 +492,9 @@ def invoke_run_bundle(
         cwd=invocation_worker_cwd(invocation),
         pi_args=pi_args,
         timeout_seconds=timeout_seconds,
+        invocation_id=invocation_id,
+        parent_session_id=invocation.get("parentSessionId"),
+        work_item=invocation.get("workItem") or invocation.get("bead"),
     )
     unresolved_tool_call = code == 0 and contains_unresolved_tool_call(out)
     empty_terminal_response = code == 0 and not out.strip()
@@ -494,15 +516,19 @@ def invoke_run_bundle(
         relative_to_bundle(bundle, response_path),
         relative_to_bundle(bundle, stderr_path),
     ]
+    status = "succeeded" if effective_code == 0 else "failed"
     if metrics and record is not None:
         metrics_path = artifacts_dir / f"{safe}.metrics.json"
-        write_json(metrics_path, record)
         metrics_ref = relative_to_bundle(bundle, metrics_path)
         artifact_paths.append(metrics_ref)
+        record.update({"status": status, "exitCode": effective_code})
+        if effective_code != 0 and not record.get("failureClass"):
+            record["failureClass"] = "process"
+        record["artifactRefs"] = bounded_artifact_refs(artifact_paths)
+        write_json(metrics_path, record)
         central_dir = metrics_dir or default_metrics_dir()
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-        write_json(central_dir / f"{stamp}-{safe}.metrics.json", record)
-    status = "succeeded" if effective_code == 0 else "failed"
+        write_json(central_dir / f"{stamp}-{safe}-{invocation_id}.metrics.json", record)
     evidence = [f"invoke {target} exited {code}"]
     summary = f"Invoked {target}; exit code {code}."
     if unresolved_tool_call:
@@ -528,7 +554,7 @@ def invoke_run_bundle(
     evidence.append("handoff written to artifacts/handoff.md")
     if code == 124:
         evidence.append("worker timed out; inspect live/session.jsonl and artifacts/handoff.md for partial progress")
-    append_live_event(bundle, {"event": "worker_invocation_completed", "phase": status, "model": target, "exitCode": code, "effectiveExitCode": effective_code, "semanticOutcome": semantic_outcome})
+    append_live_event(bundle, {"event": "worker_invocation_completed", "phase": status, "invocationId": invocation_id, "model": target, "exitCode": code, "effectiveExitCode": effective_code, "semanticOutcome": semantic_outcome})
     write_live_status(bundle, phase=status, currentModel=target, currentTool=None, exitCode=code, effectiveExitCode=effective_code, semanticOutcome=semantic_outcome)
     write_handoff(bundle, status=status, summary=summary, evidence=evidence)
     result = update_run_result(
@@ -667,8 +693,11 @@ def validate_run_bundle(bundle: Path, *, followup_checker: Callable[[str], Tuple
     for key in required_invocation:
         if key not in invocation:
             failures.append(f"invocation missing {key}")
-    if invocation.get("schemaVersion") != 1:
-        failures.append("invocation schemaVersion must be 1")
+    invocation_version = invocation.get("schemaVersion")
+    if invocation_version not in {1, 2}:
+        failures.append("invocation schemaVersion must be 1 or 2")
+    if invocation_version == 2 and not isinstance(invocation.get("invocationId"), str):
+        failures.append("invocation invocationId must be a string")
     if not isinstance(invocation.get("allowedEffects"), list):
         failures.append("invocation allowedEffects must be a list")
     failures.extend(_optional_object_failures("invocation", invocation, ["ticketMetadata", "worktree", "dispatchPolicy", "modelSelection", "provenance"]))
@@ -678,10 +707,12 @@ def validate_run_bundle(bundle: Path, *, followup_checker: Callable[[str], Tuple
         failures.append(f"invocation sessionPolicy must be one of {sorted(VALID_SESSION_POLICIES)}")
     if invocation.get("memoryPolicy") is not None and invocation.get("memoryPolicy") not in VALID_MEMORY_POLICIES:
         failures.append(f"invocation memoryPolicy must be one of {sorted(VALID_MEMORY_POLICIES)}")
-    if result.get("schemaVersion") != 1:
-        failures.append("result schemaVersion must be 1")
-    if result.get("invocationId") != invocation.get("id"):
-        failures.append("result invocationId must match invocation id")
+    result_version = result.get("schemaVersion")
+    if result_version not in {1, 2}:
+        failures.append("result schemaVersion must be 1 or 2")
+    expected_invocation_id = invocation.get("invocationId") if invocation_version == 2 else invocation.get("id")
+    if result.get("invocationId") != expected_invocation_id:
+        failures.append("result invocationId must match canonical invocation id")
     status = result.get("status")
     if status not in VALID_STATUSES:
         failures.append(f"result status must be one of {sorted(VALID_STATUSES)}")

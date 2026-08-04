@@ -282,6 +282,10 @@ def test_subagent_results_emit_evaluator_ready_observations():
         sessionManager: {{ getSessionFile() {{ return "/private/private-session.jsonl"; }} }},
       }});
 
+      const invocationIds = observations.map((item) => item.attributes.metadata.invocationId);
+      assert.equal(new Set(invocationIds).size, 2);
+      assert.equal(invocationIds.every((id) => /^[0-9a-f-]{{36}}$/.test(id)), true);
+      for (const observation of observations) delete observation.attributes.metadata.invocationId;
       assert.deepEqual(observations, [
         {{
           name: "subagent-result",
@@ -304,6 +308,109 @@ def test_subagent_results_emit_evaluator_ready_observations():
           options: {{ asType: "agent", sessionId: "private-session" }},
         }},
       ]);
+    """
+    run_node(script)
+
+
+def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp_path):
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readFile, readdir }} from "node:fs/promises";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const input = {{ tasks: [
+        {{ task: "SECRET first task", model: "olla-cloud/gemini-flash" }},
+        {{ task: "SECRET second task", model: "openai-codex/gpt-5.6-luna" }},
+      ] }};
+      const ctx = {{
+        cwd,
+        model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }},
+        sessionManager: {{ getSessionFile() {{ return "/private/parent-session.jsonl"; }} }},
+      }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "parallel", input }}, ctx);
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel",
+        input,
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "parallel", results: [
+          {{ exitCode: 0, model: "gemini-flash", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
+          {{ exitCode: 2, model: "gpt-5.6-luna", error: "SECRET failure", usage: {{ turns: 1 }} }},
+        ] }},
+        isError: false,
+      }}, ctx);
+
+      const dir = `${{cwd}}/.pi/metrics/invocations`;
+      const files = await readdir(dir);
+      const records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(`${{dir}}/${{file}}`, "utf8"))));
+      records.sort((left, right) => left.childIndex - right.childIndex);
+      const ids = records.map((record) => record.invocationId);
+
+      assert.deepEqual(records.map((record) => record.schemaVersion), [2, 2]);
+      assert.equal(new Set(ids).size, 2);
+      assert.equal(ids.every((id) => /^[0-9a-f-]{{36}}$/.test(id)), true);
+      assert.deepEqual(records.map((record) => record.childIndex), [0, 1]);
+      assert.deepEqual(records.map((record) => record.parentSessionId), ["parent-session", "parent-session"]);
+      assert.deepEqual(records.map((record) => record.status), ["succeeded", "failed"]);
+      assert.deepEqual(records.map((record) => record.failureClass), [null, "process"]);
+      assert.deepEqual(records.map((record) => record.artifactRefs), [[], []]);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
+      assert.equal(JSON.stringify(records).includes("SECRET"), false);
+    """
+    run_node(script)
+
+
+def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readFile, readdir }} from "node:fs/promises";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const input = {{ task: "private task", model: "openai-codex/gpt-5.6-luna" }};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "empty", input }}, ctx);
+      const result = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "empty",
+        input,
+        content: [{{ type: "text", text: "worker failed before yielding results" }}],
+        details: {{ mode: "single", results: [] }},
+        isError: false,
+      }}, ctx);
+
+      const dir = `${{cwd}}/.pi/metrics/invocations`;
+      let records = [];
+      try {{
+        const files = await readdir(dir);
+        records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(`${{dir}}/${{file}}`, "utf8"))));
+      }} catch {{}}
+
+      assert.equal(result.isError, true);
+      assert.equal(result.details.results.length, 1);
+      assert.equal(records.length, 1);
+      const invocationId = records[0].invocationId;
+      assert.equal(records[0].status, "failed");
+      assert.equal(observations.length, 1);
+      assert.equal(observations[0].attributes.metadata.invocationId, invocationId);
+      assert.equal(/^[0-9a-f-]{{36}}$/.test(invocationId), true);
     """
     run_node(script)
 
@@ -404,7 +511,8 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       assert.equal(files.length, 4, "named profiles must be skipped when actual provider is unavailable");
       const records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(`${{dir}}/${{file}}`, "utf8"))));
       const single = records.find((record) => record.target === "openai-codex/gpt-5.6-luna");
-      assert.equal(single.schemaVersion, 1);
+      assert.equal(single.schemaVersion, 2);
+      assert.equal(/^[0-9a-f-]{{36}}$/.test(single.invocationId), true);
       assert.equal(single.invocationMode, "subagent");
       assert.equal(single.kind, "subagent");
       assert.equal(single.task, "peer");

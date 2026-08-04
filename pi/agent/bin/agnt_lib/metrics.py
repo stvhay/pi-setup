@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from uuid import uuid4
 
 import _agnt_common as common
 
@@ -23,6 +24,26 @@ def utc_now() -> str:
 # assumptions) live in catalog.json; these are last-resort code fallbacks.
 FALLBACK_GPU_WATTS = 34.2
 FALLBACK_ELECTRICITY_USD_PER_KWH = 0.1304
+MAX_ARTIFACT_REFS = 16
+MAX_ARTIFACT_REF_CHARS = 256
+
+
+def new_invocation_id() -> str:
+    return str(uuid4())
+
+
+def bounded_artifact_refs(refs: List[str] | None) -> List[str]:
+    bounded: List[str] = []
+    for value in refs or []:
+        if not isinstance(value, str):
+            continue
+        path = Path(value)
+        if not value or len(value) > MAX_ARTIFACT_REF_CHARS or path.is_absolute() or ".." in path.parts:
+            continue
+        bounded.append(value)
+        if len(bounded) == MAX_ARTIFACT_REFS:
+            break
+    return bounded
 
 
 def empty_usage() -> Dict[str, Any]:
@@ -210,6 +231,11 @@ def metrics_record(
     err: str,
     usage: Dict[str, Any] | None,
     usage_source: str,
+    invocation_id: str | None = None,
+    parent_session_id: str | None = None,
+    work_item: str | None = None,
+    failure_class: str | None = None,
+    artifact_refs: List[str] | None = None,
     risk_category: str | None = None,
     thinking_level: str | None = None,
     outcome: str = "unknown",
@@ -222,11 +248,18 @@ def metrics_record(
     if outcome not in VALID_OUTCOMES:
         outcome = "unknown"
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
+        "invocationId": invocation_id or new_invocation_id(),
         "recordId": record_id(started_at, target, task),
+        "parentSessionId": parent_session_id,
+        "workItem": work_item,
         "startedAt": started_at,
         "endedAt": ended_at,
+        "durationMs": elapsed_ms,
         "elapsedMs": elapsed_ms,
+        "status": "succeeded" if code == 0 else "failed",
+        "failureClass": failure_class if code != 0 else None,
+        "artifactRefs": bounded_artifact_refs(artifact_refs),
         "task": task,
         "family": common.family_for_target(target),
         "riskCategory": risk_category,
@@ -499,10 +532,18 @@ def current_head() -> str | None:
 
 def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
     return {
+        "schemaVersion": record.get("schemaVersion", 1),
+        "invocationId": record.get("invocationId"),
         "recordId": record.get("recordId"),
+        "parentSessionId": record.get("parentSessionId"),
+        "workItem": record.get("workItem"),
         "startedAt": record.get("startedAt"),
         "endedAt": record.get("endedAt"),
+        "durationMs": record.get("durationMs", record.get("elapsedMs")),
         "elapsedMs": record.get("elapsedMs"),
+        "failureClass": record.get("failureClass"),
+        "artifactRefs": bounded_artifact_refs(record.get("artifactRefs")),
+        "childIndex": record.get("childIndex"),
         "task": record.get("task"),
         "riskCategory": record.get("riskCategory"),
         "thinkingLevel": record.get("thinkingLevel"),

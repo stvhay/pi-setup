@@ -1643,6 +1643,126 @@ def test_cmd_invoke_one_shot_accepts_explicit_timeout(agnt, monkeypatch, capsys)
     assert capsys.readouterr().out == "ok"
 
 
+def test_cmd_invoke_duplicate_fanout_targets_keep_each_local_metric(agnt, monkeypatch, tmp_path):
+    target = "openai-codex/gpt-5.6-luna"
+    prompts = []
+    for name in ("first", "second"):
+        path = tmp_path / f"{name}.md"
+        path.write_text(name, encoding="utf-8")
+        prompts.append(path)
+
+    invocation_ids = iter(("id-first", "id-second"))
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "new_invocation_id", lambda: next(invocation_ids))
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        return 0, prompt, "", {
+            "schemaVersion": 2,
+            "invocationId": kwargs["invocation_id"],
+            "recordId": f"record-{prompt}",
+            "target": target,
+            "elapsedMs": 1,
+            "usage": None,
+        }
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+    out_dir = tmp_path / "out"
+
+    assert agnt.cmd_invoke([
+        "--fanout",
+        "--output",
+        str(out_dir),
+        "--metrics-dir",
+        str(tmp_path / "central"),
+        target,
+        str(prompts[0]),
+        target,
+        str(prompts[1]),
+    ]) == 0
+
+    paths = [path for path in out_dir.glob("*.metrics.json") if path.name != "metrics.summary.json"]
+    records = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    assert {record["invocationId"] for record in records} == {"id-first", "id-second"}
+    central = {
+        json.loads(path.read_text(encoding="utf-8"))["invocationId"]: path.name
+        for path in (tmp_path / "central").glob("*.metrics.json")
+    }
+    assert set(central) == {"id-first", "id-second"}
+    assert all(invocation_id in filename for invocation_id, filename in central.items())
+
+
+def test_cmd_invoke_duplicate_fanout_targets_keep_each_output(agnt, monkeypatch, tmp_path):
+    target = "openai-codex/gpt-5.6-luna"
+    prompts = []
+    for name in ("first", "second"):
+        path = tmp_path / f"{name}.md"
+        path.write_text(name, encoding="utf-8")
+        prompts.append(path)
+
+    invocation_ids = iter(("id-first", "id-second"))
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "new_invocation_id", lambda: next(invocation_ids))
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        invocation_id = kwargs.get("invocation_id", f"id-{prompt}")
+        return 0, f"out-{prompt}", f"err-{prompt}", {
+            "schemaVersion": 2,
+            "invocationId": invocation_id,
+            "recordId": f"record-{prompt}",
+            "target": target,
+            "elapsedMs": 1,
+            "usage": None,
+        }
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+    out_dir = tmp_path / "out"
+
+    assert agnt.cmd_invoke([
+        "--fanout",
+        "--output",
+        str(out_dir),
+        "--metrics-dir",
+        str(tmp_path / "central"),
+        target,
+        str(prompts[0]),
+        target,
+        str(prompts[1]),
+    ]) == 0
+
+    safe = agnt.safe_target_name(target)
+    outputs = {path.name: path.read_text(encoding="utf-8") for path in out_dir.glob("*.md")}
+    errors = {path.name: path.read_text(encoding="utf-8") for path in out_dir.glob("*.err")}
+    assert outputs == {
+        f"{safe}-id-first.md": "out-first",
+        f"{safe}-id-second.md": "out-second",
+    }
+    assert errors == {
+        f"{safe}-id-first.err": "err-first",
+        f"{safe}-id-second.err": "err-second",
+    }
+
+
+def test_cmd_invoke_single_fanout_target_keeps_simple_output_names(agnt, monkeypatch, tmp_path):
+    target = "openai-codex/gpt-5.6-luna"
+
+    def fake_invoke_one(target, prompt, **kwargs):
+        return 0, "only-output", "only-error", None
+
+    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
+    out_dir = tmp_path / "out"
+
+    assert agnt.cmd_invoke([
+        "--fanout",
+        "--no-metrics",
+        "--output",
+        str(out_dir),
+        target,
+        "only prompt",
+    ]) == 0
+
+    safe = agnt.safe_target_name(target)
+    assert (out_dir / f"{safe}.md").read_text(encoding="utf-8") == "only-output"
+    assert (out_dir / f"{safe}.err").read_text(encoding="utf-8") == "only-error"
+
+
 def test_metrics_record_includes_family_and_invocation_shape(agnt):
     usage = usage_tokens(input_tokens=10, output_tokens=2)
     usage["providerRequests"] = 1
@@ -1663,6 +1783,89 @@ def test_metrics_record_includes_family_and_invocation_shape(agnt):
     assert record["family"] == "gemma4-31b"
     assert record["invocationMode"] == "one-shot"
     assert record["providerRequests"] == 1
+
+
+def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
+    invocation_id = "018f47a8-62c4-7e91-a969-7b4f6c78d308"
+    usage = usage_tokens(input_tokens=10, output_tokens=2)
+    record = agnt.metrics_record(
+        invocation_id=invocation_id,
+        target="olla-cloud/gpt-4.1-mini",
+        task="review",
+        started_at="2026-06-09T00:00:00Z",
+        ended_at="2026-06-09T00:00:01Z",
+        elapsed_ms=1000,
+        code=0,
+        prompt="SECRET prompt",
+        out="SECRET output",
+        err="SECRET stderr",
+        usage=usage,
+        usage_source="message_end",
+        parent_session_id="parent-session",
+        work_item="pi-test.2",
+        artifact_refs=[
+            "artifacts/report.md",
+            "/private/secret.txt",
+            "x" * 257,
+            *[f"artifacts/{index}.txt" for index in range(20)],
+        ],
+    )
+
+    assert record["schemaVersion"] == 2
+    assert record["invocationId"] == invocation_id
+    assert record["recordId"]
+    assert record["parentSessionId"] == "parent-session"
+    assert record["workItem"] == "pi-test.2"
+    assert record["provider"] == "olla-cloud"
+    assert record["model"] == "gpt-4.1-mini"
+    assert record["target"] == "olla-cloud/gpt-4.1-mini"
+    assert record["status"] == "succeeded"
+    assert record["failureClass"] is None
+    assert record["durationMs"] == 1000
+    assert record["artifactRefs"][0] == "artifacts/report.md"
+    assert len(record["artifactRefs"]) == 16
+    assert all(not Path(ref).is_absolute() and len(ref) <= 256 for ref in record["artifactRefs"])
+    assert "SECRET" not in json.dumps(record)
+
+
+def test_bounded_artifact_refs_reject_traversal_absolute_and_unbounded(agnt):
+    safe = [f"artifacts/{index}.txt" for index in range(20)]
+
+    refs = agnt.bounded_artifact_refs([
+        "../outside.txt",
+        "artifacts/../../outside.txt",
+        "/private/secret.txt",
+        "x" * 257,
+        *safe,
+    ])
+
+    assert refs == safe[:16]
+
+
+def test_legacy_metrics_record_remains_readable(agnt, tmp_path):
+    path = tmp_path / "legacy.metrics.json"
+    path.write_text(json.dumps({
+        "schemaVersion": 1,
+        "recordId": "legacy-record",
+        "startedAt": "2026-06-09T00:00:00Z",
+        "elapsedMs": 1000,
+        "provider": "olla-cloud",
+        "model": "gpt-4.1-mini",
+        "target": "olla-cloud/gpt-4.1-mini",
+        "exitCode": 0,
+    }), encoding="utf-8")
+
+    records, warnings = agnt.load_metric_records([path], include_annotations=False)
+    compact = agnt.compact_metric_record(records[0])
+    selected, selected_path, selector_warnings = agnt.resolve_metric_selector("legacy-record", tmp_path)
+
+    assert warnings == []
+    assert compact["schemaVersion"] == 1
+    assert compact["recordId"] == "legacy-record"
+    assert compact["invocationId"] is None
+    assert selected["recordId"] == "legacy-record"
+    assert selected_path == path
+    assert selector_warnings == []
 
 
 def test_route_reports_no_candidate_when_constraints_eliminate_all_models():

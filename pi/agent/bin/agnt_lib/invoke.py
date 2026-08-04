@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Tuple
 from .core import VALID_OUTCOMES, die, split_target
 from .doctor import doctor_report
 from .tasks import list_models, preferred_models
-from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, utc_now, write_json
+from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, new_invocation_id, utc_now, write_json
 
 ONE_SHOT_SYSTEM_PROMPT = (
     "You are a read-only reviewer. Analyze only the complete packet in the user message. "
@@ -108,8 +108,12 @@ def invoke_one(
     pi_args: List[str] | None = None,
     timeout_seconds: int | float | None = None,
     one_shot: bool = False,
+    invocation_id: str | None = None,
+    parent_session_id: str | None = None,
+    work_item: str | None = None,
 ) -> Tuple[int, str, str, Dict[str, Any] | None]:
     provider, model = split_target(target)
+    invocation_id = invocation_id or new_invocation_id()
     started_at = utc_now()
     started = time.monotonic()
     session_args: List[str] = []
@@ -181,6 +185,10 @@ def invoke_one(
                 err=err,
                 usage=usage,
                 usage_source="timeout",
+                invocation_id=invocation_id,
+                parent_session_id=parent_session_id,
+                work_item=work_item,
+                failure_class="timeout",
                 risk_category=risk_category,
                 thinking_level=thinking_level,
                 outcome=outcome,
@@ -209,6 +217,10 @@ def invoke_one(
             err=err,
             usage=usage,
             usage_source=usage_source,
+            invocation_id=invocation_id,
+            parent_session_id=parent_session_id,
+            work_item=work_item,
+            failure_class="provider" if provider_error else ("process" if code != 0 else None),
             risk_category=risk_category,
             thinking_level=thinking_level,
             outcome=outcome,
@@ -287,7 +299,7 @@ def cmd_invoke(argv: List[str]) -> int:
         if use_metrics and record is not None:
             metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-            write_json(metrics_dir / f"{stamp}-{safe_target_name(target)}.metrics.json", record)
+            write_json(metrics_dir / f"{stamp}-{safe_target_name(target)}-{record['invocationId']}.metrics.json", record)
         if err:
             print(err, file=sys.stderr, end="")
         print(out, end="")
@@ -318,8 +330,10 @@ def cmd_invoke(argv: List[str]) -> int:
     status = 0
     records: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
-        futures = {
-            pool.submit(
+        futures = {}
+        for target, prompt in pairs:
+            invocation_id = new_invocation_id()
+            future = pool.submit(
                 invoke_one,
                 target,
                 prompt,
@@ -332,21 +346,22 @@ def cmd_invoke(argv: List[str]) -> int:
                 fallback_used=args.fallback_used,
                 one_shot=args.one_shot,
                 timeout_seconds=timeout_seconds,
-            ): target
-            for target, prompt in pairs
-        }
+                invocation_id=invocation_id,
+            )
+            futures[future] = (target, invocation_id)
         for fut in as_completed(futures):
-            target = futures[fut]
+            target, invocation_id = futures[fut]
             safe = safe_target_name(target)
+            artifact_stem = safe if len(pairs) == 1 else f"{safe}-{invocation_id}"
             code, out, err, record = fut.result()
-            (out_dir / f"{safe}.md").write_text(out, encoding="utf-8")
-            (out_dir / f"{safe}.err").write_text(err, encoding="utf-8")
+            (out_dir / f"{artifact_stem}.md").write_text(out, encoding="utf-8")
+            (out_dir / f"{artifact_stem}.err").write_text(err, encoding="utf-8")
             if use_metrics and record is not None:
                 records.append(record)
-                write_json(out_dir / f"{safe}.metrics.json", record)
+                write_json(out_dir / f"{safe}-{record['invocationId']}.metrics.json", record)
                 metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-                write_json(metrics_dir / f"{stamp}-{safe}.metrics.json", record)
+                write_json(metrics_dir / f"{stamp}-{safe}-{invocation_id}.metrics.json", record)
             if code != 0:
                 status = code
     if use_metrics:

@@ -23,11 +23,14 @@ are local runtime state.
 files. JSON is a YAML subset, keeps the helper dependency-free, and preserves
 stable filenames for future richer YAML support.
 
-## `invocation.yaml` v1
+## `invocation.yaml` v2
 
 ```yaml
-schemaVersion: 1
+schemaVersion: 2
 id: 20260627-010203-pi-8su-3
+invocationId: 018f47a8-62c4-7e91-a969-7b4f6c78d308
+parentSessionId: null
+workItem: pi-8su.3
 bead: pi-8su.3
 action: review
 routingTask: review
@@ -56,6 +59,13 @@ createdAt: 2026-06-27T01:02:03Z
 
 Fields:
 
+- `id`: readable run/bundle identifier; it is not telemetry identity.
+- `invocationId`: collision-resistant, payload-free identity generated once when
+  the bundle is created. Start/completion events, `result.yaml`, and metrics
+  reuse it.
+- `parentSessionId`: optional parent Pi session identity.
+- `workItem`: optional Bead/work-item identity; `bead` remains available for
+  compatibility and workflow operations.
 - `bead`: optional work-graph node that initiated the run.
 - `action`: verb-like prompt/action template id.
 - `routingTask`: model/tool routing category.
@@ -75,11 +85,11 @@ Fields:
   created through `agnt work`; workers should address them in their result
   evidence.
 
-## `result.yaml` v1
+## `result.yaml` v2
 
 ```yaml
-schemaVersion: 1
-invocationId: 20260627-010203-pi-8su-3
+schemaVersion: 2
+invocationId: 018f47a8-62c4-7e91-a969-7b4f6c78d308
 status: needs-human
 summary: Invocation artifact created; worker has not run yet.
 evidence: []
@@ -96,6 +106,12 @@ healthChecks: []
 closeoutChecks: []
 completedAt: null
 ```
+
+`result.yaml.invocationId` must match the canonical identity in
+`invocation.yaml`, not the readable bundle `id`. Validators still accept legacy
+v1 bundles, where `result.yaml.invocationId` matched `invocation.yaml.id`.
+Invoking one upgrades both records to v2 with a fresh canonical ID while
+retaining the readable `invocation.yaml.id`.
 
 Allowed statuses:
 
@@ -144,7 +160,9 @@ agnt runs invoke .pi/runs/<run-id> --model olla-cloud/gpt-4.1-mini
 `agnt runs invoke` reads `invocation.yaml`, renders a worker prompt, writes
 `artifacts/prompt.md`, `artifacts/<model>.response.md`,
 `artifacts/<model>.stderr.txt`, optional metrics artifacts, and updates
-`result.yaml` with status, evidence, artifact refs, and `metricsRef`.
+`result.yaml` with status, evidence, artifact refs, and `metricsRef`. Metrics
+use telemetry schema v2 and carry the same `invocationId`; bounded artifact refs
+are relative to the private bundle. Legacy schema-v1 metrics remain readable.
 
 Update and validate a run bundle manually:
 
