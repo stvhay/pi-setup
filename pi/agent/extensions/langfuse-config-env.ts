@@ -1,11 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const agentDir = process.env.PI_CODING_AGENT_DIR || resolve(homedir(), ".pi", "agent");
+type LangfuseFactory = (pi: ExtensionAPI) => void | Promise<void>;
 
-export default function langfuseConfigEnv(pi?: ExtensionAPI) {
+export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
   // Truncating data URIs corrupts media before Langfuse can extract it.
   process.env.PI_LANGFUSE_MAX_STRING_LENGTH ||= "off";
 
@@ -26,6 +29,8 @@ export default function langfuseConfigEnv(pi?: ExtensionAPI) {
     // pi-langfuse handles missing or invalid config during its own setup.
   }
 
+  if (!pi) return;
+
   pi?.on("session_start", (event, ctx) => {
     if (event.reason !== "startup" || !ctx.hasUI) return;
     void pi.exec(resolve(agentDir, "bin", "agnt"), ["langfuse", "check", "--quiet"], { timeout: 5000 }).then(({ code }) => {
@@ -33,18 +38,32 @@ export default function langfuseConfigEnv(pi?: ExtensionAPI) {
     }).catch(() => {});
   });
 
-  pi?.on("message_end", ({ message }) => {
+  const originalModels = new WeakMap<object, string>();
+  pi.on("message_end", ({ message }) => {
     if (message.role !== "assistant" || message.provider !== "openai-codex") return;
 
-    const usage = message.usage as Record<string, any>;
-    return {
-      message: {
-        ...message,
-        usage: {
-          ...usage,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
+    const telemetryMessage = {
+      ...message,
+      model: `${message.model}-subscription`,
+      usage: {
+        ...message.usage,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
     };
+    originalModels.set(telemetryMessage, message.model);
+    return { message: telemetryMessage };
+  });
+
+  const require = createRequire(resolve(agentDir, "npm", "package.json"));
+  const langfuseEntry = require.resolve("pi-langfuse");
+  const { default: registerLangfuse } = await import(pathToFileURL(langfuseEntry).href) as {
+    default: LangfuseFactory;
+  };
+  await registerLangfuse(pi);
+
+  pi.on("message_end", ({ message }) => {
+    const originalModel = originalModels.get(message);
+    if (originalModel === undefined) return;
+    return { message: { ...message, model: originalModel } };
   });
 }
