@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
+MODELS = ROOT / "pi" / "agent" / "models.json"
 CATALOG = ROOT / "pi" / "agent" / "catalog.json"
 PI_README = ROOT / "pi" / "README.md"
 KEYBINDINGS = ROOT / "pi" / "agent" / "keybindings.json"
@@ -200,6 +201,18 @@ def test_builtin_image_paste_keybinding_is_disabled_for_archimedes():
     assert keybindings["app.clipboard.pasteImage"] == []
 
 
+def test_gpt56_codex_context_override_matches_routing_catalog():
+    assert MODELS.is_file(), "tracked models.json must opt Codex into full context"
+    models = json.loads(MODELS.read_text(encoding="utf-8"))
+    provider = models["providers"]["openai-codex"]
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+
+    assert set(provider) == {"modelOverrides"}
+    for family in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+        assert provider["modelOverrides"][family] == {"contextWindow": 1_050_000}
+        assert catalog[family]["venues"][0]["contextWindow"] == 1_050_000
+
+
 def test_observational_memory_compaction_scales_with_active_context_window():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     config = settings["observational-memory"]
@@ -209,8 +222,8 @@ def test_observational_memory_compaction_scales_with_active_context_window():
     assert "npm:pi-observational-memory@3.0.3" in settings["packages"]
     assert config["compactAfterTokens"] == 81_000
     assert config["compactAfterTokensMode"] == "ratio"
-    assert config["compactAfterTokensRatio"] == 0.5
-    assert int(sol_context * config["compactAfterTokensRatio"]) == 136_000
+    assert config["compactAfterTokensRatio"] == 0.25
+    assert int(sol_context * config["compactAfterTokensRatio"]) == 262_500
 
     def effective_threshold(context):
         if isinstance(context, (int, float)) and context > 0:
@@ -221,7 +234,8 @@ def test_observational_memory_compaction_scales_with_active_context_window():
 
     docs = PI_README.read_text(encoding="utf-8")
     assert "27a5195eaf90e4e2ca1302e3a31d4bb14df982a5" in docs
-    assert "272,000 × 0.5 = 136,000" in docs
+    assert "1,050,000 × 0.25 = 262,500" in docs
+    assert "272,000" in docs
     assert "81,000" in docs
 
 

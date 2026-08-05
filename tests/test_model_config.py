@@ -40,7 +40,9 @@ def test_tracked_models_use_server_backed_olla_providers_only():
 
     assert not any(target.startswith("openrouter-localish/") for target in enabled | catalog_targets)
     assert not any(target.startswith("ollama/") for target in enabled | catalog_targets)
-    assert not MODELS.exists()
+    models_config = json.loads(MODELS.read_text(encoding="utf-8"))
+    assert set(models_config["providers"]) == {"openai-codex"}
+    assert "models" not in models_config["providers"]["openai-codex"]
 
     models = built_models([
         "gemma-4-31b-it", "gemma-4-31b-it:free", "qwen3.5-9b",
