@@ -577,6 +577,29 @@ def test_workflow_gate_eval_checks_independent_closeout_scenarios():
     assert "Do not weaken verification, documentation, review, safety, or approval gates" in prompt
 
 
+def test_verification_phases_eval_preserves_final_gate_and_baseline_truth():
+    eval_dir = AGNT.parents[1] / "evals" / "verification-phases-smoke"
+    spec = json.loads((eval_dir / "eval.json").read_text(encoding="utf-8"))
+    prompt = (eval_dir / "prompt.md").read_text(encoding="utf-8")
+
+    assert spec["skill"] == "../../skills/verification-before-completion/SKILL.md"
+    assert spec["defaultModels"] == ["openai-codex/gpt-5.6-luna"]
+    expected = [
+        "BASELINE: RECORD_ONCE",
+        "BASELINE_FAILURE: PRE_EXISTING",
+        "REPAIR_CHECK: FOCUSED",
+        "BROAD_REPAIR_RERUN: SKIP",
+        "FINAL_GATE: RUN_ONCE",
+        "FINAL_GATE_FAILURE: UNCHANGED_BASELINE",
+        "TASK_REGRESSION: PASS",
+        "RELEASE_VERDICT: NOT_VERIFIED",
+    ]
+    assert spec["assert"]["contains"] == expected
+    assert all(answer not in prompt for answer in expected)
+    assert "same command, test identity, and failure signature" in prompt
+    assert "Do not weaken or skip the required final gate" in prompt
+
+
 def test_create_run_bundle_writes_invocation_and_result(agnt, tmp_path):
     bundle = agnt.create_run_bundle(
         action="review",

@@ -201,22 +201,38 @@ def test_finish_action_uses_one_closeout_coordinator(common):
     assert "Do not pre-load or stack companion closeout skills" in body
 
 
-def test_finish_coordinator_declares_trigger_subsumption_and_reverification_matrix():
+def test_finish_coordinator_declares_trigger_subsumption_and_verification_phases():
     skill = (AGENT / "skills" / "finishing-a-development-branch" / "SKILL.md").read_text(encoding="utf-8")
 
     expected_rows = [
-        "| `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; run the initial matrix and rerun it after any simplification, review, or documentation fix; never subsumed. |",
+        "| `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; reuse the recorded baseline, run focused checks after fixes, and run one complete gate for each final candidate; never subsumed. |",
         "| `documentation-standards` | Documentation requested, impacted, or uncertain | Load in validate mode; otherwise coordinator documentation check subsumes generic docs prose. |",
         "| `requesting-code-review` | Non-trivial or risky diff, merge/PR preparation, or required review | Load; otherwise coordinator scope check handles trivial closeout. |",
         "| `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now; otherwise coordinator scope check subsumes generic cleanup advice. |",
         "| `session-to-skill-extractor` | Substantial non-trivial wrap-up or Bead close | Load once at final wrap-up; skip routine summaries. |",
     ]
     assert all(row in skill for row in expected_rows)
-    assert "Run the verification matrix initially" in skill
-    assert "Any simplification, review, or documentation fix invalidates that evidence" in skill
+    assert "Do not repeat the full baseline during repair" in skill
+    assert "A tracked final-candidate change invalidates the final gate" in skill
     assert "reuse its current instructions instead of rereading" in skill
     assert "`writing-clearly-and-concisely` is subsumed" in skill
     assert "Safety, approval, verification, documentation, and review gates are never subsumed" in skill
+
+
+def test_workflow_skills_share_baseline_repair_final_gate_contract():
+    verification = (AGENT / "skills" / "verification-before-completion" / "SKILL.md").read_text(encoding="utf-8")
+    executing = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
+    worktrees = (AGENT / "skills" / "using-git-worktrees" / "SKILL.md").read_text(encoding="utf-8")
+
+    for skill in (verification, executing, worktrees):
+        assert "Baseline once" in skill
+        assert "Focused repair" in skill
+        assert "Final candidate gate" in skill
+        assert "unchanged baseline failure" in skill
+    assert "task regression: PASS" in verification
+    assert "release verdict: NOT VERIFIED" in verification
+    assert "If task regression verdict is not PASS, do not claim task completion" in verification
+    assert "If release verdict is not PASS, do not claim release readiness" in verification
 
 
 def test_action_templates_reference_existing_architecture(common):

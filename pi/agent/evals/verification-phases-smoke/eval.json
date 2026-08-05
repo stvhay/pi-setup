@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "verification-phases-smoke",
+  "summary": "Verify baseline-once, focused-repair, and final-gate decisions without hiding pre-existing failures.",
+  "kind": "invoke",
+  "task": "review",
+  "defaultModels": ["openai-codex/gpt-5.6-luna"],
+  "skill": "../../skills/verification-before-completion/SKILL.md",
+  "prompt": "prompt.md",
+  "assert": {
+    "nonEmptyOutput": true,
+    "contains": [
+      "BASELINE: RECORD_ONCE",
+      "BASELINE_FAILURE: PRE_EXISTING",
+      "REPAIR_CHECK: FOCUSED",
+      "BROAD_REPAIR_RERUN: SKIP",
+      "FINAL_GATE: RUN_ONCE",
+      "FINAL_GATE_FAILURE: UNCHANGED_BASELINE",
+      "TASK_REGRESSION: PASS",
+      "RELEASE_VERDICT: NOT_VERIFIED"
+    ],
+    "notContains": [
+      "BROAD_REPAIR_RERUN: RUN",
+      "FINAL_GATE: SKIP",
+      "RELEASE_VERDICT: PASS"
+    ]
+  }
+}

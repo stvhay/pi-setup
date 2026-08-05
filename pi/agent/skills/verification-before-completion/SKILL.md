@@ -21,17 +21,35 @@ You must actually run the relevant shell commands with `bash` before reporting P
 
 Avoid: "should pass", "looks good", "probably fixed", "done" before verification.
 
+## Verification phases
+
+### Baseline once
+
+At work-item or worktree start, run the documented relevant matrix once and record command, exit status, failing test identity, and failure signature. Reuse that evidence during repair; do not repeat an unchanged broad baseline to rediscover the same failure.
+
+### Focused repair
+
+After a test, review, simplification, or documentation fix, run the smallest executable check that proves the repaired behavior and affected neighbors. A failed focused check permits one focused repair and rerun. Widen checks only when the change widens or evidence points outside the original surface.
+
+### Final candidate gate
+
+When tracked task changes are stable, run every required full release command once. A tracked final-candidate change invalidates the final gate and requires one new complete gate for that new candidate. Do not substitute focused checks for this gate.
+
+### Unchanged baseline failures
+
+Classify a failure as an unchanged baseline failure only when baseline and final evidence show the same command, test identity, and failure signature. Report task regression and release readiness separately. Example: `task regression: PASS`; `release verdict: NOT VERIFIED`. Never convert a red required gate into PASS.
+
 ## Gate function
 
 Before claiming success:
 
-1. **Identify proof** — find the command(s) that prove the claim.
+1. **Identify phase and proof** — baseline, focused repair, or final candidate gate; find commands that prove that phase's claim.
    - Check `CONTRIBUTING.md`, `README.md`, `package.json`, `pyproject.toml`, `Makefile`, CI config.
    - Use `rg -n "test|lint|typecheck|quality|verify|ci" README.md CONTRIBUTING.md docs package.json pyproject.toml Makefile .github 2>/dev/null || true`.
-2. **Run fresh** — execute the full relevant command with `bash`, not a stale or partial run.
-3. **Read output** — check exit code, failures, warnings, skipped tests.
-4. **Compare to claim** — if evidence does not prove the claim, state actual status and gaps.
-5. **Only then claim** — include the command and result in the response.
+2. **Run fresh** — execute the selected command with `bash`; use the complete required matrix for the final candidate gate.
+3. **Read output** — check exit code, failures, warnings, skipped tests, and baseline signatures.
+4. **Compare to claim** — separate task regressions from unchanged baseline failures; state actual status and gaps.
+5. **Only then claim** — include phase, command, and result in the response.
 
 ## Common proof commands
 
@@ -103,12 +121,24 @@ After synthesis, label each generated metric record so routing learns from the o
 
 ## Code simplification
 
-After verification passes and before final completion, consider `code-simplification` for non-trivial code changes. Re-run verification after any simplification.
+After focused verification passes and before final completion, consider `code-simplification` for non-trivial code changes. Run focused repair checks after any simplification, then run the final candidate gate once changes stabilize.
 
 ## Report format
 
 ```markdown
 ## Verification
+
+**Baseline once:**
+- `<command>` → PASS/FAIL (<recorded failure signatures or clean>)
+
+**Focused repair:**
+- `<command>` → PASS/FAIL (<behavior proved>)
+
+**Final candidate gate:**
+- `<complete command matrix>` → PASS/FAIL (<key output>)
+
+**Unchanged baseline failures:**
+- `<none or exact command/test/signature comparison>`
 
 **Commands run:**
 - `<command>` → PASS/FAIL (<key output>)
@@ -121,7 +151,8 @@ After verification passes and before final completion, consider `code-simplifica
 - [x] <requirement> — evidence
 - [ ] <gap> — what remains
 
-**Verdict:** PASS / FAIL / PARTIAL
+**Task regression verdict:** PASS / FAIL / NOT VERIFIED
+**Release verdict:** PASS / NOT VERIFIED
 ```
 
-If verdict is not PASS, do not claim completion.
+If task regression verdict is not PASS, do not claim task completion. If release verdict is not PASS, do not claim release readiness.
