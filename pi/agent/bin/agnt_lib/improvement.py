@@ -265,23 +265,57 @@ def _features(
                 evaluator_timeouts += 1
 
     evaluator_outcomes = []
-    explicit_outcome: Any = "unknown"
-    sampled_outcome: Any = "unknown"
-    for score in scores:
+    explicit_candidates = []
+    apparent_candidates = []
+    for index, score in enumerate(scores):
         score_name = str(score.get("name") or "")
         if score.get("source") != "EVAL" and "outcome" not in score_name.lower():
             continue
         item = {key: score.get(key) for key in ("name", "value", "dataType", "source") if score.get(key) is not None}
         evaluator_outcomes.append(item)
+        timestamp = str(score.get("timestamp") or score.get("createdAt") or "")
+        candidate = (timestamp, index, score.get("value"))
         if score_name == OUTCOME_SCORE and score.get("value") in TASK_OUTCOMES:
-            explicit_outcome = score["value"]
-        elif "outcome" in score_name.lower():
-            sampled_outcome = score.get("value")
-    final_outcome = explicit_outcome if explicit_outcome != "unknown" else sampled_outcome
-    for trace in traces:
+            explicit_candidates.append(candidate)
+        elif "outcome" in score_name.lower() and score.get("value") in TASK_OUTCOMES:
+            apparent_candidates.append(candidate)
+    explicit_outcome: Any = max(explicit_candidates, default=("", -1, "unknown"))[2]
+    apparent_outcome: Any = max(apparent_candidates, default=("", -1, "unknown"))[2]
+
+    execution_candidates = []
+    for index, observation in enumerate(observations):
+        if observation.get("name") != "interactive-result":
+            continue
+        metadata = observation.get("metadata") or {}
+        candidate = metadata.get("executionOutcome") if isinstance(metadata, dict) else None
+        timestamp = str(observation.get("startTime") or observation.get("createdAt") or "")
+        execution_candidates.append((
+            timestamp,
+            index,
+            candidate if candidate in {"succeeded", "failed", "unavailable"} else "unknown",
+        ))
+    execution_outcome: Any = max(execution_candidates, default=("", -1, "unknown"))[2]
+
+    semantic_candidates = []
+    for index, trace in enumerate(traces):
         metadata = trace.get("metadata") or {}
-        if final_outcome == "unknown" and isinstance(metadata, dict) and metadata.get("semanticOutcome"):
-            final_outcome = metadata["semanticOutcome"]
+        if isinstance(metadata, dict) and metadata.get("semanticOutcome") in TASK_OUTCOMES:
+            timestamp = str(trace.get("timestamp") or trace.get("createdAt") or "")
+            semantic_candidates.append((timestamp, index, metadata["semanticOutcome"]))
+    semantic_outcome: Any = max(semantic_candidates, default=("", -1, "unknown"))[2]
+
+    if explicit_outcome != "unknown":
+        final_outcome, final_outcome_source = explicit_outcome, "explicit"
+    elif execution_outcome == "failed":
+        final_outcome, final_outcome_source = "failure", "execution"
+    elif execution_outcome == "unavailable":
+        final_outcome, final_outcome_source = "unclear", "execution"
+    elif apparent_outcome != "unknown":
+        final_outcome, final_outcome_source = apparent_outcome, "apparent"
+    elif semantic_outcome != "unknown":
+        final_outcome, final_outcome_source = semantic_outcome, "semantic"
+    else:
+        final_outcome, final_outcome_source = "unknown", "unknown"
 
     capture_gaps = []
     if not generations:
@@ -296,7 +330,10 @@ def _features(
         capture_gaps.append(tool_payload_gap)
 
     return {
+        "executionOutcome": execution_outcome,
+        "apparentOutcome": apparent_outcome,
         "finalOutcome": final_outcome,
+        "finalOutcomeSource": final_outcome_source,
         "toolCalls": tool_calls,
         "toolErrors": tool_errors,
         "turns": turns,

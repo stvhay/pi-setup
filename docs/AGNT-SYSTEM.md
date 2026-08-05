@@ -60,8 +60,10 @@ Metrics record best-effort model usage and outcomes. Telemetry schema v2 assigns
 one collision-resistant, payload-free `invocationId` at invocation start and
 reuses it across run events, results, metrics, and unnamed-subagent projections.
 The normalized record includes parent session/work item, provider/model/target,
-effective thinking level, status, failure class, usage, duration, and bounded
-artifact refs. `recordId`
+effective thinking level, objective `executionOutcome`, status, failure class,
+usage, duration, and bounded artifact refs. Execution is `succeeded`, `failed`,
+`unavailable`, or `unknown` for legacy records; human annotations cannot rewrite
+it. `recordId`
 remains a backward-compatible selector, and schema-v1 records remain readable.
 Code-review metrics can link a validated structured finding artifact, separating discovery from fresh-context confirmation, refutation, or unresolved evidence. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code or model confidence as ground truth.
 
@@ -70,7 +72,7 @@ Code-review metrics can link a validated structured finding artifact, separating
 `agnt` is a front controller for several related command families:
 
 - `agnt route` recommends a model for a task, risk level, budget, context size, and modality.
-- Archimedes `subagent` runs routed interactive peers with live TUI progress and cancellation; the tracked observer records completed unnamed-peer usage without prompt or response bodies. Unnamed projections and metrics share invocation, provider, model, target, and thinking dimensions. Named-profile projections mark unavailable dimensions explicitly, and metrics remain skipped until Archimedes exposes their effective provider and thinking level.
+- Archimedes `subagent` runs routed interactive peers with live TUI progress and cancellation; the tracked observer records completed unnamed-peer usage without prompt or response bodies. Unnamed projections and metrics share invocation, provider, model, target, thinking, and objective execution dimensions. Named-profile projections mark unavailable model dimensions explicitly, and metrics remain skipped until Archimedes exposes their effective provider and thinking level.
 - `agnt invoke` remains the cold/headless and run-artifact executor; `--one-shot` disables tools and ambient context expansion for complete embedded packets.
 - `agnt review` validates and summarizes structured discovery/adjudication findings.
 - `agnt instructions` composes global, project, model, and role context packages.

@@ -82,16 +82,44 @@ type InvocationStart = {
   invocationIds: string[];
 };
 
-function assistantOutput(messages: unknown): unknown {
+function lastAssistantMessage(messages: unknown): { content?: unknown; stopReason?: string; errorMessage?: string } | undefined {
   if (!Array.isArray(messages)) return undefined;
-  const message = messages.findLast((item) => item && typeof item === "object" && (item as { role?: string }).role === "assistant") as { content?: unknown; stopReason?: string; errorMessage?: string } | undefined;
-  if (message?.stopReason === "error") return providerError(message.errorMessage);
-  if (!Array.isArray(message?.content)) return message?.content;
+  return messages.findLast((item) => item && typeof item === "object" && (item as { role?: string }).role === "assistant") as { content?: unknown; stopReason?: string; errorMessage?: string } | undefined;
+}
+
+function assistantOutput(messages: unknown): unknown {
+  const message = lastAssistantMessage(messages);
+  if (!Array.isArray(message?.content)) {
+    return message?.stopReason === "error" ? providerError(message.errorMessage) : message?.content;
+  }
   const text = message.content
     .map((item) => item && typeof item === "object" && (item as { type?: string; text?: string }).type === "text" ? (item as { text?: string }).text ?? "" : "")
     .filter(Boolean)
     .join("\n");
+  if (message.stopReason === "error") {
+    const error = providerError(message.errorMessage);
+    return text ? `${text}\n\n[execution failed: ${error}]` : error;
+  }
   return text || undefined;
+}
+
+function assistantExecutionMetadata(messages: unknown): Record<string, unknown> {
+  const message = lastAssistantMessage(messages);
+  if (!message) return { executionOutcome: "unknown" };
+  if (message.stopReason === "aborted" || message.stopReason === "length" || message.stopReason === "toolUse" || message.stopReason === "pending") {
+    return { executionOutcome: "unavailable" };
+  }
+  if (message.stopReason !== "error") return { executionOutcome: "succeeded" };
+  const classification = providerFailureClass(message.errorMessage);
+  return {
+    executionOutcome: "failed",
+    failureClass: "provider",
+    ...(classification ? { providerFailureClass: classification } : {}),
+  };
+}
+
+function resultExecutionOutcome(exitCode: number): "succeeded" | "failed" | "unavailable" {
+  return exitCode === 0 ? "succeeded" : exitCode === 124 ? "unavailable" : "failed";
 }
 
 async function loadDefaultObserve(): Promise<Observe> {
@@ -309,6 +337,7 @@ function metricRecord(
     durationMs,
     elapsedMs: durationMs,
     status: exitCode === 0 ? "succeeded" : "failed",
+    executionOutcome: resultExecutionOutcome(exitCode),
     failureClass: exitCode === 0 ? null : exitCode === 124 ? "timeout" : failureClass ? "provider" : "process",
     providerFailureClass: exitCode === 0 ? null : failureClass ?? null,
     artifactRefs: [],
@@ -391,6 +420,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     : (observeLoad ??= loadDefaultObserve().then((loaded) => (observe = loaded)));
   let interactivePrompt: unknown;
   let interactiveOutput: unknown;
+  let interactiveExecution: Record<string, unknown> = { executionOutcome: "unknown" };
   const interactiveToolSignals = new Map<string, ToolErrorSignal>();
 
   pi.on("session_start", async (_event, ctx) => {
@@ -409,12 +439,17 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
   pi.on("before_agent_start", (event) => {
     if (!process.env.PI_SUBAGENT_SOCKET) {
       interactivePrompt = event.prompt;
+      interactiveOutput = undefined;
+      interactiveExecution = { executionOutcome: "unknown" };
       interactiveToolSignals.clear();
     }
   });
 
   pi.on("agent_end", (event) => {
-    if (!process.env.PI_SUBAGENT_SOCKET) interactiveOutput = assistantOutput(event.messages);
+    if (!process.env.PI_SUBAGENT_SOCKET) {
+      interactiveOutput = assistantOutput(event.messages);
+      interactiveExecution = assistantExecutionMetadata(event.messages);
+    }
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
@@ -422,15 +457,20 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     const input = interactivePrompt;
     const output = interactiveOutput;
     const toolErrorSignals = serializedToolSignals(interactiveToolSignals);
+    const execution = interactiveExecution;
     interactivePrompt = undefined;
     interactiveOutput = undefined;
+    interactiveExecution = { executionOutcome: "unknown" };
     interactiveToolSignals.clear();
     if (output == null) return;
     try {
       await (await getObserve())("interactive-result", {
         input,
         output,
-        ...(toolErrorSignals.length ? { metadata: { toolErrorSignals } } : {}),
+        metadata: {
+          ...execution,
+          ...(toolErrorSignals.length ? { toolErrorSignals } : {}),
+        },
       }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
     } catch (error) {
       console.error("[langfuse-projection] could not record interactive result:", error);
@@ -528,6 +568,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
             invocationId: invocation.invocationIds[index],
             index,
             ...dimensions,
+            executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
             exitCode: result.exitCode ?? 1,
             ...(providerFailureClasses[index] ? { providerFailureClass: providerFailureClasses[index] } : {}),
           },

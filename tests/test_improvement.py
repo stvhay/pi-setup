@@ -735,6 +735,102 @@ def test_tool_payload_byte_aggregation_is_availability_aware(observations, expec
     }.intersection(features["captureGaps"])
 
 
+@pytest.mark.parametrize(
+    ("execution", "apparent", "explicit", "expected_final", "expected_source"),
+    [
+        ("failed", "success", None, "failure", "execution"),
+        ("unavailable", "success", None, "unclear", "execution"),
+        ("succeeded", "partial", None, "partial", "apparent"),
+        ("failed", "partial", None, "failure", "execution"),
+        ("failed", "partial", "success", "success", "explicit"),
+    ],
+)
+def test_objective_execution_outcome_precedes_only_apparent_evaluation(
+    execution,
+    apparent,
+    explicit,
+    expected_final,
+    expected_source,
+):
+    observations = [{
+        "type": "AGENT",
+        "name": "interactive-result",
+        "metadata": {"executionOutcome": execution},
+    }]
+    scores = [{
+        "name": "Apparent task outcome",
+        "value": apparent,
+        "source": "EVAL",
+    }]
+    if explicit:
+        scores.append({
+            "name": improvement.OUTCOME_SCORE,
+            "value": explicit,
+            "source": "API",
+        })
+
+    features = improvement._features([], observations, scores)
+
+    assert features["executionOutcome"] == execution
+    assert features["apparentOutcome"] == apparent
+    assert features["finalOutcome"] == expected_final
+    assert features["finalOutcomeSource"] == expected_source
+
+
+def test_latest_root_execution_wins_and_subagent_quality_stays_separate():
+    observations = [
+        {
+            "type": "AGENT",
+            "name": "interactive-result",
+            "startTime": "2026-08-05T02:00:00Z",
+            "metadata": {"executionOutcome": "succeeded"},
+        },
+        {
+            "type": "AGENT",
+            "name": "interactive-result",
+            "startTime": "2026-08-05T01:00:00Z",
+            "metadata": {"executionOutcome": "failed"},
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "startTime": "2026-08-05T03:00:00Z",
+            "metadata": {"executionOutcome": "failed"},
+        },
+    ]
+    scores = [{"name": "Apparent task outcome", "value": "success", "source": "EVAL"}]
+
+    features = improvement._features([], observations, scores)
+
+    assert features["executionOutcome"] == "succeeded"
+    assert features["apparentOutcome"] == "success"
+    assert features["finalOutcome"] == "success"
+    assert features["finalOutcomeSource"] == "apparent"
+
+
+def test_latest_root_without_execution_metadata_stays_unknown():
+    observations = [
+        {
+            "type": "AGENT",
+            "name": "interactive-result",
+            "startTime": "2026-08-05T01:00:00Z",
+            "metadata": {"executionOutcome": "succeeded"},
+        },
+        {
+            "type": "AGENT",
+            "name": "interactive-result",
+            "startTime": "2026-08-05T02:00:00Z",
+            "metadata": {},
+        },
+    ]
+
+    features = improvement._features([], observations, [])
+
+    assert features["executionOutcome"] == "unknown"
+    assert features["finalOutcome"] == "unknown"
+    assert features["finalOutcomeSource"] == "unknown"
+
+
 def test_scan_normalizes_exact_tool_fingerprint_without_copying_payload(tmp_path):
     observations = [
         _tool_observation(input_marker=None, output_marker=None, metadata={"inputBytes": 26, "outputBytes": 26}),

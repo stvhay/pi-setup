@@ -2174,6 +2174,7 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
     assert record["model"] == "gpt-4.1-mini"
     assert record["target"] == "olla-cloud/gpt-4.1-mini"
     assert record["status"] == "succeeded"
+    assert record["executionOutcome"] == "succeeded"
     assert record["failureClass"] is None
     assert record["thinkingLevel"] == "medium"
     assert record["durationMs"] == 1000
@@ -2187,6 +2188,7 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
         "olla-cloud/gpt-4.1-mini",
         "medium",
     ]
+    assert compact["executionOutcome"] == "succeeded"
     assert "SECRET" not in json.dumps(record)
 
 
@@ -2225,9 +2227,32 @@ def test_legacy_metrics_record_remains_readable(agnt, tmp_path):
     assert compact["schemaVersion"] == 1
     assert compact["recordId"] == "legacy-record"
     assert compact["invocationId"] is None
+    assert compact["executionOutcome"] == "unknown"
+    assert selected["executionOutcome"] == "unknown"
     assert selected["recordId"] == "legacy-record"
     assert selected_path == path
     assert selector_warnings == []
+
+
+def test_execution_outcome_is_objective_and_timeout_aware(agnt):
+    assert agnt.execution_outcome(0) == "succeeded"
+    assert agnt.execution_outcome(1) == "failed"
+    assert agnt.execution_outcome(124) == "unavailable"
+
+
+def test_human_annotation_cannot_rewrite_execution_outcome(agnt):
+    records = [{"recordId": "failed-run", "executionOutcome": "failed", "outcome": "unknown"}]
+
+    agnt.apply_annotations(records, [{
+        "recordId": "failed-run",
+        "executionOutcome": "succeeded",
+        "outcome": "accepted",
+        "humanOverride": True,
+    }])
+
+    assert records[0]["executionOutcome"] == "failed"
+    assert records[0]["outcome"] == "accepted"
+    assert records[0]["humanOverride"] is True
 
 
 def test_route_reports_no_candidate_when_constraints_eliminate_all_models():

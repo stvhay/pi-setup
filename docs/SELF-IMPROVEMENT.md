@@ -118,7 +118,12 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 
 `link` writes an idempotent private session score containing only the public
 work-item ID. `outcome` rewrites that same link and adds one idempotent categorical
-session score; scanners prefer it over sampled judge output. `scan` traverses pages
+session score. Scans keep objective `executionOutcome`, sampled `apparentOutcome`,
+and explicit human outcome distinct. Explicit human outcome is authoritative;
+otherwise deterministic failure maps final outcome to `failure` and unavailable
+execution maps it to `unclear` before sampled apparent judgment is considered.
+Useful partial output remains visible as apparent quality, but cannot turn failed
+execution into successful final outcome. `scan` traverses pages
 in its bounded time window up to the operator trace cap (default 500) and reports that
 cap, valid API total when available, scanned/attributable/unattributed lower bounds,
 and explicit completeness/continuation state. Repeated pages stop as incomplete.
