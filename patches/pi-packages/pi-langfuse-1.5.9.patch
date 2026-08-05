@@ -1,8 +1,28 @@
 diff --git a/index.ts b/index.ts
-index 9e45515..ab8cced 100644
+index 9e45515..bf1831d 100644
 --- a/index.ts
 +++ b/index.ts
-@@ -78,0 +79,3 @@ export default async function (pi: ExtensionAPI) {
-+      const sessionId = ctx?.sessionManager?.getSessionId?.();
-+      if (sessionId) return sessionId;
+@@ -33,0 +34,7 @@ import {
++interface SessionContext {
++  sessionManager?: {
++    getSessionId?: () => unknown;
++    getSessionFile?: () => unknown;
++  };
++}
 +
+@@ -77 +84 @@ export default async function (pi: ExtensionAPI) {
+-  const getSessionId = (ctx?: any) => {
++  const getSessionId = (ctx?: unknown): string | undefined => {
+@@ -79,2 +86,10 @@ export default async function (pi: ExtensionAPI) {
+-      const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+-      return sessionFile ? basename(sessionFile, ".jsonl") : undefined;
++      const sessionManager = (ctx as SessionContext | undefined)?.sessionManager;
++      const sessionId = sessionManager?.getSessionId?.();
++      if (typeof sessionId === "string" && sessionId) {
++        return sessionId;
++      }
++
++      const sessionFile = sessionManager?.getSessionFile?.();
++      return typeof sessionFile === "string" && sessionFile
++        ? basename(sessionFile, ".jsonl")
++        : undefined;

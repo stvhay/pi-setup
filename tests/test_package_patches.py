@@ -117,7 +117,8 @@ def test_runtime_patchset_contains_only_minimum_session_contract():
     archimedes = (PATCHES / "pi-archimedes-subagent-1.8.3.patch").read_text(encoding="utf-8")
 
     assert "getSessionId" in langfuse
-    assert "-      const sessionFile" not in langfuse
+    assert "getSessionFile" in langfuse
+    assert 'basename(sessionFile, ".jsonl")' in langfuse
     assert "childSessionId" in archimedes
     assert '--no-session' not in archimedes
     assert "invocationId" not in langfuse + archimedes
