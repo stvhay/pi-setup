@@ -120,7 +120,9 @@ def test_create_question_request_records_decision_ref_without_approval_ref(agnt,
     create_call = fake.calls[0]
     metadata = json.loads(create_call[create_call.index("--metadata") + 1])
     assert metadata["pi"]["approval"]["selectionMode"] == "multi"
+    assert metadata["pi"]["approval"]["customResponseAllowed"] is True
     assert "Selection mode: multi" in create_call[create_call.index("--description") + 1]
+    assert "Custom response: available" in create_call[create_call.index("--description") + 1]
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert run_result["decisionRefs"] == ["pi-decision.1"]
     assert run_result["approvalRefs"] == []
@@ -232,6 +234,108 @@ def test_resolve_approved_decision_accepts_bd_show_list_shape_and_preserves_targ
     assert updated_metadata["pi"]["approval"]["status"] == "approved"
 
 
+@pytest.mark.parametrize(
+    ("selection_mode", "selected_options", "custom_input", "expected_answer"),
+    [
+        ("multi", ["CLI core", "Pi extension"], "Start with docs", "[CLI core, Pi extension] + Other: Start with docs"),
+        ("multi", [], None, "[]"),
+        ("single", [], "Typed alternative", "Other: Typed alternative"),
+    ],
+)
+def test_custom_response_resolution_persists_structured_question_answer(
+    agnt,
+    selection_mode,
+    selected_options,
+    custom_input,
+    expected_answer,
+):
+    fake = FakeBeads(show_metadata={
+        "pi": {
+            "approval": {
+                "kind": "question",
+                "targetBead": "pi-work.2",
+                "status": "pending",
+                "selectionMode": selection_mode,
+                "options": ["CLI core", "Pi extension"],
+            }
+        }
+    })
+
+    result = agnt.resolve_beads_approval_request(
+        decision_bead="pi-decision.1",
+        outcome="answered",
+        selected_options=selected_options,
+        custom_input=custom_input,
+        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+        beads_runner=fake,
+    )
+
+    approval = result["metadata"]["pi"]["approval"]
+    assert approval["selectedOptions"] == selected_options
+    if custom_input is None:
+        assert "customInput" not in approval
+    else:
+        assert approval["customInput"] == custom_input
+    assert approval["answer"] == expected_answer
+
+
+def test_empty_custom_response_and_approval_custom_text_are_rejected(agnt):
+    resolver = {"kind": "human-ui", "sessionId": "pi-session-1"}
+    question = FakeBeads(show_metadata={
+        "pi": {
+            "approval": {
+                "kind": "question",
+                "targetBead": "pi-work.2",
+                "selectionMode": "single",
+                "options": ["CLI core"],
+            }
+        }
+    })
+    with pytest.raises(ValueError, match="custom_input cannot be empty"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="answered",
+            selected_options=[],
+            custom_input="   ",
+            resolver=resolver,
+            beads_runner=question,
+        )
+    with pytest.raises(ValueError, match="one selected option or one custom response"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="answered",
+            selected_options=["CLI core"],
+            custom_input="Other",
+            resolver=resolver,
+            beads_runner=question,
+        )
+
+    with pytest.raises(ValueError, match="structured answers are only valid for answered questions"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            custom_input="approve",
+            resolver=resolver,
+            beads_runner=FakeBeads(),
+        )
+    with pytest.raises(ValueError, match="custom_input must be a string"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="answered",
+            custom_input=123,
+            resolver=resolver,
+            beads_runner=question,
+        )
+    with pytest.raises(ValueError, match="selected_options must be a list"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="answered",
+            selected_options="CLI core",
+            resolver=resolver,
+            beads_runner=question,
+        )
+
+
 def test_legacy_question_resolution_defaults_to_single_selection_mode(agnt):
     fake = FakeBeads(show_metadata={
         "pi": {
@@ -337,7 +441,7 @@ def test_tracked_beads_have_public_safe_approval_provenance():
     assert unsafe == []
 
 
-def test_beads_question_bridge_preserves_multi_selection_and_cancellation(tmp_path):
+def test_beads_question_bridge_preserves_custom_response_multi_selection_and_cancellation(tmp_path):
     agent_dir = tmp_path / "agent"
     bin_dir = agent_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -365,7 +469,17 @@ fi
       const loaded = await loader.loadExtensions([{str(extension)!r}], process.cwd());
       assert.deepEqual(loaded.errors, []);
       const tool = loaded.extensions[0].tools.get("ticket_question").definition;
+      const resolveTool = loaded.extensions[0].tools.get("ticket_decision_resolve").definition;
       assert(tool.parameters.required.includes("selectionMode"));
+      await assert.rejects(() => resolveTool.execute("unsafe", {{
+        decisionBead: "pi-decision.unsafe",
+        outcome: "approved",
+        customInput: "approve",
+      }}, undefined, undefined, {{
+        cwd: {str(tmp_path)!r},
+        hasUI: true,
+        ui: {{ confirm: async () => assert.fail("custom text reached approval confirmation") }},
+      }}), /cannot approve an action/);
       const params = {{
         targetBead: "pi-work.2",
         question: "Choose components",
@@ -380,14 +494,21 @@ fi
           closeoutPath: "Resolve decision",
         }},
       }};
-      const choices = [true, false, true];
+      const choiceIndexes = [0, 1, 0, 0];
+      const customInputs = ["   ", "custom durable"];
+      const warnings = [];
       const result = await tool.execute("call", params, undefined, undefined, {{
         cwd: {str(tmp_path)!r},
         hasUI: true,
-        ui: {{ select: async (_title, options) => choices.shift() ? options[0] : options[1] }},
+        ui: {{
+          select: async (_title, options) => options[choiceIndexes.shift()],
+          input: async () => customInputs.shift(),
+          notify: (message, level) => warnings.push([message, level]),
+        }},
         sessionManager: {{ getSessionId: () => "session-1" }},
       }});
       assert.match(result.content[0].text, /answered/);
+      assert.deepEqual(warnings, [["Custom response cannot be empty.", "warning"]]);
 
       const cancelled = await tool.execute("cancel", params, undefined, undefined, {{
         cwd: {str(tmp_path)!r},
@@ -404,6 +525,50 @@ fi
         sessionManager: {{ getSessionId: () => "session-1" }},
       }});
       assert.match(empty.content[0].text, /answered/);
+
+      const singleParams = {{ ...params, question: "Choose another", options: ["A", "B"], selectionMode: "single" }};
+      const singleInputs = ["", "typed alternative"];
+      const singleWarnings = [];
+      const single = await tool.execute("single", singleParams, undefined, undefined, {{
+        cwd: {str(tmp_path)!r},
+        hasUI: true,
+        ui: {{
+          select: async (_title, options) => options.at(-1),
+          input: async () => singleInputs.shift(),
+          notify: (message, level) => singleWarnings.push([message, level]),
+        }},
+        sessionManager: {{ getSessionId: () => "session-1" }},
+      }});
+      assert.match(single.content[0].text, /answered/);
+      assert.deepEqual(singleWarnings, [["Custom response cannot be empty.", "warning"]]);
+
+      const declined = await resolveTool.execute("declined", {{
+        decisionBead: "pi-decision.declined",
+        outcome: "answered",
+        selectedOptions: ["A"],
+        customInput: "typed",
+      }}, undefined, undefined, {{
+        cwd: {str(tmp_path)!r},
+        hasUI: true,
+        ui: {{ confirm: async () => false }},
+      }});
+      assert.match(declined.content[0].text, /cancelled/);
+
+      const collisionLabel = "Other… (type a custom response)";
+      const collision = await tool.execute("collision", {{ ...params,
+        question: "Choose literal Other",
+        options: [collisionLabel],
+        selectionMode: "single",
+      }}, undefined, undefined, {{
+        cwd: {str(tmp_path)!r},
+        hasUI: true,
+        ui: {{
+          select: async (_title, options) => options[0],
+          input: async () => assert.fail("predefined option was mistaken for custom input"),
+        }},
+        sessionManager: {{ getSessionId: () => "session-1" }},
+      }});
+      assert.match(collision.content[0].text, /answered/);
     """
     subprocess.run(
         ["node", "--input-type=module", "-e", script],
@@ -416,16 +581,41 @@ fi
             "FAKE_AGNT_CALLS": str(calls),
         },
     )
-    request, resolve, cancel_request, cancel_resolve, empty_request, empty_resolve = calls.read_text(encoding="utf-8").splitlines()
+    (
+        request,
+        resolve,
+        cancel_request,
+        cancel_resolve,
+        empty_request,
+        empty_resolve,
+        single_request,
+        single_resolve,
+        declined_resolve,
+        collision_request,
+        collision_resolve,
+    ) = calls.read_text(encoding="utf-8").splitlines()
     assert "--selection-mode multi" in request
     assert "--outcome answered" in resolve
-    assert "--answer Answered in Pi UI: [A, C]" in resolve
+    assert "--structured-answer" in resolve
+    assert "--selected-option A" in resolve and "--selected-option C" in resolve
+    assert "--custom-input custom durable" in resolve
     assert "--selection-mode multi" in cancel_request
     assert "--outcome cancelled" in cancel_resolve
     assert "--answer Cancelled in Pi UI" in cancel_resolve
     assert "--selection-mode multi" in empty_request
     assert "--outcome answered" in empty_resolve
-    assert "--answer Answered in Pi UI: []" in empty_resolve
+    assert "--structured-answer" in empty_resolve
+    assert "--selected-option" not in empty_resolve and "--custom-input" not in empty_resolve
+    assert "--selection-mode single" in single_request
+    assert "--outcome answered" in single_resolve
+    assert "--structured-answer" in single_resolve
+    assert "--custom-input typed alternative" in single_resolve
+    assert "--selected-option" not in single_resolve
+    assert "--outcome cancelled" in declined_resolve
+    assert "--selected-option" not in declined_resolve and "--custom-input" not in declined_resolve
+    assert "--selection-mode single" in collision_request
+    assert "--selected-option Other… (type a custom response)" in collision_resolve
+    assert "--custom-input" not in collision_resolve
 
 
 def test_beads_ask_bridge_extension_registers_ticket_tools():
@@ -438,7 +628,9 @@ def test_beads_ask_bridge_extension_registers_ticket_tools():
     assert "ctx.hasUI" in text
     assert "ui.select" in text
     assert "Approved in Pi UI" in text
-    assert "Answered in Pi UI" in text
+    assert 'args.push("--selected-option", option)' in text
+    assert 'args.push("--custom-input", params.customInput)' in text
+    assert "Custom response cannot be empty." in text
     assert "Human confirmation required" in text
     assert "decision resolution requires an interactive human UI" in text
     assert 'selectionMode: StringEnum(["single", "multi"] as const)' in text

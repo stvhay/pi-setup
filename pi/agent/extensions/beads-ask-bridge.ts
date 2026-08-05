@@ -10,6 +10,8 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
 
+const OTHER_CHOICE = "Other… (type a custom response)";
+
 const PreviewSchema = Type.Object({
 	action: Type.String({ description: "What action is being approved or decided" }),
 	scope: Type.String({ description: "What changes and what does not" }),
@@ -43,6 +45,8 @@ const ResolveSchema = Type.Object({
 	decisionBead: Type.String({ description: "Decision/approval bead to resolve" }),
 	outcome: StringEnum(["approved", "answered", "rejected", "cancelled", "timed-out"] as const),
 	answer: Type.Optional(Type.String({ description: "Human answer or reason" })),
+	selectedOptions: Type.Optional(Type.Array(Type.String(), { description: "Predefined question choices selected by the human" })),
+	customInput: Type.Optional(Type.String({ description: "Typed custom response for an answered question" })),
 	runBundle: Type.Optional(Type.String({ description: "Path to .pi/runs/<id> bundle to update" })),
 });
 
@@ -69,8 +73,16 @@ interface ResolveParams {
 	decisionBead: string;
 	outcome: "approved" | "answered" | "rejected" | "cancelled" | "timed-out";
 	answer?: string;
+	selectedOptions?: string[];
+	customInput?: string;
 	runBundle?: string;
 }
+
+type QuestionAnswer = {
+	answered: boolean;
+	selectedOptions: string[];
+	customInput?: string;
+};
 
 function requestArgs(kind: "question" | "approval", params: RequestParams): string[] {
 	const targetBead = params.targetBead;
@@ -112,23 +124,63 @@ function resolveArgs(params: ResolveParams, resolver?: { kind: "human-ui"; sessi
 	const args = ["approvals", "resolve", params.decisionBead, "--outcome", params.outcome, "--json"];
 	if (resolver) args.push("--resolver-kind", resolver.kind, "--resolver-session", resolver.sessionId);
 	if (params.answer) args.push("--answer", params.answer);
+	if (params.selectedOptions !== undefined || params.customInput !== undefined) args.push("--structured-answer");
+	for (const option of params.selectedOptions ?? []) args.push("--selected-option", option);
+	if (params.customInput !== undefined) args.push("--custom-input", params.customInput);
 	if (params.runBundle) args.push("--run-bundle", params.runBundle);
 	return args;
 }
 
-async function askQuestion(params: RequestParams, ui: any, title: string): Promise<{ answered: boolean; answer: string }> {
+function cleanAnswer(value: unknown): string {
+	return String(value ?? "")
+		.replace(/[\r\n\t]+/g, " ")
+		.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+		.replace(/\s{2,}/g, " ")
+		.trim()
+		.slice(0, 2000);
+}
+
+async function askCustomInput(ui: any): Promise<string | undefined> {
+	while (true) {
+		const raw = await ui.input("Other answer", "Type a custom response");
+		if (raw === undefined) return undefined;
+		const value = cleanAnswer(raw);
+		if (value) return value;
+		ui.notify("Custom response cannot be empty.", "warning");
+	}
+}
+
+async function askQuestion(params: RequestParams, ui: any, title: string): Promise<QuestionAnswer> {
+	const selectedOptions: string[] = [];
+	let customInput: string | undefined;
 	if (params.selectionMode === "multi") {
-		const selected: string[] = [];
 		for (const option of params.options) {
 			const select = `Select “${option}”`;
 			const choice = await ui.select(title, [select, `Skip “${option}”`]);
-			if (choice === undefined) return { answered: false, answer: "" };
-			if (choice === select) selected.push(option);
+			if (choice === undefined) return { answered: false, selectedOptions: [] };
+			if (choice === select) selectedOptions.push(option);
 		}
-		return { answered: true, answer: `[${selected.join(", ")}]` };
+		const customChoice = await ui.select(title, [OTHER_CHOICE, "No custom response"]);
+		if (customChoice === undefined) return { answered: false, selectedOptions: [] };
+		if (customChoice === OTHER_CHOICE) {
+			customInput = await askCustomInput(ui);
+			if (customInput === undefined) return { answered: false, selectedOptions: [] };
+		}
+	} else {
+		let otherChoice = OTHER_CHOICE;
+		while (params.options.includes(otherChoice)) otherChoice += "…";
+		const selected = await ui.select(title, [...params.options, otherChoice]);
+		if (selected === undefined) return { answered: false, selectedOptions: [] };
+		if (selected === otherChoice) {
+			customInput = await askCustomInput(ui);
+			if (customInput === undefined) return { answered: false, selectedOptions: [] };
+		} else selectedOptions.push(selected);
 	}
-	const answer = await ui.select(title, params.options);
-	return { answered: Boolean(answer), answer: answer ?? "" };
+	return {
+		answered: true,
+		selectedOptions,
+		...(customInput ? { customInput } : {}),
+	};
 }
 
 function approvalMessage(params: RequestParams, decisionBead: string): string {
@@ -171,7 +223,10 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 			const resolution = await runAgntJson(resolveArgs({
 				decisionBead,
 				outcome,
-				answer: answer.answered ? `Answered in Pi UI: ${answer.answer}` : "Cancelled in Pi UI",
+				...(answer.answered ? {
+					selectedOptions: answer.selectedOptions,
+					customInput: answer.customInput,
+				} : { answer: "Cancelled in Pi UI" }),
 				runBundle: params.runBundle,
 			}, { kind: "human-ui", sessionId: ctx.sessionManager.getSessionId() }), ctx.cwd, signal);
 			return {
@@ -224,14 +279,25 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 		async execute(_toolCallId, params: ResolveParams, signal, _onUpdate, ctx) {
 			let outcome: ResolveParams["outcome"] = params.outcome;
 			let answer = params.answer;
+			if (params.customInput !== undefined && !cleanAnswer(params.customInput)) {
+				throw new Error("Custom response cannot be empty.");
+			}
+			if (outcome === "approved" && (params.selectedOptions !== undefined || params.customInput !== undefined)) {
+				throw new Error("Structured question answers cannot approve an action.");
+			}
 			let resolver: { kind: "human-ui"; sessionId: string } | undefined;
 			if (outcome === "approved" || outcome === "answered") {
 				if (!ctx.hasUI) {
 					throw new Error("decision resolution requires an interactive human UI");
 				}
+				const responsePreview = [
+					...(answer ? [`Answer: ${answer}`] : []),
+					...(params.selectedOptions?.length ? [`Selected: [${params.selectedOptions.join(", ")}]`] : []),
+					...(params.customInput ? [`Custom response: ${params.customInput}`] : []),
+				];
 				const confirmed = await ctx.ui.confirm(
 					"Human confirmation required",
-					`Resolve ${params.decisionBead} as ${outcome}?${answer ? `\n\nAnswer: ${answer}` : ""}`,
+					`Resolve ${params.decisionBead} as ${outcome}?${responsePreview.length ? `\n\n${responsePreview.join("\n")}` : ""}`,
 				);
 				if (!confirmed) {
 					outcome = outcome === "approved" ? "rejected" : "cancelled";
@@ -240,7 +306,16 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 					resolver = { kind: "human-ui", sessionId: ctx.sessionManager.getSessionId() };
 				}
 			}
-			const result = await runAgntJson(resolveArgs({ ...params, outcome, answer }, resolver), ctx.cwd, signal);
+			const result = await runAgntJson(resolveArgs({
+				decisionBead: params.decisionBead,
+				outcome,
+				answer,
+				...(outcome === "answered" ? {
+					selectedOptions: params.selectedOptions,
+					customInput: params.customInput,
+				} : {}),
+				runBundle: params.runBundle,
+			}, resolver), ctx.cwd, signal);
 			return {
 				content: [{ type: "text", text: `Resolved ${params.decisionBead} as ${outcome}; blocker visible=${String(result.blockerVisible)}.` }],
 				details: result,

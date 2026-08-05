@@ -97,6 +97,16 @@ function questionTitle(question: Question): string {
   return description ? `${clean(question.question)} — ${description}` : clean(question.question);
 }
 
+async function askCustomInput(ui: any): Promise<string | undefined> {
+  while (true) {
+    const raw = await ui.input("Other answer", "Type a custom response");
+    if (raw === undefined) return undefined;
+    const value = clean(raw);
+    if (value) return value;
+    ui.notify("Custom response cannot be empty.", "warning");
+  }
+}
+
 async function answerQuestion(question: Question, ui: any): Promise<Answer> {
   const labels = question.options.map(({ label }) => clean(label));
   const selectedOptions: string[] = [];
@@ -106,8 +116,8 @@ async function answerQuestion(question: Question, ui: any): Promise<Answer> {
     for (const label of labels) {
       if (await ui.confirm(questionTitle(question), `Select “${label}”?`)) selectedOptions.push(label);
     }
-    if (await ui.confirm(questionTitle(question), "Add another answer?")) {
-      customInput = clean(await ui.input("Other answer", "Type another answer")) || undefined;
+    if (await ui.confirm(questionTitle(question), "Add a custom response (“Other…”)?")) {
+      customInput = await askCustomInput(ui);
     }
   } else {
     const choices = labels.map(
@@ -116,9 +126,7 @@ async function answerQuestion(question: Question, ui: any): Promise<Answer> {
     const selected = await ui.select(questionTitle(question), [...choices, "Other…"]);
     const index = choices.indexOf(selected);
     if (index >= 0) selectedOptions.push(labels[index]);
-    if (selected === "Other…") {
-      customInput = clean(await ui.input("Other answer", "Type another answer")) || undefined;
-    }
+    if (selected === "Other…") customInput = await askCustomInput(ui);
   }
 
   return {

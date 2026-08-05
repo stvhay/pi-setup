@@ -80,7 +80,7 @@ Code-review metrics can link a validated structured finding artifact, separating
 - `agnt runs` creates, validates, invokes, and updates invocation/result bundles.
 - `agnt work direct-start` validates and shows a Bead, explicitly claims when requested, and idempotently links the current session without orchestration artifacts.
 - Other `agnt work` commands connect Beads work items to action/run artifacts, plan/tree views, daemon lifecycle, service-backed runner clients, health checks, and maintenance checkpoints.
-- `agnt approvals` creates and resolves Beads-backed questions and approval gates.
+- `agnt approvals` creates and resolves Beads-backed questions and approval gates. Questions preserve predefined selections and typed custom input separately; arbitrary text never substitutes for explicit approval confirmation.
 - `agnt gateway` exposes a constrained ticket control surface for Pi extensions without raw shell/Beads passthrough.
 - `agnt metrics` annotates, consolidates, prunes, and reports invocation metrics.
 - `agnt eval` runs deterministic or model-backed checks.
