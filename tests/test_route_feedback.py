@@ -14,7 +14,11 @@ def run_route(tmp_path, store_lines):
     store.write_text(
         "\n".join(json.dumps(line) for line in store_lines) + "\n", encoding="utf-8"
     )
-    env = {**os.environ, "AGNT_METRICS_OUTPUT": str(store)}
+    env = {
+        **os.environ,
+        "AGNT_METRICS_OUTPUT": str(store),
+        "AGNT_PROVIDER_CIRCUIT_DIR": str(tmp_path / "provider-circuits"),
+    }
     proc = subprocess.run(
         [
             sys.executable,
@@ -56,6 +60,40 @@ def test_negative_history_demotes_every_venue_of_family(tmp_path):
     assert all(order.index(o) < order.index(g) for o in others for g in gemma_targets)
     assert any("demoted" in reason for reason in result["reasons"])
     assert result["selected"] not in gemma_targets
+
+
+def test_open_provider_circuit_excludes_only_that_venue_and_is_visible(tmp_path):
+    env = {
+        **os.environ,
+        "AGNT_PROVIDER_CIRCUIT_DIR": str(tmp_path / "provider-circuits"),
+    }
+    opened = subprocess.run(
+        [sys.executable, str(BIN / "agnt"), "provider-circuit", "record", "--provider", "olla-cloud"],
+        input="HTTP 402: available credits can only cover 505 tokens",
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+    )
+    assert opened.returncode == 0, opened.stderr
+
+    result = run_route(tmp_path, [])
+    assert all(not target.startswith("olla-cloud/") for target in result["candidateOrder"])
+    blocked = [item for item in result["rejectedCandidates"] if item["target"].startswith("olla-cloud/")]
+    assert blocked
+    assert all("provider circuit open: credit until " in item["reason"] for item in blocked)
+    assert any(target.startswith("openai-codex/") for target in result["candidateOrder"])
+    assert any(target.startswith("olla-local/") for target in result["candidateOrder"])
+
+    closed = subprocess.run(
+        [sys.executable, str(BIN / "agnt"), "provider-circuit", "success", "--provider", "olla-cloud"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+    )
+    assert closed.returncode == 0, closed.stderr
+    assert any(target.startswith("olla-cloud/") for target in run_route(tmp_path, [])["candidateOrder"])
 
 
 def test_positive_history_does_not_demote(tmp_path):

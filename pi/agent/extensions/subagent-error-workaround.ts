@@ -63,7 +63,19 @@ type ToolErrorSignal = {
   recovered: boolean;
 };
 
-type Dependencies = { observe?: Observe };
+type ProviderFailureClass = "quota" | "credit" | "authentication" | "availability";
+type ProviderCircuit = (
+  action: "open" | "success",
+  provider: string,
+  reason: ProviderFailureClass | undefined,
+  cwd: string,
+) => void | Promise<void>;
+type ActiveProviderCircuits = (cwd: string) => string[] | Promise<string[]>;
+type Dependencies = {
+  observe?: Observe;
+  providerCircuit?: ProviderCircuit;
+  activeProviderCircuits?: ActiveProviderCircuits;
+};
 
 type InvocationStart = {
   startedMs: number;
@@ -156,11 +168,38 @@ function serializedToolSignals(signals: Map<string, ToolErrorSignal>): Array<Rec
   }));
 }
 
+export function providerFailureClass(message?: string): ProviderFailureClass | undefined {
+  const text = String(message ?? "").slice(0, 12_000).toLowerCase();
+  if (/\b(?:insufficient[_ -]?quota|quota (?:has been )?exceeded|monthly limit|key limit exceeded|usage limit exceeded)\b/.test(text)) return "quota";
+  if (/\b(?:http\s*)?402\b|\binsufficient (?:credits?|credit balance)\b|\bcredit balance\b|\bavailable credits? can only cover\b|\bcan afford (?:only )?\d+ tokens\b/.test(text)) return "credit";
+  if (/\b(?:http\s*)?401\b|\bunauthorized\b|\bauthentication failed\b|\b(?:invalid|missing|expired|revoked) (?:api[ _-]?key|token|credentials?)\b|\bno (?:api[ _-]?key|auth credentials?|credentials?)(?: found)?\b/.test(text)) return "authentication";
+  if (/\b(?:http(?: status)?|status code|returned(?: http)?)\s*[:=]?\s*(?:502|503|504)\b|\b(?:502 bad gateway|503 service unavailable|504 gateway timeout)\b/.test(text)) return "availability";
+  return undefined;
+}
+
 function providerError(message?: string): string {
   if (message && /OpenrouterException/i.test(message) && /Key limit exceeded \(monthly limit\)/i.test(message)) {
     return `upstream OpenRouter monthly limit exceeded${message.startsWith("403:") ? " (HTTP 403 via Olla)" : ""}`;
   }
   return message || "unknown upstream error";
+}
+
+async function loadActiveProviderCircuits(cwd: string): Promise<string[]> {
+  const result = await runAgntJson(["provider-circuit", "status"], cwd, undefined, "agnt provider-circuit");
+  const circuits = result.circuits;
+  return circuits && typeof circuits === "object" && !Array.isArray(circuits) ? Object.keys(circuits) : [];
+}
+
+async function updateProviderCircuit(
+  action: "open" | "success",
+  provider: string,
+  reason: ProviderFailureClass | undefined,
+  cwd: string,
+): Promise<void> {
+  const args = action === "open"
+    ? ["provider-circuit", "open", "--provider", provider, "--reason", String(reason)]
+    : ["provider-circuit", "success", "--provider", provider];
+  await runAgntJson(args, cwd, undefined, "agnt provider-circuit");
 }
 
 async function runtimeDirectory(kind: string, cwd: string): Promise<string> {
@@ -190,6 +229,7 @@ function metricRecord(
   startedMs: number,
   endedMs: number,
   ctx: ExtensionContext,
+  failureClass: ProviderFailureClass | undefined,
 ): Record<string, unknown> | undefined {
   if (input.tasks?.[index]?.agent ?? input.agent) return undefined;
   const target = targetFor(input, result, index, ctx);
@@ -231,7 +271,8 @@ function metricRecord(
     durationMs,
     elapsedMs: durationMs,
     status: exitCode === 0 ? "succeeded" : "failed",
-    failureClass: exitCode === 0 ? null : exitCode === 124 ? "timeout" : "process",
+    failureClass: exitCode === 0 ? null : exitCode === 124 ? "timeout" : failureClass ? "provider" : "process",
+    providerFailureClass: exitCode === 0 ? null : failureClass ?? null,
     artifactRefs: [],
     workerElapsedMs,
     task: "peer",
@@ -268,6 +309,7 @@ async function recordSubagentMetrics(
   event: { toolCallId: string; input: Record<string, unknown>; details?: unknown },
   ctx: ExtensionContext,
   invocation: InvocationStart,
+  providerFailureClasses: Array<ProviderFailureClass | undefined>,
 ): Promise<void> {
   const details = event.details as SubagentDetails | undefined;
   if (!details?.results?.length) return;
@@ -275,7 +317,7 @@ async function recordSubagentMetrics(
   const input = event.input as SubagentInput;
   const endedMs = Date.now();
   const records = details.results
-    .map((result, index) => metricRecord(input, result, index, invocation.invocationIds[index], event.toolCallId, invocation.startedMs, endedMs, ctx))
+    .map((result, index) => metricRecord(input, result, index, invocation.invocationIds[index], event.toolCallId, invocation.startedMs, endedMs, ctx, providerFailureClasses[index]))
     .filter((record): record is Record<string, unknown> => record !== undefined);
   if (records.length === 0) return;
 
@@ -290,6 +332,20 @@ async function recordSubagentMetrics(
 
 export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: Dependencies = {}): void {
   const starts = new Map<string, InvocationStart>();
+  const providerCircuit = dependencies.providerCircuit ?? updateProviderCircuit;
+  const activeProviderCircuits = dependencies.activeProviderCircuits ?? loadActiveProviderCircuits;
+  const openProviders = new Set<string>();
+  const setProviderCircuit = async (
+    action: "open" | "success",
+    provider: string,
+    reason: ProviderFailureClass | undefined,
+    cwd: string,
+  ): Promise<void> => {
+    if (action === "success" && !openProviders.has(provider)) return;
+    await providerCircuit(action, provider, reason, cwd);
+    if (action === "open") openProviders.add(provider);
+    else openProviders.delete(provider);
+  };
   let observe = dependencies.observe;
   let observeLoad: Promise<Observe> | undefined;
   const getObserve = () => observe
@@ -299,8 +355,17 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
   let interactiveOutput: unknown;
   const interactiveToolSignals = new Map<string, ToolErrorSignal>();
 
-  pi.on("session_start", async () => {
-    if (!observe) await getObserve();
+  pi.on("session_start", async (_event, ctx) => {
+    const work: Array<Promise<unknown>> = [];
+    if (!observe) work.push(getObserve());
+    if (!process.env.PI_SUBAGENT_SOCKET) {
+      work.push(Promise.resolve(activeProviderCircuits(ctx.cwd)).then((providers) => {
+        for (const provider of providers) openProviders.add(provider);
+      }).catch((error) => {
+        console.error("[provider-circuit] could not read provider state:", error);
+      }));
+    }
+    await Promise.all(work);
   });
 
   pi.on("before_agent_start", (event) => {
@@ -334,9 +399,23 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     }
   });
 
-  pi.on("message_end", (event) => {
+  pi.on("message_end", async (event, ctx) => {
     const message = event.message as { role?: string; provider?: string; model?: string; stopReason?: string; errorMessage?: string };
-    if (!process.env.PI_SUBAGENT_SOCKET || message.role !== "assistant" || message.stopReason !== "error") return;
+    if (message.role !== "assistant") return;
+    const classification = providerFailureClass(message.errorMessage);
+    if (message.provider && (message.stopReason !== "error" || classification)) {
+      try {
+        await setProviderCircuit(
+          message.stopReason === "error" ? "open" : "success",
+          message.provider,
+          classification,
+          ctx?.cwd ?? process.cwd(),
+        );
+      } catch (error) {
+        console.error("[provider-circuit] could not update provider state:", error);
+      }
+    }
+    if (!process.env.PI_SUBAGENT_SOCKET || message.stopReason !== "error") return;
     const target = [message.provider, message.model].filter(Boolean).join("/") || "provider";
     console.error(`[subagent] ${target} failed: ${providerError(message.errorMessage)}`);
     process.exitCode = 1;
@@ -381,8 +460,22 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     while (invocation.invocationIds.length < Math.max(1, details.results.length)) {
       invocation.invocationIds.push(randomUUID());
     }
+    const providerFailureClasses = details.results.map((result) => providerFailureClass(result.error));
+    await Promise.all(details.results.map(async (result, index) => {
+      if (input.tasks?.[index]?.agent ?? input.agent) return;
+      const target = targetFor(input, result, index, ctx);
+      if (!target) return;
+      const provider = target.split("/", 1)[0];
+      const classification = providerFailureClasses[index];
+      if (result.exitCode !== 0 && !classification) return;
+      try {
+        await setProviderCircuit(result.exitCode === 0 ? "success" : "open", provider, classification, ctx.cwd);
+      } catch (error) {
+        console.error("[provider-circuit] could not update provider state:", error);
+      }
+    }));
     try {
-      await recordSubagentMetrics({ ...event, details }, ctx, invocation);
+      await recordSubagentMetrics({ ...event, details }, ctx, invocation, providerFailureClasses);
     } catch (error) {
       console.error("[subagent-metrics] could not record invocation:", error);
     }
@@ -393,7 +486,13 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
         await (await getObserve())("subagent-result", {
           input: task,
           output: result.finalOutput ?? result.error,
-          metadata: { invocationId: invocation.invocationIds[index], index, model: result.model, exitCode: result.exitCode ?? 1 },
+          metadata: {
+            invocationId: invocation.invocationIds[index],
+            index,
+            model: result.model,
+            exitCode: result.exitCode ?? 1,
+            ...(providerFailureClasses[index] ? { providerFailureClass: providerFailureClasses[index] } : {}),
+          },
           level: result.exitCode === 0 ? "DEFAULT" : "ERROR",
         }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
       } catch (error) {

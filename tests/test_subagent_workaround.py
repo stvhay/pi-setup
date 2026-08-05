@@ -83,21 +83,41 @@ def test_subagent_workaround_exposes_failures_without_touching_successes():
 def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
     script = f"""
       import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
+      import install, {{ providerFailureClass }} from {EXTENSION.as_uri()!r};
 
       const handlers = {{}};
-      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }});
+      const circuits = [];
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        observe() {{}},
+        providerCircuit(action, provider, reason) {{ circuits.push({{ action, provider, reason }}); }},
+        activeProviderCircuits() {{ return ["olla-cloud"]; }},
+      }});
       assert.equal(typeof handlers.message_end, "function");
+      assert.deepEqual([
+        providerFailureClass("429: insufficient_quota"),
+        providerFailureClass("HTTP 402: available credits can only cover 505 tokens"),
+        providerFailureClass("401 Unauthorized: invalid API key"),
+        providerFailureClass("No auth credentials found"),
+        providerFailureClass("HTTP 503 Service Unavailable"),
+        providerFailureClass("provider returned HTTP 503"),
+        providerFailureClass("pi invocation timed out after 60s"),
+      ], ["quota", "credit", "authentication", "authentication", "availability", "availability", undefined]);
 
       const originalSocket = process.env.PI_SUBAGENT_SOCKET;
       const originalExitCode = process.exitCode;
       const originalError = console.error;
       const errors = [];
-      process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
+      delete process.env.PI_SUBAGENT_SOCKET;
       process.exitCode = undefined;
       console.error = (...args) => errors.push(args.join(" "));
 
       try {{
+        await handlers.session_start({{}}, {{ cwd: process.cwd() }});
+        await handlers.message_end({{ message: {{ role: "assistant", provider: "olla-cloud", stopReason: "stop" }} }}, {{ cwd: process.cwd() }});
+        assert.deepEqual(circuits, [{{ action: "success", provider: "olla-cloud", reason: undefined }}]);
+        circuits.length = 0;
+        process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
+
         await handlers.message_end({{
           message: {{
             role: "assistant",
@@ -127,6 +147,10 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
         assert.deepEqual(errors, [
           "[subagent] olla-cloud/gpt-4.1-mini failed: upstream OpenRouter monthly limit exceeded (HTTP 403 via Olla)",
         ]);
+        assert.deepEqual(circuits, [
+          {{ action: "open", provider: "olla-cloud", reason: "quota" }},
+          {{ action: "open", provider: "olla-cloud", reason: "quota" }},
+        ]);
 
         process.exitCode = undefined;
         errors.length = 0;
@@ -141,6 +165,7 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
         }});
         assert.equal(process.exitCode, undefined);
         assert.deepEqual(errors, []);
+        assert.deepEqual(circuits.at(-1), {{ action: "success", provider: "olla-cloud", reason: undefined }});
       }} finally {{
         console.error = originalError;
         process.exitCode = originalExitCode;
@@ -328,6 +353,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
         observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+        providerCircuit() {{}},
       }});
 
       const cwd = {str(tmp_path)!r};
@@ -348,7 +374,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
           {{ exitCode: 0, model: "gemini-flash", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
-          {{ exitCode: 2, model: "gpt-5.6-luna", error: "SECRET failure", usage: {{ turns: 1 }} }},
+          {{ exitCode: 2, model: "gpt-5.6-luna", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
         ] }},
         isError: false,
       }}, ctx);
@@ -365,9 +391,11 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.childIndex), [0, 1]);
       assert.deepEqual(records.map((record) => record.parentSessionId), ["parent-session", "parent-session"]);
       assert.deepEqual(records.map((record) => record.status), ["succeeded", "failed"]);
-      assert.deepEqual(records.map((record) => record.failureClass), [null, "process"]);
+      assert.deepEqual(records.map((record) => record.failureClass), [null, "provider"]);
+      assert.deepEqual(records.map((record) => record.providerFailureClass), [null, "credit"]);
       assert.deepEqual(records.map((record) => record.artifactRefs), [[], []]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.providerFailureClass ?? null), [null, "credit"]);
       assert.equal(JSON.stringify(records).includes("SECRET"), false);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})

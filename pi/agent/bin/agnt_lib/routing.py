@@ -11,6 +11,7 @@ import _agnt_common as common
 
 from .core import ROOT
 from .metrics import default_metrics_dir, default_metrics_output, load_metric_records, metric_files
+from .provider_circuits import active_provider_circuits
 from .tasks import as_list, task_meta
 
 def enabled_models() -> set[str]:
@@ -375,6 +376,10 @@ def select_model(
     info_by_target = configured_model_info()
     enabled = enabled_models()
     stats = route_metric_stats()
+    try:
+        provider_circuits = active_provider_circuits()
+    except OSError:
+        provider_circuits = {}
     reasons: List[str] = [f"task policy loaded from {task}"]
     if task == "review":
         reasons.append(
@@ -384,6 +389,8 @@ def select_model(
         reasons.append("filtered candidates by enabledModels from settings.json")
     if avoid_families:
         reasons.append(f"applied avoidFamilies policy: {', '.join(sorted(avoid_families))}")
+    if provider_circuits:
+        reasons.append(f"excluded provider venues with open circuits: {', '.join(sorted(provider_circuits))}")
 
     rejected: List[Dict[str, str]] = []
     scored: List[Dict[str, Any]] = []
@@ -398,6 +405,15 @@ def select_model(
             continue
         if group in avoid_families:
             rejected.append({"target": target, "diversityGroup": group, "reason": "modelPolicy avoidFamilies rule"})
+            continue
+        provider = target.split("/", 1)[0]
+        circuit = provider_circuits.get(provider)
+        if circuit:
+            rejected.append({
+                "target": target,
+                "diversityGroup": group,
+                "reason": f"provider circuit open: {circuit['reason']} until {circuit['expiresAt']}",
+            })
             continue
         if is_local_route_target(target) and not local_ok:
             rejected.append({"target": target, "diversityGroup": group, "reason": "local model requires --local-ok"})
