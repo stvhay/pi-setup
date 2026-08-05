@@ -66,6 +66,7 @@ direnv allow                         # optional, if using direnv
 scripts/check-pi-config.sh           # validate tracked configuration
 scripts/update-pi-config.sh --dry-run # preview runtime update
 scripts/update-pi-config.sh           # update ~/.pi and apply tracked Langfuse evaluators
+scripts/apply-pi-package-patches.sh   # patch exact pinned packages until upstream releases
 ```
 
 Deployment replaces the managed runtime copy from tracked `pi/` while preserving excluded credentials, sessions, trust state, metrics, and caches. When Langfuse credentials are configured, setup also applies tracked evaluator definitions; use `agnt langfuse check` for a read-only drift check or `agnt langfuse apply` to reconcile them. Pi checks evaluator drift on interactive startup, stays silent when current, and warns when reconciliation is needed. Do not hand-edit managed files under `~/.pi`; edit `pi/`, verify, and deploy again. See [Pi Config](pi/README.md) for package installation, credentials, optional endpoints, and excluded-state details.

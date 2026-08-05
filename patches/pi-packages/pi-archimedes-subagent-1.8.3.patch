@@ -1,0 +1,25 @@
+diff --git a/src/stream.ts b/src/stream.ts
+index f1fd14a..d3a2524 100644
+--- a/src/stream.ts
++++ b/src/stream.ts
+@@ -129,0 +130,6 @@ export function streamEvents(
++        case "session": {
++          if (typeof event.id === "string" && event.id) {
++            state.childSessionId = event.id;
++          }
++          break;
++        }
+@@ -166 +172 @@ export function streamEvents(
+-        // Ignore: session, agent_start, message_start, message_update, turn_end, tool_execution_update
++        // Ignore: agent_start, message_start, message_update, turn_end, tool_execution_update
+@@ -185,0 +192 @@ export function streamEvents(
++        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
+diff --git a/src/types.ts b/src/types.ts
+index b90f829..247dffb 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -36,0 +37,2 @@ export interface SubagentResult {
++  /** Logical Pi session UUID for this spawned subagent process. */
++  childSessionId?: string;
+@@ -59,0 +62 @@ export interface StreamState {
++  childSessionId?: string;

@@ -554,6 +554,7 @@ def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "invocationId": record.get("invocationId"),
         "recordId": record.get("recordId"),
         "parentSessionId": record.get("parentSessionId"),
+        "childSessionId": record.get("childSessionId"),
         "workItem": record.get("workItem"),
         "startedAt": record.get("startedAt"),
         "endedAt": record.get("endedAt"),

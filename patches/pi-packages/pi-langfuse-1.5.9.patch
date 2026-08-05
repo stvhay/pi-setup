@@ -1,0 +1,13 @@
+diff --git a/index.ts b/index.ts
+index 9e45515..591779a 100644
+--- a/index.ts
++++ b/index.ts
+@@ -77,0 +78,8 @@ export default async function (pi: ExtensionAPI) {
++    try {
++      const sessionId = ctx?.sessionManager?.getSessionId?.();
++      if (sessionId) {
++        return sessionId;
++      }
++    } catch {
++      // Older session managers may not expose a usable logical ID.
++    }

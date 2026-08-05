@@ -2201,12 +2201,14 @@ def test_compact_metric_preserves_delegated_artifact_envelope(agnt):
 
     compact = agnt.compact_metric_record({
         "schemaVersion": 2,
+        "childSessionId": "child-session",
         "artifactRefs": [ref],
         "artifactStatus": "failed",
         "artifactFailureClass": "write",
         "outputContract": "status-only",
     })
 
+    assert compact["childSessionId"] == "child-session"
     assert compact["artifactRefs"] == [ref]
     assert compact["artifactStatus"] == "failed"
     assert compact["artifactFailureClass"] == "write"

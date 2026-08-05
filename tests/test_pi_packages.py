@@ -12,9 +12,9 @@ MODELS = ROOT / "pi" / "agent" / "models.json"
 CATALOG = ROOT / "pi" / "agent" / "catalog.json"
 PI_README = ROOT / "pi" / "README.md"
 KEYBINDINGS = ROOT / "pi" / "agent" / "keybindings.json"
-ARCHIMEDES_PACKAGE = {"source": "npm:pi-archimedes", "extensions": []}
+ARCHIMEDES_PACKAGE = {"source": "npm:pi-archimedes@1.8.3", "extensions": []}
 ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
-LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.5.7", "extensions": []}
+LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.5.9", "extensions": []}
 LANGFUSE_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 ARCHITECTURE_SKILL_PACKAGE = {
     "source": "git:github.com/mattpocock/skills@2ab958093e83e0ec752e6c1c5932da465bf23e0c",
@@ -171,6 +171,7 @@ def test_archimedes_package_entrypoint_is_disabled_for_tracked_public_wrapper():
 
     assert ARCHIMEDES_PACKAGE in settings["packages"]
     assert "npm:pi-archimedes" not in settings["packages"]
+    assert "npm:pi-archimedes@1.8.3" not in settings["packages"]
     assert ARCHIMEDES_WRAPPER.is_file()
     wrapper = ARCHIMEDES_WRAPPER.read_text(encoding="utf-8")
     assert 'require.resolve("pi-archimedes")' in wrapper
@@ -185,6 +186,7 @@ def test_langfuse_package_entrypoint_is_disabled_for_tracked_public_wrapper():
 
     assert LANGFUSE_PACKAGE in settings["packages"]
     assert "npm:pi-langfuse@1.5.7" not in settings["packages"]
+    assert "npm:pi-langfuse@1.5.9" not in settings["packages"]
     wrapper = LANGFUSE_WRAPPER.read_text(encoding="utf-8")
     assert 'require.resolve("pi-langfuse")' in wrapper
     assert "/src/" not in wrapper

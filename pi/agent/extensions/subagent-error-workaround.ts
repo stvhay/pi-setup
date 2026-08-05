@@ -35,6 +35,7 @@ type ArtifactEnvelope = {
 
 type SubagentResult = {
   agent?: string;
+  childSessionId?: string;
   exitCode?: number;
   task?: string;
   model?: string;
@@ -208,8 +209,23 @@ async function loadDefaultObserve(): Promise<Observe> {
 }
 
 function langfuseSessionId(ctx?: ExtensionContext): string | undefined {
-  const sessionFile = ctx?.sessionManager?.getSessionFile?.();
-  return sessionFile ? parse(sessionFile).name : undefined;
+  try {
+    const sessionId = ctx?.sessionManager?.getSessionId?.();
+    if (typeof sessionId === "string" && sessionId) return sessionId;
+  } catch {
+    // Keep compatibility with older session managers.
+  }
+  try {
+    const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+    return sessionFile ? parse(sessionFile).name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function childSessionId(result: SubagentResult): string | null {
+  const value = result.childSessionId;
+  return typeof value === "string" && value.length > 0 && value.length <= 200 ? value : null;
 }
 
 function toolSignalKey(event: { toolName: string; input: Record<string, unknown> }): string {
@@ -287,7 +303,9 @@ async function runtimeDirectory(kind: string, cwd: string): Promise<string> {
 }
 
 function artifactMetadata(result: SubagentResult): Record<string, unknown> {
+  const sessionId = childSessionId(result);
   return {
+    ...(sessionId ? { childSessionId: sessionId } : {}),
     artifactRefs: result.artifact?.refs ?? [],
     artifactStatus: result.artifact?.status ?? "failed",
     ...(result.artifact?.failureClass ? { artifactFailureClass: result.artifact.failureClass } : {}),
@@ -323,6 +341,7 @@ async function persistSubagentArtifacts(
         const ref = await persist(root, {
           invocationId,
           parentSessionId,
+          childSessionId: childSessionId(result),
           childIndex,
           executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
           outputContract: outputContract(input, childIndex),
@@ -436,6 +455,7 @@ function metricRecord(
     invocationId,
     recordId,
     parentSessionId: langfuseSessionId(ctx) ?? null,
+    childSessionId: childSessionId(result),
     workItem: null,
     childIndex: index,
     startedAt,

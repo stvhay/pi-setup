@@ -23,6 +23,9 @@ pi-setup/ (this repo, source of truth)
   `trust.json`, `~/.pi/metrics/`, caches) are rsync-excluded and survive deploys.
 - Edits go in this repo, then deploy. The live `~/.pi` is never the place to
   change config; `rsync --delete` will overwrite it.
+- `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches
+  from `patches/pi-packages/` after Pi installs exact package pins. It is
+  idempotent and fails closed on version or source-context mismatch.
 - Two instruction levels share one filename: the repo root `AGENTS.md` is
   *project* instructions for working on pi-setup itself; `pi/agent/AGENTS.md`
   is the *global* instruction file every Pi session loads after deploy.

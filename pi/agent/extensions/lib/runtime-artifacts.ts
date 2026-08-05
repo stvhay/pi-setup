@@ -7,6 +7,7 @@ const INVOCATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 export type DelegatedArtifactPayload = {
   invocationId: string;
   parentSessionId: string | null;
+  childSessionId?: string | null;
   childIndex: number;
   executionOutcome: "succeeded" | "failed" | "unavailable";
   outputContract: "inline" | "artifact" | "status-only" | "pass-no-findings" | "unknown";

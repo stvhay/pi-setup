@@ -9,8 +9,9 @@ The tracked `pi/` tree is the source of truth. The default Pi runtime directory,
 From the repository root:
 
 ```bash
-scripts/update-pi-config.sh --dry-run # preview changes
-scripts/update-pi-config.sh           # update ~/.pi
+scripts/update-pi-config.sh --dry-run    # preview changes
+scripts/update-pi-config.sh              # update ~/.pi
+scripts/apply-pi-package-patches.sh      # after Pi installs pinned packages
 ```
 
 The update helper preserves runtime secrets/state and installs helper commands into `~/.pi/agent/bin`, including:
@@ -19,7 +20,7 @@ The update helper preserves runtime secrets/state and installs helper commands i
 agnt --help
 ```
 
-Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes the pinned `@mariozechner/clipboard` native addon required by the Archimedes image-paste extension.
+Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes exact pins for `pi-langfuse@1.5.9`, `pi-archimedes@1.8.3`, and the `@mariozechner/clipboard` native addon. Until upstream releases include the session-correlation fixes, run `scripts/apply-pi-package-patches.sh --check` and then the apply command after package installation. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`.
 
 ### Observational memory
 
@@ -43,7 +44,7 @@ Supplying `agent` selects a named definition; it is not a task label or an alias
 
 The current Archimedes package documentation incorrectly says generic calls default to a named `general` agent and places user definitions under `~/.pi/agents/`. In practice, explicit `"agent": "general"` requires a definition named `general`; only omission selects generic mode.
 
-`agent/extensions/subagent-error-workaround.ts` compensates for Archimedes 1.8.2 error signaling and rendering defects: failed child exits are marked as errors, and validation failures show their original message instead of `no results`.
+`agent/extensions/subagent-error-workaround.ts` normalizes Archimedes results for local telemetry: failed child exits are marked as errors, validation failures retain their original message, and each available `childSessionId` is copied into the parent projection, metric, and private result artifact as the exact child-trace foreign key.
 
 Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, verify them, then deploy.
 
@@ -72,9 +73,9 @@ Provider credentials belong in the shell environment or ignored local env files,
 
 The Langfuse extension and official Langfuse skill share credentials from private `~/.pi/agent/pi-langfuse/config.json`. During Pi sessions, `langfuse-config-env.ts` exposes that config to Langfuse CLI child processes; explicit `LANGFUSE_*` credentials still take precedence. No second credential file is needed.
 
-Before registering `pi-langfuse@1.5.7`, the public wrapper sets the `conversations` preset and unconditionally disables tool I/O, system prompts, and cwd. Explicit `LANGFUSE_CAPTURE_INPUTS=false` and `LANGFUSE_CAPTURE_OUTPUTS=false` remain disabled. The wrapper adds no package-event proxy sanitizer: `pi-langfuse` owns upstream redaction, and this on-prem deployment accepts its known redaction limitations. `PI_LANGFUSE_MAX_STRING_LENGTH ||= "off"` prevents data-URI truncation from corrupting media. Disabling that bound carries memory, network, ingestion, storage, disclosure, and denial-of-service (DoS) risks.
+Before registering `pi-langfuse@1.5.9`, the public wrapper sets the `conversations` preset and unconditionally disables tool I/O, system prompts, and cwd. Explicit `LANGFUSE_CAPTURE_INPUTS=false` and `LANGFUSE_CAPTURE_OUTPUTS=false` remain disabled. The wrapper adds no package-event proxy sanitizer: `pi-langfuse` owns upstream redaction, and this on-prem deployment accepts its known redaction limitations. `PI_LANGFUSE_MAX_STRING_LENGTH ||= "off"` prevents data-URI truncation from corrupting media. Disabling that bound carries memory, network, ingestion, storage, disclosure, and denial-of-service (DoS) risks.
 
-Tracked evaluator desired state lives in `agent/langfuse/evaluators.json`; `agnt langfuse check` reports drift and `agnt langfuse apply` creates or updates managed evaluators and rules without deleting unmanaged resources. The owned subagent extension emits explicit `interactive-result` and `subagent-result` observations with captured task/output; outcome evaluation samples 10% of interactive results and subagent quality evaluates 100% of delegated results. Parent-owned full delegated results live under `agnt runtime-path delegated-results`; tool results and telemetry expose bounded opaque refs, not absolute private paths. Config deployment runs apply when credentials exist. Interactive Pi startup checks asynchronously, stays silent when current, and warns when drift exists. `langfuse-config-env.ts` composes the installed public entrypoint: subscription generations use the zero-priced `*-subscription` alias only while upstream telemetry handles `message_end`, then restore the catalog model ID before session persistence. Private improvement scans leave raw Langfuse records unchanged and normalize known unavailable tool payload-byte metadata downstream without copying tool payloads. Non-null payload-byte values are bounded-preview estimates, not raw payload sizes.
+Tracked evaluator desired state lives in `agent/langfuse/evaluators.json`; `agnt langfuse check` reports drift and `agnt langfuse apply` creates or updates managed evaluators and rules without deleting unmanaged resources. The owned subagent extension emits explicit `interactive-result` and `subagent-result` observations with captured task/output; outcome evaluation samples 10% of interactive results and subagent quality evaluates 100% of delegated results. Parent-owned full delegated results live under `agnt runtime-path delegated-results`; tool results and telemetry expose bounded opaque refs, not absolute private paths. Parent projections, metrics, and artifacts retain the child's logical Pi session UUID as `childSessionId`, enabling exact Langfuse session lookup without timestamp/model matching. Config deployment runs apply when credentials exist. Interactive Pi startup checks asynchronously, stays silent when current, and warns when drift exists. `langfuse-config-env.ts` composes the installed public entrypoint: subscription generations use the zero-priced `*-subscription` alias only while upstream telemetry handles `message_end`, then restore the catalog model ID before session persistence. Private improvement scans leave raw Langfuse records unchanged and normalize known unavailable tool payload-byte metadata downstream without copying tool payloads. Non-null payload-byte values are bounded-preview estimates, not raw payload sizes.
 
 Example cloud smoke test:
 

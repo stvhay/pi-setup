@@ -357,7 +357,10 @@ def test_subagent_results_emit_evaluator_ready_observations():
       }}, {{
         cwd: process.cwd(),
         model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }},
-        sessionManager: {{ getSessionFile() {{ return "/private/private-session.jsonl"; }} }},
+        sessionManager: {{
+          getSessionId() {{ throw new Error("older session manager"); }},
+          getSessionFile() {{ return "/private/private-session.jsonl"; }},
+        }},
       }});
 
       const invocationIds = observations.map((item) => item.attributes.metadata.invocationId);
@@ -572,7 +575,10 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       const ctx = {{
         cwd,
         model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }},
-        sessionManager: {{ getSessionFile() {{ return "/private/parent-session.jsonl"; }} }},
+        sessionManager: {{
+          getSessionId() {{ return "parent-logical-session"; }},
+          getSessionFile() {{ return "/private/legacy-parent-session.jsonl"; }},
+        }},
       }};
       await handlers.tool_call({{ toolName: "subagent", toolCallId: "parallel", input }}, ctx);
       const patch = await handlers.tool_result({{
@@ -581,8 +587,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         input,
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
-          {{ exitCode: 0, model: "openai/gpt-oss-120b", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
-          {{ exitCode: 2, model: "gpt-5.6-luna", finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-0", exitCode: 0, model: "openai/gpt-oss-120b", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-1", exitCode: 2, model: "gpt-5.6-luna", finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
         ] }},
         isError: false,
       }}, ctx);
@@ -597,7 +603,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.equal(new Set(ids).size, 2);
       assert.equal(ids.every((id) => /^[0-9a-f-]{{36}}$/.test(id)), true);
       assert.deepEqual(records.map((record) => record.childIndex), [0, 1]);
-      assert.deepEqual(records.map((record) => record.parentSessionId), ["parent-session", "parent-session"]);
+      assert.deepEqual(records.map((record) => record.parentSessionId), ["parent-logical-session", "parent-logical-session"]);
+      assert.deepEqual(records.map((record) => record.childSessionId), ["child-session-0", "child-session-1"]);
       assert.deepEqual(records.map((record) => record.status), ["succeeded", "failed"]);
       assert.deepEqual(records.map((record) => record.executionOutcome), ["succeeded", "failed"]);
       assert.deepEqual(records.map((record) => record.failureClass), [null, "provider"]);
@@ -614,6 +621,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default"],
       ]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.childSessionId), ["child-session-0", "child-session-1"]);
+      assert.deepEqual(observations.map((item) => item.options.sessionId), ["parent-logical-session", "parent-logical-session"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.executionOutcome), ["succeeded", "failed"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.outputContract), ["artifact", "status-only"]);
       assert.deepEqual(observations.map((item) => item.attributes.input.outputContract), ["artifact", "status-only"]);
@@ -633,14 +642,15 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         item.schemaVersion,
         item.invocationId,
         item.parentSessionId,
+        item.childSessionId,
         item.childIndex,
         item.executionOutcome,
         item.outputContract,
         item.finalOutput,
         item.error,
       ]), [
-        [1, ids[0], "parent-session", 0, "succeeded", "artifact", "SECRET first output", null],
-        [1, ids[1], "parent-session", 1, "failed", "status-only", "SECRET partial second output", "HTTP 402: available credits can only cover 505 tokens"],
+        [1, ids[0], "parent-logical-session", "child-session-0", 0, "succeeded", "artifact", "SECRET first output", null],
+        [1, ids[1], "parent-logical-session", "child-session-1", 1, "failed", "status-only", "SECRET partial second output", "HTTP 402: available credits can only cover 505 tokens"],
       ]);
       assert.equal((await stat(artifactRoot)).mode & 0o777, 0o700);
       assert.equal((await stat(`${{artifactRoot}}/${{ids[0]}}`)).mode & 0o777, 0o700);
