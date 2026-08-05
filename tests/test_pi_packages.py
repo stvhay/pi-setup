@@ -8,6 +8,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
+CATALOG = ROOT / "pi" / "agent" / "catalog.json"
+PI_README = ROOT / "pi" / "README.md"
 KEYBINDINGS = ROOT / "pi" / "agent" / "keybindings.json"
 ARCHIMEDES_PACKAGE = {"source": "npm:pi-archimedes", "extensions": []}
 ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
@@ -196,3 +198,28 @@ def test_builtin_image_paste_keybinding_is_disabled_for_archimedes():
     keybindings = json.loads(KEYBINDINGS.read_text(encoding="utf-8"))
 
     assert keybindings["app.clipboard.pasteImage"] == []
+
+
+def test_observational_memory_compaction_scales_with_active_context_window():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    config = settings["observational-memory"]
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+    sol_context = catalog["gpt-5.6-sol"]["venues"][0]["contextWindow"]
+
+    assert "npm:pi-observational-memory@3.0.3" in settings["packages"]
+    assert config["compactAfterTokens"] == 81_000
+    assert config["compactAfterTokensMode"] == "ratio"
+    assert config["compactAfterTokensRatio"] == 0.5
+    assert int(sol_context * config["compactAfterTokensRatio"]) == 136_000
+
+    def effective_threshold(context):
+        if isinstance(context, (int, float)) and context > 0:
+            return int(context * config["compactAfterTokensRatio"])
+        return config["compactAfterTokens"]
+
+    assert all(effective_threshold(context) == 81_000 for context in (None, 0, -1))
+
+    docs = PI_README.read_text(encoding="utf-8")
+    assert "27a5195eaf90e4e2ca1302e3a31d4bb14df982a5" in docs
+    assert "272,000 × 0.5 = 136,000" in docs
+    assert "81,000" in docs

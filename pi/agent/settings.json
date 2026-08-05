@@ -56,6 +56,9 @@
     "npm:betterwright"
   ],
   "observational-memory": {
+    "compactAfterTokens": 81000,
+    "compactAfterTokensMode": "ratio",
+    "compactAfterTokensRatio": 0.5,
     "passive": false,
     "debugLog": false
   }
