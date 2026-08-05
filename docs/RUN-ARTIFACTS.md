@@ -18,6 +18,33 @@ with different ignore policy, and keeps ordinary run records private runtime
 state. Examples below use `<runtime-runs-dir>` and `<runtime-metrics-dir>` for
 resolver-selected paths.
 
+## Delegated-result artifacts
+
+The parent Pi process persists each Archimedes child result under the private
+`agnt runtime-path delegated-results` directory before returning the tool
+result. Each child gets one atomic, mode-`0600` JSON artifact under a
+mode-`0700` invocation directory:
+
+```text
+<runtime-delegated-results-dir>/<invocation-id>/child-<index>.json
+```
+
+Artifacts use schema 1 and retain objective execution outcome, exit code,
+model, full final or partial output, and error output. They omit delegated task
+input. Tool details, tool content, schema-2 metrics, and `subagent-result`
+metadata share a bounded opaque reference:
+
+```text
+runtime:delegated-results/<invocation-id>/child-<index>.json
+```
+
+Resolve the private root with `agnt runtime-path delegated-results`; never
+expand the opaque ref into an absolute telemetry path. Concurrent children use
+separate invocation IDs, and atomic no-overwrite publication leaves no partial
+file. A resolution or write failure returns payload-free `artifactStatus` and
+`artifactFailureClass` metadata, preserves original worker output and execution
+status, and does not expose the private error or path.
+
 ## Bundle shape
 
 ```text

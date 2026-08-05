@@ -6,6 +6,10 @@ import { homedir } from "node:os";
 import { join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
+import {
+  persistDelegatedResult as persistRuntimeDelegatedResult,
+  type DelegatedArtifactPayload,
+} from "./lib/runtime-artifacts.ts";
 
 const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 
@@ -14,6 +18,12 @@ type SubagentInput = {
   task?: string;
   model?: string;
   tasks?: Array<{ agent?: string; task: string; model?: string }>;
+};
+
+type ArtifactEnvelope = {
+  status: "persisted" | "failed";
+  refs: string[];
+  failureClass?: "resolution" | "write";
 };
 
 type SubagentResult = {
@@ -32,6 +42,7 @@ type SubagentResult = {
     turns?: number;
   };
   progressSummary?: { tokens?: number; durationMs?: number };
+  artifact?: ArtifactEnvelope;
 };
 
 type SubagentDetails = {
@@ -71,10 +82,12 @@ type ProviderCircuit = (
   cwd: string,
 ) => void | Promise<void>;
 type ActiveProviderCircuits = (cwd: string) => string[] | Promise<string[]>;
+type PersistDelegatedResult = (root: string, payload: DelegatedArtifactPayload) => Promise<string>;
 type Dependencies = {
   observe?: Observe;
   providerCircuit?: ProviderCircuit;
   activeProviderCircuits?: ActiveProviderCircuits;
+  persistDelegatedResult?: PersistDelegatedResult;
 };
 
 type InvocationStart = {
@@ -236,6 +249,60 @@ async function runtimeDirectory(kind: string, cwd: string): Promise<string> {
   return result.path;
 }
 
+function artifactMetadata(result: SubagentResult): Record<string, unknown> {
+  return {
+    artifactRefs: result.artifact?.refs ?? [],
+    artifactStatus: result.artifact?.status ?? "failed",
+    ...(result.artifact?.failureClass ? { artifactFailureClass: result.artifact.failureClass } : {}),
+  };
+}
+
+async function persistSubagentArtifacts(
+  details: SubagentDetails,
+  invocation: InvocationStart,
+  ctx: ExtensionContext,
+  persist: PersistDelegatedResult,
+): Promise<SubagentDetails> {
+  let root: string;
+  try {
+    root = await runtimeDirectory("delegated-results", ctx.cwd);
+  } catch {
+    return {
+      ...details,
+      results: details.results.map((result) => ({
+        ...result,
+        artifact: { status: "failed", refs: [], failureClass: "resolution" },
+      })),
+    };
+  }
+
+  const parentSessionId = langfuseSessionId(ctx) ?? null;
+  return {
+    ...details,
+    results: await Promise.all(details.results.map(async (result, childIndex): Promise<SubagentResult> => {
+      const invocationId = invocation.invocationIds[childIndex];
+      try {
+        const ref = await persist(root, {
+          invocationId,
+          parentSessionId,
+          childIndex,
+          executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+          exitCode: result.exitCode ?? 1,
+          model: result.model ?? null,
+          finalOutput: result.finalOutput ?? null,
+          error: result.error ?? null,
+        });
+        return { ...result, artifact: { status: "persisted", refs: [ref] } };
+      } catch {
+        return {
+          ...result,
+          artifact: { status: "failed", refs: [], failureClass: "write" },
+        };
+      }
+    })),
+  };
+}
+
 type ModelDimensions = {
   provider: string | null;
   model: string | null;
@@ -340,7 +407,9 @@ function metricRecord(
     executionOutcome: resultExecutionOutcome(exitCode),
     failureClass: exitCode === 0 ? null : exitCode === 124 ? "timeout" : failureClass ? "provider" : "process",
     providerFailureClass: exitCode === 0 ? null : failureClass ?? null,
-    artifactRefs: [],
+    artifactRefs: result.artifact?.refs ?? [],
+    artifactStatus: result.artifact?.status ?? "failed",
+    artifactFailureClass: result.artifact?.failureClass ?? null,
     workerElapsedMs,
     task: "peer",
     riskCategory: null,
@@ -399,6 +468,7 @@ async function recordSubagentMetrics(
 
 export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: Dependencies = {}): void {
   const starts = new Map<string, InvocationStart>();
+  const persistDelegatedResult = dependencies.persistDelegatedResult ?? persistRuntimeDelegatedResult;
   const providerCircuit = dependencies.providerCircuit ?? updateProviderCircuit;
   const activeProviderCircuits = dependencies.activeProviderCircuits ?? loadActiveProviderCircuits;
   const openProviders = new Set<string>();
@@ -537,6 +607,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     while (invocation.invocationIds.length < Math.max(1, details.results.length)) {
       invocation.invocationIds.push(randomUUID());
     }
+    details = await persistSubagentArtifacts(details, invocation, ctx, persistDelegatedResult);
     const providerFailureClasses = details.results.map((result) => providerFailureClass(result.error));
     await Promise.all(details.results.map(async (result, index) => {
       if (input.tasks?.[index]?.agent ?? input.agent) return;
@@ -569,6 +640,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
             index,
             ...dimensions,
             executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+            ...artifactMetadata(result),
             exitCode: result.exitCode ?? 1,
             ...(providerFailureClasses[index] ? { providerFailureClass: providerFailureClasses[index] } : {}),
           },
@@ -578,7 +650,16 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
         console.error("[langfuse-projection] could not record subagent result:", error);
       }
     }));
-    if (synthesized) return { isError: true, details };
-    if (details.results.some((result) => result.exitCode !== 0)) return { isError: true };
+
+    const persistedRefs = details.results.flatMap((result) => result.artifact?.refs ?? []);
+    const artifactMessages = [
+      ...(persistedRefs.length ? [{ type: "text" as const, text: `Delegated artifacts:\n${persistedRefs.map((ref) => `- ${ref}`).join("\n")}` }] : []),
+      ...details.results.flatMap((result, index) => result.artifact?.status === "failed"
+        ? [{ type: "text" as const, text: `Delegated artifact unavailable for child ${index} (${result.artifact.failureClass}).` }]
+        : []),
+    ];
+    const patch = { content: [...event.content, ...artifactMessages], details };
+    if (synthesized || details.results.some((result) => result.exitCode !== 0)) return { ...patch, isError: true };
+    return patch;
   });
 }

@@ -153,10 +153,11 @@ durable artifacts — plans, reports, patches, metrics, verification logs, or
 optional run records — with enough structure for a human, tool, or later agent
 to inspect, retry, verify, or continue the work. Current pieces are: `.beads/`
 for work graph export/config, `.pi/plans/` for plans, resolver-selected private
-directories for optional invocation/result artifacts and runtime telemetry
-(project `.pi/runs/` and `.pi/metrics/` only when Git proves each candidate
-ignored, untracked, and symlink-safe; hashed `~/.pi/runtime/` fallback
-otherwise), `agnt action render` and `agnt runs` for message artifacts, `agnt
+directories for optional invocation/result artifacts, parent-owned delegated
+results, and runtime telemetry (project `.pi/runs/`, `.pi/delegated-results/`,
+and `.pi/metrics/` only when Git proves each candidate ignored, untracked, and
+symlink-safe; hashed `~/.pi/runtime/` fallback otherwise), `agnt action render`
+and `agnt runs` for message artifacts, `agnt
 work` for dry-run bead dispatch plans,
 plan trees, daemon lifecycle, service-backed runner client operations, health
 checks, and maintenance checkpoints, `agnt approvals` for durable human
@@ -177,8 +178,10 @@ Raw per-invocation records land in the resolver-selected private
 otherwise it uses the repository-keyed `~/.pi/runtime/<sha256>/` fallback.
 `agnt invoke` writes its own records; the tracked subagent observer converts
 completed unnamed Archimedes results to the same schema using counts and
-lengths without prompt or response bodies. Named-profile
-results are skipped because Archimedes does not expose their final provider.
+lengths without prompt or response bodies. Before tool return, the parent writes
+full child output under the resolver-selected `delegated-results` directory and
+shares only bounded opaque refs in metric metadata. Named-profile metrics are
+skipped because Archimedes does not expose their final provider.
 `agnt metrics consolidate`
 appends compact records
 to the durable global store `~/.pi/metrics/agent-invocations.jsonl`; run it

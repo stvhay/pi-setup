@@ -562,6 +562,8 @@ def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "failureClass": record.get("failureClass"),
         "providerFailureClass": record.get("providerFailureClass"),
         "artifactRefs": bounded_artifact_refs(record.get("artifactRefs")),
+        "artifactStatus": record.get("artifactStatus"),
+        "artifactFailureClass": record.get("artifactFailureClass"),
         "childIndex": record.get("childIndex"),
         "task": record.get("task"),
         "riskCategory": record.get("riskCategory"),
