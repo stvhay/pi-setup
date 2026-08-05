@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "subagent-error-workaround.ts"
+RUNTIME_ARTIFACTS = ROOT / "pi" / "agent" / "extensions" / "lib" / "runtime-artifacts.ts"
 
 
 def run_node(script: str, env: dict[str, str] | None = None):
@@ -27,7 +28,12 @@ def test_subagent_workaround_exposes_failures_without_touching_successes():
       import install from {EXTENSION.as_uri()!r};
 
       const handlers = {{}};
-      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }});
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        observe() {{}},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
       const handler = handlers.tool_result;
       assert.equal(typeof handler, "function");
 
@@ -55,7 +61,9 @@ def test_subagent_workaround_exposes_failures_without_touching_successes():
         details: {{ mode: "single", results: [{{ exitCode: 2 }}] }},
         isError: false,
       }}, {{ cwd: process.cwd() }});
-      assert.deepEqual(childFailure, {{ isError: true }});
+      assert.equal(childFailure.isError, true);
+      assert.equal(childFailure.details.results[0].artifact.status, "persisted");
+      assert.match(childFailure.content.at(-1).text, /^Delegated artifacts:/);
 
       const success = await handler({{
         toolName: "subagent",
@@ -65,7 +73,9 @@ def test_subagent_workaround_exposes_failures_without_touching_successes():
         details: {{ mode: "single", results: [{{ exitCode: 0 }}] }},
         isError: false,
       }}, {{ cwd: process.cwd() }});
-      assert.equal(success, undefined);
+      assert.equal(success.isError, undefined);
+      assert.equal(success.details.results[0].artifact.status, "persisted");
+      assert.match(success.content.at(-1).text, /^Delegated artifacts:/);
 
       const unrelated = await handler({{
         toolName: "bash",
@@ -324,6 +334,9 @@ def test_subagent_results_emit_evaluator_ready_observations():
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
         observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
       }});
 
       await handlers.tool_result({{
@@ -346,6 +359,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
       }});
 
       const invocationIds = observations.map((item) => item.attributes.metadata.invocationId);
+      const artifactRefs = invocationIds.map((id, index) => [`runtime:delegated-results/${{id}}/child-${{index}}.json`]);
       assert.equal(new Set(invocationIds).size, 2);
       assert.equal(invocationIds.every((id) => /^[0-9a-f-]{{36}}$/.test(id)), true);
       for (const observation of observations) delete observation.attributes.metadata.invocationId;
@@ -363,6 +377,8 @@ def test_subagent_results_emit_evaluator_ready_observations():
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
               executionOutcome: "succeeded",
+              artifactRefs: artifactRefs[0],
+              artifactStatus: "persisted",
               exitCode: 0,
             }},
             level: "DEFAULT",
@@ -382,6 +398,8 @@ def test_subagent_results_emit_evaluator_ready_observations():
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
               executionOutcome: "failed",
+              artifactRefs: artifactRefs[1],
+              artifactStatus: "persisted",
               exitCode: 1,
             }},
             level: "ERROR",
@@ -434,10 +452,10 @@ def test_named_agent_projection_marks_provider_and_thinking_unavailable():
 
 def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / ".gitignore").write_text(".pi/metrics/\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
     script = f"""
       import assert from "node:assert/strict";
-      import {{ readFile, readdir }} from "node:fs/promises";
+      import {{ readFile, readdir, stat }} from "node:fs/promises";
       import install from {EXTENSION.as_uri()!r};
 
       const handlers = {{}};
@@ -460,14 +478,14 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         sessionManager: {{ getSessionFile() {{ return "/private/parent-session.jsonl"; }} }},
       }};
       await handlers.tool_call({{ toolName: "subagent", toolCallId: "parallel", input }}, ctx);
-      await handlers.tool_result({{
+      const patch = await handlers.tool_result({{
         toolName: "subagent",
         toolCallId: "parallel",
         input,
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
           {{ exitCode: 0, model: "openai/gpt-oss-120b", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
-          {{ exitCode: 2, model: "gpt-5.6-luna", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
+          {{ exitCode: 2, model: "gpt-5.6-luna", finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
         ] }},
         isError: false,
       }}, ctx);
@@ -487,13 +505,20 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.executionOutcome), ["succeeded", "failed"]);
       assert.deepEqual(records.map((record) => record.failureClass), [null, "provider"]);
       assert.deepEqual(records.map((record) => record.providerFailureClass), [null, "credit"]);
-      assert.deepEqual(records.map((record) => record.artifactRefs), [[], []]);
+      const refs = patch.details.results.map((result) => result.artifact.refs[0]);
+      assert.deepEqual(refs, ids.map((id, index) => `runtime:delegated-results/${{id}}/child-${{index}}.json`));
+      assert.equal(refs.every((ref) => ref.length < 256), true);
+      assert.equal(patch.content.at(-1).text, `Delegated artifacts:\n- ${{refs[0]}}\n- ${{refs[1]}}`);
+      assert.deepEqual(records.map((record) => record.artifactRefs), refs.map((ref) => [ref]));
+      assert.deepEqual(records.map((record) => record.artifactStatus), ["persisted", "persisted"]);
       assert.deepEqual(records.map((record) => [record.provider, record.model, record.target, record.thinkingLevel]), [
         ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "default"],
         ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default"],
       ]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.executionOutcome), ["succeeded", "failed"]);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactRefs), refs.map((ref) => [ref]));
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactStatus), ["persisted", "persisted"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.providerFailureClass ?? null), [null, "credit"]);
       assert.deepEqual(observations.map((item) => {{
         const metadata = item.attributes.metadata;
@@ -502,14 +527,161 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "default", "available"],
         ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default", "available"],
       ]);
+      const artifactRoot = `${{cwd}}/.pi/delegated-results`;
+      const artifacts = await Promise.all(ids.map((id, index) => readFile(`${{artifactRoot}}/${{id}}/child-${{index}}.json`, "utf8").then(JSON.parse)));
+      assert.deepEqual(artifacts.map((item) => [
+        item.schemaVersion,
+        item.invocationId,
+        item.parentSessionId,
+        item.childIndex,
+        item.executionOutcome,
+        item.finalOutput,
+        item.error,
+      ]), [
+        [1, ids[0], "parent-session", 0, "succeeded", "SECRET first output", null],
+        [1, ids[1], "parent-session", 1, "failed", "SECRET partial second output", "HTTP 402: available credits can only cover 505 tokens"],
+      ]);
+      assert.equal((await stat(artifactRoot)).mode & 0o777, 0o700);
+      assert.equal((await stat(`${{artifactRoot}}/${{ids[0]}}`)).mode & 0o777, 0o700);
+      assert.equal((await stat(`${{artifactRoot}}/${{ids[0]}}/child-0.json`)).mode & 0o777, 0o600);
+      assert.equal((await readdir(artifactRoot, {{ recursive: true }})).filter((name) => name.endsWith(".json")).length, 2);
+      assert.equal((await readdir(artifactRoot, {{ recursive: true }})).some((name) => name.includes(".tmp")), false);
       assert.equal(JSON.stringify(records).includes("SECRET"), false);
+    """
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
+
+
+def test_runtime_artifact_rejects_symlink_target_without_temp(tmp_path):
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ mkdir, readFile, readdir, symlink, writeFile }} from "node:fs/promises";
+      import {{ persistDelegatedResult }} from {RUNTIME_ARTIFACTS.as_uri()!r};
+
+      const root = {str(tmp_path / "delegated-results")!r};
+      const invocationId = "018f47a8-62c4-7e91-a969-7b4f6c78d308";
+      const directory = `${{root}}/${{invocationId}}`;
+      const outside = {str(tmp_path / "outside.json")!r};
+      await mkdir(directory, {{ recursive: true }});
+      await writeFile(outside, "outside");
+      await symlink(outside, `${{directory}}/child-0.json`);
+
+      await assert.rejects(() => persistDelegatedResult(root, {{
+        invocationId,
+        parentSessionId: null,
+        childIndex: 0,
+        executionOutcome: "succeeded",
+        exitCode: 0,
+        model: null,
+        finalOutput: "private output",
+        error: null,
+      }}));
+
+      assert.equal(await readFile(outside, "utf8"), "outside");
+      assert.deepEqual(await readdir(directory), ["child-0.json"]);
+    """
+    run_node(script)
+
+
+def test_parent_owned_artifacts_support_concurrent_calls(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readdir }} from "node:fs/promises";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe() {{}},
+        providerCircuit() {{}},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      const calls = [
+        {{ id: "first", input: {{ task: "first", model: "openai-codex/gpt-5.6-sol" }}, output: "first output" }},
+        {{ id: "second", input: {{ task: "second", model: "openai-codex/gpt-5.6-luna" }}, output: "second output" }},
+      ];
+      for (const call of calls) await handlers.tool_call({{ toolName: "subagent", toolCallId: call.id, input: call.input }}, ctx);
+      const patches = await Promise.all(calls.map((call) => handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: call.id,
+        input: call.input,
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "single", results: [{{ exitCode: 0, finalOutput: call.output }}] }},
+        isError: false,
+      }}, ctx)));
+
+      const refs = patches.map((patch) => patch.details.results[0].artifact.refs[0]);
+      assert.equal(new Set(refs).size, 2);
+      assert.equal(refs.every((ref) => /^runtime:delegated-results[/][0-9a-f-]{{36}}[/]child-0[.]json$/.test(ref)), true);
+      const files = await readdir(`${{cwd}}/.pi/delegated-results`, {{ recursive: true }});
+      assert.equal(files.filter((name) => name.endsWith(".json")).length, 2);
+      assert.equal(files.some((name) => name.includes(".tmp")), false);
+    """
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
+
+
+def test_artifact_write_failure_preserves_execution_result(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readFile, readdir }} from "node:fs/promises";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      let writes = 0;
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
+        providerCircuit() {{}},
+        async persistDelegatedResult() {{
+          writes += 1;
+          throw new Error("PRIVATE write path and payload");
+        }},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const input = {{ task: "review", model: "openai-codex/gpt-5.6-sol" }};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "write-failure", input }}, ctx);
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "write-failure",
+        input,
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "single", results: [{{ exitCode: 0, finalOutput: "useful output" }}] }},
+        isError: false,
+      }}, ctx);
+
+      assert.equal(writes, 1);
+      assert.equal(patch.isError, undefined, "artifact failure must not change successful tool status");
+      assert.equal(patch.details.results[0].finalOutput, "useful output");
+      assert.deepEqual(patch.details.results[0].artifact, {{ status: "failed", refs: [], failureClass: "write" }});
+      assert.equal(patch.content.at(-1).text, "Delegated artifact unavailable for child 0 (write).");
+      assert.deepEqual(observations[0].attributes.metadata.artifactRefs, []);
+      assert.equal(observations[0].attributes.metadata.artifactStatus, "failed");
+      assert.equal(observations[0].attributes.metadata.artifactFailureClass, "write");
+
+      const metricsDir = `${{cwd}}/.pi/metrics/invocations`;
+      const metricFiles = await readdir(metricsDir);
+      const metric = JSON.parse(await readFile(`${{metricsDir}}/${{metricFiles[0]}}`, "utf8"));
+      assert.deepEqual(metric.artifactRefs, []);
+      assert.equal(metric.artifactStatus, "failed");
+      assert.equal(metric.artifactFailureClass, "write");
+      assert.equal(JSON.stringify({{ patch, observations, metric }}).includes("PRIVATE write path"), false);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
 
 
 def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / ".gitignore").write_text(".pi/metrics/\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
     script = f"""
       import assert from "node:assert/strict";
       import {{ readFile, readdir }} from "node:fs/promises";
@@ -549,6 +721,9 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       const invocationId = records[0].invocationId;
       assert.equal(records[0].status, "failed");
       assert.equal(records[0].executionOutcome, "failed");
+      const artifactRef = `runtime:delegated-results/${{invocationId}}/child-0.json`;
+      assert.deepEqual(records[0].artifactRefs, [artifactRef]);
+      assert.equal(records[0].artifactStatus, "persisted");
       assert.deepEqual([
         records[0].provider,
         records[0].model,
@@ -566,8 +741,11 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
         thinkingLevel: "default",
         modelDimensionsStatus: "available",
         executionOutcome: "failed",
+        artifactRefs: [artifactRef],
+        artifactStatus: "persisted",
         exitCode: 1,
       }});
+      assert.equal(result.details.results[0].artifact.refs[0], artifactRef);
       assert.equal(/^[0-9a-f-]{{36}}$/.test(invocationId), true);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})

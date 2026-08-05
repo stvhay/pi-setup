@@ -2192,6 +2192,21 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
     assert "SECRET" not in json.dumps(record)
 
 
+def test_compact_metric_preserves_delegated_artifact_envelope(agnt):
+    ref = "runtime:delegated-results/018f47a8-62c4-7e91-a969-7b4f6c78d308/child-0.json"
+
+    compact = agnt.compact_metric_record({
+        "schemaVersion": 2,
+        "artifactRefs": [ref],
+        "artifactStatus": "failed",
+        "artifactFailureClass": "write",
+    })
+
+    assert compact["artifactRefs"] == [ref]
+    assert compact["artifactStatus"] == "failed"
+    assert compact["artifactFailureClass"] == "write"
+
+
 def test_bounded_artifact_refs_reject_traversal_absolute_and_unbounded(agnt):
     safe = [f"artifacts/{index}.txt" for index in range(20)]
 

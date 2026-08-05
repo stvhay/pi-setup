@@ -72,7 +72,7 @@ Code-review metrics can link a validated structured finding artifact, separating
 `agnt` is a front controller for several related command families:
 
 - `agnt route` recommends a model for a task, risk level, budget, context size, and modality.
-- Archimedes `subagent` runs routed interactive peers with live TUI progress and cancellation; the tracked observer records completed unnamed-peer usage without prompt or response bodies. Unnamed projections and metrics share invocation, provider, model, target, thinking, and objective execution dimensions. Named-profile projections mark unavailable model dimensions explicitly, and metrics remain skipped until Archimedes exposes their effective provider and thinking level.
+- Archimedes `subagent` runs routed interactive peers with live TUI progress and cancellation. Before returning, the parent persists each child result under `agnt runtime-path delegated-results` and adds one bounded opaque ref to tool content, details, metrics, and projection metadata. Workers need no shared-write access. Unnamed projections and metrics share invocation, provider, model, target, thinking, objective execution, and artifact dimensions. Named-profile projections mark unavailable model dimensions explicitly, and metrics remain skipped until Archimedes exposes their effective provider and thinking level.
 - `agnt invoke` remains the cold/headless and run-artifact executor; `--one-shot` disables tools and ambient context expansion for complete embedded packets.
 - `agnt review` validates and summarizes structured discovery/adjudication findings.
 - `agnt instructions` composes global, project, model, and role context packages.
