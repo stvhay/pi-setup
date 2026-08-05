@@ -330,11 +330,13 @@ def test_subagent_results_emit_evaluator_ready_observations():
 
       const handlers = {{}};
       const observations = [];
+      const payloads = [];
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
         observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
         persistDelegatedResult(_root, payload) {{
+          payloads.push(payload);
           return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
         }},
       }});
@@ -343,8 +345,8 @@ def test_subagent_results_emit_evaluator_ready_observations():
         toolName: "subagent",
         toolCallId: "parallel",
         input: {{ tasks: [
-          {{ task: "Review auth", model: "olla-cloud/gpt-4.1-mini" }},
-          {{ task: "Check tests", model: "openai-codex/gpt-5.6-luna" }},
+          {{ task: "Review auth", model: "olla-cloud/gpt-4.1-mini", outputContract: "inline" }},
+          {{ task: "Check tests", model: "openai-codex/gpt-5.6-luna", outputContract: "artifact" }},
         ] }},
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
@@ -367,7 +369,15 @@ def test_subagent_results_emit_evaluator_ready_observations():
         {{
           name: "subagent-result",
           attributes: {{
-            input: "Review auth",
+            input: {{
+              task: "Review auth",
+              outputContract: "inline",
+              executionOutcome: "succeeded",
+              artifactStatus: "persisted",
+              artifactContentStatus: "available",
+              artifactReferenceCount: 1,
+              artifactFailureClass: null,
+            }},
             output: "Auth review complete",
             metadata: {{
               index: 0,
@@ -377,6 +387,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
               executionOutcome: "succeeded",
+              outputContract: "inline",
               artifactRefs: artifactRefs[0],
               artifactStatus: "persisted",
               exitCode: 0,
@@ -388,7 +399,15 @@ def test_subagent_results_emit_evaluator_ready_observations():
         {{
           name: "subagent-result",
           attributes: {{
-            input: "Check tests",
+            input: {{
+              task: "Check tests",
+              outputContract: "artifact",
+              executionOutcome: "failed",
+              artifactStatus: "persisted",
+              artifactContentStatus: "available",
+              artifactReferenceCount: 1,
+              artifactFailureClass: null,
+            }},
             output: "Provider unavailable",
             metadata: {{
               index: 1,
@@ -398,6 +417,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
               executionOutcome: "failed",
+              outputContract: "artifact",
               artifactRefs: artifactRefs[1],
               artifactStatus: "persisted",
               exitCode: 1,
@@ -407,6 +427,83 @@ def test_subagent_results_emit_evaluator_ready_observations():
           options: {{ asType: "agent", sessionId: "private-session" }},
         }},
       ]);
+      assert.deepEqual(payloads.map((payload) => payload.outputContract), ["inline", "artifact"]);
+    """
+    run_node(script)
+
+
+def test_subagent_evaluator_view_bounds_output_and_marks_unavailable():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(_name, attributes) {{ observations.push(attributes); }},
+        persistDelegatedResult() {{ throw new Error("write failed"); }},
+      }});
+
+      const longOutput = "x".repeat(12_050);
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "bounded",
+        input: {{ tasks: [
+          {{ task: "Write artifact", outputContract: "artifact" }},
+          {{ task: "Return findings", outputContract: "inline" }},
+        ] }},
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "parallel", results: [
+          {{ exitCode: 0, finalOutput: longOutput }},
+          {{ exitCode: 0 }},
+        ] }},
+        isError: false,
+      }}, {{ cwd: process.cwd(), model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
+
+      assert.deepEqual(observations.map((item) => item.input.outputContract), ["artifact", "inline"]);
+      assert.deepEqual(observations.map((item) => item.input.artifactStatus), ["failed", "failed"]);
+      assert.deepEqual(observations.map((item) => item.input.artifactContentStatus), ["unavailable", "unavailable"]);
+      assert.deepEqual(observations.map((item) => item.input.artifactReferenceCount), [0, 0]);
+      assert.deepEqual(observations.map((item) => item.input.artifactFailureClass), ["write", "write"]);
+      assert.equal(observations[0].output.startsWith("x".repeat(12_000)), true);
+      assert.match(observations[0].output, /delegated output truncated at 12000 characters/);
+      assert.equal(observations[0].output.length < 12_100, true);
+      assert.equal(observations[1].output, "[delegated output unavailable]");
+    """
+    run_node(script)
+
+
+def test_subagent_evaluator_marks_persisted_artifact_without_output_unavailable():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(_name, attributes) {{ observations.push(attributes); }},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "missing-artifact-output",
+        input: {{ task: "Write artifact", outputContract: "artifact" }},
+        content: [{{ type: "text", text: "done" }}],
+        details: {{ mode: "single", results: [{{ exitCode: 0 }}] }},
+        isError: false,
+      }}, {{ cwd: process.cwd(), model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
+
+      assert.equal(observations[0].input.artifactStatus, "persisted");
+      assert.equal(observations[0].input.artifactContentStatus, "unavailable");
+      assert.equal(observations[0].input.outputContract, "artifact");
+      assert.equal(observations[0].output, "[delegated output unavailable]");
     """
     run_node(script)
 
@@ -469,8 +566,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
 
       const cwd = {str(tmp_path)!r};
       const input = {{ tasks: [
-        {{ task: "SECRET first task", model: "openai/openai/gpt-oss-120b" }},
-        {{ task: "SECRET second task", model: "openai-codex/gpt-5.6-luna" }},
+        {{ task: "SECRET first task", model: "openai/openai/gpt-oss-120b", outputContract: "artifact" }},
+        {{ task: "SECRET second task", model: "openai-codex/gpt-5.6-luna", outputContract: "status-only" }},
       ] }};
       const ctx = {{
         cwd,
@@ -505,6 +602,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.executionOutcome), ["succeeded", "failed"]);
       assert.deepEqual(records.map((record) => record.failureClass), [null, "provider"]);
       assert.deepEqual(records.map((record) => record.providerFailureClass), [null, "credit"]);
+      assert.deepEqual(records.map((record) => record.outputContract), ["artifact", "status-only"]);
       const refs = patch.details.results.map((result) => result.artifact.refs[0]);
       assert.deepEqual(refs, ids.map((id, index) => `runtime:delegated-results/${{id}}/child-${{index}}.json`));
       assert.equal(refs.every((ref) => ref.length < 256), true);
@@ -517,6 +615,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       ]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.executionOutcome), ["succeeded", "failed"]);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.outputContract), ["artifact", "status-only"]);
+      assert.deepEqual(observations.map((item) => item.attributes.input.outputContract), ["artifact", "status-only"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactRefs), refs.map((ref) => [ref]));
       assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactStatus), ["persisted", "persisted"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.providerFailureClass ?? null), [null, "credit"]);
@@ -535,11 +635,12 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         item.parentSessionId,
         item.childIndex,
         item.executionOutcome,
+        item.outputContract,
         item.finalOutput,
         item.error,
       ]), [
-        [1, ids[0], "parent-session", 0, "succeeded", "SECRET first output", null],
-        [1, ids[1], "parent-session", 1, "failed", "SECRET partial second output", "HTTP 402: available credits can only cover 505 tokens"],
+        [1, ids[0], "parent-session", 0, "succeeded", "artifact", "SECRET first output", null],
+        [1, ids[1], "parent-session", 1, "failed", "status-only", "SECRET partial second output", "HTTP 402: available credits can only cover 505 tokens"],
       ]);
       assert.equal((await stat(artifactRoot)).mode & 0o777, 0o700);
       assert.equal((await stat(`${{artifactRoot}}/${{ids[0]}}`)).mode & 0o777, 0o700);
@@ -721,6 +822,7 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       const invocationId = records[0].invocationId;
       assert.equal(records[0].status, "failed");
       assert.equal(records[0].executionOutcome, "failed");
+      assert.equal(records[0].outputContract, "unknown");
       const artifactRef = `runtime:delegated-results/${{invocationId}}/child-0.json`;
       assert.deepEqual(records[0].artifactRefs, [artifactRef]);
       assert.equal(records[0].artifactStatus, "persisted");
@@ -741,6 +843,7 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
         thinkingLevel: "default",
         modelDimensionsStatus: "available",
         executionOutcome: "failed",
+        outputContract: "unknown",
         artifactRefs: [artifactRef],
         artifactStatus: "persisted",
         exitCode: 1,

@@ -29,10 +29,11 @@ mode-`0700` invocation directory:
 <runtime-delegated-results-dir>/<invocation-id>/child-<index>.json
 ```
 
-Artifacts use schema 1 and retain objective execution outcome, exit code,
-model, full final or partial output, and error output. They omit delegated task
-input. Tool details, tool content, schema-2 metrics, and `subagent-result`
-metadata share a bounded opaque reference:
+Artifacts use schema 1 and retain objective execution outcome, declared output
+contract (`inline`, `artifact`, `status-only`, `pass-no-findings`, or `unknown`),
+exit code, model, full final or partial output, and error output. They omit
+delegated task input. Tool details, tool content, schema-2 metrics, and
+`subagent-result` metadata share a bounded opaque reference:
 
 ```text
 runtime:delegated-results/<invocation-id>/child-<index>.json
@@ -43,7 +44,11 @@ expand the opaque ref into an absolute telemetry path. Concurrent children use
 separate invocation IDs, and atomic no-overwrite publication leaves no partial
 file. A resolution or write failure returns payload-free `artifactStatus` and
 `artifactFailureClass` metadata, preserves original worker output and execution
-status, and does not expose the private error or path.
+status, and does not expose the private error or path. Quality evaluation sees
+only declared contract, objective outcome, artifact persistence/content status,
+ref count, and at most 12,000 characters of parent-held result content; raw refs
+never enter the evaluator prompt. A published artifact containing neither final
+output nor error is explicitly content-unavailable.
 
 ## Bundle shape
 

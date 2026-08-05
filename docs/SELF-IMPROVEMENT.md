@@ -32,12 +32,22 @@ Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
 Every `agnt invoke` writes a metric record (model, family, task, tokens,
 cost, latency) to the resolved private `metrics/invocations` directory.
 The tracked observer converts interactive Archimedes unnamed `subagent` results
-to the same schema. Projection and metric records share invocation, provider,
-model, target, and effective thinking dimensions; config-less workers record
-`default` because Archimedes passes no thinking override. The observer stores
-usage, timing, and payload lengths—not prompt or response bodies. Named-profile
-projections mark unavailable dimensions explicitly, while metrics remain skipped
-because Archimedes does not expose their effective provider or thinking level.
+to the same schema. Projection, parent-owned artifact, and metric records share
+invocation, provider, model, target, effective thinking, and optional output
+contract dimensions; missing/legacy contracts are `unknown`. Config-less workers
+record thinking `default` because Archimedes passes no thinking override. Metrics
+store usage, timing, payload lengths, bounded artifact refs, and contract—not
+prompt or response bodies. Named-profile projections mark unavailable dimensions
+explicitly, while metrics remain skipped because Archimedes does not expose their
+effective provider or thinking level.
+
+`subagent-result` quality evaluation receives a bounded view of parent-held
+output plus objective outcome, declared contract, artifact persistence/content
+status, and ref count. It does not receive raw refs or filesystem paths.
+Requested status-only and PASS/no-findings responses are judged against that
+contract; missing required
+inline/artifact output remains visible as poor quality independently of objective
+execution outcome.
 
 The Langfuse extension records private interactive telemetry. Evaluator-ready
 result projections share the Pi session ID, allowing sampled outcome scores to

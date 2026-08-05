@@ -9,6 +9,7 @@ export type DelegatedArtifactPayload = {
   parentSessionId: string | null;
   childIndex: number;
   executionOutcome: "succeeded" | "failed" | "unavailable";
+  outputContract: "inline" | "artifact" | "status-only" | "pass-no-findings" | "unknown";
   exitCode: number;
   model: string | null;
   finalOutput: string | null;

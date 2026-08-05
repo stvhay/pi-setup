@@ -175,6 +175,8 @@ def test_archimedes_package_entrypoint_is_disabled_for_tracked_public_wrapper():
     wrapper = ARCHIMEDES_WRAPPER.read_text(encoding="utf-8")
     assert 'require.resolve("pi-archimedes")' in wrapper
     assert '.resolve("@pi-archimedes/core/bus")' in wrapper
+    assert 'tool.name === "subagent"' in wrapper
+    assert '"pass-no-findings"' in wrapper
     assert "/src/" not in wrapper
 
 

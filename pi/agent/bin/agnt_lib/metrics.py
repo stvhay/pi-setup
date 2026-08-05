@@ -403,6 +403,7 @@ def load_metric_records(files: List[Path], *, include_annotations: bool = True) 
             data.setdefault("sourceFile", str(path))
             data.setdefault("outcome", "unknown")
             data.setdefault("executionOutcome", "unknown")
+            data.setdefault("outputContract", "unknown")
             data.setdefault("humanOverride", False)
             data.setdefault("fallbackUsed", False)
             records.append(data)
@@ -564,6 +565,7 @@ def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "artifactRefs": bounded_artifact_refs(record.get("artifactRefs")),
         "artifactStatus": record.get("artifactStatus"),
         "artifactFailureClass": record.get("artifactFailureClass"),
+        "outputContract": record.get("outputContract", "unknown"),
         "childIndex": record.get("childIndex"),
         "task": record.get("task"),
         "riskCategory": record.get("riskCategory"),

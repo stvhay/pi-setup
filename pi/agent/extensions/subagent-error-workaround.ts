@@ -13,11 +13,18 @@ import {
 
 const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 
+type OutputContract = "inline" | "artifact" | "status-only" | "pass-no-findings";
+type NormalizedOutputContract = OutputContract | "unknown";
+
+const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
+const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
+
 type SubagentInput = {
   agent?: string;
   task?: string;
   model?: string;
-  tasks?: Array<{ agent?: string; task: string; model?: string }>;
+  outputContract?: OutputContract;
+  tasks?: Array<{ agent?: string; task: string; model?: string; outputContract?: OutputContract }>;
 };
 
 type ArtifactEnvelope = {
@@ -133,6 +140,36 @@ function assistantExecutionMetadata(messages: unknown): Record<string, unknown> 
 
 function resultExecutionOutcome(exitCode: number): "succeeded" | "failed" | "unavailable" {
   return exitCode === 0 ? "succeeded" : exitCode === 124 ? "unavailable" : "failed";
+}
+
+function outputContract(input: SubagentInput, index: number): NormalizedOutputContract {
+  const value = input.tasks?.[index]?.outputContract ?? input.outputContract;
+  return OUTPUT_CONTRACTS.has(value as OutputContract) ? value as OutputContract : "unknown";
+}
+
+function evaluationContext(
+  task: string | undefined,
+  result: SubagentResult,
+  contract: NormalizedOutputContract,
+): Record<string, unknown> {
+  return {
+    task: task ?? null,
+    outputContract: contract,
+    executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+    artifactStatus: result.artifact?.status ?? "failed",
+    artifactContentStatus: result.artifact?.status === "persisted" && Boolean(result.finalOutput ?? result.error)
+      ? "available"
+      : "unavailable",
+    artifactReferenceCount: result.artifact?.refs.length ?? 0,
+    artifactFailureClass: result.artifact?.failureClass ?? null,
+  };
+}
+
+function evaluationOutput(result: SubagentResult): string {
+  const value = result.finalOutput ?? result.error;
+  if (!value) return "[delegated output unavailable]";
+  if (value.length <= EVALUATION_OUTPUT_MAX_CHARS) return value;
+  return `${value.slice(0, EVALUATION_OUTPUT_MAX_CHARS)}\n[delegated output truncated at ${EVALUATION_OUTPUT_MAX_CHARS} characters]`;
 }
 
 async function loadDefaultObserve(): Promise<Observe> {
@@ -258,6 +295,7 @@ function artifactMetadata(result: SubagentResult): Record<string, unknown> {
 }
 
 async function persistSubagentArtifacts(
+  input: SubagentInput,
   details: SubagentDetails,
   invocation: InvocationStart,
   ctx: ExtensionContext,
@@ -287,6 +325,7 @@ async function persistSubagentArtifacts(
           parentSessionId,
           childIndex,
           executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+          outputContract: outputContract(input, childIndex),
           exitCode: result.exitCode ?? 1,
           model: result.model ?? null,
           finalOutput: result.finalOutput ?? null,
@@ -410,6 +449,7 @@ function metricRecord(
     artifactRefs: result.artifact?.refs ?? [],
     artifactStatus: result.artifact?.status ?? "failed",
     artifactFailureClass: result.artifact?.failureClass ?? null,
+    outputContract: outputContract(input, index),
     workerElapsedMs,
     task: "peer",
     riskCategory: null,
@@ -607,7 +647,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     while (invocation.invocationIds.length < Math.max(1, details.results.length)) {
       invocation.invocationIds.push(randomUUID());
     }
-    details = await persistSubagentArtifacts(details, invocation, ctx, persistDelegatedResult);
+    details = await persistSubagentArtifacts(input, details, invocation, ctx, persistDelegatedResult);
     const providerFailureClasses = details.results.map((result) => providerFailureClass(result.error));
     await Promise.all(details.results.map(async (result, index) => {
       if (input.tasks?.[index]?.agent ?? input.agent) return;
@@ -631,15 +671,17 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     await Promise.all(details.results.map(async (result, index) => {
       const task = input.tasks?.[index]?.task ?? input.task ?? result.task;
       const dimensions = modelDimensions(input, result, index, ctx);
+      const contract = outputContract(input, index);
       try {
         await (await getObserve())("subagent-result", {
-          input: task,
-          output: result.finalOutput ?? result.error,
+          input: evaluationContext(task, result, contract),
+          output: evaluationOutput(result),
           metadata: {
             invocationId: invocation.invocationIds[index],
             index,
             ...dimensions,
             executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+            outputContract: contract,
             ...artifactMetadata(result),
             exitCode: result.exitCode ?? 1,
             ...(providerFailureClasses[index] ? { providerFailureClass: providerFailureClasses[index] } : {}),

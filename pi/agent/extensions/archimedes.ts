@@ -25,10 +25,22 @@ type Answer = {
 };
 type ToolDefinition = {
   name: string;
+  label?: string;
+  description?: string;
+  parameters?: any;
+  prepareArguments?: (args: unknown) => unknown;
   execute?: (...args: any[]) => Promise<any>;
+  [key: string]: any;
 };
 type ArchimedesFactory = (pi: ExtensionAPI) => void | Promise<void>;
 type AskEmitter = (questions: Question[]) => void;
+
+const outputContracts = ["inline", "artifact", "status-only", "pass-no-findings"] as const;
+const outputContractParameter = {
+  type: "string",
+  enum: outputContracts,
+  description: "Expected result shape used for parent artifact persistence and quality evaluation.",
+};
 
 const askParameters = {
   type: "object",
@@ -165,6 +177,51 @@ function normalizeLegacyResult(result: any, questions: Question[]): any {
   };
 }
 
+function subagentParameters(parameters: any): any {
+  const properties = parameters?.properties;
+  const taskItems = properties?.tasks?.items;
+  if (!properties || !taskItems?.properties) throw new Error("Archimedes subagent schema is unavailable");
+  return {
+    ...parameters,
+    properties: {
+      ...properties,
+      outputContract: outputContractParameter,
+      tasks: {
+        ...properties.tasks,
+        items: {
+          ...taskItems,
+          properties: { ...taskItems.properties, outputContract: outputContractParameter },
+        },
+      },
+    },
+  };
+}
+
+function upstreamSubagentArguments(params: any): any {
+  const { outputContract: _outputContract, ...upstream } = params;
+  if (!Array.isArray(upstream.tasks)) return upstream;
+  return {
+    ...upstream,
+    tasks: upstream.tasks.map((value: any) => {
+      const { outputContract: _taskOutputContract, ...task } = value;
+      return task;
+    }),
+  };
+}
+
+function registerContractAwareSubagent(pi: ExtensionAPI, upstreamSubagent?: ToolDefinition): void {
+  if (!upstreamSubagent?.execute || !upstreamSubagent.parameters) {
+    throw new Error("Archimedes subagent tool is unavailable");
+  }
+  pi.registerTool({
+    ...upstreamSubagent,
+    parameters: subagentParameters(upstreamSubagent.parameters),
+    execute(toolCallId, params, signal, onUpdate, ctx) {
+      return upstreamSubagent.execute!(toolCallId, upstreamSubagentArguments(params), signal, onUpdate, ctx);
+    },
+  } as any);
+}
+
 function registerPortableAsk(pi: ExtensionAPI, upstreamAsk?: ToolDefinition, emitAsk?: AskEmitter): void {
   pi.registerTool({
     name: "ask",
@@ -224,11 +281,13 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
     import(pathToFileURL(busEntry).href) as Promise<{ getBus: () => { emit: (event: string, payload: unknown) => void }; Events: { ASK_REQUEST: string } }>,
   ]);
   let upstreamAsk: ToolDefinition | undefined;
+  let upstreamSubagent: ToolDefinition | undefined;
   const components = new Proxy(pi, {
     get(target, property, receiver) {
       if (property === "registerTool") {
         return (tool: ToolDefinition) => {
           if (tool.name === "ask") upstreamAsk = tool;
+          else if (tool.name === "subagent") upstreamSubagent = tool;
           else target.registerTool(tool as any);
         };
       }
@@ -238,6 +297,7 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
   });
 
   await registerArchimedes(components);
+  registerContractAwareSubagent(pi, upstreamSubagent);
   registerPortableAsk(pi, upstreamAsk, (questions) => busModule.getBus().emit(busModule.Events.ASK_REQUEST, {
     source: "main",
     requestId: randomUUID(),

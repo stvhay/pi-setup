@@ -56,6 +56,13 @@ def test_manifest_contains_default_evaluators():
     assert not any(item.get("column") == "sessionId" for item in outcome["filter"])
     assert next(item for item in subagent["filter"] if item["column"] == "name")["value"] == ["subagent-result"]
     assert not any(item.get("column") in {"sessionId", "metadata"} for item in subagent["filter"])
+    quality = next(item for item in manifest["evaluators"] if item["name"] == "Subagent output quality")["prompt"]
+    for contract in ("inline", "artifact", "status-only", "pass-no-findings", "unknown"):
+        assert contract in quality
+    assert "status-only" in quality and "must not be penalized" in quality
+    assert "PASS/no-findings" in quality
+    assert "required output is unavailable" in quality
+    assert "artifactContentStatus" in quality
 
 
 def test_check_is_silent_when_remote_matches(capsys):

@@ -220,6 +220,29 @@ export default function registerArchimedes(pi) {
   pi.on("session_start", () => {});
   pi.registerTool({ name: "manage_todo_list" });
   pi.registerTool({
+    name: "subagent",
+    label: "Upstream Subagent",
+    description: "Delegate through upstream execution",
+    promptSnippet: "Delegate work",
+    promptGuidelines: ["Use subagent for delegation."],
+    parameters: {
+      type: "object",
+      properties: {
+        task: { type: "string" },
+        async: { type: "boolean" },
+        cwd: { type: "string" },
+        tasks: { type: "array", items: { type: "object", properties: { task: { type: "string" }, cwd: { type: "string" } }, required: ["task"] } },
+      },
+    },
+    prepareArguments(args) { return args; },
+    renderCall() { return "upstream-call"; },
+    renderResult() { return "upstream-result"; },
+    async execute(_id, params) {
+      (globalThis.__upstreamSubagentCalls ??= []).push(params);
+      return { content: [{ type: "text", text: "delegated" }], details: { upstream: true, params } };
+    },
+  });
+  pi.registerTool({
     name: "ask",
     upstream: true,
     async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -261,6 +284,7 @@ export default function registerArchimedes(pi) {
       import archimedes from {ARCHIMEDES_WRAPPER.as_uri()!r};
 
       globalThis.__upstreamAskCalls = [];
+      globalThis.__upstreamSubagentCalls = [];
       for (const mode of ["tui", "rpc"]) {{
         const tools = [];
         const commands = [];
@@ -271,10 +295,42 @@ export default function registerArchimedes(pi) {
           registerCommand(name) {{ commands.push(name); }},
         }});
 
-        assert.deepEqual(tools.map((tool) => tool.name), ["manage_todo_list", "ask"]);
+        assert.deepEqual(tools.map((tool) => tool.name), ["manage_todo_list", "subagent", "ask"]);
         assert.equal(tools.some((tool) => tool.upstream), false);
         assert.deepEqual(commands, ["todos", "archimedes"]);
         assert.deepEqual(events, ["session_start"]);
+
+        const subagent = tools.find((tool) => tool.name === "subagent");
+        assert.equal(subagent.label, "Upstream Subagent");
+        assert.equal(subagent.description, "Delegate through upstream execution");
+        assert.equal(subagent.promptSnippet, "Delegate work");
+        assert.deepEqual(subagent.promptGuidelines, ["Use subagent for delegation."]);
+        assert.equal(subagent.renderCall(), "upstream-call");
+        assert.equal(subagent.renderResult(), "upstream-result");
+        assert.equal(subagent.prepareArguments({{ task: "prepared" }}).task, "prepared");
+        assert.deepEqual(subagent.parameters.properties.outputContract.enum, ["inline", "artifact", "status-only", "pass-no-findings"]);
+        assert.deepEqual(subagent.parameters.properties.tasks.items.properties.outputContract.enum, ["inline", "artifact", "status-only", "pass-no-findings"]);
+        assert.equal(subagent.parameters.properties.async.type, "boolean");
+        assert.equal(subagent.parameters.properties.cwd.type, "string");
+        assert.equal(subagent.parameters.properties.tasks.items.properties.cwd.type, "string");
+
+        const singleDelegation = await subagent.execute("single-contract", {{
+          task: "Review auth",
+          outputContract: "status-only",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(singleDelegation.details.upstream, true);
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{ task: "Review auth" }});
+
+        const parallelDelegation = await subagent.execute("parallel-contract", {{
+          tasks: [
+            {{ task: "Review auth", outputContract: "inline" }},
+            {{ task: "Check tests", outputContract: "artifact" }},
+          ],
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(parallelDelegation.details.upstream, true);
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          tasks: [{{ task: "Review auth" }}, {{ task: "Check tests" }}],
+        }});
 
         const ask = tools.at(-1);
         const questionSchema = ask.parameters.properties.questions.items;

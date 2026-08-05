@@ -2204,11 +2204,13 @@ def test_compact_metric_preserves_delegated_artifact_envelope(agnt):
         "artifactRefs": [ref],
         "artifactStatus": "failed",
         "artifactFailureClass": "write",
+        "outputContract": "status-only",
     })
 
     assert compact["artifactRefs"] == [ref]
     assert compact["artifactStatus"] == "failed"
     assert compact["artifactFailureClass"] == "write"
+    assert compact["outputContract"] == "status-only"
 
 
 def test_bounded_artifact_refs_reject_traversal_absolute_and_unbounded(agnt):
@@ -2247,7 +2249,9 @@ def test_legacy_metrics_record_remains_readable(agnt, tmp_path):
     assert compact["recordId"] == "legacy-record"
     assert compact["invocationId"] is None
     assert compact["executionOutcome"] == "unknown"
+    assert compact["outputContract"] == "unknown"
     assert selected["executionOutcome"] == "unknown"
+    assert selected["outputContract"] == "unknown"
     assert selected["recordId"] == "legacy-record"
     assert selected_path == path
     assert selector_warnings == []
