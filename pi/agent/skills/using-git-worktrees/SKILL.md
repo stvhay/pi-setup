@@ -166,6 +166,10 @@ Do not install dependencies if the user asked for no setup or if the command is 
 
 ## Step 8: Verify baseline
 
+### Baseline once
+
+Run the documented relevant matrix once in the new worktree and record exact command, test identity, and failure signature. Do not repeat the same broad baseline during implementation.
+
 Use documented project commands first:
 
 ```bash
@@ -178,11 +182,19 @@ If baseline verification fails, stop and report:
 
 - command
 - exit status
-- key failure output
+- key failure output and signature
 - whether the failure appears pre-existing
-- options: investigate, proceed anyway, or remove the worktree
+- options: investigate, proceed under an already-approved exception, or remove the worktree
 
-Do not remove the worktree without approval.
+A new or unclassified failure blocks edits. An unchanged baseline failure may proceed only under explicit plan/user authority and never makes a required final gate pass. Do not remove the worktree without approval.
+
+### Focused repair
+
+During implementation, run focused tests for changed behavior and repaired findings. Do not rerun the complete baseline merely to rediscover a recorded failure.
+
+### Final candidate gate
+
+At closeout, run every required complete release command once after tracked changes stabilize. Any tracked candidate change invalidates that gate and requires a new complete run.
 
 ## Report format
 
@@ -198,7 +210,10 @@ Do not remove the worktree without approval.
 - `<command>` → PASS/SKIPPED/FAIL
 
 ### Baseline verification
-- `<command>` → PASS/FAIL/NOT_VERIFIED
+- Baseline once: `<command>` → PASS/FAIL/NOT_VERIFIED
+- Focused repair plan: `<commands or NOT_VERIFIED>`
+- Final candidate gate: `<commands reserved for stable candidate>`
+- Unchanged baseline failures: `<none or exact signatures>`
 
 ### Next step
 - <implementation plan, peer dispatch, or user decision needed>
@@ -217,5 +232,6 @@ Pairs with:
 - Creating worktrees inside a tracked directory.
 - Branching unrelated work from a feature branch by accident.
 - Skipping baseline verification.
+- Repeating the full baseline after every focused repair.
 - Removing a worktree another session may be using.
 - Forgetting that submodules are separate repositories; create worktrees from the correct repository root.

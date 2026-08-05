@@ -27,7 +27,7 @@ Load this skill first as sole closeout coordinator. Select companion skills only
 
 | Companion skill | Trigger | Selection / subsumption |
 |---|---|---|
-| `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; run the initial matrix and rerun it after any simplification, review, or documentation fix; never subsumed. |
+| `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; reuse the recorded baseline, run focused checks after fixes, and run one complete gate for each final candidate; never subsumed. |
 | `documentation-standards` | Documentation requested, impacted, or uncertain | Load in validate mode; otherwise coordinator documentation check subsumes generic docs prose. |
 | `requesting-code-review` | Non-trivial or risky diff, merge/PR preparation, or required review | Load; otherwise coordinator scope check handles trivial closeout. |
 | `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now; otherwise coordinator scope check subsumes generic cleanup advice. |
@@ -35,21 +35,22 @@ Load this skill first as sole closeout coordinator. Select companion skills only
 
 Load each selected companion when its phase begins, not all at start. If a selected skill is already loaded and unchanged in this session, reuse its current instructions instead of rereading. Reload only after content changes or an explicit diagnostic reread.
 
-Run the verification matrix initially before any optional closeout phase. Any simplification, review, or documentation fix invalidates that evidence and requires rerunning the same matrix before readiness is claimed.
+Reuse or establish one relevant baseline before optional closeout phases. Do not repeat the full baseline during repair: simplification, review, or documentation fixes require focused executable checks. Run the complete required matrix once after the candidate stabilizes. A tracked final-candidate change invalidates the final gate and requires one new complete gate.
 
 `writing-clearly-and-concisely` is subsumed by this coordinator's concise report contract; do not load it solely for closeout prose. Generic cleanup advice is subsumed by scope checks, but `code-simplification` remains required when its trigger matches. Safety, approval, verification, documentation, and review gates are never subsumed when applicable.
 
 ## Workflow
 
 1. **Inspect branch/project state**
-2. **Establish and run the initial verification matrix**
+2. **Reuse or establish the baseline once**
 3. **Optionally simplify**
 4. **Validate documentation**
 5. **Request code review**
-6. **Rerun the matrix after any fix, then check scope and generated artifacts**
-7. **Prepare PR/merge or local project summary**
-8. **Run substantial-wrap-up extraction when triggered**
-9. **Ask for approval before any remote/destructive action**
+6. **Run focused repair checks and inspect scope**
+7. **Run the final candidate gate once**
+8. **Prepare PR/merge or local project summary**
+9. **Run substantial-wrap-up extraction when triggered**
+10. **Ask for approval before any remote/destructive action**
 
 Use local project-readiness mode when the project uses local Beads/issues plus atomic commits and no PR/remote workflow. In that mode, verify the tracked task is complete, summarize commits and evidence, and present safe next actions instead of forcing PR language.
 
@@ -79,9 +80,9 @@ fi
 
 If working tree has uncommitted changes, include them in the readiness report. Do not hide them.
 
-## Step 2: Establish and run the initial verification matrix
+## Step 2: Reuse or establish the baseline once
 
-Load `verification-before-completion`, establish the project-specific matrix, and run it. This phase is mandatory.
+Load `verification-before-completion`. Reuse baseline evidence recorded for this work item/worktree, or establish the project-specific baseline once if none exists. This phase is mandatory.
 
 Find project-specific verification first:
 
@@ -89,13 +90,13 @@ Find project-specific verification first:
 rg -n "test|lint|typecheck|quality|verify|ci" README.md CONTRIBUTING.md docs package.json pyproject.toml Makefile .github 2>/dev/null || true
 ```
 
-Run the relevant command(s). If no command is discoverable, report `NOT_VERIFIED` and ask for the command.
+Run the relevant command(s) only when baseline evidence is absent. If no command is discoverable, report `NOT_VERIFIED` and ask for the command. Record exact failures before proceeding.
 
-Do not proceed to PR-ready status if verification fails.
+A new or unclassified baseline failure blocks work. An unchanged baseline failure may follow an already-approved plan, but it cannot make a required final gate pass.
 
 ## Step 3: Optionally simplify
 
-After verification passes, load `code-simplification` only when its matrix trigger matches. Keep changes inside touched files and apply the mandatory rerun rule after any edit.
+After baseline status is understood and focused change checks pass, load `code-simplification` only when its matrix trigger matches. Keep changes inside touched files and run focused repair checks after any edit.
 
 ## Step 4: Validate documentation
 
@@ -130,9 +131,9 @@ Review status can be:
 
 Verify serious review findings against the code before treating them as blockers.
 
-## Step 6: Rerun verification and check scope
+## Step 6: Run focused repair checks and inspect scope
 
-After any simplification, review, or documentation fix, rerun the same verification matrix before checking scope coherence:
+After any simplification, review, or documentation fix, run the smallest executable checks proving the repaired behavior and affected neighbors. Do not rerun the broad matrix unless the change widens to that scope. Then inspect scope coherence:
 
 ```bash
 git diff --stat
@@ -149,7 +150,11 @@ Flag:
 
 Do not delete artifacts unless the user approves, but recommend cleanup commands when appropriate.
 
-## Step 7: Prepare PR / project summary
+## Step 7: Run the final candidate gate once
+
+After all tracked candidate changes stabilize, run every required release command once. Compare failures to recorded baseline evidence. A tracked change after this gate creates a new final candidate and requires a new complete gate. If any required gate remains red, report `NOT_VERIFIED` even when the task-specific regression status is PASS.
+
+## Step 8: Prepare PR / project summary
 
 Look for plan/design artifacts:
 
@@ -168,7 +173,10 @@ Prepare this summary. For local-only Beads/project workflows, title it `Project 
 **Verdict:** READY | NOT_READY | NOT_VERIFIED
 
 ### Verification
-- `<command>` → PASS/FAIL/NOT_VERIFIED
+- Baseline once: `<command>` → PASS/FAIL/NOT_VERIFIED
+- Focused repair: `<command>` → PASS/FAIL/NOT_VERIFIED
+- Final candidate gate: `<complete matrix>` → PASS/FAIL/NOT_VERIFIED
+- Unchanged baseline failures: `<none or exact matches>`
 
 ### Documentation
 - PASS / NEEDS_DOCS / NOT_SURE
@@ -200,11 +208,11 @@ Closes #<issue>  <!-- only if known -->
 2. <ask user approval for push/PR/merge if desired>
 ```
 
-## Step 8: Extract substantial learning when triggered
+## Step 9: Extract substantial learning when triggered
 
 At substantial non-trivial wrap-up or Bead close, load `session-to-skill-extractor` once. Routine summaries skip extraction.
 
-## Step 9: Optional actions after approval
+## Step 10: Optional actions after approval
 
 Only after explicit user approval:
 

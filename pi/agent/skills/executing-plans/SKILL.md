@@ -23,6 +23,7 @@ Confirm all before editing:
 - current branch and repository root checked
 - same-branch authority established when on `main` or `master`
 - working tree checked; unrelated changes understood through human decision
+- relevant baseline established once or explicitly inherited, with failures classified
 - first risk-sized batch and its verification selected
 - stop conditions understood
 
@@ -61,6 +62,14 @@ Read the chosen plan completely. Extract:
 
 Inspect relevant files and nearest `SPEC.md`. Stop if observed code conflicts with the plan, required context is missing, or execution would require an unapproved risky action.
 
+## Verification phases
+
+- **Baseline once:** establish or inherit one relevant work-item/worktree matrix before edits; record exact failures.
+- **Focused repair:** use the smallest runnable proof during implementation and after fixes. Do not repeat an unchanged broad baseline.
+- **Final candidate gate:** after all plan tasks stabilize, run every required full release command once; rerun only when the tracked candidate changes.
+
+An unchanged baseline failure is not a task regression, but it cannot turn a red required release gate into PASS.
+
 ## Execute risk-sized batches
 
 Default to one task when work is risky, ambiguous, or shares files. Group tasks only when they are clear, independent, and separately verifiable. Continuous execution is allowed when the user requested it, but all stop conditions remain active.
@@ -89,7 +98,8 @@ Do not skip verification because a change appears obvious.
 
 Stop immediately on:
 
-- failed verification
+- new or unclassified failed verification
+- failed focused repair proof
 - missing dependency
 - plan/spec/code conflict
 - unclear requirement
@@ -121,10 +131,12 @@ Pause for feedback unless the original request approved continuous execution and
 After all tasks:
 
 1. Re-read plan acceptance criteria.
-2. Run fresh plan verification commands.
-3. Check documentation impact.
-4. Run `git diff --check`, `git diff --stat`, and `git status --short`.
-5. Mark each criterion PASS, FAIL, or NOT_VERIFIED with evidence.
+2. Confirm focused repair evidence for every changed behavior.
+3. Run the complete final candidate gate once.
+4. Compare any failure to the recorded baseline command, test identity, and signature.
+5. Check documentation impact.
+6. Run `git diff --check`, `git diff --stat`, and `git status --short`.
+7. Mark each criterion PASS, FAIL, or NOT_VERIFIED with evidence.
 
 No completion claim without fresh evidence.
 
