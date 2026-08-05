@@ -391,6 +391,31 @@ def test_context_health_skill_discovery_warning_reports_budget_and_contributors(
     }
 
 
+def test_context_health_excludes_manual_only_skills_from_discovery(agnt, monkeypatch, tmp_path):
+    auto_description = "Use when automatic discovery applies"
+    manual_description = "Use only when explicitly invoked"
+    for name, description, manual_only in [
+        ("automatic", auto_description, False),
+        ("manual", manual_description, True),
+    ]:
+        path = tmp_path / "skills" / name / "SKILL.md"
+        path.parent.mkdir(parents=True)
+        disabled = "disable-model-invocation: true\n" if manual_only else ""
+        path.write_text(
+            f"---\nname: {name}\ndescription: {description}\n{disabled}---\n",
+            encoding="utf-8",
+        )
+    monkeypatch.setitem(agnt.scan_skill_metadata.__globals__, "ROOT", tmp_path)
+    expected_chars = len(f"automatic\t{auto_description}\tskills/automatic/SKILL.md\n")
+
+    report = agnt.context_health_report(skill_discovery_limit=expected_chars + 1000)
+
+    assert report["summary"]["skillDiscoveryChars"] == expected_chars
+    assert agnt.skill_descriptions() == {"automatic": auto_description}
+    warning = next(item for item in report["warnings"] if item["kind"] == "skill-discovery-budget-warning")
+    assert [item["skill"] for item in warning["topContributors"]] == ["automatic"]
+
+
 def test_context_health_skill_discovery_warning_is_silent_below_threshold(agnt, monkeypatch, tmp_path):
     contributors = _skill_discovery_root(agnt, monkeypatch, tmp_path)
     used = sum(row["chars"] for row in contributors)

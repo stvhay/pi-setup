@@ -78,6 +78,8 @@ def skill_descriptions() -> Dict[str, str]:
     rows: Dict[str, str] = {}
     for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
         meta, _body = common.parse_frontmatter_file(path)
+        if meta.get("disable-model-invocation") is True:
+            continue
         rows[path.parent.name] = str(meta.get("description") or "")
     return rows
 
@@ -93,6 +95,8 @@ def scan_skill_metadata(limit: int) -> tuple[List[Dict[str, Any]], int, List[Dic
     for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
         text = path.read_text(encoding="utf-8")
         meta, _body = common.split_frontmatter(text)
+        if meta.get("disable-model-invocation") is True:
+            continue
         rel_path = str(path.relative_to(ROOT))
         skill = path.parent.name
         description = str(meta.get("description") or "")
