@@ -2,13 +2,22 @@ diff --git a/index.ts b/index.ts
 index 9e45515..f64dcdf 100644
 --- a/index.ts
 +++ b/index.ts
-@@ -11 +11 @@ import { basename } from "node:path";
+@@ -8,7 +8,7 @@
+  */
+
+ import { basename } from "node:path";
 -import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 +import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-@@ -77 +77 @@ export default async function (pi: ExtensionAPI) {
+
+ import { state, resetRunState, runWithSession, setCurrentSession } from "./src/state.js";
+ import { ensureConfig, promptForConfig, loadConfig } from "./src/config.js";
+@@ -74,10 +74,18 @@ export default async function (pi: ExtensionAPI) {
+     },
+   });
+
 -  const getSessionId = (ctx?: any) => {
 +  const getSessionId = (ctx?: unknown): string | undefined => {
-@@ -79,2 +79,10 @@ export default async function (pi: ExtensionAPI) {
+     try {
 -      const sessionFile = ctx?.sessionManager?.getSessionFile?.();
 -      return sessionFile ? basename(sessionFile, ".jsonl") : undefined;
 +      const sessionManager = (ctx as ExtensionContext | undefined)?.sessionManager;
@@ -21,11 +30,41 @@ index 9e45515..f64dcdf 100644
 +      return typeof sessionFile === "string" && sessionFile
 +        ? basename(sessionFile, ".jsonl")
 +        : undefined;
+     } catch {
+       return undefined;
+     }
+diff --git a/src/langfuse.ts b/src/langfuse.ts
+index dcbebd5..54c2c51 100644
+--- a/src/langfuse.ts
++++ b/src/langfuse.ts
+@@ -219,6 +219,9 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
+
+   while (pendingScores.length > 0) {
+     const scores = pendingScores.slice(0, MAX_SCORE_BATCH_SIZE);
++    for (const score of scores) {
++      score.id ??= randomUUID();
++    }
+     try {
+       const errors = await ingestBatch(
+         rt,
+diff --git a/src/types.ts b/src/types.ts
+index 531537b..23f266e 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -60,6 +60,7 @@ export interface LangfuseScoreClient {
+ }
+
+ export interface PendingScore {
++  id?: string;
+   traceId?: string;
+   sessionId?: string;
+   observationId?: string;
 diff --git a/types/pi-coding-agent.d.ts b/types/pi-coding-agent.d.ts
 index 3f7e7aa..6462011 100644
 --- a/types/pi-coding-agent.d.ts
 +++ b/types/pi-coding-agent.d.ts
-@@ -1,0 +2,7 @@ declare module "@earendil-works/pi-coding-agent" {
+@@ -1,4 +1,11 @@
+ declare module "@earendil-works/pi-coding-agent" {
 +  export interface ExtensionContext {
 +    sessionManager?: {
 +      getSessionId?: () => unknown;
@@ -33,3 +72,6 @@ index 3f7e7aa..6462011 100644
 +    };
 +  }
 +
+   export interface ExtensionAPI {
+     on(event: string, handler: (event: any, ctx: any) => unknown): void;
+     registerCommand(

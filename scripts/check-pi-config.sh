@@ -43,7 +43,7 @@ expected = {
     'submodule "forks/pi-langfuse"': {
         "path": "forks/pi-langfuse",
         "url": "https://github.com/stvhay/pi-langfuse.git",
-        "branch": "fix/pi-session-correlation",
+        "branch": "vendor/pi-setup",
     },
     'submodule "forks/pi-archimedes"': {
         "path": "forks/pi-archimedes",

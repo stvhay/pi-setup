@@ -18,6 +18,19 @@ def _package(root: Path, relative: str, name: str, version: str, source: str) ->
     target = package / ("index.ts" if name == "pi-langfuse" else "src/stream.ts")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(source, encoding="utf-8")
+    if name == "pi-langfuse":
+        score_source = package / "src/langfuse.ts"
+        score_source.parent.mkdir(parents=True, exist_ok=True)
+        score_source.write_text(
+            'import { randomUUID } from "node:crypto";\n'
+            "export const filler1 = true;\n"
+            "export const filler2 = true;\n"
+            "export const filler3 = true;\n"
+            "export const filler4 = true;\n"
+            "export const scores = [];\n"
+            "export const flush = true;\n",
+            encoding="utf-8",
+        )
     return target
 
 
@@ -30,6 +43,13 @@ def _fixture_patches(root: Path) -> Path:
 @@ -1 +1 @@
 -export const session = \"file\";
 +export const session = ctx?.sessionManager?.getSessionId?.();
+diff --git a/src/langfuse.ts b/src/langfuse.ts
+--- a/src/langfuse.ts
++++ b/src/langfuse.ts
+@@ -6,2 +6,3 @@
+ export const scores = [];
++export const scoreEntityId = randomUUID();
+ export const flush = true;
 """,
         encoding="utf-8",
     )
@@ -93,6 +113,58 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
     assert "expected pi-langfuse 1.5.9" in rejected.stderr
 
 
+def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
+    package_root = tmp_path / "node_modules"
+    langfuse = _package(
+        package_root,
+        "pi-langfuse",
+        "pi-langfuse",
+        "1.5.9",
+        "export const session = ctx?.sessionManager?.getSessionId?.();\n",
+    )
+    score_source = langfuse.parent / "src/langfuse.ts"
+    _package(
+        package_root,
+        "@pi-archimedes/subagent",
+        "@pi-archimedes/subagent",
+        "1.8.3",
+        "export const result = {};\n",
+    )
+    patch_root = _fixture_patches(tmp_path / "patches")
+
+    rejected = _run(package_root, patch_root, "--check")
+
+    assert rejected.returncode != 0
+    assert "partially patched" in rejected.stderr
+    assert "scoreEntityId" not in score_source.read_text(encoding="utf-8")
+
+
+def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
+    package_root = tmp_path / "node_modules"
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.9", 'export const session = "file";\n')
+    score_source = langfuse.parent / "src/langfuse.ts"
+    score_source.write_text(
+        score_source.read_text(encoding="utf-8").replace(
+            'import { randomUUID } from "node:crypto";',
+            'import { randomUuid } from "node:crypto";',
+        ),
+        encoding="utf-8",
+    )
+    _package(
+        package_root,
+        "@pi-archimedes/subagent",
+        "@pi-archimedes/subagent",
+        "1.8.3",
+        "export const result = {};\n",
+    )
+    patch_root = _fixture_patches(tmp_path / "patches")
+
+    rejected = _run(package_root, patch_root, "--check")
+
+    assert rejected.returncode != 0
+    assert "required source context is missing" in rejected.stderr
+
+
 def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path):
     package_root = tmp_path / "node_modules"
     langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.9", 'export const session = "file";\n')
@@ -112,15 +184,40 @@ def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path)
     assert 'session = "file"' in langfuse.read_text(encoding="utf-8")
 
 
-def test_runtime_patchset_contains_only_minimum_session_contract():
+def test_runtime_patchset_contains_only_minimum_vendor_contract():
     langfuse = (PATCHES / "pi-langfuse-1.5.9.patch").read_text(encoding="utf-8")
     archimedes = (PATCHES / "pi-archimedes-subagent-1.8.3.patch").read_text(encoding="utf-8")
+    added = "\n".join(
+        line[1:] for line in (langfuse + archimedes).splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
 
     assert "ExtensionContext" in langfuse
     assert "getSessionId" in langfuse
     assert "getSessionFile" in langfuse
     assert 'basename(sessionFile, ".jsonl")' in langfuse
+    assert "score.id ??= randomUUID()" in langfuse
+    assert "id?: string;" in langfuse
     assert "childSessionId" in archimedes
+    assert "DEVELOPMENT.md" not in langfuse
+    assert "diff --git a/test/" not in langfuse
     assert '--no-session' not in archimedes
-    assert "invocationId" not in langfuse + archimedes
-    assert "traceId" not in langfuse + archimedes
+    assert "invocationId" not in added
+    assert "traceId" not in added
+
+
+def test_langfuse_runtime_patch_hunks_verify_source_context():
+    patch = (PATCHES / "pi-langfuse-1.5.9.patch").read_text(encoding="utf-8")
+    hunks: list[list[str]] = []
+    current: list[str] | None = None
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            current = []
+            hunks.append(current)
+        elif line.startswith("diff --git"):
+            current = None
+        elif current is not None:
+            current.append(line)
+
+    assert hunks
+    assert all(any(line.startswith((" ", "-")) for line in hunk) for hunk in hunks)

@@ -20,7 +20,7 @@ The update helper preserves runtime secrets/state and installs helper commands i
 agnt --help
 ```
 
-Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes exact pins for `pi-langfuse@1.5.9`, `pi-archimedes@1.8.3`, and the `@mariozechner/clipboard` native addon. Until upstream releases include the session-correlation fixes, run `scripts/apply-pi-package-patches.sh --check` and then the apply command after package installation. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`.
+Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes exact pins for `pi-langfuse@1.5.9`, `pi-archimedes@1.8.3`, and the `@mariozechner/clipboard` native addon. Until upstream releases include the session-correlation and score-ingestion fixes, run `scripts/apply-pi-package-patches.sh --check` and then the apply command after package installation. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`.
 
 ### Observational memory
 

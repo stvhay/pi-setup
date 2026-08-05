@@ -51,13 +51,20 @@ PY
 
 patch_state() {
   local label=$1 package_dir=$2 expected_name=$3 expected_version=$4 patch_file=$5 marker_file=$6 marker=$7
+  local required_file=${8:-} required_marker=${9:-}
   verify_package "$package_dir" "$expected_name" "$expected_version" || return 1
   if [ ! -f "$patch_file" ]; then
     echo "missing patch: $patch_file" >&2
     return 1
   fi
+  if [ -n "$required_file" ] && ! grep -Fq "$required_marker" "$package_dir/$required_file"; then
+    echo "$label: required source context is missing from $required_file" >&2
+    return 1
+  fi
   if grep -Fq "$marker" "$package_dir/$marker_file"; then
-    if patch --batch --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" >/dev/null 2>&1; then
+    local reverse_output
+    if reverse_output=$(patch --batch --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
+      && [ -z "$reverse_output" ]; then
       echo applied
       return
     fi
@@ -90,8 +97,10 @@ ARCHIMEDES_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
 ARCHIMEDES_PATCH="$PATCH_ROOT/pi-archimedes-subagent-1.8.3.patch"
 
 # Validate every package and patch before mutating either installed source tree.
-LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.9" "$LANGFUSE_PATCH" "index.ts" "getSessionId?.()")
-ARCHIMEDES_STATE=$(patch_state "$ARCHIMEDES_LABEL" "$ARCHIMEDES_DIR" "@pi-archimedes/subagent" "1.8.3" "$ARCHIMEDES_PATCH" "src/stream.ts" "childSessionId")
+LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.9" "$LANGFUSE_PATCH" \
+  "index.ts" "getSessionId?.()" "src/langfuse.ts" 'import { randomUUID } from "node:crypto";')
+ARCHIMEDES_STATE=$(patch_state "$ARCHIMEDES_LABEL" "$ARCHIMEDES_DIR" "@pi-archimedes/subagent" "1.8.3" \
+  "$ARCHIMEDES_PATCH" "src/stream.ts" "childSessionId")
 
 if [ "$MODE" = check ]; then
   echo "$LANGFUSE_LABEL: $LANGFUSE_STATE"
