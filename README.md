@@ -62,6 +62,7 @@ Prerequisites depend on the features you use:
 From the repository root:
 
 ```bash
+git submodule update --init --recursive # checkout active upstream fork sources
 direnv allow                         # optional, if using direnv
 scripts/check-pi-config.sh           # validate tracked configuration
 scripts/update-pi-config.sh --dry-run # preview runtime update

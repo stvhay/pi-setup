@@ -224,3 +224,12 @@ def test_check_pi_config_does_not_gate_direct_config_checks_on_optional_orchestr
 
     assert "work health --json" not in script
     assert "work audit --json" not in script
+
+
+def test_check_pi_config_allows_only_reviewed_fork_submodules():
+    script = Path("scripts/check-pi-config.sh").read_text(encoding="utf-8")
+
+    assert '.gitmodules is obsolete' not in script
+    assert 'forks/pi-langfuse' in script
+    assert 'forks/pi-archimedes' in script
+    assert '$PI_DIR/.git' in script

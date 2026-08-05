@@ -15,6 +15,7 @@ pi-setup/ (this repo, source of truth)
 ├── docs/                architecture, procedures, design decisions, audits
 ├── scripts/             deploy, layout checks, behavioral eval suite
 ├── tests/               pytest for agnt/agent-instructions internals
+├── forks/               pinned submodules for active upstream contributions
 └── .pi/                 project plans; optional ignored runtime/scratch
 ```
 

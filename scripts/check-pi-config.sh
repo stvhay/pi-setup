@@ -26,11 +26,36 @@ if [ "$PI_DIR" = "$ROOT/pi" ]; then
   SOURCE_CHECK=1
 fi
 
-# The source-of-truth config is now tracked directly under pi/. A nested .git
-# file/directory means the old submodule topology has leaked back in.
+# pi/ remains tracked directly. Only reviewed upstream contribution forks may
+# be submodules; reject the old pi/ submodule topology and any unlisted module.
 if [ "$SOURCE_CHECK" = 1 ]; then
-  [ ! -e "$ROOT/.gitmodules" ] || fail ".gitmodules is obsolete; pi/ should be tracked directly"
   [ ! -e "$PI_DIR/.git" ] || fail "$PI_DIR must not be a nested git checkout/submodule"
+  if [ -e "$ROOT/.gitmodules" ]; then
+    python3 - "$ROOT/.gitmodules" <<'PY'
+import configparser
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+config = configparser.ConfigParser()
+config.read(path, encoding="utf-8")
+expected = {
+    'submodule "forks/pi-langfuse"': {
+        "path": "forks/pi-langfuse",
+        "url": "https://github.com/stvhay/pi-langfuse.git",
+        "branch": "fix/pi-session-correlation",
+    },
+    'submodule "forks/pi-archimedes"': {
+        "path": "forks/pi-archimedes",
+        "url": "https://github.com/stvhay/pi-archimedes.git",
+        "branch": "fix/pi-session-correlation",
+    },
+}
+actual = {section: dict(config[section]) for section in config.sections()}
+if actual != expected:
+    raise SystemExit(f"FAIL: .gitmodules must contain only reviewed fork submodules; found {actual}")
+PY
+  fi
 fi
 
 check_exists "$PI_DIR/README.md"

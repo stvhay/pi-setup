@@ -156,6 +156,7 @@ corepack pnpm --dir packages/subagent exec tsc --noEmit
 **Files:**
 - Modify: `pi/agent/settings.json` (`pi-langfuse@1.5.9`, `pi-archimedes@1.8.3`)
 - Create: `patches/pi-packages/{README.md,pi-langfuse-1.5.9.patch,pi-archimedes-subagent-1.8.3.patch}`
+- Create: `.gitmodules` and pin reviewed public forks under `forks/{pi-langfuse,pi-archimedes}`
 - Create: `scripts/apply-pi-package-patches.sh`
 - Create: `tests/test_package_patches.py`
 - Modify: `pi/agent/extensions/subagent-error-workaround.ts`

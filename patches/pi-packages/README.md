@@ -1,6 +1,6 @@
 # Temporary Pi package patches
 
-These version-locked runtime patches unblock canonical parent/subagent telemetry until upstream releases contain the fixes.
+These version-locked runtime patches unblock canonical parent/subagent telemetry until upstream releases contain the fixes. Reviewed upstream branches are pinned as submodules under `forks/pi-langfuse` and `forks/pi-archimedes`; runtime patches contain only the production hunks needed by installed npm packages.
 
 | Package | Base | Patch |
 |---|---:|---|
