@@ -111,6 +111,19 @@ def test_update_preserves_private_improvement_runtime(tmp_path):
     assert report.read_text(encoding="utf-8") == '{"private": true}\n'
 
 
+def test_update_preserves_private_runtime_store(tmp_path):
+    dest = tmp_path / ".pi"
+    artifact = dest / "runtime" / "repository-hash" / "runs" / "result.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text('{"private": true}\n', encoding="utf-8")
+
+    proc = run_update(dest)
+
+    assert proc.returncode == 0, proc.stderr
+    assert "cannot delete non-empty directory" not in proc.stdout + proc.stderr
+    assert artifact.read_text(encoding="utf-8") == '{"private": true}\n'
+
+
 def test_update_dry_run_excludes_models_store(tmp_path):
     proc = run_update(tmp_path / ".pi", "--dry-run")
 
