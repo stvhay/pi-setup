@@ -12,6 +12,11 @@ import pytest
 BIN = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin"
 
 
+@pytest.fixture(autouse=True)
+def isolate_provider_circuit_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGNT_PROVIDER_CIRCUIT_DIR", str(tmp_path / "provider-circuits"))
+
+
 def load_script(name: str):
     loader = SourceFileLoader(name.replace("-", "_"), str(BIN / name))
     spec = importlib.util.spec_from_loader(loader.name, loader)

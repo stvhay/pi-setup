@@ -13,6 +13,10 @@ from unittest.mock import patch
 AGNT = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin" / "agnt"
 
 
+def test_tests_use_per_test_provider_circuit_directory(tmp_path):
+    assert Path(os.environ["AGNT_PROVIDER_CIRCUIT_DIR"]) == tmp_path / "provider-circuits"
+
+
 def test_runtime_path_command_emits_bounded_json(agnt, monkeypatch, tmp_path, capsys):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / ".gitignore").write_text(".pi/runs/\n", encoding="utf-8")
