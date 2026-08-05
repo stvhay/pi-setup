@@ -50,6 +50,14 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 
 Do not push, merge, delete branches or beads, remove worktrees, rewrite history, change Beads remotes/history, or install hooks without explicit approval.
 
+# Human questions and approvals
+
+- Use transient `ask` for clarification or exploration needed only in the current interactive session.
+- Use durable `ticket_question` when the answer must survive handoff, block a Bead, or support later resumption. Do not chain durable questions for ideation; explore transiently, then persist only the final blocking decision when needed.
+- For either question path, set `selectionMode` explicitly to `single` or `multi` and keep a typed custom response available.
+- No interactive UI: never guess or select for the human. Report human input unavailable and remain blocked; when later resumption is required, leave a durable blocker open.
+- Approvals are not questions. Use `ticket_approval` with informed scope, consequences, reversibility, and closeout evidence for consequential actions.
+
 # Architecture boundaries
 
 Keep these concepts distinct:

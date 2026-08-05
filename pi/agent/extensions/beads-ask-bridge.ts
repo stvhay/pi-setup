@@ -203,9 +203,12 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 		name: "ticket_question",
 		label: "Ticket Question",
 		description: "Create a durable Beads-backed human question that blocks a target bead until resolved.",
-		promptSnippet: "Create a Beads-backed question/blocker before asking for human input.",
+		promptSnippet: "Create a durable Beads-backed question only for handoff, later resumption, or a Bead blocker.",
 		promptGuidelines: [
-			"Use ticket_question when a human preference or answer is needed; do not leave the answer only in chat or UI state.",
+			"Use ticket_question only when the answer must survive the current session for handoff, a Bead blocker, or later resumption.",
+			"Use transient ask for current-session clarification or exploration.",
+			"Set selectionMode explicitly and keep typed custom input available.",
+			"Do not chain durable questions for ideation; persist only the final blocking decision when needed.",
 		],
 		parameters: RequestSchema,
 		async execute(_toolCallId, params: RequestParams, signal, _onUpdate, ctx) {

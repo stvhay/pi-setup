@@ -107,6 +107,34 @@ def test_default_instructions_batch_reads_and_use_phase_progress():
     assert "prefer harness/tool execution state over model-authored progress-only turns" in instructions
 
 
+def test_default_instructions_route_questions_by_durability():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "Use transient `ask`" in instructions
+    assert "current interactive session" in instructions
+    assert "Use durable `ticket_question`" in instructions
+    assert "survive handoff" in instructions
+    assert "block a Bead" in instructions
+    assert "selectionMode" in instructions
+    assert "typed custom response" in instructions
+    assert "Do not chain durable questions" in instructions
+    assert "No interactive UI" in instructions and "remain blocked" in instructions
+    assert "Approvals are not questions" in instructions
+    assert "`ticket_approval`" in instructions
+
+
+def test_ticket_question_prompt_guidance_keeps_durable_boundary_and_approval_separation():
+    bridge = (AGENT / "extensions" / "beads-ask-bridge.ts").read_text(encoding="utf-8")
+    question_section, approval_section = bridge.split('name: "ticket_approval"', 1)
+
+    assert "only for handoff, later resumption, or a Bead blocker" in question_section
+    assert "before asking for human input" not in question_section
+    assert "only when the answer must survive the current session" in question_section
+    assert "Use transient ask for current-session clarification or exploration" in question_section
+    assert "Do not chain durable questions for ideation" in question_section
+    assert "Use ticket_approval for consequential actions requiring approval" in approval_section
+
+
 def test_token_saver_explains_bounded_batching_and_progress_fallback():
     skill = (AGENT / "skills" / "token-saver" / "SKILL.md").read_text(encoding="utf-8")
 
