@@ -25,6 +25,8 @@ Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi
 
 `pi-observational-memory@3.0.3` matches upstream commit [`27a5195eaf90e4e2ca1302e3a31d4bb14df982a5`](https://github.com/elpapi42/pi-observational-memory/commit/27a5195eaf90e4e2ca1302e3a31d4bb14df982a5) and its [exact README](https://raw.githubusercontent.com/elpapi42/pi-observational-memory/27a5195eaf90e4e2ca1302e3a31d4bb14df982a5/README.md). Compaction uses ratio mode: `floor(model.contextWindow × 0.5)`. For Sol's 272,000-token window, 272,000 × 0.5 = 136,000 tokens. Models without a usable context window fall back to the explicit 81,000-token calibrated threshold.
 
+Background observer, reflector, and dropper workers use `openai-codex/gpt-5.6-sol` with `low` thinking. The package exposes one shared worker model, so this cannot target reflection alone. Compaction itself does not call a model; it renders prepared memory state.
+
 ### Archimedes subagents
 
 Omit `agent` for a generic subagent call:
