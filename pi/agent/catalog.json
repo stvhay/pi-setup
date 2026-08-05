@@ -23,7 +23,7 @@
             "xhigh": "extra high"
           },
           "input": ["text", "image", "audio"],
-          "contextWindow": 1050000,
+          "contextWindow": 272000,
           "maxTokens": 128000
         }
       ]
@@ -43,7 +43,7 @@
             "xhigh": "extra high"
           },
           "input": ["text", "image", "audio"],
-          "contextWindow": 1050000,
+          "contextWindow": 272000,
           "maxTokens": 128000
         }
       ]
@@ -64,7 +64,7 @@
             "xhigh": "extra high"
           },
           "input": ["text", "image", "audio"],
-          "contextWindow": 1050000,
+          "contextWindow": 272000,
           "maxTokens": 128000
         }
       ]

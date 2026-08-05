@@ -205,19 +205,19 @@ def test_builtin_image_paste_keybinding_is_disabled_for_archimedes():
     assert keybindings["app.clipboard.pasteImage"] == []
 
 
-def test_gpt56_codex_context_override_matches_routing_catalog():
-    assert MODELS.is_file(), "tracked models.json must opt Codex into full context"
+def test_gpt56_codex_subscription_context_matches_routing_catalog():
+    assert MODELS.is_file(), "tracked models.json must enforce the Codex subscription context"
     models = json.loads(MODELS.read_text(encoding="utf-8"))
     provider = models["providers"]["openai-codex"]
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
 
     assert set(provider) == {"modelOverrides"}
     for family in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
-        assert provider["modelOverrides"][family] == {"contextWindow": 1_050_000}
-        assert catalog[family]["venues"][0]["contextWindow"] == 1_050_000
+        assert provider["modelOverrides"][family] == {"contextWindow": 272_000}
+        assert catalog[family]["venues"][0]["contextWindow"] == 272_000
 
 
-def test_observational_memory_compaction_scales_with_active_context_window():
+def test_observational_memory_compaction_precedes_native_threshold():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     config = settings["observational-memory"]
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
@@ -226,20 +226,26 @@ def test_observational_memory_compaction_scales_with_active_context_window():
     assert "npm:pi-observational-memory@3.0.3" in settings["packages"]
     assert config["compactAfterTokens"] == 81_000
     assert config["compactAfterTokensMode"] == "ratio"
-    assert config["compactAfterTokensRatio"] == 0.25
-    assert int(sol_context * config["compactAfterTokensRatio"]) == 262_500
+    assert config["compactAfterTokensRatio"] == 0.5
 
-    def effective_threshold(context):
+    effective_threshold = int(sol_context * config["compactAfterTokensRatio"])
+    native_threshold = sol_context - 16_384
+    assert effective_threshold == 136_000
+    assert native_threshold == 255_616
+    assert native_threshold - effective_threshold == 119_616
+
+    def threshold_for(context):
         if isinstance(context, (int, float)) and context > 0:
             return int(context * config["compactAfterTokensRatio"])
         return config["compactAfterTokens"]
 
-    assert all(effective_threshold(context) == 81_000 for context in (None, 0, -1))
+    assert all(threshold_for(context) == 81_000 for context in (None, 0, -1))
 
     docs = PI_README.read_text(encoding="utf-8")
     assert "27a5195eaf90e4e2ca1302e3a31d4bb14df982a5" in docs
-    assert "1,050,000 × 0.25 = 262,500" in docs
-    assert "272,000" in docs
+    assert "272,000 × 0.5 = 136,000" in docs
+    assert "255,616" in docs
+    assert "different token counters" in docs
     assert "81,000" in docs
 
 
