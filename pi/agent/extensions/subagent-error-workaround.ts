@@ -212,10 +212,7 @@ function langfuseSessionId(ctx?: ExtensionContext): string | undefined {
   try {
     const sessionId = ctx?.sessionManager?.getSessionId?.();
     if (typeof sessionId === "string" && sessionId) return sessionId;
-  } catch {
-    // Keep compatibility with older session managers.
-  }
-  try {
+
     const sessionFile = ctx?.sessionManager?.getSessionFile?.();
     return sessionFile ? parse(sessionFile).name : undefined;
   } catch {

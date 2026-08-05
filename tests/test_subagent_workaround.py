@@ -358,7 +358,6 @@ def test_subagent_results_emit_evaluator_ready_observations():
         cwd: process.cwd(),
         model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }},
         sessionManager: {{
-          getSessionId() {{ throw new Error("older session manager"); }},
           getSessionFile() {{ return "/private/private-session.jsonl"; }},
         }},
       }});
