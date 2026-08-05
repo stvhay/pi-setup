@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Tuple
 
 from .core import VALID_OUTCOMES, die, split_target
 from .doctor import doctor_report
+from .provider_circuits import classify_provider_failure, close_provider_circuit, open_provider_circuit
 from .tasks import list_models, preferred_models
 from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, new_invocation_id, utc_now, write_json
 
@@ -203,6 +204,14 @@ def invoke_one(
     err = proc.stderr
     if provider_error:
         err = f"{err.rstrip()}\n{provider_error}".lstrip()
+    provider_failure_class = classify_provider_failure(provider_error or err) if code != 0 else None
+    try:
+        if code == 0:
+            close_provider_circuit(provider)
+        elif provider_failure_class:
+            open_provider_circuit(provider, provider_failure_class)
+    except (OSError, ValueError):
+        pass
     record = None
     if metrics:
         record = metrics_record(
@@ -220,7 +229,8 @@ def invoke_one(
             invocation_id=invocation_id,
             parent_session_id=parent_session_id,
             work_item=work_item,
-            failure_class="provider" if provider_error else ("process" if code != 0 else None),
+            failure_class="provider" if provider_error or provider_failure_class else ("process" if code != 0 else None),
+            provider_failure_class=provider_failure_class,
             risk_category=risk_category,
             thinking_level=thinking_level,
             outcome=outcome,
