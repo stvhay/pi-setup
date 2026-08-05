@@ -223,3 +223,19 @@ def test_observational_memory_compaction_scales_with_active_context_window():
     assert "27a5195eaf90e4e2ca1302e3a31d4bb14df982a5" in docs
     assert "272,000 × 0.5 = 136,000" in docs
     assert "81,000" in docs
+
+
+def test_observational_memory_workers_use_low_thinking_sol():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    config = settings["observational-memory"]
+
+    assert config["model"] == {
+        "provider": "openai-codex",
+        "id": "gpt-5.6-sol",
+        "thinking": "low",
+    }
+    assert config["model"]["thinking"] not in {"medium", "high", "xhigh"}
+
+    docs = PI_README.read_text(encoding="utf-8")
+    assert "observer, reflector, and dropper" in docs
+    assert "Compaction itself does not call a model" in docs
