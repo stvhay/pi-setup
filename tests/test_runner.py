@@ -200,6 +200,9 @@ def test_invoke_one_parses_json_stream_on_timeout(agnt, monkeypatch):
     assert out == ""
     assert "timed out after 12s" in err
     assert record["responseChars"] == 0
+    assert record["status"] == "failed"
+    assert record["executionOutcome"] == "unavailable"
+    assert record["failureClass"] == "timeout"
     assert record["usage"]["providerRequests"] == 1
 
 
@@ -233,6 +236,8 @@ def test_invoke_one_fails_terminal_provider_error(agnt, monkeypatch):
     assert out == ""
     assert "The operation was aborted" in err
     assert record["exitCode"] == 1
+    assert record["executionOutcome"] == "failed"
+    assert record["failureClass"] == "provider"
 
 
 def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(agnt, monkeypatch):
@@ -662,6 +667,7 @@ def test_invoke_run_bundle_semantic_failure_metrics_use_effective_exit(agnt, mon
 
     assert result["exitCode"] == metric["exitCode"] != 0
     assert metric["status"] == "failed"
+    assert metric["executionOutcome"] == "failed"
     assert metric["failureClass"] == "process"
 
 

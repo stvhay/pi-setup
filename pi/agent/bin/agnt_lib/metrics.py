@@ -219,6 +219,14 @@ def record_id(started_at: str, target: str, task: str | None) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def execution_outcome(code: int) -> str:
+    if code == 0:
+        return "succeeded"
+    if code == 124:
+        return "unavailable"
+    return "failed"
+
+
 def metrics_record(
     *,
     target: str,
@@ -260,6 +268,7 @@ def metrics_record(
         "durationMs": elapsed_ms,
         "elapsedMs": elapsed_ms,
         "status": "succeeded" if code == 0 else "failed",
+        "executionOutcome": execution_outcome(code),
         "failureClass": failure_class if code != 0 else None,
         "providerFailureClass": provider_failure_class if code != 0 else None,
         "artifactRefs": bounded_artifact_refs(artifact_refs),
@@ -393,6 +402,7 @@ def load_metric_records(files: List[Path], *, include_annotations: bool = True) 
             data.setdefault("family", common.family_for_target(target))
             data.setdefault("sourceFile", str(path))
             data.setdefault("outcome", "unknown")
+            data.setdefault("executionOutcome", "unknown")
             data.setdefault("humanOverride", False)
             data.setdefault("fallbackUsed", False)
             records.append(data)
@@ -422,6 +432,7 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     exit_codes: Dict[str, int] = {}
     status_counts: Dict[str, int] = {}
     outcome_counts: Dict[str, int] = {}
+    execution_outcome_counts: Dict[str, int] = {}
     risk_counts: Dict[str, int] = {}
     thinking_counts: Dict[str, int] = {}
     review_scope_counts: Dict[str, int] = {}
@@ -445,6 +456,8 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             status_counts[status_key] = status_counts.get(status_key, 0) + 1
         outcome = str(record.get("outcome") or "unknown")
         outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+        execution = str(record.get("executionOutcome") or "unknown")
+        execution_outcome_counts[execution] = execution_outcome_counts.get(execution, 0) + 1
         risk = record.get("riskCategory")
         if risk:
             risk_key = str(risk)
@@ -510,6 +523,7 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "stderrChars": sum(int(record.get("stderrChars") or 0) for record in records),
         "exitCodes": exit_codes,
         "statuses": status_counts,
+        "executionOutcomes": execution_outcome_counts,
         "outcomes": outcome_counts,
         "riskCategories": risk_counts,
         "thinkingLevels": thinking_counts,
@@ -544,6 +558,7 @@ def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "endedAt": record.get("endedAt"),
         "durationMs": record.get("durationMs", record.get("elapsedMs")),
         "elapsedMs": record.get("elapsedMs"),
+        "executionOutcome": record.get("executionOutcome", "unknown"),
         "failureClass": record.get("failureClass"),
         "providerFailureClass": record.get("providerFailureClass"),
         "artifactRefs": bounded_artifact_refs(record.get("artifactRefs")),

@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from .core import die
 from .invoke import invoke_one, safe_target_name
-from .metrics import bounded_artifact_refs, default_metrics_dir, new_invocation_id, write_json
+from .metrics import bounded_artifact_refs, default_metrics_dir, execution_outcome, new_invocation_id, write_json
 from .runtime_paths import resolve_runtime_directory
 from .tasks import preferred_models
 
@@ -522,7 +522,11 @@ def invoke_run_bundle(
         metrics_path = artifacts_dir / f"{safe}.metrics.json"
         metrics_ref = relative_to_bundle(bundle, metrics_path)
         artifact_paths.append(metrics_ref)
-        record.update({"status": status, "exitCode": effective_code})
+        record.update({
+            "status": status,
+            "executionOutcome": execution_outcome(effective_code),
+            "exitCode": effective_code,
+        })
         if effective_code != 0 and not record.get("failureClass"):
             record["failureClass"] = "process"
         record["artifactRefs"] = bounded_artifact_refs(artifact_paths)

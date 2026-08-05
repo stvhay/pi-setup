@@ -199,7 +199,7 @@ def test_interactive_results_emit_evaluator_ready_observations():
       await handlers.agent_settled({{}}, ctx);
       assert.deepEqual(observations, [{{
         name: "interactive-result",
-        attributes: {{ input: "Fix auth", output: "Auth fixed" }},
+        attributes: {{ input: "Fix auth", output: "Auth fixed", metadata: {{ executionOutcome: "succeeded" }} }},
         options: {{ asType: "agent", sessionId: "2026-07-28T00-00-00Z_private-session" }},
       }}]);
 
@@ -221,15 +221,51 @@ def test_interactive_results_emit_evaluator_ready_observations():
       await handlers.before_agent_start({{ prompt: "Fail visibly" }});
       await handlers.agent_end({{ messages: [{{
         role: "assistant",
-        content: [],
+        content: [{{ type: "text", text: "Useful partial report" }}],
         stopReason: "error",
         errorMessage: "403: OpenrouterException - Key limit exceeded (monthly limit): https://openrouter.ai/settings/keys?id=secret",
       }}] }});
       await handlers.agent_settled({{}});
-      assert.equal(observations[1].attributes.output, "upstream OpenRouter monthly limit exceeded (HTTP 403 via Olla)");
+      assert.equal(
+        observations[1].attributes.output,
+        "Useful partial report\\n\\n[execution failed: upstream OpenRouter monthly limit exceeded (HTTP 403 via Olla)]",
+      );
+      assert.deepEqual(observations[1].attributes.metadata, {{
+        executionOutcome: "failed",
+        failureClass: "provider",
+        providerFailureClass: "quota",
+      }});
       if (originalSocket === undefined) delete process.env.PI_SUBAGENT_SOCKET;
       else process.env.PI_SUBAGENT_SOCKET = originalSocket;
       assert.equal(observations.length, 2);
+    """
+    run_node(script)
+
+
+def test_aborted_interactive_result_is_unavailable_not_successful():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
+      }});
+
+      delete process.env.PI_SUBAGENT_SOCKET;
+      await handlers.before_agent_start({{ prompt: "Stop work" }});
+      await handlers.agent_end({{ messages: [{{
+        role: "assistant",
+        content: [{{ type: "text", text: "Partial work" }}],
+        stopReason: "aborted",
+      }}] }});
+      await handlers.agent_settled({{}});
+
+      assert.equal(observations[0].attributes.output, "Partial work");
+      assert.deepEqual(observations[0].attributes.metadata, {{ executionOutcome: "unavailable" }});
     """
     run_node(script)
 
@@ -326,6 +362,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
               target: "olla-cloud/gpt-4.1-mini",
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
+              executionOutcome: "succeeded",
               exitCode: 0,
             }},
             level: "DEFAULT",
@@ -344,6 +381,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
               target: "openai-codex/gpt-5.6-luna",
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
+              executionOutcome: "failed",
               exitCode: 1,
             }},
             level: "ERROR",
@@ -446,6 +484,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.childIndex), [0, 1]);
       assert.deepEqual(records.map((record) => record.parentSessionId), ["parent-session", "parent-session"]);
       assert.deepEqual(records.map((record) => record.status), ["succeeded", "failed"]);
+      assert.deepEqual(records.map((record) => record.executionOutcome), ["succeeded", "failed"]);
       assert.deepEqual(records.map((record) => record.failureClass), [null, "provider"]);
       assert.deepEqual(records.map((record) => record.providerFailureClass), [null, "credit"]);
       assert.deepEqual(records.map((record) => record.artifactRefs), [[], []]);
@@ -454,6 +493,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default"],
       ]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.executionOutcome), ["succeeded", "failed"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.providerFailureClass ?? null), [null, "credit"]);
       assert.deepEqual(observations.map((item) => {{
         const metadata = item.attributes.metadata;
@@ -508,6 +548,7 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       assert.equal(records.length, 1);
       const invocationId = records[0].invocationId;
       assert.equal(records[0].status, "failed");
+      assert.equal(records[0].executionOutcome, "failed");
       assert.deepEqual([
         records[0].provider,
         records[0].model,
@@ -524,6 +565,7 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
         target: "openai-codex/gpt-5.6-luna",
         thinkingLevel: "default",
         modelDimensionsStatus: "available",
+        executionOutcome: "failed",
         exitCode: 1,
       }});
       assert.equal(/^[0-9a-f-]{{36}}$/.test(invocationId), true);
