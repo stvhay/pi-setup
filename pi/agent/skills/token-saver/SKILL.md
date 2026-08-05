@@ -18,6 +18,13 @@ Once loaded, apply these rules for the rest of the job. Loading cannot erase or 
 
 Do not weaken input validation, security, accessibility, approval, data-loss prevention, or required verification to save tokens.
 
+## Batching and progress
+
+- **Batch only independent read-only operations.** Issue unrelated reads, searches, and checks in one turn when tools support parallel calls. Keep dependent retrieval serial.
+- **Writes, approvals, and safety gates stay serial.** Never batch operations whose order or intermediate result affects correctness, consent, or recovery.
+- **Use execution-derived status.** Prefer harness tool activity, test output, and subagent progress over model-authored “still working” turns.
+- **Use todos by phase.** Update `manage_todo_list` at phase boundaries, then mark a completed phase immediately. Use finer updates only when harness status is unavailable or a long step needs visible recovery state.
+
 ## Current accepted result
 
 Keep one exact current accepted result outside chat:

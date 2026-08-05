@@ -180,6 +180,24 @@ def test_rpc_adapter_leaves_ask_to_global_extension_and_uses_text_todo_widget():
       assert.deepEqual([...activities], [
         ["agent-os-subagent-peer-2", ["Running 1 task"]],
       ]);
+
+      handlers.tool_execution_start({{
+        toolName: "read",
+        toolCallId: "read-1",
+        args: {{ path: "/private/secret" }},
+      }}, {{ ui: activityUI }});
+      handlers.tool_execution_start({{
+        toolName: "bash",
+        toolCallId: "bash-1",
+        args: {{ command: "echo private" }},
+      }}, {{ ui: activityUI }});
+      assert.deepEqual(activities.get("agent-os-activity"), ["→ read", "→ bash"]);
+      assert.doesNotMatch(JSON.stringify(activities.get("agent-os-activity")), /private|secret|echo/);
+
+      handlers.tool_execution_end({{ toolName: "read", toolCallId: "read-1" }}, {{ ui: activityUI }});
+      assert.deepEqual(activities.get("agent-os-activity"), ["→ bash"]);
+      handlers.tool_execution_end({{ toolName: "bash", toolCallId: "bash-1" }}, {{ ui: activityUI }});
+      assert.equal(activities.has("agent-os-activity"), false);
     """
     run_node(script)
 
