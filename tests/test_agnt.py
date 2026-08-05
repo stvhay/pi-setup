@@ -2156,6 +2156,7 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
         usage_source="message_end",
         parent_session_id="parent-session",
         work_item="pi-test.2",
+        thinking_level="medium",
         artifact_refs=[
             "artifacts/report.md",
             "/private/secret.txt",
@@ -2174,10 +2175,18 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
     assert record["target"] == "olla-cloud/gpt-4.1-mini"
     assert record["status"] == "succeeded"
     assert record["failureClass"] is None
+    assert record["thinkingLevel"] == "medium"
     assert record["durationMs"] == 1000
     assert record["artifactRefs"][0] == "artifacts/report.md"
     assert len(record["artifactRefs"]) == 16
     assert all(not Path(ref).is_absolute() and len(ref) <= 256 for ref in record["artifactRefs"])
+    compact = agnt.compact_metric_record(record)
+    assert [compact[key] for key in ("provider", "model", "target", "thinkingLevel")] == [
+        "olla-cloud",
+        "gpt-4.1-mini",
+        "olla-cloud/gpt-4.1-mini",
+        "medium",
+    ]
     assert "SECRET" not in json.dumps(record)
 
 

@@ -208,16 +208,55 @@ async function runtimeDirectory(kind: string, cwd: string): Promise<string> {
   return result.path;
 }
 
+type ModelDimensions = {
+  provider: string | null;
+  model: string | null;
+  target: string | null;
+  thinkingLevel: "default" | null;
+  modelDimensionsStatus: "available" | "unavailable" | "unavailable-named-agent";
+};
+
+function modelDimensions(
+  input: SubagentInput,
+  result: SubagentResult,
+  index: number,
+  ctx: ExtensionContext,
+): ModelDimensions {
+  const task = input.tasks?.[index];
+  const namedAgent = task?.agent ?? input.agent;
+  if (namedAgent) {
+    return {
+      provider: null,
+      model: result.model ?? null,
+      target: null,
+      thinkingLevel: null,
+      modelDimensionsStatus: "unavailable-named-agent",
+    };
+  }
+
+  const requested = task?.model ?? input.model;
+  const separator = requested?.indexOf("/") ?? -1;
+  const requestedProvider = separator > 0 ? requested!.slice(0, separator) : undefined;
+  const requestedModel = separator > 0 ? requested!.slice(separator + 1) : requested;
+  const provider = requestedProvider ?? ctx.model?.provider ?? null;
+  const model = result.model ?? requestedModel ?? ctx.model?.id ?? null;
+  const target = provider && model ? `${provider}/${model}` : null;
+  return {
+    provider,
+    model,
+    target,
+    thinkingLevel: target ? "default" : null,
+    modelDimensionsStatus: target ? "available" : "unavailable",
+  };
+}
+
 function targetFor(
   input: SubagentInput,
   result: SubagentResult,
   index: number,
   ctx: ExtensionContext,
 ): string | undefined {
-  const requested = input.tasks?.[index]?.model ?? input.model;
-  if (requested?.includes("/")) return requested;
-  const model = result.model ?? requested ?? ctx.model?.id;
-  return model && ctx.model ? `${ctx.model.provider}/${model}` : undefined;
+  return modelDimensions(input, result, index, ctx).target ?? undefined;
 }
 
 function metricRecord(
@@ -232,11 +271,10 @@ function metricRecord(
   failureClass: ProviderFailureClass | undefined,
 ): Record<string, unknown> | undefined {
   if (input.tasks?.[index]?.agent ?? input.agent) return undefined;
-  const target = targetFor(input, result, index, ctx);
+  const dimensions = modelDimensions(input, result, index, ctx);
+  const target = dimensions.target;
   if (!target) return undefined;
 
-  const [provider, ...modelParts] = target.split("/");
-  const model = modelParts.join("/");
   const prompt = input.tasks?.[index]?.task ?? input.task ?? result.task ?? "";
   const durationMs = Math.max(0, endedMs - startedMs);
   const workerElapsedMs = Math.max(0, Math.round(result.progressSummary?.durationMs ?? durationMs));
@@ -277,7 +315,7 @@ function metricRecord(
     workerElapsedMs,
     task: "peer",
     riskCategory: null,
-    thinkingLevel: null,
+    thinkingLevel: dimensions.thinkingLevel,
     invocationMode: "subagent",
     providerRequests,
     contextChars: prompt.length,
@@ -285,8 +323,8 @@ function metricRecord(
     outcome: "unknown",
     humanOverride: false,
     fallbackUsed: false,
-    provider,
-    model,
+    provider: dimensions.provider,
+    model: dimensions.model,
     target,
     exitCode,
     usageSource: "archimedes-subagent",
@@ -451,7 +489,6 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
           task: input.task ?? tasks.map((task) => task.task).join("; "),
           exitCode: 1,
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 },
-          model: input.model ?? tasks[0]?.model,
           error: event.content.find((part) => part.type === "text")?.text
             ?? "Subagent failed without error details",
         }],
@@ -482,6 +519,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
 
     await Promise.all(details.results.map(async (result, index) => {
       const task = input.tasks?.[index]?.task ?? input.task ?? result.task;
+      const dimensions = modelDimensions(input, result, index, ctx);
       try {
         await (await getObserve())("subagent-result", {
           input: task,
@@ -489,7 +527,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
           metadata: {
             invocationId: invocation.invocationIds[index],
             index,
-            model: result.model,
+            ...dimensions,
             exitCode: result.exitCode ?? 1,
             ...(providerFailureClasses[index] ? { providerFailureClass: providerFailureClasses[index] } : {}),
           },
