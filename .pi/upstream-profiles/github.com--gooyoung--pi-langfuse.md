@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/gooyoung/pi-langfuse
-last_checked_utc: 2026-08-05T18:30:00Z
+last_checked_utc: 2026-08-05T22:44:07Z
 target_ref: v1.5.9
 source_commit: 3243208ea89d6fdc2b5f0e66660a4a626880ebd0
 status: current-for-target-ref
@@ -32,10 +32,16 @@ source_files:
     sha256: 1a4f8b0c122fe0397d3c7ce95b0dc22e7c3ca296e1ca73f274c612b52a9ce89f
   - path: src/state.ts
     sha256: b1bf3e3af672c1aa1bec9166acb1f110f8552297434ee806b5a5f85bebedcd0f
+  - path: src/langfuse.ts
+    sha256: aa2e74e14bbe498265353c9bf50ab21334dcf88362964353db1f93b813a5f922
+  - path: src/types.ts
+    sha256: c99b36ed5021784fb606b780eaeeb62459f3b8b6df327b264fbb3d99e906bb69
   - path: test/index.test.ts
     sha256: e1ab7efa6ca1a73f574d499610df80507be68b87ee91a5ee552c538b8de281d3
   - path: test/state.test.ts
     sha256: 471fcaaac505569ad5d1dfaa30d786853a605948661464fc51407a0367e6944b
+  - path: test/langfuse.test.ts
+    sha256: fcc9d756ebaf8109f77b4d5ac99d9258b8b19ede7782cf0c75267c5e2176004b
 ---
 
 # gooyoung/pi-langfuse upstream profile
@@ -47,7 +53,7 @@ source_files:
 - Required candidate checks: `npm run typecheck`, hermetic `npm test`, `npm pack --dry-run`, and diff checks.
 - `DEVELOPMENT.md` and `DEVELOPMENT_CN.md` at this target ref prescribe `node --test test/*.test.ts`, which fails on the clean baseline under Node v22.22.3. `npm test` is the working package-native command. Treat correction as separate by default.
 - No PR template or repository AI-contribution policy observed in checked sources.
-- User permission observed 2026-08-05: pull-only upstream; fork required. Recheck every use.
+- Mutable state rechecked 2026-08-05T22:44:07Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; no open issues or PR/issue templates observed; upstream draft PRs #10, #9, and #6 plus fork-local draft `stvhay/pi-langfuse#1` are open; branch-protection details were unavailable through the API (HTTP 404).
 - Publish workflow is release/tag driven; PR approval does not authorize release or publication.
 
 ## Policy findings
