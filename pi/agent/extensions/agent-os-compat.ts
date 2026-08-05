@@ -143,6 +143,13 @@ export function isRPCMode(argv = process.argv): boolean {
 export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void {
   if (!rpc) return;
 
+  const activities = new Map<string, string>();
+  const renderActivities = (ctx: any): void => {
+    const lines = [...activities.values()].slice(0, 8).map((tool) => `→ ${tool}`);
+    if (activities.size > 8) lines.push(`… ${activities.size - 8} more`);
+    ctx.ui.setWidget("agent-os-activity", lines.length ? lines : undefined);
+  };
+
   pi.registerCommand("reload", {
     description: "Reload Pi settings, extensions, skills, prompts, and context files",
     handler: async (args, ctx) => {
@@ -167,9 +174,15 @@ export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void 
       return;
     }
     const todos = event.args?.todoList;
-    if (event.toolName === "manage_todo_list" && Array.isArray(todos)) {
-      ctx.ui.setWidget("agent-os-todos", todoLines(todos));
+    if (event.toolName === "manage_todo_list") {
+      if (Array.isArray(todos)) ctx.ui.setWidget("agent-os-todos", todoLines(todos));
+      return;
     }
+    const id = clean(event.toolCallId, 80);
+    const tool = clean(event.toolName, 60);
+    if (!id || !tool) return;
+    activities.set(id, tool);
+    renderActivities(ctx);
   });
 
   pi.on("tool_execution_update", (event: any, ctx: any) => {
@@ -181,7 +194,11 @@ export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void 
   pi.on("tool_execution_end", (event: any, ctx: any) => {
     if (event.toolName === "subagent") {
       ctx.ui.setWidget(`agent-os-subagent-${clean(event.toolCallId, 80)}`, undefined);
+      return;
     }
+    if (event.toolName === "manage_todo_list") return;
+    activities.delete(clean(event.toolCallId, 80));
+    renderActivities(ctx);
   });
 }
 

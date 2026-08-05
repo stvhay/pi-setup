@@ -98,6 +98,26 @@ def test_global_instructions_use_direct_lifecycle_start():
     assert "does not create run bundles, runners, or worktrees" in instructions
 
 
+def test_default_instructions_batch_reads_and_use_phase_progress():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "Batch independent read-only tool calls in one turn" in instructions
+    assert "Keep ordered mutations, approvals, and safety gates serial" in instructions
+    assert "Update progress at phase boundaries" in instructions
+    assert "prefer harness/tool execution state over model-authored progress-only turns" in instructions
+
+
+def test_token_saver_explains_bounded_batching_and_progress_fallback():
+    skill = (AGENT / "skills" / "token-saver" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "## Batching and progress" in skill
+    assert "Batch only independent read-only operations" in skill
+    assert "Writes, approvals, and safety gates stay serial" in skill
+    assert "Use execution-derived status" in skill
+    assert "Update `manage_todo_list` at phase boundaries" in skill
+    assert "description: Use when token/context discipline matters" in skill
+
+
 def test_brainstorming_distinguishes_transient_todos_from_durable_work_state():
     brainstorming = (AGENT / "skills" / "brainstorming" / "SKILL.md").read_text(encoding="utf-8")
 
