@@ -24,6 +24,14 @@ Each finding requires:
 
 Use `unknown` whenever evidence cannot support a narrower classification. Use `needs-human` when privacy or attribution remains uncertain.
 
+The packet's `features.errorTaxonomy` is deterministic triage, not causal
+judgment. It separates raw and unclassified-raw error-observation health counts
+from classified signals; expected/recovered are non-actionable, provider/
+infrastructure/agent are actionable, and unknown stays explicit.
+`outcomeBlocking` is an independent state, not a primary error class. Never
+reinterpret hashes, raw counts, or a
+positive final outcome to guess a narrower class.
+
 ## Evidence rules
 
 Classify raw tool errors as events, not mistakes. Escalate only after evidence supports this sequence:

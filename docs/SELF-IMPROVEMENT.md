@@ -149,8 +149,23 @@ no TOOL observations still report zero. Gaps distinguish
 `inferred-tool-payload-bytes`, `missing-tool-payload-bytes`, and the preserved
 `observation-limit`. Non-null payload-byte values are bounded-preview estimates,
 not raw payload sizes. Raw Langfuse records remain unchanged, and packets never
-copy tool payloads. Scans use exact links and payload-free tool-error signals,
-and skip sessions already reviewed under the current policy.
+copy tool payloads. Scans use exact links and payload-free tool-error signals.
+Each private session feature also includes schema-1 `errorTaxonomy`: count-only
+raw and unclassified-raw error health plus classified/actionable/non-actionable/
+unknown signal totals,
+primary classes (`expected`, `recovered`, `provider`, `infrastructure`, `agent`,
+`unknown`), sources, and independent outcome-blocking state. Observation-class
+precedence is explicit safe producer class, provider metadata, timeout/artifact
+infrastructure metadata, process failure, evaluator error, then `unknown`;
+fingerprinted tool failures contribute separate recovered/infrastructure/unknown
+signals. Source precedence is explicit source, provider, artifact, evaluator,
+tool, process, then unknown. Failed root `interactive-result` is always
+outcome-blocking; otherwise an explicit Boolean is used or the state stays
+unknown. Expected/recovered signals never increase actionable count; unknown is
+retained rather than inferred. Raw observation counts and classified-signal
+counts use separate denominators to avoid relabeling every error observation as
+a mistake.
+Scans skip sessions already reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`
 accepts only allowlisted, generalized text and requires durable approval of the
 exact preview before creating a committed Bead. Private trace IDs, URLs, user

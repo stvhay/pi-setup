@@ -43,6 +43,8 @@ FINDING_CATEGORIES = {
     "verification-gap",
 }
 ERROR_RELEVANCE = {"relevant", "contributing", "expected", "recovered", "infrastructure", "unknown"}
+ERROR_CLASSES = ("expected", "recovered", "provider", "infrastructure", "agent", "unknown")
+ERROR_SOURCES = ("tool", "provider", "process", "artifact", "evaluator", "unknown")
 IMPACTS = {"none", "low", "medium", "high", "outcome-blocking", "unknown"}
 ATTRIBUTIONS = {"agent", "prompt-system", "model", "tooling", "infrastructure", "user-input", "unknown"}
 INTERVENTIONS = {"prompt", "code", "tool", "eval", "workflow", "routing", "monitor", "none", "unknown"}
@@ -197,6 +199,107 @@ def _tool_error_signals(observations: list[dict[str, Any]]) -> list[dict[str, An
                 signal["exitCode"] = raw["exitCode"]
             signals.append(signal)
     return signals
+
+
+def _error_taxonomy(observations: list[dict[str, Any]]) -> dict[str, Any]:
+    by_class = Counter({key: 0 for key in ERROR_CLASSES})
+    by_source = Counter({key: 0 for key in ERROR_SOURCES})
+    blocking = Counter({"true": 0, "false": 0, "unknown": 0})
+    actionable = non_actionable = unknown = 0
+
+    def record(error_class: str, source: str, outcome_blocking: bool | None, count: int = 1) -> None:
+        nonlocal actionable, non_actionable, unknown
+        if count < 1:
+            return
+        by_class[error_class] += count
+        by_source[source] += count
+        blocking["true" if outcome_blocking is True else "false" if outcome_blocking is False else "unknown"] += count
+        if error_class in {"expected", "recovered"}:
+            non_actionable += count
+        elif error_class == "unknown":
+            unknown += count
+        else:
+            actionable += count
+
+    for signal in _tool_error_signals(observations):
+        error_class = signal["classification"]
+        record(error_class, "tool", None, max(0, _int(signal.get("count"))))
+
+    raw_error_count = 0
+    unclassified_raw_error_count = 0
+    for observation in observations:
+        metadata = observation.get("metadata") if isinstance(observation.get("metadata"), dict) else {}
+        is_error = bool(metadata.get("isError") or observation.get("level") == "ERROR")
+        raw_error_count += int(is_error)
+
+        explicit_class = metadata.get("errorClass")
+        artifact_failure = metadata.get("artifactFailureClass")
+        has_artifact_failure = isinstance(artifact_failure, str) and bool(artifact_failure)
+        error_class = explicit_class if explicit_class in ERROR_CLASSES else None
+        if error_class is None and (
+            metadata.get("providerFailureClass") in {"quota", "credit", "authentication", "availability"}
+            or metadata.get("failureClass") == "provider"
+        ):
+            error_class = "provider"
+        if error_class is None and (
+            has_artifact_failure
+            or metadata.get("failureClass") == "timeout"
+            or metadata.get("timedOut") is True
+        ):
+            error_class = "infrastructure"
+        if error_class is None and (
+            metadata.get("failureClass") == "process"
+            or (
+                observation.get("name") == "subagent-result"
+                and metadata.get("executionOutcome") == "failed"
+                and type(metadata.get("exitCode")) is int
+                and metadata["exitCode"] != 0
+            )
+        ):
+            error_class = "agent"
+        if error_class is None and is_error and "evaluator" in str(observation.get("name") or "").lower():
+            error_class = "infrastructure"
+        if error_class is None and is_error and observation.get("type") != "TOOL":
+            error_class = "unknown"
+        if error_class is None:
+            unclassified_raw_error_count += int(is_error)
+            continue
+
+        explicit_source = metadata.get("errorSource")
+        if explicit_source in ERROR_SOURCES:
+            source = explicit_source
+        elif error_class == "provider":
+            source = "provider"
+        elif has_artifact_failure:
+            source = "artifact"
+        elif "evaluator" in str(observation.get("name") or "").lower():
+            source = "evaluator"
+        elif observation.get("type") == "TOOL":
+            source = "tool"
+        elif error_class == "agent" or metadata.get("failureClass") == "timeout":
+            source = "process"
+        else:
+            source = "unknown"
+
+        explicit_blocking = metadata.get("outcomeBlocking")
+        outcome_blocking = explicit_blocking if type(explicit_blocking) is bool else None
+        if observation.get("name") == "interactive-result" and metadata.get("executionOutcome") == "failed":
+            outcome_blocking = True
+        record(error_class, source, outcome_blocking)
+
+    classified = sum(by_class.values())
+    return {
+        "schemaVersion": 1,
+        "rawErrorObservationCount": raw_error_count,
+        "unclassifiedRawErrorObservationCount": unclassified_raw_error_count,
+        "classifiedSignals": classified,
+        "actionableSignals": actionable,
+        "nonActionableSignals": non_actionable,
+        "unknownSignals": unknown,
+        "byClass": {key: by_class[key] for key in ERROR_CLASSES},
+        "bySource": {key: by_source[key] for key in ERROR_SOURCES},
+        "outcomeBlocking": {key: blocking[key] for key in ("true", "false", "unknown")},
+    }
 
 
 def _features(
@@ -354,6 +457,7 @@ def _features(
         "evaluatorTimeouts": evaluator_timeouts,
         "errorSignatures": [{"hash": key, "count": count} for key, count in sorted(signatures.items())],
         "toolErrorSignals": _tool_error_signals(observations),
+        "errorTaxonomy": _error_taxonomy(observations),
         "captureGaps": capture_gaps,
     }
 

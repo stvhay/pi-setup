@@ -1001,6 +1001,190 @@ def test_scan_joins_projected_outcomes_and_payload_free_error_signals(tmp_path):
     assert "missing-outcome" not in features["captureGaps"]
 
 
+def test_error_taxonomy_is_payload_free_and_keeps_unknown_visible():
+    tool_signals = [
+        {
+            "toolName": "read",
+            "inputHash": "a" * 64,
+            "count": 3,
+            "cancelled": False,
+            "timedOut": False,
+            "classification": "recovered",
+        },
+        {
+            "toolName": "bash",
+            "inputHash": "b" * 64,
+            "count": 2,
+            "cancelled": False,
+            "timedOut": True,
+            "classification": "infrastructure",
+        },
+    ]
+    observations = [
+        {
+            "type": "TOOL",
+            "name": "expected-negative-test",
+            "level": "ERROR",
+            "output": "SECRET expected payload",
+            "metadata": {
+                "errorClass": "expected",
+                "errorSource": "tool",
+                "outcomeBlocking": False,
+            },
+        },
+        {
+            "type": "AGENT",
+            "name": "interactive-result",
+            "metadata": {"executionOutcome": "succeeded", "toolErrorSignals": tool_signals},
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "level": "ERROR",
+            "metadata": {
+                "executionOutcome": "failed",
+                "failureClass": "provider",
+                "providerFailureClass": "credit",
+                "exitCode": 1,
+            },
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "metadata": {
+                "executionOutcome": "succeeded",
+                "artifactStatus": "failed",
+                "artifactFailureClass": "write",
+                "exitCode": 0,
+            },
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "level": "ERROR",
+            "metadata": {"executionOutcome": "failed", "exitCode": 2},
+        },
+        {"type": "SPAN", "name": "subagent-quality evaluator", "level": "ERROR", "metadata": {}},
+        {"type": "SPAN", "name": "unclassified", "level": "ERROR", "output": "SECRET unknown payload"},
+        {
+            "type": "AGENT",
+            "name": "interactive-result",
+            "level": "ERROR",
+            "metadata": {
+                "executionOutcome": "failed",
+                "failureClass": "provider",
+                "providerFailureClass": "availability",
+            },
+        },
+    ]
+
+    taxonomy = improvement._features([], observations, [])["errorTaxonomy"]
+
+    assert taxonomy == {
+        "schemaVersion": 1,
+        "rawErrorObservationCount": 6,
+        "unclassifiedRawErrorObservationCount": 0,
+        "classifiedSignals": 12,
+        "actionableSignals": 7,
+        "nonActionableSignals": 4,
+        "unknownSignals": 1,
+        "byClass": {
+            "expected": 1,
+            "recovered": 3,
+            "provider": 2,
+            "infrastructure": 4,
+            "agent": 1,
+            "unknown": 1,
+        },
+        "bySource": {
+            "tool": 6,
+            "provider": 2,
+            "process": 1,
+            "artifact": 1,
+            "evaluator": 1,
+            "unknown": 1,
+        },
+        "outcomeBlocking": {"true": 1, "false": 1, "unknown": 10},
+    }
+    serialized = json.dumps(taxonomy)
+    assert "SECRET" not in serialized
+    assert "a" * 64 not in serialized
+    assert "b" * 64 not in serialized
+
+
+def test_error_taxonomy_precedence_prefers_explicit_then_provider_then_infrastructure():
+    observations = [
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "level": "ERROR",
+            "metadata": {
+                "errorClass": "recovered",
+                "errorSource": "tool",
+                "providerFailureClass": "quota",
+                "failureClass": "provider",
+            },
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "level": "ERROR",
+            "metadata": {
+                "providerFailureClass": "quota",
+                "artifactFailureClass": "write",
+                "failureClass": "process",
+            },
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "level": "ERROR",
+            "metadata": {"artifactFailureClass": "write", "failureClass": "process"},
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "level": "ERROR",
+            "metadata": {"failureClass": "process"},
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "level": "ERROR",
+            "metadata": {"failureClass": "timeout"},
+        },
+    ]
+
+    taxonomy = improvement._features([], observations, [])["errorTaxonomy"]
+
+    assert taxonomy["byClass"] == {
+        "expected": 0,
+        "recovered": 1,
+        "provider": 1,
+        "infrastructure": 2,
+        "agent": 1,
+        "unknown": 0,
+    }
+    assert taxonomy["actionableSignals"] == 4
+    assert taxonomy["nonActionableSignals"] == 1
+
+
+def test_error_taxonomy_retains_unclassified_raw_tool_errors_without_guessing():
+    taxonomy = improvement._features([], [{
+        "type": "TOOL",
+        "name": "unclassified-tool",
+        "level": "ERROR",
+        "output": "SECRET raw tool output",
+        "metadata": {"errorClass": "not-a-class", "artifactFailureClass": ""},
+    }], [])["errorTaxonomy"]
+
+    assert taxonomy["rawErrorObservationCount"] == 1
+    assert taxonomy["unclassifiedRawErrorObservationCount"] == 1
+    assert taxonomy["classifiedSignals"] == 0
+    assert taxonomy["unknownSignals"] == 0
+    assert "SECRET" not in json.dumps(taxonomy)
+
+
 def test_scan_uses_explicit_private_work_item_link(tmp_path):
     class LinkedClient(FakeScanClient):
         def list_scores(self, **kwargs):
