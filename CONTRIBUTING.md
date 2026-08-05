@@ -17,6 +17,14 @@ GitHub issues may be used later through an adapter/export workflow, but Beads is
 
 ## Test Commands
 
+Install the locked Pi runtime used by Node-backed extension tests:
+
+```bash
+npm ci --ignore-scripts
+```
+
+Then run:
+
 ```bash
 # layout and shell checks
 scripts/check-pi-config.sh
@@ -40,6 +48,7 @@ This project uses direnv + Nix. After cloning:
 
 ```bash
 direnv allow
+npm ci --ignore-scripts
 ```
 
 The committed `.envrc` loads `flake.nix` and shell snippets from `.envrc.d/`.

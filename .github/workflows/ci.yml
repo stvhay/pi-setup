@@ -12,6 +12,11 @@ jobs:
       BEADS_LINUX_AMD64_SHA256: b0f3dd607c3fb989ee08d0a6854fba80d0402971eb108f9af6170bc14d491a34
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.22.0'
+          cache: npm
+      - run: npm ci --ignore-scripts
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: '3.13'

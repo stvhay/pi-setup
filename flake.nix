@@ -21,6 +21,7 @@
             direnv
             uv
             python3
+            nodejs_22
           ];
         };
       });

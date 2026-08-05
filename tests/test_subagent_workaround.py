@@ -16,7 +16,7 @@ def run_node(script: str, env: dict[str, str] | None = None):
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, **(env or {})},
+        env={**os.environ, "PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent"), **(env or {})},
     )
 
 

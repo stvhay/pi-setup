@@ -32,6 +32,9 @@ Track `flake.lock` for reproducible Nix/direnv environments.
 Current known commands:
 
 ```bash
+# locked Node dependencies for extension tests
+npm ci --ignore-scripts
+
 # layout and shell checks
 scripts/check-pi-config.sh
 bash -n scripts/*.sh
@@ -54,6 +57,7 @@ This project uses direnv + Nix:
 
 ```bash
 direnv allow
+npm ci --ignore-scripts
 ```
 
 The `.envrc` loads `flake.nix` and shell snippets from `.envrc.d/` and `.envrc.local.d/`.
