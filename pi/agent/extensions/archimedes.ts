@@ -281,13 +281,12 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
     import(pathToFileURL(busEntry).href) as Promise<{ getBus: () => { emit: (event: string, payload: unknown) => void }; Events: { ASK_REQUEST: string } }>,
   ]);
   let upstreamAsk: ToolDefinition | undefined;
-  let upstreamSubagent: ToolDefinition | undefined;
   const components = new Proxy(pi, {
     get(target, property, receiver) {
       if (property === "registerTool") {
         return (tool: ToolDefinition) => {
           if (tool.name === "ask") upstreamAsk = tool;
-          else if (tool.name === "subagent") upstreamSubagent = tool;
+          else if (tool.name === "subagent") registerContractAwareSubagent(target, tool);
           else target.registerTool(tool as any);
         };
       }
@@ -297,7 +296,6 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
   });
 
   await registerArchimedes(components);
-  registerContractAwareSubagent(pi, upstreamSubagent);
   registerPortableAsk(pi, upstreamAsk, (questions) => busModule.getBus().emit(busModule.Events.ASK_REQUEST, {
     source: "main",
     requestId: randomUUID(),

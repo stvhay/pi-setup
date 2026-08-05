@@ -217,9 +217,9 @@ def test_archimedes_custom_input_wrapper_preserves_public_components_and_one_por
     (package_dir / "index.js").write_text(
         """
 export default function registerArchimedes(pi) {
-  pi.on("session_start", () => {});
   pi.registerTool({ name: "manage_todo_list" });
-  pi.registerTool({
+  pi.on("session_start", () => {
+    pi.registerTool({
     name: "subagent",
     label: "Upstream Subagent",
     description: "Delegate through upstream execution",
@@ -241,6 +241,7 @@ export default function registerArchimedes(pi) {
       (globalThis.__upstreamSubagentCalls ??= []).push(params);
       return { content: [{ type: "text", text: "delegated" }], details: { upstream: true, params } };
     },
+    });
   });
   pi.registerTool({
     name: "ask",
@@ -290,15 +291,18 @@ export default function registerArchimedes(pi) {
         const commands = [];
         const events = [];
         await archimedes({{
-          on(name) {{ events.push(name); }},
+          on(name, handler) {{ events.push({{ name, handler }}); }},
           registerTool(tool) {{ tools.push(tool); }},
           registerCommand(name) {{ commands.push(name); }},
         }});
 
-        assert.deepEqual(tools.map((tool) => tool.name), ["manage_todo_list", "subagent", "ask"]);
-        assert.equal(tools.some((tool) => tool.upstream), false);
+        assert.deepEqual(tools.map((tool) => tool.name), ["manage_todo_list", "ask"]);
+        assert.equal(tools.some((tool) => tool.name === "subagent"), false);
         assert.deepEqual(commands, ["todos", "archimedes"]);
-        assert.deepEqual(events, ["session_start"]);
+        assert.deepEqual(events.map((event) => event.name), ["session_start"]);
+        for (const event of events) await event.handler({{}}, {{}});
+        assert.deepEqual(tools.map((tool) => tool.name), ["manage_todo_list", "ask", "subagent"]);
+        assert.equal(tools.some((tool) => tool.upstream), false);
 
         const subagent = tools.find((tool) => tool.name === "subagent");
         assert.equal(subagent.label, "Upstream Subagent");
@@ -332,7 +336,7 @@ export default function registerArchimedes(pi) {
           tasks: [{{ task: "Review auth" }}, {{ task: "Check tests" }}],
         }});
 
-        const ask = tools.at(-1);
+        const ask = tools.find((tool) => tool.name === "ask");
         const questionSchema = ask.parameters.properties.questions.items;
         assert(questionSchema.required.includes("selectionMode"));
         assert.deepEqual(questionSchema.properties.selectionMode.enum, ["single", "multi"]);
