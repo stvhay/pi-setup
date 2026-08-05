@@ -104,6 +104,7 @@ def approval_request_payload(
     }
     if normalized_selection_mode is not None:
         approval["selectionMode"] = normalized_selection_mode
+        approval["customResponseAllowed"] = True
     metadata = {"pi": {"approval": approval}}
     description = "\n".join([
         f"Beads-backed {kind} request.",
@@ -117,7 +118,7 @@ def approval_request_payload(
         *[f"- {item}" for item in choices],
         "",
         f"Requested default: {chosen_default}",
-        *([f"Selection mode: {normalized_selection_mode}"] if normalized_selection_mode else []),
+        *([f"Selection mode: {normalized_selection_mode}", "Custom response: available"] if normalized_selection_mode else []),
         f"Target bead: {target}",
         "",
         "Approval preview:",
@@ -256,6 +257,9 @@ def resolve_beads_approval_request(
     decision_bead: str,
     outcome: str,
     answer: str | None = None,
+    selected_options: List[str] | None = None,
+    custom_input: str | None = None,
+    structured_answer: bool = False,
     resolver: Dict[str, str] | None = None,
     run_bundle: Path | None = None,
     beads_runner: BeadsRunner = run_beads_json,
@@ -274,6 +278,53 @@ def resolve_beads_approval_request(
         raise ValueError("question decisions cannot resolve as approved")
     if kind == "approval" and outcome == "answered":
         raise ValueError("approval decisions cannot resolve as answered")
+
+    structured_answer = structured_answer or selected_options is not None or custom_input is not None
+    if structured_answer:
+        if kind != "question" or outcome != "answered":
+            raise ValueError("structured answers are only valid for answered questions")
+        if selected_options is not None and not isinstance(selected_options, list):
+            raise ValueError("selected_options must be a list")
+        if custom_input is not None and not isinstance(custom_input, str):
+            raise ValueError("custom_input must be a string")
+        raw_choices = approval.get("options")
+        if not isinstance(raw_choices, list):
+            raise ValueError("question options are unavailable")
+        choices = [str(item) for item in raw_choices]
+        selected: List[str] = []
+        for raw in selected_options or []:
+            if not isinstance(raw, str):
+                raise ValueError("selected_options must contain strings")
+            value = raw.strip()
+            if not value:
+                raise ValueError("selected_options cannot contain empty values")
+            if value not in choices:
+                raise ValueError("selected_options must match question options")
+            if value not in selected:
+                selected.append(value)
+        custom = None
+        if custom_input is not None:
+            custom = custom_input.strip()
+            if not custom:
+                raise ValueError("custom_input cannot be empty")
+        selection_mode = str(approval.get("selectionMode") or "single")
+        if selection_mode not in SELECTION_MODES:
+            raise ValueError("question selection mode is invalid")
+        if selection_mode == "single" and (len(selected) > 1 or (selected and custom) or (not selected and not custom)):
+            raise ValueError("single-select questions accept one selected option or one custom response")
+        selected_text = f"[{', '.join(selected)}]" if selection_mode == "multi" else (selected[0] if selected else "")
+        if selected and custom:
+            answer_text = f"{selected_text} + Other: {custom}"
+        elif custom:
+            answer_text = f"Other: {custom}"
+        else:
+            answer_text = selected_text
+        approval["selectedOptions"] = selected
+        if custom:
+            approval["customInput"] = custom
+        else:
+            approval.pop("customInput", None)
+
     if outcome in CLOSING_OUTCOMES:
         if not isinstance(resolver, dict) or resolver.get("kind") != "human-ui" or not isinstance(resolver.get("sessionId"), str) or not resolver["sessionId"].strip():
             raise ValueError("approved or answered outcomes require human-ui resolver provenance")
@@ -375,6 +426,9 @@ def cmd_approvals(argv: List[str]) -> int:
     resolve.add_argument("decision_bead")
     resolve.add_argument("--outcome", choices=sorted(VALID_OUTCOMES), required=True)
     resolve.add_argument("--answer")
+    resolve.add_argument("--selected-option", action="append")
+    resolve.add_argument("--custom-input")
+    resolve.add_argument("--structured-answer", action="store_true")
     resolve.add_argument("--resolver-kind")
     resolve.add_argument("--resolver-session")
     resolve.add_argument("--run-bundle", type=Path)
@@ -405,6 +459,9 @@ def cmd_approvals(argv: List[str]) -> int:
                 decision_bead=args.decision_bead,
                 outcome=args.outcome,
                 answer=args.answer,
+                selected_options=args.selected_option,
+                custom_input=args.custom_input,
+                structured_answer=args.structured_answer,
                 resolver=resolver,
                 run_bundle=args.run_bundle,
             )

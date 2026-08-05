@@ -202,7 +202,7 @@ def test_rpc_adapter_leaves_ask_to_global_extension_and_uses_text_todo_widget():
     run_node(script)
 
 
-def test_archimedes_wrapper_preserves_public_components_and_registers_one_portable_ask(tmp_path):
+def test_archimedes_custom_input_wrapper_preserves_public_components_and_one_portable_ask(tmp_path):
     assert ARCHIMEDES_WRAPPER.exists(), "tracked Archimedes wrapper is required"
     agent_dir = tmp_path / "agent"
     package_dir = agent_dir / "npm" / "node_modules" / "pi-archimedes"
@@ -315,6 +315,8 @@ export default function registerArchimedes(pi) {
           assert.equal("selectionMode" in upstreamCall.params.questions[0], false);
         }} else {{
           const confirmations = [false, true, true];
+          const customInputs = ["   ", "custom value"];
+          const warnings = [];
           const result = await ask.execute("multi", {{ questions: [{{
             id: "features",
             question: "Choose features",
@@ -322,11 +324,26 @@ export default function registerArchimedes(pi) {
             selectionMode: "multi",
           }}] }}, undefined, undefined, {{ mode, hasUI: true, ui: {{
             confirm: async () => confirmations.shift(),
-            input: async () => "custom value",
+            input: async () => customInputs.shift(),
+            notify: (message, level) => warnings.push([message, level]),
           }} }});
           assert.deepEqual(result.details.results[0].selectedOptions, ["Two"]);
           assert.equal(result.details.results[0].customInput, "custom value");
           assert.equal(result.details.results[0].selectionMode, "multi");
+          assert.equal(result.content[0].text.includes("features: [Two] + Other: “custom value”"), true);
+          assert.deepEqual(warnings, [["Custom response cannot be empty.", "warning"]]);
+
+          const singleInputs = ["", "typed alternative"];
+          const singleWarnings = [];
+          const custom = await ask.execute("custom", {{ questions: [{{ id: "custom", question: "Custom?", options: [{{ label: "A" }}], selectionMode: "single" }}] }}, undefined, undefined, {{ mode, hasUI: true, ui: {{
+            select: async (_title, options) => options.at(-1),
+            input: async () => singleInputs.shift(),
+            notify: (message, level) => singleWarnings.push([message, level]),
+          }} }});
+          assert.deepEqual(custom.details.results[0].selectedOptions, []);
+          assert.equal(custom.details.results[0].customInput, "typed alternative");
+          assert.match(custom.content[0].text, /custom: “typed alternative”/);
+          assert.deepEqual(singleWarnings, [["Custom response cannot be empty.", "warning"]]);
           assert.equal(globalThis.__upstreamAskCalls.length, upstreamCallsBefore);
         }}
 

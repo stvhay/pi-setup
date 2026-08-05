@@ -180,11 +180,11 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 
 ## Approvals and ticket gateway
 
-- `agnt approvals request --target-bead ID --question TEXT --context TEXT --option TEXT ... --preview-* ...`
-  - Creates a durable Beads decision/approval record, adds a blocking dependency to the target bead, and records approval/decision refs in the requesting run when supplied.
+- `agnt approvals request --kind question|approval --target-bead ID --question TEXT --context TEXT --option TEXT ... [--selection-mode single|multi] --preview-* ...`
+  - Creates a durable Beads decision/approval record, adds a blocking dependency to the target bead, and records approval/decision refs in the requesting run when supplied. Questions require selection mode and record that typed custom responses are available.
 
-- `agnt approvals resolve DECISION_ID --outcome approved|answered|rejected|cancelled|timed-out [--note TEXT]`
-  - Records the human outcome and public-safe UI resolver kind in Beads, never the private Pi session or requesting-run ID. Run refs remain in private run artifacts. Approved/answered decisions close the decision bead; rejected/cancelled/timed-out decisions keep visible blockers.
+- `agnt approvals resolve DECISION_ID --outcome approved|answered|rejected|cancelled|timed-out [--answer TEXT] [--structured-answer] [--selected-option TEXT ...] [--custom-input TEXT]`
+  - Records the human outcome and public-safe UI resolver kind in Beads, never the private Pi session or requesting-run ID. Answered questions may persist predefined selections and typed input separately while retaining a readable answer summary; `--structured-answer` preserves an explicit empty multi-selection. Structured question fields cannot approve an action. Approved/answered decisions close the decision bead; rejected/cancelled/timed-out decisions keep visible blockers.
 
 - `agnt gateway --payload-json JSON`
   - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `request_approval`, `resolve_blocker`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields.
