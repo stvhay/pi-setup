@@ -226,13 +226,13 @@ def test_observational_memory_compaction_precedes_native_threshold():
     assert "npm:pi-observational-memory@3.0.3" in settings["packages"]
     assert config["compactAfterTokens"] == 81_000
     assert config["compactAfterTokensMode"] == "ratio"
-    assert config["compactAfterTokensRatio"] == 0.5
+    assert config["compactAfterTokensRatio"] == 0.75
 
     effective_threshold = int(sol_context * config["compactAfterTokensRatio"])
     native_threshold = sol_context - 16_384
-    assert effective_threshold == 136_000
+    assert effective_threshold == 204_000
     assert native_threshold == 255_616
-    assert native_threshold - effective_threshold == 119_616
+    assert native_threshold - effective_threshold == 51_616
 
     def threshold_for(context):
         if isinstance(context, (int, float)) and context > 0:
@@ -243,8 +243,8 @@ def test_observational_memory_compaction_precedes_native_threshold():
 
     docs = PI_README.read_text(encoding="utf-8")
     assert "27a5195eaf90e4e2ca1302e3a31d4bb14df982a5" in docs
-    assert "272,000 × 0.5 = 136,000" in docs
-    assert "255,616" in docs
+    assert "272,000 × 0.75 = 204,000" in docs
+    assert "51,616" in docs
     assert "different token counters" in docs
     assert "81,000" in docs
 
