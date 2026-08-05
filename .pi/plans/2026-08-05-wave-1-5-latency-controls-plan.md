@@ -1,22 +1,22 @@
 # Wave 1.5 Latency Controls Implementation Plan
 
-**Issues:** pi-4tg9.32, pi-4tg9.33, pi-4tg9.18, pi-4tg9.30, pi-4tg9.29, pi-4tg9.17
+**Issues:** pi-4tg9.32, pi-4tg9.33, pi-4tg9.30, pi-4tg9.29, pi-4tg9.17 (`pi-4tg9.18` deferred)
 **Design:** Approved conversation decisions plus Bead acceptance criteria
 **Date:** 2026-08-05
 **Branch:** `main`, with one sequential isolated worktree per item
 
-**Goal:** Reduce avoidable compaction, subagent, progress, verification, and provider-failure latency without weakening memory, safety, or completion evidence.
+**Goal:** Reduce avoidable compaction, progress, verification, and provider-failure latency without weakening memory, safety, or completion evidence.
 
-**Architecture:** Execute and integrate six atomic items strictly in dependency order. Keep observational-memory configuration in tracked Pi settings; implement Archimedes budgets at its child stream seam with a reviewed local source commit; keep workflow behavior in existing root/skill seams; keep provider circuits in private runtime state consumed by deterministic routing. Use focused TDD during each item and run one complete project gate on the final integrated candidate.
+**Architecture:** Execute and integrate five atomic items strictly in dependency order. Keep observational-memory configuration in tracked Pi settings, workflow behavior in existing root/skill seams, and provider circuits in private runtime state consumed by deterministic routing. Use focused TDD during each item and run one complete project gate on the final integrated candidate. Do not modify upstream-package source; `pi-4tg9.18` remains deferred because live sibling-local subagent budgets have no supported pi-setup seam.
 
 **Acceptance Criteria:**
 - [ ] `pi-4tg9.32`: ratio-mode compaction uses `0.5`; 272,000-token models trigger at 136,000; package fallback remains 81,000 when context is unavailable.
 - [ ] `pi-4tg9.33`: observational-memory observer/reflector/dropper workers use `openai-codex/gpt-5.6-sol` at `low`; compaction remains model-free.
-- [ ] `pi-4tg9.18`: each subagent has live token/tool/turn/wall limits; only offending child stops; partial output/usage and structured reason survive; siblings continue.
+- [x] `pi-4tg9.18` scope decision: defer owner-package work; no source patch, fork, PR, push, release, pin, deployment, or installed-package edit.
 - [ ] `pi-4tg9.30`: phase progress remains visible without micro-step todo turns; independent reads/checks batch; writes, approvals, and safety gates remain serialized.
 - [ ] `pi-4tg9.29`: workflow distinguishes baseline-once, focused repair, pre-existing failure, and final-gate-once phases without weakening final evidence.
 - [ ] `pi-4tg9.17`: deterministic quota/credit/auth/availability failures open expiring provider-venue circuits; routes visibly exclude only affected venue; success/expiry closes safely.
-- [ ] Each item is reviewed, focused-verified, locally committed, integrated, and closed before the next starts.
+- [ ] Each in-scope item is reviewed, focused-verified, locally committed, integrated, and closed before the next starts.
 - [ ] Final integrated candidate passes one complete project release gate.
 
 **Established Baseline (2026-08-05):**
@@ -37,7 +37,7 @@ Do not rerun this complete matrix during repair. Run task-focused checks below; 
 
 ## Execution Order
 
-`pi-4tg9.32` → `pi-4tg9.33` → `pi-4tg9.18` → `pi-4tg9.30` → `pi-4tg9.29` → `pi-4tg9.17`
+`pi-4tg9.32` → `pi-4tg9.33` → `pi-4tg9.30` → `pi-4tg9.29` → `pi-4tg9.17`
 
 For each item:
 
@@ -102,60 +102,9 @@ scripts/check-pi-config.sh
 bash -n scripts/*.sh
 ```
 
-### Task 3: Enforce live per-child subagent budgets [pi-4tg9.18]
+### Deferred: Live per-child subagent budgets [pi-4tg9.18]
 
-**Context:** Public source is `danielcherubini/pi-archimedes`; npm/meta `1.8.3` corresponds to tag `v1.8.3` at `801397c052ea064fc237ff4e035c2a0910d391c8`. Live state flows `index.ts` → `execute.ts` → `spawn.ts` → `stream.ts`; only `stream.ts` sees per-child usage/tool/turn/time state. Package-owned source completion does not require delivery or consumption in this wave.
-
-**Source checkout:** `~/.pi/agent/git/github.com/danielcherubini/pi-archimedes` (local clone, branch from `v1.8.3`; no fork/push)
-
-**Owner-package files:**
-- Create: `packages/subagent/src/budgets.ts`
-- Create: `packages/subagent/src/budgets.test.ts`
-- Create: `packages/subagent/src/stream.test.ts`
-- Modify: `packages/subagent/src/types.ts`
-- Modify: `packages/subagent/src/stream.ts`
-- Modify: `packages/subagent/src/execute.ts`
-- Modify: `packages/subagent/src/spawn.ts`
-- Modify: `packages/subagent/src/index.ts`
-- Modify: `packages/subagent/README.md`
-
-**Pi-setup compatibility files:**
-- Modify: `pi/agent/extensions/subagent-error-workaround.ts`
-- Modify: `tests/test_subagent_workaround.py`
-- Modify: `pi/README.md`
-
-**Design constraints:**
-- Optional top-level and per-task `limits`; per-task overrides top-level; default object is independently copied.
-- Positive integer limits; no ambiguous zero/unlimited behavior.
-- Initial defaults: 100,000 input+output tokens, 50 tool calls, 25 turns, 10-minute wall time. Tune only if boundary tests expose a compatibility problem.
-- First stop wins. Budget/startup/caller stops resolve a normal failed result instead of rejecting and losing state.
-- Structured `stopReason` distinguishes token/tool/turn/wall/startup/caller stops.
-- Partial final output falls back to accumulated assistant text; usage remains intact.
-- SIGTERM then bounded SIGKILL escalation checks actual process exit state, not only `child.killed`.
-- One stream kills only its child; shared parent signal and siblings remain untouched.
-- Timers, readline, signal listeners, todo bus state, and ask-socket cleanup execute once.
-
-**Steps:**
-1. Clone exact public source/tag and establish owner-package baseline (`pnpm install`, package tests/typecheck).
-2. Add RED tests for every limit boundary, partial output, pre/during abort, sibling isolation, race resolution, escalation, and cleanup.
-3. Implement minimum stream-owned budget contract and public schema.
-4. Run owner package checks; commit source patch locally.
-5. Add Pi-setup forward-compatible telemetry projection for `stopReason`, timeout/budget classification, and metadata; add RED/GREEN synthetic tests.
-6. Document source commit and unconsumed delivery boundary; commit Pi-setup compatibility changes.
-
-**Focused verification:**
-
-```bash
-# owner checkout
-pnpm --filter @pi-archimedes/subagent test
-cd packages/subagent && npx tsc --noEmit
-
-git diff --check
-
-# pi-setup
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -p no:cacheprovider tests/test_subagent_workaround.py
-scripts/check-pi-config.sh
-```
+Human decision on 2026-08-05: do not modify upstream-package source. Evaluation confirmed live limits require the package-owned per-child stream and cancellation seam. Pi-setup sees only the outer tool lifecycle; parent cancellation is not sibling-local, and post-completion accounting would not satisfy the acceptance criteria. Keep the Bead open and deferred. Do not create a local source patch, fork, PR, push, release, pin, deployment, or installed-package edit.
 
 ### Task 4: Reduce progress-only turns and batch independent tools [pi-4tg9.30]
 
@@ -259,9 +208,7 @@ git diff --check
 |---|---|---|
 | `pi/agent/settings.json` | 1, 2 | Strict sequence; Task 2 starts from integrated Task 1. |
 | `tests/test_pi_packages.py` | 1, 2 | Strict sequence. |
-| `pi/README.md` | 1, 2, 3 | Strict sequence; preserve prior documentation. |
-| `pi/agent/extensions/subagent-error-workaround.ts` | 3, 6 | Task 6 starts after Task 3 integration. |
-| `tests/test_subagent_workaround.py` | 3, 6 | Task 6 starts after Task 3 integration. |
+| `pi/README.md` | 1, 2 | Strict sequence; preserve prior documentation. |
 | `tests/test_context_architecture.py` | 4, 5 | Task 5 starts after Task 4 integration. |
 
 ## Final Release Gate
