@@ -32,9 +32,12 @@ Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
 Every `agnt invoke` writes a metric record (model, family, task, tokens,
 cost, latency) to the resolved private `metrics/invocations` directory.
 The tracked observer converts interactive Archimedes unnamed `subagent` results
-to the same schema. The observer stores usage, timing, and payload lengths—not prompt or
-response bodies. Named-profile results are skipped because Archimedes does not
-expose their final provider.
+to the same schema. Projection and metric records share invocation, provider,
+model, target, and effective thinking dimensions; config-less workers record
+`default` because Archimedes passes no thinking override. The observer stores
+usage, timing, and payload lengths—not prompt or response bodies. Named-profile
+projections mark unavailable dimensions explicitly, while metrics remain skipped
+because Archimedes does not expose their effective provider or thinking level.
 
 The Langfuse extension records private interactive telemetry. Evaluator-ready
 result projections share the Pi session ID, allowing sampled outcome scores to

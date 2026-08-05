@@ -319,7 +319,15 @@ def test_subagent_results_emit_evaluator_ready_observations():
           attributes: {{
             input: "Review auth",
             output: "Auth review complete",
-            metadata: {{ index: 0, model: "gpt-4.1-mini", exitCode: 0 }},
+            metadata: {{
+              index: 0,
+              provider: "olla-cloud",
+              model: "gpt-4.1-mini",
+              target: "olla-cloud/gpt-4.1-mini",
+              thinkingLevel: "default",
+              modelDimensionsStatus: "available",
+              exitCode: 0,
+            }},
             level: "DEFAULT",
           }},
           options: {{ asType: "agent", sessionId: "private-session" }},
@@ -329,12 +337,59 @@ def test_subagent_results_emit_evaluator_ready_observations():
           attributes: {{
             input: "Check tests",
             output: "Provider unavailable",
-            metadata: {{ index: 1, model: "gpt-5.6-luna", exitCode: 1 }},
+            metadata: {{
+              index: 1,
+              provider: "openai-codex",
+              model: "gpt-5.6-luna",
+              target: "openai-codex/gpt-5.6-luna",
+              thinkingLevel: "default",
+              modelDimensionsStatus: "available",
+              exitCode: 1,
+            }},
             level: "ERROR",
           }},
           options: {{ asType: "agent", sessionId: "private-session" }},
         }},
       ]);
+    """
+    run_node(script)
+
+
+def test_named_agent_projection_marks_provider_and_thinking_unavailable():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
+      }});
+
+      const input = {{ agent: "configured-reviewer", task: "Review auth" }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "named", input }});
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "named",
+        input,
+        content: [{{ type: "text", text: "done" }}],
+        details: {{ mode: "single", results: [{{
+          agent: "configured-reviewer",
+          model: "openai/gpt-oss-120b",
+          exitCode: 0,
+          finalOutput: "done",
+        }}] }},
+        isError: false,
+      }}, {{ cwd: process.cwd(), model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
+
+      const metadata = observations[0].attributes.metadata;
+      assert.equal(metadata.provider, null);
+      assert.equal(metadata.model, "openai/gpt-oss-120b");
+      assert.equal(metadata.target, null);
+      assert.equal(metadata.thinkingLevel, null);
+      assert.equal(metadata.modelDimensionsStatus, "unavailable-named-agent");
     """
     run_node(script)
 
@@ -358,7 +413,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
 
       const cwd = {str(tmp_path)!r};
       const input = {{ tasks: [
-        {{ task: "SECRET first task", model: "olla-cloud/gemini-flash" }},
+        {{ task: "SECRET first task", model: "openai/openai/gpt-oss-120b" }},
         {{ task: "SECRET second task", model: "openai-codex/gpt-5.6-luna" }},
       ] }};
       const ctx = {{
@@ -373,7 +428,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         input,
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
-          {{ exitCode: 0, model: "gemini-flash", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
+          {{ exitCode: 0, model: "openai/gpt-oss-120b", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
           {{ exitCode: 2, model: "gpt-5.6-luna", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
         ] }},
         isError: false,
@@ -394,8 +449,19 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.failureClass), [null, "provider"]);
       assert.deepEqual(records.map((record) => record.providerFailureClass), [null, "credit"]);
       assert.deepEqual(records.map((record) => record.artifactRefs), [[], []]);
+      assert.deepEqual(records.map((record) => [record.provider, record.model, record.target, record.thinkingLevel]), [
+        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "default"],
+        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default"],
+      ]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.providerFailureClass ?? null), [null, "credit"]);
+      assert.deepEqual(observations.map((item) => {{
+        const metadata = item.attributes.metadata;
+        return [metadata.provider, metadata.model, metadata.target, metadata.thinkingLevel, metadata.modelDimensionsStatus];
+      }}), [
+        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "default", "available"],
+        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default", "available"],
+      ]);
       assert.equal(JSON.stringify(records).includes("SECRET"), false);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
@@ -442,8 +508,24 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       assert.equal(records.length, 1);
       const invocationId = records[0].invocationId;
       assert.equal(records[0].status, "failed");
+      assert.deepEqual([
+        records[0].provider,
+        records[0].model,
+        records[0].target,
+        records[0].thinkingLevel,
+      ], ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default"]);
       assert.equal(observations.length, 1);
       assert.equal(observations[0].attributes.metadata.invocationId, invocationId);
+      assert.deepEqual(observations[0].attributes.metadata, {{
+        invocationId,
+        index: 0,
+        provider: "openai-codex",
+        model: "gpt-5.6-luna",
+        target: "openai-codex/gpt-5.6-luna",
+        thinkingLevel: "default",
+        modelDimensionsStatus: "available",
+        exitCode: 1,
+      }});
       assert.equal(/^[0-9a-f-]{{36}}$/.test(invocationId), true);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
