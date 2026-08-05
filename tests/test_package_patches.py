@@ -116,6 +116,7 @@ def test_runtime_patchset_contains_only_minimum_session_contract():
     langfuse = (PATCHES / "pi-langfuse-1.5.9.patch").read_text(encoding="utf-8")
     archimedes = (PATCHES / "pi-archimedes-subagent-1.8.3.patch").read_text(encoding="utf-8")
 
+    assert "ExtensionContext" in langfuse
     assert "getSessionId" in langfuse
     assert "getSessionFile" in langfuse
     assert 'basename(sessionFile, ".jsonl")' in langfuse

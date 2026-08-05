@@ -1,22 +1,17 @@
 diff --git a/index.ts b/index.ts
-index 9e45515..bf1831d 100644
+index 9e45515..f64dcdf 100644
 --- a/index.ts
 +++ b/index.ts
-@@ -33,0 +34,7 @@ import {
-+interface SessionContext {
-+  sessionManager?: {
-+    getSessionId?: () => unknown;
-+    getSessionFile?: () => unknown;
-+  };
-+}
-+
-@@ -77 +84 @@ export default async function (pi: ExtensionAPI) {
+@@ -11 +11 @@ import { basename } from "node:path";
+-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+@@ -77 +77 @@ export default async function (pi: ExtensionAPI) {
 -  const getSessionId = (ctx?: any) => {
 +  const getSessionId = (ctx?: unknown): string | undefined => {
-@@ -79,2 +86,10 @@ export default async function (pi: ExtensionAPI) {
+@@ -79,2 +79,10 @@ export default async function (pi: ExtensionAPI) {
 -      const sessionFile = ctx?.sessionManager?.getSessionFile?.();
 -      return sessionFile ? basename(sessionFile, ".jsonl") : undefined;
-+      const sessionManager = (ctx as SessionContext | undefined)?.sessionManager;
++      const sessionManager = (ctx as ExtensionContext | undefined)?.sessionManager;
 +      const sessionId = sessionManager?.getSessionId?.();
 +      if (typeof sessionId === "string" && sessionId) {
 +        return sessionId;
@@ -26,3 +21,15 @@ index 9e45515..bf1831d 100644
 +      return typeof sessionFile === "string" && sessionFile
 +        ? basename(sessionFile, ".jsonl")
 +        : undefined;
+diff --git a/types/pi-coding-agent.d.ts b/types/pi-coding-agent.d.ts
+index 3f7e7aa..6462011 100644
+--- a/types/pi-coding-agent.d.ts
++++ b/types/pi-coding-agent.d.ts
+@@ -1,0 +2,7 @@ declare module "@earendil-works/pi-coding-agent" {
++  export interface ExtensionContext {
++    sessionManager?: {
++      getSessionId?: () => unknown;
++      getSessionFile?: () => unknown;
++    };
++  }
++
