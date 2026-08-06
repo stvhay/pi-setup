@@ -209,6 +209,26 @@ function upstreamSubagentArguments(params: any): any {
   };
 }
 
+function isOpenRouterModel(model: string | undefined, ctx: any): boolean {
+  const ref = model?.trim().replace(/:(?:off|minimal|low|medium|high|xhigh|max)$/i, "").toLowerCase();
+  if (!ref) return false;
+  if (ref.startsWith("openrouter/")) return true;
+  const matches = (ctx?.modelRegistry?.getAll?.() ?? []).filter((candidate: any) =>
+    candidate.id.toLowerCase() === ref || `${candidate.provider}/${candidate.id}`.toLowerCase() === ref
+  );
+  return matches.length === 1 && matches[0].provider.toLowerCase() === "openrouter";
+}
+
+function isMeteredReviewSubagent(params: any, ctx: any): boolean {
+  const inheritedModel = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+  const tasks = Array.isArray(params.tasks)
+    ? params.tasks.map((task: any) => ({ prompt: task.task, model: task.model ?? inheritedModel }))
+    : [{ prompt: params.task, model: params.model ?? inheritedModel }];
+  return tasks.some(({ prompt, model }: { prompt?: string; model?: string }) =>
+    /\breview(?:ed|ing)?\b/i.test(prompt ?? "") && isOpenRouterModel(model, ctx)
+  );
+}
+
 function registerContractAwareSubagent(pi: ExtensionAPI, upstreamSubagent?: ToolDefinition): void {
   if (!upstreamSubagent?.execute || !upstreamSubagent.parameters) {
     throw new Error("Archimedes subagent tool is unavailable");
@@ -216,7 +236,21 @@ function registerContractAwareSubagent(pi: ExtensionAPI, upstreamSubagent?: Tool
   pi.registerTool({
     ...upstreamSubagent,
     parameters: subagentParameters(upstreamSubagent.parameters),
-    execute(toolCallId, params, signal, onUpdate, ctx) {
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      if (isMeteredReviewSubagent(params, ctx)) {
+        return {
+          content: [{
+            type: "text",
+            text: "Metered OpenRouter reviews cannot run through subagent. Use `agnt invoke --one-shot --task review <provider/model> <packet.md>`.",
+          }],
+          details: {
+            mode: Array.isArray(params.tasks) ? "parallel" : "single",
+            results: [],
+            progress: undefined,
+          },
+          isError: true,
+        };
+      }
       return upstreamSubagent.execute!(toolCallId, upstreamSubagentArguments(params), signal, onUpdate, ctx);
     },
   } as any);

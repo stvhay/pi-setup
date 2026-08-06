@@ -336,6 +336,78 @@ export default function registerArchimedes(pi) {
           tasks: [{{ task: "Review auth" }}, {{ task: "Check tests" }}],
         }});
 
+        for (const [params, context] of [
+          [
+            {{ task: "High-risk final review", model: "openrouter/anthropic/claude-opus-5" }},
+            {{ mode }},
+          ],
+          [
+            {{ task: "Review auth", model: " OpenRouter/Anthropic/Claude-Opus-5 " }},
+            {{ mode }},
+          ],
+          [
+            {{ task: "Review the public API" }},
+            {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }},
+          ],
+          [
+            {{ task: "Please review auth", model: "openrouter/anthropic/claude-opus-5" }},
+            {{ mode }},
+          ],
+          [
+            {{ task: "Code review auth", model: "openrouter/anthropic/claude-opus-5" }},
+            {{ mode }},
+          ],
+          [
+            {{ agent: "reviewer", task: "Review auth" }},
+            {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }},
+          ],
+          [
+            {{ task: "Review auth", model: "anthropic/claude-opus-5" }},
+            {{ mode, modelRegistry: {{ getAll: () => [
+              {{ provider: "openrouter", id: "anthropic/claude-opus-5" }},
+            ] }} }},
+          ],
+          [
+            {{ tasks: [
+              {{ task: "Check tests", model: "openai-codex/gpt-5.6-terra" }},
+              {{ task: "Boundary review", model: "openrouter/anthropic/claude-opus-5" }},
+            ] }},
+            {{ mode }},
+          ],
+        ]) {{
+          const callsBeforeRejection = globalThis.__upstreamSubagentCalls.length;
+          const rejected = await subagent.execute("metered-review", params, undefined, undefined, context);
+          assert.equal(rejected.isError, true);
+          assert.match(rejected.content[0].text, /agnt invoke --one-shot --task review/);
+          assert.equal(globalThis.__upstreamSubagentCalls.length, callsBeforeRejection);
+        }}
+
+        const allowedMeteredNonReview = await subagent.execute("metered-research", {{
+          task: "Map auth callers",
+          model: "openrouter/anthropic/claude-opus-5",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(allowedMeteredNonReview.details.upstream, true);
+
+        const allowedSubscriptionReview = await subagent.execute("subscription-review", {{
+          task: "Review auth",
+          model: "openai-codex/gpt-5.6-terra",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(allowedSubscriptionReview.details.upstream, true);
+
+        for (const task of ["Fix reviewer avatar rendering", "Summarize App Store reviews"]) {{
+          const incidentalReviewWord = await subagent.execute("incidental-review-word", {{
+            task,
+            model: "openrouter/anthropic/claude-opus-5",
+          }}, undefined, undefined, {{ mode }});
+          assert.equal(incidentalReviewWord.details.upstream, true);
+        }}
+
+        const noContext = await subagent.execute("no-context", {{
+          task: "Map auth callers",
+          model: "openrouter/anthropic/claude-opus-5",
+        }}, undefined, undefined, undefined);
+        assert.equal(noContext.details.upstream, true);
+
         const ask = tools.find((tool) => tool.name === "ask");
         const questionSchema = ask.parameters.properties.questions.items;
         assert(questionSchema.required.includes("selectionMode"));
