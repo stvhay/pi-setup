@@ -4,7 +4,7 @@ Use only after candidate, evidence, and body are stable.
 
 ## Remote approval packet
 
-Before fork creation, force-push, draft/PR creation, or any push outside the standing user-fork feature-branch authorization, present:
+Before fork creation, force-push, upstream draft/PR creation, or any remote action outside standing user-fork staging authorization, present:
 
 - authenticated public account;
 - upstream and user-fork URLs;
@@ -17,15 +17,17 @@ Before fork creation, force-push, draft/PR creation, or any push outside the sta
 
 Use the available informed approval mechanism. Approval for one exact remote step does not authorize later history rewrites or upstream draft creation.
 
-## Standing-authorized fork branch
+## Standing-authorized fork staging
 
-A normal new or fast-forward push needs no per-push approval only when all conditions hold:
+A normal new or fast-forward feature-branch push plus fork-local draft creation and iterative updates need no per-action approval only when all conditions hold:
 
 - destination is the user's verified existing fork;
 - source is a clean, already reviewed task feature branch for an upstream PR candidate;
 - exact local head and intended remote branch are known;
 - remote destination is absent or an ancestor of the reviewed head;
-- push uses no force and contains no unrelated commits.
+- push uses no force and contains no unrelated commits;
+- draft targets the fork default branch, or the reviewed predecessor feature branch for a stacked sequence;
+- draft contains reviewer-facing prose only and adds no reviewers or maintainer/team mentions.
 
 Verify before and after:
 
@@ -42,7 +44,7 @@ git push -u <fork-remote> <feature-branch>
 git ls-remote --heads <fork-remote> refs/heads/<feature-branch>
 ```
 
-The final remote SHA must equal reviewed `HEAD`. Return a GitHub branch or compare URL. Stop on ambiguous ownership, dirty scope, an unexpected remote ref, non-fast-forward rejection, or any need for history rewrite. This authorization does not include fork creation, draft/PR creation, upstream-repository pushes, reviewer requests, Ready state, merge, release, deletion, or force-push.
+The final remote SHA must equal reviewed `HEAD`. Stop on ambiguous ownership, dirty scope, an unexpected remote ref, non-fast-forward rejection, or any need for history rewrite. Standing authorization includes creating and iteratively updating only the fork-local draft described below. It does not include fork creation, upstream-repository pushes or PRs, reviewer requests, Ready state, merge, release, deletion, or force-push.
 
 ## Fork-local staging draft
 
@@ -58,12 +60,12 @@ git log --oneline <base>..HEAD
 
 Ensure the reviewed branch is present on the user's fork through the standing-authorized path above or separate approval. Use HTTPS or the user's configured remote; never expose credentials.
 
-After draft approval, create the staging draft **in the fork**. The body file must contain only reviewer-facing PR prose—never the internal evidence/approval packet:
+Without another approval, create the staging draft **in the fork**. Target the fork default branch, or the reviewed predecessor feature branch when staging a stacked sequence. The body file must contain only reviewer-facing PR prose—never the internal evidence/approval packet:
 
 ```bash
 gh pr create \
   --repo <user>/<repo> \
-  --base <fork-default-branch> \
+  --base <fork-default-or-reviewed-predecessor-branch> \
   --head <feature-branch> \
   --draft \
   --title '<title>' \
@@ -88,7 +90,7 @@ Public forks and their draft PRs are public. The benefit is separation from upst
 
 ## Human revision
 
-The staging draft is a review surface. Human may edit title/body and request code changes.
+The staging draft is the user-agent review surface. The user may edit title/body and request code changes; normal branch pushes and fork-local draft updates remain standing-authorized during this iteration.
 
 Before any agent copyedit:
 
@@ -102,7 +104,7 @@ PR edit history is visible to readers. Authors can delete revision content, but 
 
 ## Fresh upstream draft
 
-After full human review, prepare a new body file from the current staging body. Do not copy staging comments or link internal/private artifacts.
+Only after the user says the staging draft is ready and approves upstream draft creation, prepare a new body file from the current staging body. Do not copy staging comments or link internal/private artifacts.
 
 Recheck upstream head, permissions, profile freshness, commits, and invalidated tests. If clean history requires force-push, request separate approval and use exact `--force-with-lease` protection.
 
