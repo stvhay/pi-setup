@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/danielcherubini/pi-archimedes
-last_checked_utc: 2026-08-06T00:31:20Z
+last_checked_utc: 2026-08-06T00:59:20Z
 target_ref: v1.8.3
 source_commit: 801397c052ea064fc237ff4e035c2a0910d391c8
 status: current-for-target-ref
@@ -53,7 +53,7 @@ source_files:
 - Required candidate checks: subagent/package TypeScript checks, all workspace typechecks, focused Vitest, full repository tests, and diff checks.
 - No PR template or repository AI-contribution policy observed in checked sources.
 - User permission observed 2026-08-06: pull-only upstream; fork required. The user-owned fork grants admin access. Recheck every use.
-- No PR/issue template or visible branch-protection configuration was found. Fork PR CI requires maintainer approval; PR #25 run `31059942733` is `action_required`, not a test result.
+- No PR/issue template or visible branch-protection configuration was found. Fork PR CI requires maintainer approval; PR #25 run `31061385312` at clean head `c27561d` is `action_required`, not a test result.
 - Release/publish workflow is tag-driven and publishes packages in dependency order; PR approval does not authorize release or publication.
 
 ## Policy findings
