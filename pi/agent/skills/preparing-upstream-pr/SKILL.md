@@ -21,7 +21,8 @@ At start, read shared conventions if needed:
 - Keep one coherent problem in scope. Do not repair unrelated baseline findings, modernize nearby code, or add speculative architecture.
 - Never claim a required check passed without fresh evidence from the final candidate. For a failure, compare local environment, clean baseline, and candidate before a bounded remedy or truthful caveat. Keep extra advisory checker names, configurations, and counts in the local evidence packet—not the reviewer-facing PR body.
 - Broken upstream guidance stays in a separate issue/PR by default; only a trivial compliance blocker may be a separate commit in the same PR after human agreement.
-- Never create any remote branch, fork, or draft without informed approval covering exact repositories, refs, commits, visibility, notification risk, and exclusions. Never promise a GitHub action is notification-free; avoid explicit mentions/review requests and state what may notify watchers. Never force-push by default; history rewrite needs separate exact approval and `--force-with-lease` protection.
+- **Standing user-fork push authorization:** a normal new or fast-forward push of an already reviewed task feature branch to the user's verified existing fork needs no per-push approval when its sole purpose is revising or reviewing an upstream PR candidate. Before pushing, verify fork ownership, clean status, exact reviewed head, branch name, and safe destination; push only reviewed commits without force; verify the remote SHA; and return the GitHub branch or compare link. Public fork branches remain visible and may produce GitHub activity or notifications.
+- Never create a fork, draft/PR, upstream-repository branch, reviewer request, Ready state, merge, release, deletion, or history rewrite under that standing authorization. Any non-fast-forward update stops for separate exact approval and, if approved, uses `--force-with-lease`. Never promise a GitHub action is notification-free.
 - Never mark an upstream draft ready, request reviewers, merge, tag, release, publish packages, delete remote artifacts, or sign a human attestation. Human owns those actions.
 - Final upstream body must disclose AI assistance and full human review. Do not make that claim until the human confirms review. Human edits in GitHub are authoritative; fetch and preserve them before later copyediting.
 
@@ -128,13 +129,14 @@ Prepare two separate artifacts:
 
 Never pass the internal packet to `gh pr create --body-file`.
 
-### 6. Create a fork-local staging draft
+### 6. Stage on the user's fork
 
-Present the packet and request informed approval before fork creation, push, history rewrite, or draft creation. Read [references/pr-mechanics.md](references/pr-mechanics.md).
+Read [references/pr-mechanics.md](references/pr-mechanics.md).
 
-After approval:
+For a standing-authorized feature-branch push, first verify the existing fork remote, clean reviewed scope, exact head, and that the destination is new or fast-forward. Push normally without force, verify the remote SHA equals the reviewed head, and return the GitHub branch or compare URL. Stop instead of overwriting an unexpected remote ref.
 
-- push only reviewed commits to the user's fork;
+Fork creation, history rewrite, and draft/PR creation still require informed approval. A branch may already be present under standing authorization; do not re-request approval solely for that safe push. After draft approval:
+
 - create a draft targeting the fork's default branch, not upstream;
 - add no reviewers, team mentions, or maintainer mentions;
 - verify draft state, base/head, commit IDs, title, body, and files;

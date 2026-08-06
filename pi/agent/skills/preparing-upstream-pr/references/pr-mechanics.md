@@ -4,7 +4,7 @@ Use only after candidate, evidence, and body are stable.
 
 ## Remote approval packet
 
-Before fork creation, push, force-push, or draft creation, present:
+Before fork creation, force-push, draft/PR creation, or any push outside the standing user-fork feature-branch authorization, present:
 
 - authenticated public account;
 - upstream and user-fork URLs;
@@ -16,6 +16,33 @@ Before fork creation, push, force-push, or draft creation, present:
 - actions excluded: reviewers, Ready state, merge, release, package publication, cleanup.
 
 Use the available informed approval mechanism. Approval for one exact remote step does not authorize later history rewrites or upstream draft creation.
+
+## Standing-authorized fork branch
+
+A normal new or fast-forward push needs no per-push approval only when all conditions hold:
+
+- destination is the user's verified existing fork;
+- source is a clean, already reviewed task feature branch for an upstream PR candidate;
+- exact local head and intended remote branch are known;
+- remote destination is absent or an ancestor of the reviewed head;
+- push uses no force and contains no unrelated commits.
+
+Verify before and after:
+
+```bash
+git status --short
+git remote get-url --push <fork-remote>
+git log --oneline <reviewed-base>..HEAD
+remote_sha=$(git ls-remote --heads <fork-remote> refs/heads/<feature-branch> | awk '{print $1}')
+if [ -n "$remote_sha" ]; then
+  git fetch --no-tags <fork-remote> refs/heads/<feature-branch>
+  git merge-base --is-ancestor "$remote_sha" HEAD
+fi
+git push -u <fork-remote> <feature-branch>
+git ls-remote --heads <fork-remote> refs/heads/<feature-branch>
+```
+
+The final remote SHA must equal reviewed `HEAD`. Return a GitHub branch or compare URL. Stop on ambiguous ownership, dirty scope, an unexpected remote ref, non-fast-forward rejection, or any need for history rewrite. This authorization does not include fork creation, draft/PR creation, upstream-repository pushes, reviewer requests, Ready state, merge, release, deletion, or force-push.
 
 ## Fork-local staging draft
 
@@ -29,9 +56,9 @@ git status --short
 git log --oneline <base>..HEAD
 ```
 
-After approval, push the reviewed branch to the user's fork. Use HTTPS or the user's configured remote; never expose credentials.
+Ensure the reviewed branch is present on the user's fork through the standing-authorized path above or separate approval. Use HTTPS or the user's configured remote; never expose credentials.
 
-Create staging draft **in the fork**. The body file must contain only reviewer-facing PR prose—never the internal evidence/approval packet:
+After draft approval, create the staging draft **in the fork**. The body file must contain only reviewer-facing PR prose—never the internal evidence/approval packet:
 
 ```bash
 gh pr create \
