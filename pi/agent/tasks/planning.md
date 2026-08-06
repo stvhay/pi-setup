@@ -5,10 +5,12 @@ preferred:
   - openai-codex/gpt-5.6-luna
   - openai-codex/gpt-5.6-sol
 qualified:
-  - claude-sonnet-4-6
-  - olla-cloud/glm-5.2
-  - olla-cloud/gpt-4.1-mini
-  - olla-cloud/kimi-k2.7-code
+  - openrouter/minimax/minimax-m3
+  - openrouter/moonshotai/kimi-k2.7-code
+  - openrouter/anthropic/claude-opus-5
+thinkingLow: medium
+thinkingMedium: medium
+thinkingHigh: high
 ---
 
-Use for plan writing, task sizing, dependency checks, and verification command selection. Prefer OpenAI/Codex for routine planning because metered Olla and Anthropic usage add cash spend. Use Kimi K2.7 Code only for an explicitly justified long-horizon software plan in a fresh worker.
+Use for plan writing, task sizing, dependency checks, and verification command selection. Prefer subscription-backed Codex for routine planning. Use metered OpenRouter models only for bounded different-family critique or a justified long-horizon second opinion in a fresh worker.

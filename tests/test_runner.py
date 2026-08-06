@@ -274,6 +274,7 @@ def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(ag
         "complete review packet",
         metrics=True,
         task="review",
+        thinking_level="high",
         one_shot=True,
     )
 
@@ -292,6 +293,7 @@ def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(ag
     ):
         assert flag in cmd
     assert cmd[cmd.index("--system-prompt") + 1]
+    assert cmd[cmd.index("--thinking") + 1] == "high"
     assert "complete review packet" not in cmd
     assert _kwargs["input"] == "complete review packet"
 
@@ -341,6 +343,7 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
         routing_task="implementation",
         bead="pi-ready.1",
         selected_model="olla-cloud/gpt-4.1-mini",
+        thinking_level="high",
         worktree={"schemaVersion": 1, "path": str(worktree), "dispatchable": True, "status": "ready"},
         allowed_effects=["read_workspace", "write_artifacts", "edit_files", "write_workspace", "update_beads"],
         output_contract="implementation-report",
@@ -360,6 +363,7 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
     assert result["exitCode"] == 0
     kwargs = calls[0][2]
     assert kwargs["cwd"] == str(worktree)
+    assert kwargs["thinking_level"] == "high"
     assert "--no-extensions" in kwargs["pi_args"]
     assert "--tools" in kwargs["pi_args"]
     tools = kwargs["pi_args"][kwargs["pi_args"].index("--tools") + 1].split(",")

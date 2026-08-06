@@ -104,10 +104,11 @@ contribute to cross-project routing history.
 `agnt route` aggregates outcome history **by model family** (so evidence from
 one venue covers all venues of the same weights) and demotes any candidate
 whose family shows more negative than positive outcomes over ≥5 invocations.
-For review, Codex-first risk-specific fanout and month-to-date marginal-spend
-gates apply before model output exists: Kimi is escalation-only, while reserve
-and hard-cap states keep subscription-backed Codex plus local Gemma. These
-deterministic gates do not use model self-confidence.
+For review, approved risk-specific fanout and month-to-date marginal-spend
+gates apply before model output exists: Terra leads, Kimi K2.7 provides bounded
+medium-risk diversity, Opus 5 handles high-risk independent review, and Kimi K3
+is escalation-only. Reserve and hard-cap states keep subscription-backed Terra
+only. These deterministic gates do not use model self-confidence.
 The demotion is visible in the `reasons` field. Persistent patterns deserve a
 policy edit: move the model in the relevant `tasks/*.md` frontmatter and
 commit with the evidence summarized in the message

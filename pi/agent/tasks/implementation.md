@@ -6,11 +6,11 @@ preferred:
 qualified:
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-5.6-luna
-  - olla-cloud/glm-5.2
-  - olla-cloud/qwen3-coder-flash
-  - claude-sonnet-4-6
-  - claude-opus-4-7
-  - olla-cloud/kimi-k2.7-code
+  - openrouter/moonshotai/kimi-k2.7-code
+  - openrouter/minimax/minimax-m3
+thinkingLow: medium
+thinkingMedium: high
+thinkingHigh: xhigh
 ---
 
-Use only after the relevant workflow approval gate. Keep changes small and verifiable. Prefer OpenAI/Codex when capability is comparable; metered Olla and Anthropic usage add cash spend. Use Kimi K2.7 Code only for explicitly justified long-horizon work in a fresh worker. Use Qwen3 Coder Flash only as a low-cost coding challenger until project evals establish autonomy; keep all challengers behind strict TDD and verification gates.
+Use only after the relevant workflow approval gate. Keep changes small and verifiable. Keep Sol as the normal implementation lead. Use Kimi K2.7 Code for a bounded different-family check and M3 as a canary until project evidence supports broader autonomy. Metered OpenRouter workers require fresh packets, strict TDD, and verification gates.

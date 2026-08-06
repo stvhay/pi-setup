@@ -38,24 +38,53 @@ def test_doctor_catalog_parse_does_not_require_removed_models_json(agnt, tmp_pat
 
 
 def test_doctor_redacts_provider_env_vars(agnt, monkeypatch):
-    monkeypatch.setenv("OLLA_HOST", "https://secret-host.example")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-openrouter-key")
     report = agnt.doctor_report(check_names=["provider.env"])
     encoded = json.dumps(report)
 
-    assert "secret-host.example" not in encoded
+    assert "secret-openrouter-key" not in encoded
     check = report["checks"][0]
     assert check["id"] == "provider.env"
-    assert check["evidence"]["OLLA_HOST"] == "present:redacted"
+    assert check["evidence"]["OPENROUTER_API_KEY"] == "present:redacted"
 
 
-def test_doctor_checks_olla_host_used_by_olla_provider(agnt, monkeypatch):
-    monkeypatch.setenv("OLLA_HOST", "https://olla.example.invalid")
-    monkeypatch.delenv("OLLA_API_KEY", raising=False)
-    report = agnt.doctor_report(check_names=["provider.env"])
+def test_doctor_accepts_pi_login_provider_auth(agnt, monkeypatch, tmp_path):
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"enabledModels": ["openrouter/minimax/minimax-m3"]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "auth.json").write_text(
+        json.dumps({"openrouter": {"type": "api_key", "key": "secret"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with patch.dict(agnt.check_provider_env.__globals__, {"ROOT": tmp_path}):
+        report = agnt.doctor_report(check_names=["provider.env"])
 
     check = report["checks"][0]
-    assert check["evidence"]["OLLA_HOST"] == "present:redacted"
-    assert "OLLA_API_KEY" not in check["evidence"]
+    assert check["status"] == "pass"
+    assert check["evidence"]["openrouter.auth"] == "present:redacted"
+    assert "secret" not in json.dumps(report)
+
+
+def test_doctor_rejects_unusable_pi_login_provider_auth(agnt, monkeypatch, tmp_path):
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"enabledModels": ["openrouter/minimax/minimax-m3"]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "auth.json").write_text(
+        json.dumps({"openrouter": {"type": "api_key", "key": "  "}}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with patch.dict(agnt.check_provider_env.__globals__, {"ROOT": tmp_path}):
+        report = agnt.doctor_report(check_names=["provider.env"])
+
+    check = report["checks"][0]
+    assert check["status"] == "warning"
+    assert check["evidence"]["OPENROUTER_API_KEY"] == "missing"
 
 
 def test_doctor_provider_env_ignores_unused_api_key_providers(agnt, monkeypatch):

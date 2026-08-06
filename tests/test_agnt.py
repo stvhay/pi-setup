@@ -117,6 +117,11 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     )
 
 
+def test_unknown_task_has_no_legacy_provider_fallback(agnt):
+    with pytest.raises(SystemExit):
+        agnt.preferred_models("typo-task")
+
+
 def test_high_risk_quality_fallbacks_keep_subscription_before_metered(agnt):
     positive_metered = {
         "gpt-4.1-mini": {"invocations": 5, "positive": 5, "negative": 0, "escalated": 0},
@@ -127,26 +132,19 @@ def test_high_risk_quality_fallbacks_keep_subscription_before_metered(agnt):
     assert result["selected"] == "openai-codex/gpt-5.6-sol"
     assert result["fallbacks"] == [
         "openai-codex/gpt-5.6-terra",
-        "openai-codex/gpt-5.6-luna",
+        "openrouter/anthropic/claude-opus-5",
     ]
 
 
-def test_glm_52_routing_policy_is_frontier_advisor_not_default_orchestrator(agnt):
+def test_glm_52_is_disabled_until_direct_provider_canary_succeeds(agnt):
     target = "olla-cloud/glm-5.2"
-    frontier_meta, _ = agnt.task_meta("frontier-advisor")
-    planning_meta, _ = agnt.task_meta("planning")
-    implementation_meta, _ = agnt.task_meta("implementation")
-    orchestration_meta, _ = agnt.task_meta("orchestration")
-    review_meta, _ = agnt.task_meta("review")
-    cheap_peer_meta, _ = agnt.task_meta("cheap-peer")
+    tasks = ["frontier-advisor", "planning", "implementation", "orchestration", "review", "cheap-peer"]
+    settings = json.loads((AGNT.parent.parent / "settings.json").read_text(encoding="utf-8"))
 
-    assert target in frontier_meta["qualified"]
-    assert frontier_meta["qualified"].index(target) < frontier_meta["qualified"].index("claude-opus-4-7")
-    assert target in planning_meta["qualified"]
-    assert target in implementation_meta["qualified"]
-    assert target not in orchestration_meta["preferred"] + orchestration_meta["qualified"]
-    assert target not in review_meta.get("preferred", []) + review_meta.get("qualified", [])
-    assert target not in cheap_peer_meta.get("preferred", []) + cheap_peer_meta.get("qualified", [])
+    assert target not in settings["enabledModels"]
+    for task in tasks:
+        meta, _ = agnt.task_meta(task)
+        assert target not in meta.get("preferred", []) + meta.get("qualified", [])
 
 
 def test_glm_52_uses_olla_cloud_provider(agnt):
@@ -856,16 +854,15 @@ def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
 
 def test_review_policy_targets_vary_by_risk_and_paid_spend(agnt):
     meta, _ = agnt.task_meta("review")
-    codex = "openai-codex/gpt-5.6-sol"
-    gemma = "olla-cloud/gemma-4-31b-it"
-    local_gemma = "olla-local/gemma4:31b"
-    deepseek = "olla-cloud/deepseek-v4-flash"
+    terra = "openai-codex/gpt-5.6-terra"
+    kimi = "openrouter/moonshotai/kimi-k2.7-code"
+    opus = "openrouter/anthropic/claude-opus-5"
 
-    assert agnt.review_policy_targets(meta, "low", 0.0) == ([codex], "normal")
-    assert agnt.review_policy_targets(meta, "medium", 0.0) == ([codex, gemma], "normal")
-    assert agnt.review_policy_targets(meta, "high", 0.0) == ([codex, gemma, deepseek], "normal")
-    assert agnt.review_policy_targets(meta, "medium", 18.0) == ([codex, local_gemma], "reserve")
-    assert agnt.review_policy_targets(meta, "high", 20.0) == ([codex, local_gemma], "hard-cap")
+    assert agnt.review_policy_targets(meta, "low", 0.0) == ([terra], "normal")
+    assert agnt.review_policy_targets(meta, "medium", 0.0) == ([terra, kimi], "normal")
+    assert agnt.review_policy_targets(meta, "high", 0.0) == ([terra, opus], "normal")
+    assert agnt.review_policy_targets(meta, "medium", 18.0) == ([terra], "reserve")
+    assert agnt.review_policy_targets(meta, "high", 20.0) == ([terra], "hard-cap")
 
 
 def test_paid_review_spend_counts_monthly_marginal_cost_only(agnt):
@@ -879,19 +876,18 @@ def test_paid_review_spend_counts_monthly_marginal_cost_only(agnt):
         }
 
     records = [
-        record("gemma", "olla-cloud/gemma-4-31b-it", 0.25),
-        record("kimi", "olla-cloud/kimi-k2.7-code", 4.0),
-        record("subscription", "openai-codex/gpt-5.6-sol", 8.0, source="provider-reported"),
-        record("local", "olla-local/gemma4:31b", 0.0, source="local-free"),
-        record("old", "olla-cloud/gemma-4-31b-it", 9.0, started="2026-06-30T23:59:59Z"),
-        record("other-task", "olla-cloud/gemma-4-31b-it", 9.0, task="research"),
-        record("gemma", "olla-cloud/gemma-4-31b-it", 0.25),
+        record("m3", "openrouter/minimax/minimax-m3", 0.25),
+        record("kimi", "openrouter/moonshotai/kimi-k2.7-code", 4.0),
+        record("subscription", "openai-codex/gpt-5.6-terra", 8.0, source="provider-reported"),
+        record("old", "openrouter/minimax/minimax-m3", 9.0, started="2026-06-30T23:59:59Z"),
+        record("other-task", "openrouter/minimax/minimax-m3", 9.0, task="research"),
+        record("m3", "openrouter/minimax/minimax-m3", 0.25),
     ]
 
     assert agnt.paid_review_spend(records, month="2026-07") == pytest.approx(4.25)
 
 
-def test_select_model_returns_codex_first_review_policy_without_routine_kimi(agnt):
+def test_select_model_returns_approved_high_risk_review_fanout(agnt):
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
         result = agnt.select_model(
             "review",
@@ -902,16 +898,30 @@ def test_select_model_returns_codex_first_review_policy_without_routine_kimi(agn
         )
 
     assert result["reviewPolicyTargets"] == [
-        "openai-codex/gpt-5.6-sol",
-        "olla-cloud/gemma-4-31b-it",
-        "olla-cloud/deepseek-v4-flash",
+        "openai-codex/gpt-5.6-terra",
+        "openrouter/anthropic/claude-opus-5",
     ]
     assert result["reviewBudgetState"] == "normal"
-    assert "olla-cloud/kimi-k2.7-code" not in result["candidateOrder"]
-    assert "olla-cloud/kimi-k3" not in result["candidateOrder"]
+    assert "openrouter/moonshotai/kimi-k3" not in result["candidateOrder"]
     assert [item["target"] for item in result["fanout"]] == result["reviewPolicyTargets"]
     assert result["fanout"][1]["contextPolicy"] == "fresh"
     assert "--one-shot" in result["invokeExample"]
+
+
+def test_select_model_can_ignore_history_for_deterministic_evals(agnt):
+    negative = {
+        "gpt-5.6-terra": {"invocations": 10, "positive": 0, "negative": 10, "escalated": 0}
+    }
+    with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: negative}):
+        result = agnt.select_model(
+            "review",
+            risk="medium",
+            paid_review_spend_usd=0.0,
+            use_history=False,
+        )
+
+    assert result["selected"] == "openai-codex/gpt-5.6-terra"
+    assert result["metricsHints"] == {}
 
 
 def test_select_model_review_cheap_prefers_subscription_without_metrics(agnt):
@@ -924,11 +934,11 @@ def test_select_model_review_cheap_prefers_subscription_without_metrics(agnt):
             paid_review_spend_usd=0.0,
         )
 
-    assert result["selected"] == "openai-codex/gpt-5.6-sol"
+    assert result["selected"] == "openai-codex/gpt-5.6-terra"
     assert result["selection"]["contextPolicy"] == "reuse-ok"
 
 
-def test_select_model_review_hard_cap_keeps_subscription_and_local_fallback(agnt):
+def test_select_model_review_hard_cap_keeps_subscription_only(agnt):
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
         result = agnt.select_model(
             "review",
@@ -938,13 +948,10 @@ def test_select_model_review_hard_cap_keeps_subscription_and_local_fallback(agnt
             fanout_size=3,
         )
 
-    assert result["selected"] == "openai-codex/gpt-5.6-sol"
-    assert result["reviewPolicyTargets"] == [
-        "openai-codex/gpt-5.6-sol",
-        "olla-local/gemma4:31b",
-    ]
+    assert result["selected"] == "openai-codex/gpt-5.6-terra"
+    assert result["reviewPolicyTargets"] == ["openai-codex/gpt-5.6-terra"]
     assert result["reviewBudgetState"] == "hard-cap"
-    assert result["localOk"] is True
+    assert result["localOk"] is False
 
 
 def test_select_model_returns_scored_selection_contract(agnt):
@@ -984,9 +991,28 @@ def test_select_model_honors_avoid_family_policy(agnt):
     assert any(item.get("diversityGroup") == avoided and "avoidFamilies" in item.get("reason", "") for item in result["rejectedCandidates"])
 
 
-def test_review_quality_budget_uses_gpt_56_sol_preferred_default(agnt):
+def test_approved_matrix_uses_task_specific_thinking_levels(agnt):
+    with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
+        review = agnt.select_model("review", risk="medium", paid_review_spend_usd=0.0)
+        high_review = agnt.select_model("review", risk="high", paid_review_spend_usd=0.0)
+        implementation = agnt.select_model("implementation", risk="medium")
+        orchestration = agnt.select_model("orchestration", risk="medium")
+
+    assert (review["selected"], review["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-terra",
+        "high",
+    )
+    assert (high_review["selected"], high_review["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-terra",
+        "xhigh",
+    )
+    assert implementation["thinkingLevel"] == "high"
+    assert orchestration["thinkingLevel"] == "xhigh"
+
+
+def test_review_quality_budget_uses_gpt_56_terra_preferred_default(agnt):
     review_meta, _ = agnt.task_meta("review")
-    target = "openai-codex/gpt-5.6-sol"
+    target = "openai-codex/gpt-5.6-terra"
 
     assert review_meta["preferred"][0] == target
 
@@ -1010,7 +1036,7 @@ def test_routine_routes_prefer_codex_and_exclude_kimi_k3(agnt):
 
     assert {task: result["selected"] for task, result in results.items()} == expected
     assert all(
-        "olla-cloud/kimi-k3" not in result["candidateOrder"]
+        "openrouter/moonshotai/kimi-k3" not in result["candidateOrder"]
         for result in results.values()
     )
 

@@ -337,7 +337,7 @@ def run_check(roots: List[Tuple[Path, bool]]) -> int:
 def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate layered AGENTS.md/SKILL.md context.")
     parser.add_argument("root", nargs="?", help="Optional root Markdown instruction file. Defaults to global Pi AGENTS.md plus project instructions.")
-    parser.add_argument("--context", help="Model context, e.g. olla-cloud/gemma-4-31b-it")
+    parser.add_argument("--context", help="Model context, e.g. openrouter/moonshotai/kimi-k2.7-code")
     parser.add_argument("--role", help="Role id from <root>.d/roles/<role>.md")
     parser.add_argument("--roles", action="store_true", help="List available roles instead of generating context")
     parser.add_argument("--sources", action="store_true", help="Include source comments in generated context")

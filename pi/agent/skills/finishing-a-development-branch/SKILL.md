@@ -116,10 +116,7 @@ If deferred, record:
 
 ## Step 5: Request code review
 
-Use `requesting-code-review` for non-trivial diffs unless the user requested no file creation/artifacts. Prefer local model diversity:
-
-- small diffs: `olla-local/gemma4:31b` + `olla-local/qwen3:8b` or `olla-local/gemma4:e4b`
-- riskier diffs: add `olla-local/deepseek-r1:14b` or `olla-cloud/gpt-4.1-mini`
+Use `requesting-code-review` for non-trivial diffs unless the user requested no file creation/artifacts. Follow its Codex-first direct OpenRouter matrix and spend gates; local and Olla routes are inactive.
 
 If artifact creation is not allowed, either skip peer review with a note or run only direct peer calls whose outputs are summarized in the response without writing `.pi/reviews`.
 

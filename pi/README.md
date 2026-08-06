@@ -56,7 +56,7 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 - `agent/AGENTS.d/roles/` — delegated-worker stances and output contracts
 - `agent/AGENTS.d/models/` — family-wide and venue-specific instruction overlays
 - `agent/settings.json` — shared Pi settings, package declarations, and runtime defaults
-- `agent/catalog.json` — model family catalog: maps each family to venues such as local Ollama, remote Olla-compatible endpoints, and OpenRouter; records cost classes, GPU-watt assumptions, opportunity-cost rates, and model-overlay keys
+- `agent/catalog.json` — model family catalog: maps each family to active direct OpenRouter/Codex targets plus retained dormant venue facts; records cost classes, billing classes, context, rates, and model-overlay keys
 - `agent/tasks/` — operational routing labels and preferred, qualified, or avoided model targets
 - `agent/actions/` — action templates that bind routing task, skills, role, allowed effects, and output contract
 - [`agent/bin/`](agent/bin/) — helper commands used by skills and instructions; see the [agnt command reference](agent/bin/README.md)
@@ -71,7 +71,7 @@ Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must h
 
 ## Provider credentials
 
-Provider credentials belong in the shell environment or ignored local env files, not in git. OpenRouter credentials live on Knuth behind LiteLLM; Pi needs only `OLLA_HOST` to reach Olla.
+Provider credentials belong in Pi's ignored `auth.json`, the shell environment, or ignored local env files—not in git. Pi has a built-in OpenRouter provider: run `/login openrouter` or set `OPENROUTER_API_KEY`. `models.json` uses only per-model output-cap overrides; it does not duplicate the provider, endpoint, or credential. OpenAI/Codex remains the default root provider; direct OpenRouter is reserved for fresh bounded delegated calls under the approved [model portfolio](../docs/MODEL-PORTFOLIO-2026-08.md). Local Ollama and Olla/LiteLLM routes are inactive.
 
 The Langfuse extension and official Langfuse skill share credentials from private `~/.pi/agent/pi-langfuse/config.json`. During Pi sessions, `langfuse-config-env.ts` exposes that config to Langfuse CLI child processes; explicit `LANGFUSE_*` credentials still take precedence. No second credential file is needed.
 
@@ -79,10 +79,11 @@ Before registering `pi-langfuse@1.5.9`, the public wrapper sets the `conversatio
 
 Tracked evaluator desired state lives in `agent/langfuse/evaluators.json`; `agnt langfuse check` reports drift and `agnt langfuse apply` creates or updates managed evaluators and rules without deleting unmanaged resources. The owned subagent extension emits explicit `interactive-result` and `subagent-result` observations with captured task/output; outcome evaluation samples 10% of interactive results and subagent quality evaluates 100% of delegated results. Parent-owned full delegated results live under `agnt runtime-path delegated-results`; tool results and telemetry expose bounded opaque refs, not absolute private paths. Parent projections, metrics, and artifacts retain the child's logical Pi session UUID as `childSessionId`, enabling exact Langfuse session lookup without timestamp/model matching. Config deployment runs apply when credentials exist. Interactive Pi startup checks asynchronously, stays silent when current, and warns when drift exists. `langfuse-config-env.ts` composes the installed public entrypoint: subscription generations use the zero-priced `*-subscription` alias only while upstream telemetry handles `message_end`, then restore the catalog model ID before session persistence. Private improvement scans leave raw Langfuse records unchanged and normalize known unavailable tool payload-byte metadata downstream without copying tool payloads. Non-null payload-byte values are bounded-preview estimates, not raw payload sizes.
 
-Example cloud smoke test:
+Example direct OpenRouter smoke test after authentication:
 
 ```bash
-pi --print --provider olla-cloud --model gemma-4-31b-it "Reply with OK only."
+pi --print --provider openrouter --model minimax/minimax-m3 \
+  --thinking medium "Reply with OK only."
 ```
 
 ## Optional service endpoints
@@ -91,10 +92,9 @@ Some helpers use environment-provided local or self-hosted services. Keep these 
 
 ```bash
 export SEARXNG_URL=https://your-searxng.example
-export OLLA_HOST=https://your-olla-compatible-router.example
 ```
 
-`SEARXNG_URL` enables `agnt web-search`. `OLLA_HOST` enables `olla-local` for Knuth Ollama and `olla-cloud` for Knuth LiteLLM. Laptop Ollama is optional machine state supplied by ignored `~/.pi/agent/extensions/ollama.local.ts`.
+`SEARXNG_URL` enables `agnt web-search`. Dormant Olla/local provider code remains available for rollback, but `OLLA_HOST` and laptop Ollama are not part of the active routing configuration.
 
 ## Excluded runtime state
 

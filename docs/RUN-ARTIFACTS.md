@@ -194,7 +194,7 @@ agnt action render review \
 Invoke a worker from a run bundle and update `result.yaml` automatically:
 
 ```bash
-agnt runs invoke <runtime-runs-dir>/<run-id> --model olla-cloud/gpt-4.1-mini
+agnt runs invoke <runtime-runs-dir>/<run-id> --model openai-codex/gpt-5.6-terra
 ```
 
 `agnt runs invoke` reads `invocation.yaml`, renders a worker prompt, writes

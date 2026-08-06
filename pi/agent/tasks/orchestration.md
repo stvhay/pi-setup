@@ -6,10 +6,10 @@ preferred:
 qualified:
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-5.6-luna
-  - olla-cloud/gpt-4.1-mini
-  - claude-sonnet-4-6
-avoid:
-  - olla-local/*
+  - openrouter/anthropic/claude-opus-5
+thinkingLow: high
+thinkingMedium: xhigh
+thinkingHigh: xhigh
 ---
 
-Use for high-stakes control flow where tool discipline matters more than cheap breadth. Keep OpenAI/Codex as the default controller; use Anthropic only when retail-priced extra usage is justified.
+Use for high-stakes control flow where tool discipline matters more than cheap breadth. Keep Sol as controller. Use Opus 5 only for bounded phase checkpoints or independent architecture review, never as an unbounded continuation of the root conversation.

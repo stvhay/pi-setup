@@ -27,15 +27,15 @@ At start, read shared conventions if needed:
 
 Use `agnt route --task review` rather than inventing a fanout. Review task policy uses:
 
-- **Subscription-backed default:** `openai-codex/gpt-5.6-sol`.
-- **Medium-risk diversity:** `olla-cloud/gemma-4-31b-it`, scoped and one-shot.
-- **High-risk boundary challenger:** `olla-cloud/deepseek-v4-flash`, scoped and one-shot.
-- **Zero-marginal fallback/control:** `olla-local/gemma4:31b`.
-- **Manual unresolved-critical escalation only:** `olla-cloud/kimi-k3`.
+- **Subscription-backed default:** `openai-codex/gpt-5.6-terra` at high thinking.
+- **Medium-risk diversity:** `openrouter/moonshotai/kimi-k2.7-code`, scoped and one-shot.
+- **High-risk independent reviewer:** `openrouter/anthropic/claude-opus-5`, scoped and one-shot; human adjudication remains required for consequential findings.
+- **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3`.
+- **Canary only:** `openrouter/minimax/minimax-m3` until accepted-output evidence supports promotion.
 
-Kimi K2.7 and Kimi K3 are never automatic review targets. Every metered Olla/OpenRouter reviewer runs in a fresh worker with a bounded complete packet; never switch a long-running root conversation to it.
+Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker with a bounded complete packet; never switch a long-running root conversation to it. Local and Olla routes remain inactive.
 
-`agnt route` measures month-to-date marginal review spend from OpenRouter plus catalog venues marked `billingClass: metered`; it excludes local compute and subscription-backed GPT opportunity cost. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
+`agnt route` measures month-to-date marginal review spend from OpenRouter plus catalog venues marked `billingClass: metered`; it excludes subscription-backed GPT opportunity cost. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
 
 ```bash
 agnt route --task review --risk medium --budget balanced \
@@ -46,8 +46,8 @@ Budget states:
 
 - **Below $12:** normal Codex-first risk policy; scoped diversity passes are allowed.
 - **$12–$17.99:** stop optional shadow sampling.
-- **$18–$19.99:** reserve mode; use subscription-backed Codex plus local Gemma.
-- **$20 or more:** hard-cap mode; keep subscription-backed Codex plus local Gemma and report paid-budget exhaustion.
+- **$18–$19.99:** reserve mode; use subscription-backed Terra only.
+- **$20 or more:** hard-cap mode; keep subscription-backed Terra only and report paid-budget exhaustion.
 
 Set a provider-side cap as a backstop when the provider supports one.
 
@@ -118,21 +118,21 @@ The tracked schema and example are:
 
 Policy by risk:
 
-- **Low:** subscription-backed Codex behavioral pass.
-- **Medium:** Codex behavioral pass plus one fresh OpenRouter Gemma diversity pass.
-- **High:** Codex behavioral pass, fresh Gemma diversity pass, and fresh DeepSeek V4 Flash boundary/adversarial pass.
-- **Reserve/hard cap:** use the Codex and local-Gemma targets returned by `agnt route`.
+- **Low:** subscription-backed Terra behavioral pass.
+- **Medium:** Terra behavioral pass plus one fresh Kimi K2.7 Code diversity pass.
+- **High:** Terra at extra-high thinking plus one fresh Opus 5 boundary/adversarial pass; human adjudicates consequential findings.
+- **Reserve/hard cap:** use the subscription-backed Terra target returned by `agnt route`.
 
 Example:
 
 ```bash
 agnt invoke --one-shot --task review --risk-category medium \
-  openai-codex/gpt-5.6-sol \
+  openai-codex/gpt-5.6-terra \
   "$ReviewDir/behavioral-packet.md" > "$ReviewDir/codex-findings.json"
 
 agnt invoke --one-shot --task review --risk-category medium \
-  olla-cloud/gemma-4-31b-it \
-  "$ReviewDir/boundary-packet.md" > "$ReviewDir/gemma-findings.json"
+  openrouter/moonshotai/kimi-k2.7-code \
+  "$ReviewDir/boundary-packet.md" > "$ReviewDir/kimi-findings.json"
 ```
 
 For parallel high-risk passes, use `agnt invoke --one-shot --fanout` with one complete packet per provider/model pair.
@@ -140,8 +140,8 @@ For parallel high-risk passes, use `agnt invoke --one-shot --fanout` with one co
 Validate every output before counting it:
 
 ```bash
-agnt review validate "$ReviewDir/gemma-findings.json"
-agnt review summary "$ReviewDir/gemma-findings.json"
+agnt review validate "$ReviewDir/kimi-findings.json"
+agnt review summary "$ReviewDir/kimi-findings.json"
 ```
 
 Invalid JSON, stubs, generic advice, missing failure scenarios, or unsupported findings do not count as completed review. One concise format-repair retry is acceptable; do not fall back to an open-ended autonomous cloud agent merely to repair formatting.
@@ -177,7 +177,7 @@ Attach the structured findings to the discovery invocation metric:
 
 ```bash
 agnt metrics annotate <recordId> \
-  --findings-file "$ReviewDir/gemma-findings.json" \
+  --findings-file "$ReviewDir/kimi-findings.json" \
   --outcome accepted
 ```
 

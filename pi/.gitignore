@@ -5,6 +5,7 @@ agent/npm/
 agent/git/
 agent/mcp-cache.json
 agent/mcp-onboarding.json
+agent/models-store.json
 agent/trust.json
 
 # Local scratch and overrides (runtime state lives in deployed ~/.pi, not here)

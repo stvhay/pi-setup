@@ -201,10 +201,18 @@ ROUTE_DEMOTION_MIN_INVOCATIONS = 5
 REVIEW_POLICY_TIER_WEIGHT = 6_000
 
 
-def choose_thinking_level(risk: str, budget: str, target: str, model_info: Dict[str, Any]) -> str:
+def choose_thinking_level(
+    risk: str,
+    budget: str,
+    target: str,
+    model_info: Dict[str, Any],
+    requested: str | None = None,
+) -> str:
     if not model_info.get("reasoning"):
         return "default"
-    if risk == "high" or budget == "quality":
+    if requested:
+        generic = requested
+    elif risk == "high" or budget == "quality":
         generic = "high"
     elif budget == "cheap" and risk == "low":
         generic = "low"
@@ -213,16 +221,14 @@ def choose_thinking_level(risk: str, budget: str, target: str, model_info: Dict[
     level_map = model_info.get("thinkingLevelMap") if isinstance(model_info.get("thinkingLevelMap"), dict) else {}
     if generic not in level_map:
         return generic
-    mapped = level_map[generic]
-    if mapped is not None:
-        return str(mapped)
+    if level_map[generic] is not None:
+        return generic
 
     levels = ["minimal", "low", "medium", "high", "xhigh", "max"]
     desired = levels.index(generic)
     for level in levels[desired + 1 :] + list(reversed(levels[:desired])):
-        fallback = level_map.get(level)
-        if fallback is not None:
-            return str(fallback)
+        if level_map.get(level) is not None:
+            return level
     return generic
 
 
@@ -256,6 +262,7 @@ def score_candidate(
     base_rank: int,
     preferred: bool,
     metrics_hint: Dict[str, int] | None,
+    requested_thinking: str | None = None,
 ) -> Dict[str, Any]:
     cost_key = route_cost_rank(target, info, budget)
     metric_adjustment, metric_reason = route_metric_adjustment(metrics_hint)
@@ -290,7 +297,9 @@ def score_candidate(
             ] if reason
         ],
         "costSortKey": list(cost_key),
-        "thinkingLevel": choose_thinking_level(risk, budget, target, info),
+        "thinkingLevel": choose_thinking_level(
+            risk, budget, target, info, requested=requested_thinking
+        ),
         "contextPolicy": context_policy,
         "diversityGroup": diversity_group_for_target(target, info),
         "metricsHint": metrics_hint,
@@ -347,6 +356,7 @@ def select_model(
     fanout_size: int = 0,
     diversity: str | None = None,
     paid_review_spend_usd: float | None = None,
+    use_history: bool = True,
 ) -> Dict[str, Any]:
     meta, _body = task_meta(task)
     review_budget_state: str | None = None
@@ -357,13 +367,12 @@ def select_model(
         review_policy, review_budget_state = review_policy_targets(meta, risk, paid_review_spend_usd)
         preferred = review_policy
         qualified = [] if review_budget_state in {"reserve", "hard-cap"} else as_list(meta.get("qualified"))
-        if review_budget_state in {"reserve", "hard-cap"}:
-            local_ok = True
     else:
         preferred = as_list(meta.get("preferred"))
         qualified = as_list(meta.get("qualified"))
     avoid = set(as_list(meta.get("avoid")))
     policy = model_policy or {}
+    requested_thinking = str(meta.get(f"thinking{risk.title()}") or "") or None
     avoid_families = {str(item) for item in as_list(policy.get("avoidFamilies"))}
     if isinstance(policy.get("localOk"), bool):
         local_ok = local_ok or bool(policy["localOk"])
@@ -375,11 +384,17 @@ def select_model(
 
     info_by_target = configured_model_info()
     enabled = enabled_models()
-    stats = route_metric_stats()
+    stats = route_metric_stats() if use_history else {}
     try:
         provider_circuits = active_provider_circuits()
     except OSError:
         provider_circuits = {}
+    candidate_providers = {target.split("/", 1)[0] for target in ordered}
+    provider_circuits = {
+        provider: circuit
+        for provider, circuit in provider_circuits.items()
+        if provider in candidate_providers
+    }
     reasons: List[str] = [f"task policy loaded from {task}"]
     if task == "review":
         reasons.append(
@@ -389,6 +404,8 @@ def select_model(
         reasons.append("filtered candidates by enabledModels from settings.json")
     if avoid_families:
         reasons.append(f"applied avoidFamilies policy: {', '.join(sorted(avoid_families))}")
+    if not use_history:
+        reasons.append("ignored outcome history by request")
     if provider_circuits:
         reasons.append(f"excluded provider venues with open circuits: {', '.join(sorted(provider_circuits))}")
 
@@ -436,6 +453,7 @@ def select_model(
             base_rank=base_rank,
             preferred=target in preferred,
             metrics_hint=stats.get(family),
+            requested_thinking=requested_thinking,
         ))
 
     if budget in {"cheap", "quality"}:
@@ -532,6 +550,7 @@ def cmd_route(argv: List[str]) -> int:
     parser.add_argument("--local-ok", action="store_true", help="allow local models in recommendations")
     parser.add_argument("--budget", choices=["cheap", "balanced", "quality"], default="balanced")
     parser.add_argument("--fanout-size", type=int, default=0, help="include N scored diverse fanout selections")
+    parser.add_argument("--ignore-history", action="store_true", help="ignore outcome history for deterministic evaluation")
     parser.add_argument("--diversity", choices=["none", "normal", "high"], default="normal")
     parser.add_argument(
         "--monthly-paid-spend",
@@ -550,6 +569,7 @@ def cmd_route(argv: List[str]) -> int:
         fanout_size=args.fanout_size,
         diversity=args.diversity,
         paid_review_spend_usd=args.monthly_paid_spend,
+        use_history=not args.ignore_history,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get("routeStatus") == "selected" else 1

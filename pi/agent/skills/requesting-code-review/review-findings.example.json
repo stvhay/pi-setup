@@ -3,8 +3,8 @@
   "reviewId": "example-review",
   "scope": "behavioral",
   "reviewer": {
-    "target": "olla-cloud/gemma-4-31b-it",
-    "family": "gemma4-31b"
+    "target": "openrouter/moonshotai/kimi-k2.7-code",
+    "family": "kimi-k2.7-code"
   },
   "findings": [
     {

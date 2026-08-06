@@ -13,7 +13,9 @@ bin/agnt tasks >/tmp/agnt-tasks.txt
 rg -n "orchestration|review|research" /tmp/agnt-tasks.txt >/dev/null
 
 bin/agnt tasks --models >/tmp/agnt-task-models.txt
-rg -n "openai-codex/gpt-5\.6-sol|olla-cloud/gemma-4-31b-it|olla-cloud/gemini-flash" /tmp/agnt-task-models.txt >/dev/null
+rg -n "openai-codex/gpt-5\.6-sol" /tmp/agnt-task-models.txt >/dev/null
+rg -n "openrouter/minimax/minimax-m3" /tmp/agnt-task-models.txt >/dev/null
+rg -n "openrouter/anthropic/claude-opus-5" /tmp/agnt-task-models.txt >/dev/null
 
 bin/agnt invoke -h >/tmp/agnt-invoke-help.txt
 rg -n -- "--fanout|--list|--task|--no-metrics|--metrics-dir" /tmp/agnt-invoke-help.txt >/dev/null

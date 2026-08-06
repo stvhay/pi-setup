@@ -283,10 +283,33 @@ def configured_providers() -> set[str]:
     return providers.intersection(PROVIDER_ENV_VARS) or set(PROVIDER_ENV_VARS)
 
 
+def provider_auth_present(provider: str) -> bool:
+    path = ROOT / "auth.json"
+    try:
+        auth = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(auth, dict) or not isinstance(auth.get(provider), dict):
+        return False
+    credential = auth[provider]
+    credential_type = credential.get("type")
+    if credential_type == "api_key":
+        return isinstance(credential.get("key"), str) and bool(credential["key"].strip())
+    if credential_type == "oauth":
+        return any(
+            isinstance(credential.get(field), str) and bool(credential[field].strip())
+            for field in ("access", "refresh")
+        )
+    return False
+
+
 def check_provider_env() -> Dict[str, Any]:
     evidence: Dict[str, str] = {}
     missing: List[str] = []
     for provider in sorted(configured_providers()):
+        if provider_auth_present(provider):
+            evidence[f"{provider}.auth"] = "present:redacted"
+            continue
         for name in PROVIDER_ENV_VARS.get(provider, []):
             evidence[name] = redact_env_value(name)
     for name, state in evidence.items():
@@ -299,7 +322,7 @@ def check_provider_env() -> Dict[str, Any]:
             "Some provider environment variables are not set",
             severity="medium",
             evidence=evidence,
-            suggested_actions=[f"Set {name} in your shell or ignored local env before using dependent providers." for name in sorted(set(missing))],
+            suggested_actions=[f"Set {name} in your shell/ignored local env or authenticate with Pi /login before using dependent providers." for name in sorted(set(missing))],
         )
     return check_result("provider.env", PASS, "Known provider environment variables are present", evidence=evidence)
 

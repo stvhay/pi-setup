@@ -492,6 +492,7 @@ def invoke_run_bundle(
         session_name=session_name,
         cwd=invocation_worker_cwd(invocation),
         pi_args=pi_args,
+        thinking_level=str(invocation.get("thinkingLevel") or "") or None,
         timeout_seconds=timeout_seconds,
         invocation_id=invocation_id,
         parent_session_id=invocation.get("parentSessionId"),

@@ -8,21 +8,10 @@
     "openai-codex/gpt-5.6-terra",
     "openai-codex/gpt-5.6-luna",
     "openai-codex/gpt-5.3-codex-spark",
-    "olla-cloud/gpt-4.1-mini",
-    "olla-cloud/gemini-flash",
-    "olla-cloud/glm-5.2",
-    "olla-cloud/kimi-k2.7-code",
-    "olla-cloud/kimi-k3",
-    "olla-local/gemma4:31b",
-    "olla-local/gemma4:e4b",
-    "olla-local/qwen3:8b",
-    "olla-local/deepseek-r1:14b",
-    "olla-cloud/gemma-4-31b-it",
-    "olla-cloud/gemma-4-31b-it:free",
-    "olla-cloud/qwen3.5-9b",
-    "olla-cloud/qwen3-coder-flash",
-    "olla-cloud/deepseek-v4-flash",
-    "olla-cloud/deepseek-v4-pro"
+    "openrouter/minimax/minimax-m3",
+    "openrouter/moonshotai/kimi-k2.7-code",
+    "openrouter/moonshotai/kimi-k3",
+    "openrouter/anthropic/claude-opus-5"
   ],
   "packages": [
     {

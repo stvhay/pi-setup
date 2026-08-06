@@ -55,15 +55,16 @@ resolved private metrics records ──consolidate──▶ ~/.pi/metrics/
 ### Model catalog (`pi/agent/catalog.json`)
 
 A **family** is one set of weights (or a close equivalent) reachable through
-several **venues**: a local Ollama host, a remote Olla-compatible GPU endpoint,
-or OpenRouter. The catalog is the single source for venue facts: cost class,
-billing class, modalities, context window, reasoning capability, GPU-watt assumptions, and
-OpenRouter opportunity-cost rates for subscription-backed models. `agnt` and
-`agent-instructions` read it via the shared `bin/_agnt_common.py`; no model
-facts live in code. Dynamic Olla provider registration applies the cataloged
-cash-rate policy and caps cloud output requests; metered Olla models run only in
-fresh subagent or `agnt invoke` workers, never as continuation models for a long
-root conversation.
+one or more provider venues. Active policy keeps OpenAI/Codex as the root and
+uses Pi's built-in OpenRouter provider for bounded metered diversity; local
+Ollama and Olla/LiteLLM routes are inactive. The catalog remains the single
+source for routing facts: cost class, billing class, modalities, context window,
+reasoning capability, and rates. `agnt` and `agent-instructions` read it via the
+shared `bin/_agnt_common.py`; no model facts live in code. Retained Olla/local
+venue facts and provider code are dormant rollback support, not enabled routes.
+Every metered OpenRouter model runs only in a fresh subagent or `agnt invoke`
+worker, never as a continuation model for a long root conversation. See the
+approved [Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).
 
 ### Work, tasks, prompts, skills, roles, and tools
 

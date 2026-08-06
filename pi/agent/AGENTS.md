@@ -42,8 +42,8 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads or tracked artifacts.
 - Prefer exact paths and filesystem retrieval (`rg`, `find`, `git grep`, `git diff`, `read`) over large pasted context.
 - Delegate difficult or independent read-only analysis when useful. Route with `agnt route`, then call the `subagent` tool with `agent` omitted and the routed target as `model`; use its `tasks` array for parallel work. Reserve `agnt invoke --one-shot` for cold complete packets and headless execution.
-- Prefer subscription-backed OpenAI/Codex or local models when capability is comparable; verify peer output against primary sources, files, and tests.
-- Metered `olla-cloud` models must run in fresh workers through `subagent` or `agnt invoke`; never switch a long-running root conversation to them. Pass a bounded task packet, not ambient conversation history.
+- Keep subscription-backed OpenAI/Codex as the root and default controller. Use direct metered OpenRouter models only for bounded diversity, specialist review, or explicit canary work; verify peer output against primary sources, files, and tests.
+- Metered `openrouter` models must run in fresh workers through `subagent` or `agnt invoke`; never switch a long-running root conversation to them. Pass a bounded task packet, not ambient conversation history. Local and Olla routes are inactive unless a human explicitly re-enables them in tracked settings.
 - Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 - Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.

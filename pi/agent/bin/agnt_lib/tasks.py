@@ -65,7 +65,8 @@ def preferred_models(task: str | None) -> List[str]:
             models = as_list(meta.get("preferred"))
             if models:
                 return models
-    return ["olla-cloud/gpt-4.1-mini", "olla-cloud/gemini-flash"]
+    die(f"unknown task: {selected}", 1)
+    return []
 
 
 def list_models(task: str | None) -> int:

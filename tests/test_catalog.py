@@ -41,11 +41,15 @@ def test_subscription_opportunity_rates(common):
     assert rates["input"] == 0.75
     assert rates["output"] == 4.5
 
-    rates = common.opportunity_rates("olla-cloud/kimi-k2.7-code")
-    assert rates["input"] == 0.82
-    assert rates["output"] == 3.75
+    rates = common.opportunity_rates("openrouter/minimax/minimax-m3")
+    assert rates["input"] == 0.3
+    assert rates["cacheRead"] == 0.06
 
-    rates = common.opportunity_rates("olla-cloud/kimi-k3")
+    rates = common.opportunity_rates("openrouter/moonshotai/kimi-k2.7-code")
+    assert rates["input"] == 0.73
+    assert rates["output"] == 3.5
+
+    rates = common.opportunity_rates("openrouter/moonshotai/kimi-k3")
     assert rates["input"] == 3.0
     assert rates["output"] == 15.0
 

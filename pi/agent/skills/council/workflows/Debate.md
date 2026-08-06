@@ -22,7 +22,7 @@ Output the debate header:
 
 ### Step 2: Round 1 - Initial Positions
 
-Launch 4 parallel Pi peer calls (one per council member). Prefer a diverse model mix, e.g. `olla-cloud/gpt-4.1-mini`, `olla-cloud/gemini-flash`, `olla-local/qwen3:8b`, and `olla-local/gemma4:31b`.
+Launch 4 parallel Pi peer calls (one per council member). Route each role first. Prefer subscription-backed Luna/Terra plus bounded direct OpenRouter diversity such as M3 or Kimi K2.7 Code; reserve Opus 5 for stakes that justify its cost. Local and Olla routes are inactive.
 
 **Each peer prompt includes:**
 ```

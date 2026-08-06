@@ -2,38 +2,32 @@
 id: review
 summary: Independent code, design, or plan review with model diversity.
 preferred:
-  - openai-codex/gpt-5.6-sol
-  - olla-cloud/gemma-4-31b-it
-  - olla-local/gemma4:31b
+  - openai-codex/gpt-5.6-terra
 qualified:
   - openai-codex/gpt-5.6-luna
-  - olla-cloud/deepseek-v4-flash
-  - olla-cloud/qwen3.5-9b
-  - olla-cloud/qwen3-coder-flash
-  - olla-cloud/deepseek-v4-pro
-  - olla-local/qwen3:8b
-  - olla-cloud/gpt-4.1-mini
-  - olla-cloud/gemini-flash
+  - openrouter/moonshotai/kimi-k2.7-code
+  - openrouter/minimax/minimax-m3
+  - openrouter/anthropic/claude-opus-5
 reviewLow:
-  - openai-codex/gpt-5.6-sol
+  - openai-codex/gpt-5.6-terra
 reviewMedium:
-  - openai-codex/gpt-5.6-sol
-  - olla-cloud/gemma-4-31b-it
+  - openai-codex/gpt-5.6-terra
+  - openrouter/moonshotai/kimi-k2.7-code
 reviewHigh:
-  - openai-codex/gpt-5.6-sol
-  - olla-cloud/gemma-4-31b-it
-  - olla-cloud/deepseek-v4-flash
+  - openai-codex/gpt-5.6-terra
+  - openrouter/anthropic/claude-opus-5
 reserveReview:
-  - openai-codex/gpt-5.6-sol
-  - olla-local/gemma4:31b
+  - openai-codex/gpt-5.6-terra
 hardCapReview:
-  - openai-codex/gpt-5.6-sol
-  - olla-local/gemma4:31b
-escalationTarget: olla-cloud/kimi-k3
+  - openai-codex/gpt-5.6-terra
+thinkingLow: high
+thinkingMedium: high
+thinkingHigh: xhigh
+escalationTarget: openrouter/moonshotai/kimi-k3
 ---
 
-Prefer subscription-backed Codex for the first pass, then add a different model family only when risk or reviewer independence warrants it. Verify findings against files, tests, specifications, or profiling before acting. Run discovery peers as cold one-shot reviews with complete embedded packets; model confidence never triggers escalation.
+Use Terra for first-pass review. Medium risk adds Kimi K2.7 Code as a bounded different-family challenger; high risk uses Opus 5 plus human adjudication for consequential findings. Verify every finding against files, tests, specifications, or profiling before acting. Model confidence never triggers escalation.
 
-Medium risk adds cheap Gemma diversity. High risk adds DeepSeek V4 Flash as a scoped boundary reviewer. Kimi K2.7 is not a routine reviewer. Kimi K3 remains escalation-only for a concrete unresolved critical finding after fresh adversarial verification and a budget check.
+Kimi K3 remains escalation-only for a concrete unresolved critical finding after fresh adversarial verification and a budget check. Every metered OpenRouter reviewer runs in a fresh bounded worker; never switch a long-running root conversation to it.
 
-Review spend uses deterministic monthly gates. At reserve and hard-cap thresholds, keep subscription-backed Codex and local Gemma only. Annotate real review and verification outcomes so routing accumulates evidence; do not manufacture review work solely to generate metrics.
+Review spend uses deterministic monthly gates. At reserve and hard-cap thresholds, keep subscription-backed Terra only. Annotate real review and verification outcomes so routing accumulates evidence; do not manufacture review work solely to generate metrics.

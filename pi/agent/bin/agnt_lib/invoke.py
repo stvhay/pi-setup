@@ -126,6 +126,8 @@ def invoke_one(
     else:
         session_args.append("--no-session")
     extra_args = list(pi_args or [])
+    if thinking_level and thinking_level != "default":
+        extra_args.extend(["--thinking", thinking_level])
     if one_shot:
         extra_args.extend(
             [
@@ -260,7 +262,7 @@ def cmd_invoke(argv: List[str]) -> int:
         help="terminate a peer after this many seconds (one-shot default: 180)",
     )
     parser.add_argument("--risk-category", help="risk/category label to store in metrics")
-    parser.add_argument("--thinking-level", help="thinking level label to store in metrics")
+    parser.add_argument("--thinking-level", help="Pi thinking level to apply and store in metrics")
     parser.add_argument("--outcome", choices=sorted(VALID_OUTCOMES), default="unknown", help="initial outcome label for metrics")
     parser.add_argument("--human-override", action="store_true", help="mark metrics as involving a human override")
     parser.add_argument("--fallback-used", action="store_true", help="mark metrics as involving a fallback")

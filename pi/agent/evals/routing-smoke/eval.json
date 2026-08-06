@@ -6,22 +6,22 @@
   "cases": [
     {
       "name": "review-fast-cheap-default",
-      "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--local-ok", "--monthly-paid-spend", "0"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "fanoutRecommended": true}
+      "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--monthly-paid-spend", "0", "--ignore-history"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-terra", "thinkingLevel": "high", "fanoutRecommended": true}
     },
     {
       "name": "orchestration-high-quality",
-      "args": ["--task", "orchestration", "--risk", "high", "--budget", "quality"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high"}
+      "args": ["--task", "orchestration", "--risk", "high", "--budget", "quality", "--ignore-history"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "xhigh"}
     },
     {
       "name": "research-long-context",
-      "args": ["--task", "research", "--context-tokens", "200000"],
+      "args": ["--task", "research", "--context-tokens", "200000", "--ignore-history"],
       "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-luna"}
     },
     {
       "name": "review-impossible-video-context",
-      "args": ["--task", "review", "--context-tokens", "999999999", "--modality", "video"],
+      "args": ["--task", "review", "--context-tokens", "999999999", "--modality", "video", "--ignore-history"],
       "assert": {"exitCode": 1, "routeStatus": "no_candidate", "selected": false}
     }
   ]

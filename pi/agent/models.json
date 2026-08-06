@@ -12,6 +12,22 @@
           "contextWindow": 272000
         }
       }
+    },
+    "openrouter": {
+      "modelOverrides": {
+        "minimax/minimax-m3": {
+          "maxTokens": 16384
+        },
+        "moonshotai/kimi-k2.7-code": {
+          "maxTokens": 16384
+        },
+        "moonshotai/kimi-k3": {
+          "maxTokens": 16384
+        },
+        "anthropic/claude-opus-5": {
+          "maxTokens": 16384
+        }
+      }
     }
   }
 }

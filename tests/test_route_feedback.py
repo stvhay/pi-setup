@@ -1,4 +1,4 @@
-"""Routing feedback: negative outcome history demotes a whole model family."""
+"""Routing feedback: outcome history follows model families across venues."""
 
 import json
 import os
@@ -28,7 +28,6 @@ def run_route(tmp_path, store_lines):
             "review",
             "--budget",
             "cheap",
-            "--local-ok",
             "--monthly-paid-spend",
             "0",
         ],
@@ -41,34 +40,31 @@ def run_route(tmp_path, store_lines):
     return json.loads(proc.stdout)
 
 
-def test_negative_history_demotes_every_venue_of_family(tmp_path):
+def test_negative_history_transfers_from_dormant_to_active_venue(tmp_path):
     rejected = [
         {
-            "target": "olla-cloud/gemma-4-31b-it",
-            "family": "gemma4-31b",
+            "target": "olla-cloud/kimi-k2.7-code",
+            "family": "kimi-k2.7-code",
             "outcome": "rejected",
         }
         for _ in range(6)
     ]
     result = run_route(tmp_path, [{"records": rejected}])
-    order = result["candidateOrder"]
-    gemma_targets = {t for t in order if "gemma-4-31b" in t or "gemma4:31b" in t}
-    others = [t for t in order if t not in gemma_targets]
-    # Evidence is aggregated by family; every currently eligible Gemma venue
-    # receives the same demotion even when the normal policy exposes only one.
-    assert gemma_targets
-    assert all(order.index(o) < order.index(g) for o in others for g in gemma_targets)
+    target = "openrouter/moonshotai/kimi-k2.7-code"
+
+    assert target in result["candidateOrder"]
+    assert result["candidateOrder"].index(target) == len(result["candidateOrder"]) - 1
     assert any("demoted" in reason for reason in result["reasons"])
-    assert result["selected"] not in gemma_targets
+    assert result["selected"] != target
 
 
-def test_open_provider_circuit_excludes_only_that_venue_and_is_visible(tmp_path):
+def test_open_provider_circuit_excludes_only_direct_openrouter(tmp_path):
     env = {
         **os.environ,
         "AGNT_PROVIDER_CIRCUIT_DIR": str(tmp_path / "provider-circuits"),
     }
     opened = subprocess.run(
-        [sys.executable, str(BIN / "agnt"), "provider-circuit", "record", "--provider", "olla-cloud"],
+        [sys.executable, str(BIN / "agnt"), "provider-circuit", "record", "--provider", "openrouter"],
         input="HTTP 402: available credits can only cover 505 tokens",
         capture_output=True,
         text=True,
@@ -78,30 +74,33 @@ def test_open_provider_circuit_excludes_only_that_venue_and_is_visible(tmp_path)
     assert opened.returncode == 0, opened.stderr
 
     result = run_route(tmp_path, [])
-    assert all(not target.startswith("olla-cloud/") for target in result["candidateOrder"])
-    blocked = [item for item in result["rejectedCandidates"] if item["target"].startswith("olla-cloud/")]
+    assert all(not target.startswith("openrouter/") for target in result["candidateOrder"])
+    blocked = [item for item in result["rejectedCandidates"] if item["target"].startswith("openrouter/")]
     assert blocked
     assert all("provider circuit open: credit until " in item["reason"] for item in blocked)
     assert any(target.startswith("openai-codex/") for target in result["candidateOrder"])
-    assert any(target.startswith("olla-local/") for target in result["candidateOrder"])
 
     closed = subprocess.run(
-        [sys.executable, str(BIN / "agnt"), "provider-circuit", "success", "--provider", "olla-cloud"],
+        [sys.executable, str(BIN / "agnt"), "provider-circuit", "success", "--provider", "openrouter"],
         capture_output=True,
         text=True,
         env=env,
         cwd=tmp_path,
     )
     assert closed.returncode == 0, closed.stderr
-    assert any(target.startswith("olla-cloud/") for target in run_route(tmp_path, [])["candidateOrder"])
+    assert any(target.startswith("openrouter/") for target in run_route(tmp_path, [])["candidateOrder"])
 
 
-def test_positive_history_does_not_demote(tmp_path):
+def test_positive_history_transfers_from_dormant_to_active_venue(tmp_path):
     accepted = [
-        {"target": "olla-local/gemma4:31b", "family": "gemma4-31b", "outcome": "accepted"}
+        {
+            "target": "olla-cloud/kimi-k2.7-code",
+            "family": "kimi-k2.7-code",
+            "outcome": "accepted",
+        }
         for _ in range(6)
     ]
     result = run_route(tmp_path, [{"records": accepted}])
     assert not any("demoted" in reason for reason in result["reasons"])
     hints = result["metricsHints"]
-    assert hints["olla-cloud/gemma-4-31b-it"]["positive"] == 6
+    assert hints["openrouter/moonshotai/kimi-k2.7-code"]["positive"] == 6
