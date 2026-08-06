@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/danielcherubini/pi-archimedes
-last_checked_utc: 2026-08-05T18:30:00Z
+last_checked_utc: 2026-08-06T00:31:20Z
 target_ref: v1.8.3
 source_commit: 801397c052ea064fc237ff4e035c2a0910d391c8
 status: current-for-target-ref
@@ -52,12 +52,13 @@ source_files:
 - Commits should be logical and use repository conventional style.
 - Required candidate checks: subagent/package TypeScript checks, all workspace typechecks, focused Vitest, full repository tests, and diff checks.
 - No PR template or repository AI-contribution policy observed in checked sources.
-- User permission observed 2026-08-05: pull-only upstream; fork required. Recheck every use.
+- User permission observed 2026-08-06: pull-only upstream; fork required. The user-owned fork grants admin access. Recheck every use.
+- No PR/issue template or visible branch-protection configuration was found. Fork PR CI requires maintainer approval; PR #25 run `31059942733` is `action_required`, not a test result.
 - Release/publish workflow is tag-driven and publishes packages in dependency order; PR approval does not authorize release or publication.
 
 ## Policy findings
 
-- License: no root/subagent package license field or root license file was observed at the target ref.
+- License: no root/subagent package license field or root license file was observed at the target ref; open upstream issue #22 tracks the missing LICENSE despite the README's MIT badge.
 - CLA/DCO, contributor eligibility, commit signoff/signing, branch naming, and issue-first requirements: none observed in checked sources. Recheck repository settings and current GitHub metadata every use.
 - Documentation: package API changes should update the relevant package README; non-trivial work must also maintain the plan index/status.
 - Generated artifacts: `pnpm-lock.yaml` is tracked. No generated-source update rule was observed.
