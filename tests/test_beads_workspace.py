@@ -87,3 +87,17 @@ def test_fresh_checkout_bootstraps_tracked_beads(tmp_path):
         text=True,
     )
     assert isinstance(json.loads(result.stdout), list)
+
+    before = (beads / "issues.jsonl").read_text(encoding="utf-8").splitlines()
+    created = subprocess.run(
+        ["bd", "create", "--title=auto export probe", "--description=isolated regression probe", "--type=task", "--priority=4", "--json"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    created_id = json.loads(created.stdout)["id"]
+    after = [json.loads(line) for line in (beads / "issues.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    assert len(after) == len(before) + 1
+    assert any(issue["id"] == created_id for issue in after)

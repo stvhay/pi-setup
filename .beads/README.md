@@ -15,7 +15,9 @@ Tracked portable files:
 - `.beads/.gitignore`
 
 Local/runtime files are ignored by `.beads/.gitignore`, including the embedded
-Dolt database, locks, export state, and interaction logs.
+Dolt database, locks, export state, and interaction logs. Native `export.auto`
+refreshes tracked `issues.jsonl` after each mutation; `export.git-add` remains
+disabled, so normal Git review and staging still apply.
 
 ## Fresh checkout
 

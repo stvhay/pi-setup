@@ -54,4 +54,7 @@
 # - linear.api_key  → use LINEAR_API_KEY env var instead
 # - github.token    → use GITHUB_TOKEN env var instead
 
+# Keep the tracked fresh-checkout graph aligned with embedded Dolt mutations.
+export.auto: true
+# Never stage export updates implicitly.
 export.git-add: false
