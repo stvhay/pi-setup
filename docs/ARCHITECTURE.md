@@ -38,8 +38,8 @@ catalog.json      model families -> venues, cost classes, watt/rate facts
       │
 tasks/*.md        routing policy per task (preferred/qualified/avoid targets)
       │
-agnt route        constraint filter (enabledModels, modality, context window,
-      │           local-ok) + billing/risk gates + outcome-history demotion
+agnt route        constraint filter (enabledModels, modality, context window)
+      │           + billing/risk gates + outcome-history demotion
       │           (subscription before metered; metered contextPolicy=fresh)
       │
       ├─ Archimedes `subagent` for interactive streaming/TUI peer work
@@ -56,12 +56,11 @@ resolved private metrics records ──consolidate──▶ ~/.pi/metrics/
 
 A **family** is one set of weights (or a close equivalent) reachable through
 one or more provider venues. Active policy keeps OpenAI/Codex as the root and
-uses Pi's built-in OpenRouter provider for bounded metered diversity; local
-Ollama and Olla/LiteLLM routes are inactive. The catalog remains the single
-source for routing facts: cost class, billing class, modalities, context window,
-reasoning capability, and rates. `agnt` and `agent-instructions` read it via the
-shared `bin/_agnt_common.py`; no model facts live in code. Retained Olla/local
-venue facts and provider code are dormant rollback support, not enabled routes.
+uses Pi's built-in OpenRouter provider for bounded metered diversity. The
+catalog contains only configured Codex and OpenRouter venues and remains the
+single source for routing facts: cost class, billing class, modalities, context
+window, reasoning capability, and rates. `agnt` and `agent-instructions` read it
+via shared `bin/_agnt_common.py`; no model facts live in code.
 Every metered OpenRouter model runs only in a fresh subagent or `agnt invoke`
 worker, never as a continuation model for a long root conversation. See the
 approved [Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).

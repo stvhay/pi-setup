@@ -5,11 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict
 
-from .runner_protocol import DEFAULT_BUDGET, read_runner_state, normalize_runner_state, runner_paths, update_runner_state, utc_now as protocol_utc_now, write_runner_state
-
-
-def utc_now() -> str:
-    return protocol_utc_now()
+from .runner_protocol import DEFAULT_BUDGET, read_runner_state, normalize_runner_state, runner_paths, update_runner_state, utc_now, write_runner_state
 
 
 def state_path(root: Path | str | None = None) -> Path:

@@ -332,7 +332,7 @@ def _metadata_for_mode(mode: str) -> Dict[str, Any]:
             "allowedEffects": ["read_workspace", "write_artifacts"],
             "risk": "low",
             "budget": "cheap",
-            "modelPolicy": {"mode": "auto", "diversity": "normal", "avoidFamilies": [], "localOk": True},
+            "modelPolicy": {"mode": "auto", "diversity": "normal", "avoidFamilies": []},
             "thinkingPolicy": "auto",
             "sessionPolicy": "recorded",
             "memoryPolicy": "auto",

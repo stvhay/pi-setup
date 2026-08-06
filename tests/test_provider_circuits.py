@@ -40,7 +40,7 @@ def test_provider_circuit_expires_closes_and_never_stores_raw_error(agnt, tmp_pa
     state = tmp_path / "circuits.json"
     now = datetime(2026, 8, 5, tzinfo=timezone.utc)
     result = agnt.record_provider_result(
-        "olla-cloud",
+        "openrouter",
         error="HTTP 402: SECRET available credits can only cover 505 tokens",
         now=now,
         state_path=state,
@@ -51,7 +51,7 @@ def test_provider_circuit_expires_closes_and_never_stores_raw_error(agnt, tmp_pa
     inode = state.stat().st_ino
     active = agnt.active_provider_circuits(now=now, state_path=state)
     assert state.stat().st_ino == inode, "read-only active status must not rewrite unchanged state"
-    assert active["olla-cloud"]["reason"] == "credit"
+    assert active["openrouter"]["reason"] == "credit"
     assert "SECRET" not in state.read_text(encoding="utf-8")
     assert stat.S_IMODE(state.stat().st_mode) == 0o600
     assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
@@ -61,10 +61,10 @@ def test_provider_circuit_expires_closes_and_never_stores_raw_error(agnt, tmp_pa
 
     later = now + timedelta(hours=2)
     assert agnt.active_provider_circuits(now=later, state_path=state) == {}
-    assert agnt.record_provider_result("olla-cloud", success=True, now=later, state_path=state)["closed"] is False
+    assert agnt.record_provider_result("openrouter", success=True, now=later, state_path=state)["closed"] is False
 
-    agnt.open_provider_circuit("olla-cloud", "quota", now=later, state_path=state)
-    assert agnt.record_provider_result("olla-cloud", success=True, now=later, state_path=state)["closed"] is True
+    agnt.open_provider_circuit("openrouter", "quota", now=later, state_path=state)
+    assert agnt.record_provider_result("openrouter", success=True, now=later, state_path=state)["closed"] is True
     assert agnt.active_provider_circuits(now=later, state_path=state) == {}
 
 
@@ -111,16 +111,16 @@ def test_provider_circuit_cli_records_status_and_success(agnt, monkeypatch, tmp_
     monkeypatch.setenv("AGNT_PROVIDER_CIRCUIT_DIR", str(tmp_path))
     monkeypatch.setattr("sys.stdin", StringIO("HTTP 503 Service Unavailable"))
 
-    assert agnt.cmd_provider_circuit(["record", "--provider", "olla-cloud"]) == 0
+    assert agnt.cmd_provider_circuit(["record", "--provider", "openrouter"]) == 0
     recorded = json.loads(capsys.readouterr().out)
     assert recorded["classification"] == "availability"
     assert recorded["opened"] is True
 
     assert agnt.cmd_provider_circuit(["status"]) == 0
     status_result = json.loads(capsys.readouterr().out)
-    assert list(status_result["circuits"]) == ["olla-cloud"]
+    assert list(status_result["circuits"]) == ["openrouter"]
 
-    assert agnt.cmd_provider_circuit(["success", "--provider", "olla-cloud"]) == 0
+    assert agnt.cmd_provider_circuit(["success", "--provider", "openrouter"]) == 0
     success = json.loads(capsys.readouterr().out)
     assert success["closed"] is True
 
@@ -176,15 +176,15 @@ def test_invoke_opens_classified_circuit_and_success_closes_it(agnt, monkeypatch
     monkeypatch.setitem(agnt.invoke_one.__globals__, "open_provider_circuit", lambda provider, reason: opened.append((provider, reason)))
     monkeypatch.setitem(agnt.invoke_one.__globals__, "close_provider_circuit", lambda provider: closed.append(provider))
 
-    code, _out, _err, failed = agnt.invoke_one("olla-cloud/gpt-4.1-mini", "prompt")
+    code, _out, _err, failed = agnt.invoke_one("openrouter/minimax/minimax-m3", "prompt")
     assert code == 1
-    assert opened == [("olla-cloud", "credit")]
+    assert opened == [("openrouter", "credit")]
     assert failed["failureClass"] == "provider"
     assert failed["providerFailureClass"] == "credit"
     assert agnt.compact_metric_record(failed)["providerFailureClass"] == "credit"
 
-    code, out, _err, succeeded = agnt.invoke_one("olla-cloud/gpt-4.1-mini", "prompt")
+    code, out, _err, succeeded = agnt.invoke_one("openrouter/minimax/minimax-m3", "prompt")
     assert code == 0
     assert out == "ok"
-    assert closed == ["olla-cloud"]
+    assert closed == ["openrouter"]
     assert succeeded["providerFailureClass"] is None

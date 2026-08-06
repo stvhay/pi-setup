@@ -225,9 +225,8 @@ When a model family shows a repeatable behavioral failure:
 4. Commit overlay + eval together, citing the observed failure.
 5. Deploy with `scripts/update-pi-config.sh`.
 
-Existing examples: `AGENTS.d/models/gpt-4.1-mini.md` (plans-dir discipline,
-from eval failures) and `AGENTS.d/models/gemma4-31b.md` (reviewer evidence
-discipline, from review smoke tests).
+No model overlay is currently configured. Add one only when recurring,
+family-specific evidence survives review and gains matching eval coverage.
 
 ## Rules
 

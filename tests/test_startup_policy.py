@@ -70,12 +70,12 @@ def test_load_intent_config_merges_global_then_project(tmp_path):
     global_intent.parent.mkdir(parents=True)
     project_intent.parent.mkdir(parents=True)
     global_intent.write_text(json.dumps({"intentionallyAbsentEnv": {"ANTHROPIC_API_KEY": "not used"}}), encoding="utf-8")
-    project_intent.write_text(json.dumps({"intentionallyAbsentEnv": {"GEMINI_API_KEY": "using Olla route"}}), encoding="utf-8")
+    project_intent.write_text(json.dumps({"intentionallyAbsentEnv": {"GEMINI_API_KEY": "using managed provider"}}), encoding="utf-8")
 
     intent = load_intent_config(project_root=project, home=home)
 
     assert intent["intentionallyAbsentEnv"]["ANTHROPIC_API_KEY"] == "not used"
-    assert intent["intentionallyAbsentEnv"]["GEMINI_API_KEY"] == "using Olla route"
+    assert intent["intentionallyAbsentEnv"]["GEMINI_API_KEY"] == "using managed provider"
     assert str(global_intent) in intent["sources"]
     assert str(project_intent) in intent["sources"]
 

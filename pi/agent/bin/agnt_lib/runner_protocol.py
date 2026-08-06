@@ -224,13 +224,9 @@ def _float_or_none(value: Any) -> float | None:
     return None
 
 
-def _default_budget() -> Dict[str, Any]:
-    return copy.deepcopy(DEFAULT_BUDGET)
-
-
 def normalize_budget_state(budget: Dict[str, Any] | None = None) -> Dict[str, Any]:
     raw = dict(budget or {}) if isinstance(budget, dict) else {}
-    data = _default_budget()
+    data = copy.deepcopy(DEFAULT_BUDGET)
     data.update(raw)
 
     max_session = _float_or_none(raw.get("maxSessionUsd"))

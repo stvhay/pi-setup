@@ -40,18 +40,15 @@ def usage_tokens(input_tokens=1_000_000, output_tokens=1_000_000):
     }
 
 
-def test_route_cost_rank_cheap_budget_orders_local_subscription_metered(agnt):
+def test_route_cost_rank_cheap_budget_orders_subscription_before_metered(agnt):
     info = agnt.configured_model_info()
-    local = agnt.route_cost_rank(
-        "olla-local/gemma4:31b", info["olla-local/gemma4:31b"], "cheap"
-    )
     subscription = agnt.route_cost_rank(
         "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "cheap"
     )
     metered = agnt.route_cost_rank(
-        "olla-cloud/gpt-4.1-mini", info["olla-cloud/gpt-4.1-mini"], "cheap"
+        "openrouter/minimax/minimax-m3", info["openrouter/minimax/minimax-m3"], "cheap"
     )
-    assert local < subscription < metered
+    assert subscription < metered
 
 
 def test_route_cost_rank_quality_budget_prefers_frontier(agnt):
@@ -60,27 +57,27 @@ def test_route_cost_rank_quality_budget_prefers_frontier(agnt):
         "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "quality"
     )
     cheap = agnt.route_cost_rank(
-        "olla-cloud/gpt-4.1-mini", info["olla-cloud/gpt-4.1-mini"], "quality"
+        "openrouter/minimax/minimax-m3", info["openrouter/minimax/minimax-m3"], "quality"
     )
     assert frontier < cheap
 
 
-def test_configured_model_info_merges_catalog_and_models_json(agnt):
+def test_configured_model_info_loads_catalog(agnt):
     info = agnt.configured_model_info()
     codex = info["openai-codex/gpt-5.6-sol"]
     assert codex["costClass"] == "frontier"
     assert codex["reasoning"] is True
     assert codex["family"] == "gpt-5.6-sol"
-    cloud = info["olla-cloud/gemma-4-31b-it"]
-    assert cloud["family"] == "gemma4-31b"
-    assert cloud["cost"] == {"input": 0.12, "output": 0.37}
+    m3 = info["openrouter/minimax/minimax-m3"]
+    assert m3["family"] == "minimax-m3"
+    assert m3["cost"] == {"input": 0.3, "output": 1.2, "cacheRead": 0.06}
 
 
 def test_catalog_marks_subscription_and_metered_billing(agnt):
     info = agnt.configured_model_info()
     assert info["openai-codex/gpt-5.6-sol"]["billingClass"] == "subscription"
-    assert info["olla-cloud/gpt-4.1-mini"]["billingClass"] == "metered"
-    assert info["olla-cloud/gemini-flash"]["billingClass"] == "metered"
+    assert info["openrouter/minimax/minimax-m3"]["billingClass"] == "metered"
+    assert info["openrouter/anthropic/claude-opus-5"]["billingClass"] == "metered"
 
 
 def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
@@ -102,18 +99,12 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     )
     assert (
         agnt.choose_thinking_level(
-            "high",
-            "quality",
-            "olla-cloud/gpt-4.1-mini",
-            info["olla-cloud/gpt-4.1-mini"],
+            "medium",
+            "balanced",
+            "openrouter/moonshotai/kimi-k3",
+            info["openrouter/moonshotai/kimi-k3"],
         )
-        == "default"
-    )
-    assert (
-        agnt.choose_thinking_level(
-            "medium", "balanced", "olla-cloud/kimi-k3", info["olla-cloud/kimi-k3"]
-        )
-        == "max"
+        == "high"
     )
 
 
@@ -124,7 +115,7 @@ def test_unknown_task_has_no_legacy_provider_fallback(agnt):
 
 def test_high_risk_quality_fallbacks_keep_subscription_before_metered(agnt):
     positive_metered = {
-        "gpt-4.1-mini": {"invocations": 5, "positive": 5, "negative": 0, "escalated": 0},
+        "minimax-m3": {"invocations": 5, "positive": 5, "negative": 0, "escalated": 0},
     }
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: positive_metered}):
         result = agnt.select_model("orchestration", risk="high", budget="quality")
@@ -136,80 +127,13 @@ def test_high_risk_quality_fallbacks_keep_subscription_before_metered(agnt):
     ]
 
 
-def test_glm_52_is_disabled_until_direct_provider_canary_succeeds(agnt):
-    target = "olla-cloud/glm-5.2"
-    tasks = ["frontier-advisor", "planning", "implementation", "orchestration", "review", "cheap-peer"]
-    settings = json.loads((AGNT.parent.parent / "settings.json").read_text(encoding="utf-8"))
-
-    assert target not in settings["enabledModels"]
-    for task in tasks:
-        meta, _ = agnt.task_meta(task)
-        assert target not in meta.get("preferred", []) + meta.get("qualified", [])
-
-
-def test_glm_52_uses_olla_cloud_provider(agnt):
-    target = "olla-cloud/glm-5.2"
-    assert agnt.is_local_route_target(target) is False
-    assert agnt.is_local_target(target) is False
-
-    info = agnt.configured_model_info()[target]
-    assert info["family"] == "glm-5.2"
-    assert info["costClass"] == "frontier"
-    assert info["reasoning"] is True
-
-    usage = agnt.apply_assumed_cost(usage_tokens(), target, elapsed_ms=60_000)
-    assert usage.get("costSource") != "local-free"
-    assert "localCompute" not in usage
-
-
-def test_glm_52_extension_uses_routable_id_with_openrouter_thinking_params():
-    repo_root = Path(__file__).resolve().parents[1]
-    extension = (repo_root / "pi/agent/extensions/olla-provider.ts").read_text()
-
-    assert "glm-5.2:cloud" not in extension
-    assert 'KNOWN_OLLA_CLOUD_MODEL_IDS = ["glm-5.2"]' in extension
-    thinking_body = extension.split("function getThinkingLevelMap", 1)[1].split("function getCompat", 1)[0]
-    assert 'if (id === "glm-5.2") {' in thinking_body
-    assert "high: \"high\"" in thinking_body
-    assert "xhigh: \"xhigh\"" in thinking_body
-    compat_body = extension.split("function getCompat", 1)[1]
-    assert 'if (id === "glm-5.2") {' in compat_body
-    glm_compat = compat_body.split('if (id === "glm-5.2") {', 1)[1].split("return {", 1)[1].split("};", 1)[0]
-    assert "supportsReasoningEffort: true" in glm_compat
-    assert 'thinkingFormat: "openrouter"' in glm_compat
-
-
-def test_apply_assumed_cost_local_gets_opportunity_cost(agnt):
+def test_apply_assumed_cost_openrouter_uses_catalog_rates(agnt):
     usage = agnt.apply_assumed_cost(
-        usage_tokens(), "olla-local/gemma4:31b", elapsed_ms=60_000
-    )
-    assert usage["costSource"] == "local-free"
-    assert usage["cost"]["total"] == 0.0
-    opp = usage["opportunityCost"]
-    assert opp["proxyTarget"] == "olla-cloud/gemma-4-31b-it"
-    assert opp["proxyQuality"] == "exact-family"
-    assert opp["cost"]["total"] > 0
-    compute = usage["localCompute"]
-    assert compute["gpuWatts"] == 208.0
-    assert compute["estimatedEnergyCostUsd"] > 0
-
-
-def test_apply_assumed_cost_subscription_gets_openrouter_assumed(agnt):
-    usage = agnt.apply_assumed_cost(
-        usage_tokens(), "olla-cloud/gpt-4.1-mini", elapsed_ms=1_000
+        usage_tokens(), "openrouter/minimax/minimax-m3"
     )
     assert usage["costSource"] == "openrouter-assumed"
     assert usage["costEstimated"] is True
-    assert round(usage["cost"]["total"], 2) == 2.0  # 0.40 + 1.60 per 1M+1M tokens
-
-
-def test_apply_assumed_cost_free_venue_stays_free(agnt):
-    usage = agnt.apply_assumed_cost(
-        usage_tokens(), "olla-cloud/gemma-4-31b-it:free", elapsed_ms=1_000
-    )
-    assert usage["costSource"] == "catalog-free"
-    assert usage["costEstimated"] is False
-    assert usage["cost"]["total"] == 0.0
+    assert round(usage["cost"]["total"], 2) == 1.5
 
 
 def test_apply_assumed_cost_provider_reported_untouched(agnt):
@@ -221,7 +145,7 @@ def test_apply_assumed_cost_provider_reported_untouched(agnt):
         "cacheWrite": 0.0,
         "total": 0.3,
     }
-    result = agnt.apply_assumed_cost(usage, "olla-cloud/gpt-4.1-mini")
+    result = agnt.apply_assumed_cost(usage, "openrouter/minimax/minimax-m3")
     assert result["costSource"] == "provider-reported"
     assert result["cost"]["total"] == 0.3
 
@@ -649,9 +573,9 @@ def test_create_run_bundle_writes_invocation_and_result(agnt, tmp_path):
 
 def test_create_run_bundle_records_selected_model_and_thinking(agnt, tmp_path):
     selection = {
-        "target": "olla-cloud/gpt-4.1-mini",
+        "target": "openrouter/minimax/minimax-m3",
         "thinkingLevel": "default",
-        "diversityGroup": "gpt-4.1-mini",
+        "diversityGroup": "minimax-m3",
         "score": 120,
     }
     bundle = agnt.create_run_bundle(
@@ -661,17 +585,17 @@ def test_create_run_bundle_records_selected_model_and_thinking(agnt, tmp_path):
         bead="pi-test.1",
         runs_dir=tmp_path,
         id_value="selected-run",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         thinking_level="default",
         model_selection=selection,
     )
 
     invocation = json.loads((bundle / "invocation.yaml").read_text(encoding="utf-8"))
-    assert invocation["model"] == "olla-cloud/gpt-4.1-mini"
-    assert invocation["selectedModel"] == "olla-cloud/gpt-4.1-mini"
+    assert invocation["model"] == "openrouter/minimax/minimax-m3"
+    assert invocation["selectedModel"] == "openrouter/minimax/minimax-m3"
     assert invocation["thinkingLevel"] == "default"
     assert invocation["modelSelection"] == selection
-    assert agnt.choose_invocation_model(invocation, None) == "olla-cloud/gpt-4.1-mini"
+    assert agnt.choose_invocation_model(invocation, None) == "openrouter/minimax/minimax-m3"
 
 
 def test_create_run_bundle_records_orchestration_state_defaults(agnt, tmp_path):
@@ -826,15 +750,15 @@ def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
         routing_task="review",
         input_refs=["docs/RUN-ARTIFACTS.md"],
         role="verifier",
-        model="olla-cloud/gpt-4.1-mini",
+        model="openrouter/minimax/minimax-m3",
         bead="pi-test.6",
         runs_dir=tmp_path,
         id_value="invoke-run",
     )
-    record = {"schemaVersion": 1, "recordId": "rec-1", "target": "olla-cloud/gpt-4.1-mini"}
+    record = {"schemaVersion": 1, "recordId": "rec-1", "target": "openrouter/minimax/minimax-m3"}
 
     def fake_invoke_one(target, prompt, **kwargs):
-        assert target == "olla-cloud/gpt-4.1-mini"
+        assert target == "openrouter/minimax/minimax-m3"
         assert "Action: verify" in prompt
         assert kwargs["task"] == "review"
         assert "explicit line-level terminal marker" in prompt
@@ -879,12 +803,13 @@ def test_paid_review_spend_counts_monthly_marginal_cost_only(agnt):
         record("m3", "openrouter/minimax/minimax-m3", 0.25),
         record("kimi", "openrouter/moonshotai/kimi-k2.7-code", 4.0),
         record("subscription", "openai-codex/gpt-5.6-terra", 8.0, source="provider-reported"),
+        record("retired-metered", "retired-relay/model", 2.0),
         record("old", "openrouter/minimax/minimax-m3", 9.0, started="2026-06-30T23:59:59Z"),
         record("other-task", "openrouter/minimax/minimax-m3", 9.0, task="research"),
         record("m3", "openrouter/minimax/minimax-m3", 0.25),
     ]
 
-    assert agnt.paid_review_spend(records, month="2026-07") == pytest.approx(4.25)
+    assert agnt.paid_review_spend(records, month="2026-07") == pytest.approx(6.25)
 
 
 def test_select_model_returns_approved_high_risk_review_fanout(agnt):
@@ -930,7 +855,6 @@ def test_select_model_review_cheap_prefers_subscription_without_metrics(agnt):
             "review",
             risk="medium",
             budget="cheap",
-            local_ok=True,
             paid_review_spend_usd=0.0,
         )
 
@@ -951,7 +875,6 @@ def test_select_model_review_hard_cap_keeps_subscription_only(agnt):
     assert result["selected"] == "openai-codex/gpt-5.6-terra"
     assert result["reviewPolicyTargets"] == ["openai-codex/gpt-5.6-terra"]
     assert result["reviewBudgetState"] == "hard-cap"
-    assert result["localOk"] is False
 
 
 def test_select_model_returns_scored_selection_contract(agnt):
@@ -959,7 +882,6 @@ def test_select_model_returns_scored_selection_contract(agnt):
         "review",
         risk="medium",
         budget="cheap",
-        local_ok=True,
         fanout_size=3,
         diversity="normal",
     )
@@ -975,14 +897,13 @@ def test_select_model_returns_scored_selection_contract(agnt):
 
 
 def test_select_model_honors_avoid_family_policy(agnt):
-    base = agnt.select_model("review", risk="medium", budget="cheap", local_ok=True)
+    base = agnt.select_model("review", risk="medium", budget="cheap")
     avoided = base["selection"]["diversityGroup"]
 
     result = agnt.select_model(
         "review",
         risk="medium",
         budget="cheap",
-        local_ok=True,
         model_policy={"avoidFamilies": [avoided]},
     )
 
@@ -1049,7 +970,6 @@ def test_cmd_route_includes_selection_and_fanout_json(agnt, capsys):
         "medium",
         "--budget",
         "cheap",
-        "--local-ok",
         "--fanout-size",
         "3",
         "--monthly-paid-spend",
@@ -1781,7 +1701,7 @@ def test_run_work_rejects_direct_model_override(agnt, tmp_path):
         target=["docs/RUN-ARTIFACTS.md"],
         claim=False,
         close_bead=False,
-        model="olla-cloud/gpt-4.1-mini",
+        model="openrouter/minimax/minimax-m3",
         runs_dir=tmp_path,
         id_value="work-run-override",
     )
@@ -1791,7 +1711,7 @@ def test_run_work_rejects_direct_model_override(agnt, tmp_path):
 
 
 def test_cmd_work_run_dry_run_rejects_direct_model_override(agnt, capsys):
-    assert agnt.cmd_work(["run", "pi-test.override", "--model", "olla-cloud/gpt-4.1-mini", "--dry-run"]) == 2
+    assert agnt.cmd_work(["run", "pi-test.override", "--model", "openrouter/minimax/minimax-m3", "--dry-run"]) == 2
 
     result = json.loads(capsys.readouterr().out)
     assert "modelOverrideError" in result
@@ -2020,7 +1940,7 @@ def test_cmd_invoke_one_shot_forwards_mode(agnt, monkeypatch, capsys):
     assert agnt.cmd_invoke([
         "--one-shot",
         "--no-metrics",
-        "olla-cloud/gemma-4-31b-it",
+        "openrouter/moonshotai/kimi-k2.7-code",
         "review packet",
     ]) == 0
 
@@ -2043,7 +1963,7 @@ def test_cmd_invoke_one_shot_accepts_explicit_timeout(agnt, monkeypatch, capsys)
         "--timeout-seconds",
         "45",
         "--no-metrics",
-        "olla-cloud/gemma-4-31b-it",
+        "openrouter/moonshotai/kimi-k2.7-code",
         "review packet",
     ]) == 0
 
@@ -2175,7 +2095,7 @@ def test_metrics_record_includes_family_and_invocation_shape(agnt):
     usage = usage_tokens(input_tokens=10, output_tokens=2)
     usage["providerRequests"] = 1
     record = agnt.metrics_record(
-        target="olla-local/gemma4:31b",
+        target="openrouter/minimax/minimax-m3",
         task="review",
         started_at="2026-06-09T00:00:00Z",
         ended_at="2026-06-09T00:00:01Z",
@@ -2188,7 +2108,7 @@ def test_metrics_record_includes_family_and_invocation_shape(agnt):
         usage_source="message_end",
         invocation_mode="one-shot",
     )
-    assert record["family"] == "gemma4-31b"
+    assert record["family"] == "minimax-m3"
     assert record["invocationMode"] == "one-shot"
     assert record["providerRequests"] == 1
 
@@ -2198,7 +2118,7 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
     usage = usage_tokens(input_tokens=10, output_tokens=2)
     record = agnt.metrics_record(
         invocation_id=invocation_id,
-        target="olla-cloud/gpt-4.1-mini",
+        target="openrouter/minimax/minimax-m3",
         task="review",
         started_at="2026-06-09T00:00:00Z",
         ended_at="2026-06-09T00:00:01Z",
@@ -2225,9 +2145,9 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
     assert record["recordId"]
     assert record["parentSessionId"] == "parent-session"
     assert record["workItem"] == "pi-test.2"
-    assert record["provider"] == "olla-cloud"
-    assert record["model"] == "gpt-4.1-mini"
-    assert record["target"] == "olla-cloud/gpt-4.1-mini"
+    assert record["provider"] == "openrouter"
+    assert record["model"] == "minimax/minimax-m3"
+    assert record["target"] == "openrouter/minimax/minimax-m3"
     assert record["status"] == "succeeded"
     assert record["executionOutcome"] == "succeeded"
     assert record["failureClass"] is None
@@ -2238,9 +2158,9 @@ def test_telemetry_schema_v2_normalizes_invocation_without_payloads(agnt):
     assert all(not Path(ref).is_absolute() and len(ref) <= 256 for ref in record["artifactRefs"])
     compact = agnt.compact_metric_record(record)
     assert [compact[key] for key in ("provider", "model", "target", "thinkingLevel")] == [
-        "olla-cloud",
-        "gpt-4.1-mini",
-        "olla-cloud/gpt-4.1-mini",
+        "openrouter",
+        "minimax/minimax-m3",
+        "openrouter/minimax/minimax-m3",
         "medium",
     ]
     assert compact["executionOutcome"] == "succeeded"
@@ -2287,9 +2207,9 @@ def test_legacy_metrics_record_remains_readable(agnt, tmp_path):
         "recordId": "legacy-record",
         "startedAt": "2026-06-09T00:00:00Z",
         "elapsedMs": 1000,
-        "provider": "olla-cloud",
-        "model": "gpt-4.1-mini",
-        "target": "olla-cloud/gpt-4.1-mini",
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3",
+        "target": "openrouter/minimax/minimax-m3",
         "exitCode": 0,
     }), encoding="utf-8")
 

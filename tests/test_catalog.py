@@ -1,42 +1,14 @@
-"""Catalog lookups: family/venue equivalence is data, not code."""
+"""Catalog lookups: model-family facts stay data-driven."""
 
 
-def test_family_resolution_across_venues(common):
-    assert common.family_for_target("olla-local/gemma4:31b") == "gemma4-31b"
-    assert (
-        common.family_for_target("olla-cloud/gemma-4-31b-it")
-        == "gemma4-31b"
-    )
+def test_family_resolution_for_active_venues(common):
     assert common.family_for_target("openai-codex/gpt-5.6-sol") == "gpt-5.6-sol"
-    assert common.family_for_target("olla-cloud/glm-5.2") == "glm-5.2"
-    assert (
-        common.family_for_target("olla-cloud/deepseek-v4-flash")
-        == "deepseek-v4-flash"
-    )
+    assert common.family_for_target("openrouter/minimax/minimax-m3") == "minimax-m3"
+    assert common.family_for_target("openrouter/moonshotai/kimi-k3") == "kimi-k3"
     assert common.family_for_target("unknown/model") is None
 
 
-def test_local_proxy_derived_from_family(common):
-    proxy = common.proxy_for_target("olla-local/gemma4:31b")
-    assert proxy == {
-        "target": "olla-cloud/gemma-4-31b-it",
-        "quality": "exact-family",
-    }
-
-    proxy = common.proxy_for_target("olla-local/qwen3:8b")
-    assert proxy == {
-        "target": "olla-cloud/qwen3.5-9b",
-        "quality": "approximate-family",
-    }
-
-    assert common.proxy_for_target("olla-local/deepseek-r1:14b") is None
-
-
-def test_subscription_opportunity_rates(common):
-    rates = common.opportunity_rates("olla-cloud/gpt-4.1-mini")
-    assert rates["input"] == 0.4
-    assert rates["output"] == 1.6
-
+def test_catalog_opportunity_rates(common):
     rates = common.opportunity_rates("openai-codex/gpt-5.6-luna")
     assert rates["input"] == 0.75
     assert rates["output"] == 4.5
@@ -52,16 +24,6 @@ def test_subscription_opportunity_rates(common):
     rates = common.opportunity_rates("openrouter/moonshotai/kimi-k3")
     assert rates["input"] == 3.0
     assert rates["output"] == 15.0
-
-    rates = common.opportunity_rates("olla-local/gemma4:31b")
-    assert rates["input"] == 0.12
-    assert rates["output"] == 0.37
-
-
-def test_provider_gpu_watt_defaults(common):
-    assert common.provider_gpu_watts("ollama") is None
-    assert common.provider_gpu_watts("olla-local") == 208.0
-    assert common.provider_gpu_watts("olla-cloud") is None
 
 
 def test_frontmatter_parsing(common):

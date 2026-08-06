@@ -69,6 +69,52 @@ def test_active_skills_do_not_reference_removed_plan_helper():
         assert "pi-plans-dir" not in skill_path.read_text(encoding="utf-8"), skill_path
 
 
+def test_simplification_sources_canonical_templates_and_references():
+    root_gh = (ROOT / ".envrc.d" / "gh.sh").read_text(encoding="utf-8")
+    project_init = AGENT / "skills" / "project-init"
+    stamp_skill = (AGENT / "skills" / "stamp-stpa-sec" / "SKILL.md").read_text(encoding="utf-8")
+    stamp_reference = (AGENT / "skills" / "stamp-stpa-sec" / "references" / "stpa-security.md").read_text(encoding="utf-8")
+
+    assert "pi/agent/skills/project-init/templates/gh.sh" in root_gh
+    assert len(root_gh.splitlines()) <= 3
+    assert not (AGENT / "skills" / "requesting-code-review" / "references" / "structured-format-parsing.md").exists()
+    assert "## STPA-Sec Process" not in stamp_skill
+    assert "## STPA-Sec Process" in stamp_reference
+    for workflow in ("StandardResearch.md", "ExtensiveResearch.md"):
+        text = (AGENT / "skills" / "research" / "workflows" / workflow).read_text(encoding="utf-8")
+        assert "references/UrlVerificationProtocol.md" in text
+        assert 'curl -s -o /dev/null -w "%{http_code}"' not in text
+    assert "shellHook" not in (project_init / "templates" / "flake.nix").read_text(encoding="utf-8")
+
+
+def test_ponytail_code_cuts_use_native_and_existing_helpers():
+    flake = (ROOT / "flake.nix").read_text(encoding="utf-8")
+    lock = (ROOT / "flake.lock").read_text(encoding="utf-8")
+    agnt = (AGENT / "bin" / "agnt").read_text(encoding="utf-8")
+    doctor = (AGENT / "bin" / "agnt_lib" / "doctor.py").read_text(encoding="utf-8")
+    health = (AGENT / "bin" / "agnt_lib" / "health.py").read_text(encoding="utf-8")
+    runner = (AGENT / "bin" / "agnt_lib" / "runner.py").read_text(encoding="utf-8")
+    protocol = (AGENT / "bin" / "agnt_lib" / "runner_protocol.py").read_text(encoding="utf-8")
+    scheduler = (AGENT / "bin" / "agnt_lib" / "runner_scheduler.py").read_text(encoding="utf-8")
+    tasks = (AGENT / "bin" / "agnt_lib" / "tasks.py").read_text(encoding="utf-8")
+    instructions = (AGENT / "bin" / "agent-instructions").read_text(encoding="utf-8")
+
+    assert "flake-utils" not in flake + lock
+    assert "nixpkgs.lib.genAttrs" in flake
+    assert not (AGENT / "bin" / "openrouter-api-key").exists()
+    assert all(name not in agnt.split("from agnt_lib.tasks", 1)[0] for name in ("EVALS", "PROMPT_PATTERNS", "TASKS", "VALID_OUTCOMES", "capture"))
+    assert "def check_result(" not in doctor and "check_result," in doctor
+    assert "def default_status_runner(" not in health and "default_status_runner" in health
+    assert "def utc_now(" not in runner
+    assert "def _default_budget(" not in protocol
+    assert "TERMINAL_STATUSES" not in scheduler
+    assert "def parse_frontmatter(" not in tasks
+    assert "def split_frontmatter(" not in instructions
+    assert "dependencies = []" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "DEFAULT_BASE" not in (AGENT / "bin" / "web-search").read_text(encoding="utf-8")
+    assert "catalog-free" not in (AGENT / "bin" / "agnt_lib" / "metrics.py").read_text(encoding="utf-8")
+
+
 def test_approved_implementation_defaults_through_local_commit():
     global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")

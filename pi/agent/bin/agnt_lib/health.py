@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 from .runs import default_runs_dir
 from .runner_protocol import runner_paths
-from .worktree_policy import list_git_worktrees
+from .worktree_policy import default_status_runner, list_git_worktrees
 
 StatusRunner = Callable[[str], Tuple[int, str, str]]
 RefResolver = Callable[[str], Dict[str, Any]]
@@ -81,11 +80,6 @@ def _is_closed(status: Any) -> bool:
 
 def check_status_passed(value: Any) -> bool:
     return str(value or "").strip().lower() in PASS_CHECK_STATUSES
-
-
-def default_status_runner(path: str) -> Tuple[int, str, str]:
-    proc = subprocess.run(["git", "-C", path, "status", "--short"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return proc.returncode, proc.stdout, proc.stderr
 
 
 def default_beads_runner(args: List[str]) -> Tuple[int, Any, str]:

@@ -33,9 +33,9 @@ Use `agnt route --task review` rather than inventing a fanout. Review task polic
 - **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3`.
 - **Canary only:** `openrouter/minimax/minimax-m3` until accepted-output evidence supports promotion.
 
-Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker with a bounded complete packet; never switch a long-running root conversation to it. Local and Olla routes remain inactive.
+Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker with a bounded complete packet; never switch a long-running root conversation to it. Only tracked Codex and OpenRouter routes are configured.
 
-`agnt route` measures month-to-date marginal review spend from OpenRouter plus catalog venues marked `billingClass: metered`; it excludes subscription-backed GPT opportunity cost. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
+`agnt route` measures month-to-date marginal review spend from OpenRouter, configured metered venues, and positive provider-reported retired venues; it excludes configured subscription targets. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
 
 ```bash
 agnt route --task review --risk medium --budget balanced \

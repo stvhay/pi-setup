@@ -67,10 +67,6 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def split_frontmatter(text: str) -> Tuple[Dict[str, object], str]:
-    return common.split_frontmatter(text)
-
-
 def validate_model_id(model: str) -> List[str]:
     parts = [part.strip() for part in model.strip().split("/")]
     if not parts or any(part in {"", ".", ".."} for part in parts):
@@ -135,7 +131,7 @@ def iter_role_files(root: Path) -> Iterable[Path]:
 
 
 def role_meta(path: Path) -> Dict[str, object]:
-    meta, body = split_frontmatter(read_text(path))
+    meta, body = common.split_frontmatter(read_text(path))
     if "id" not in meta:
         meta["id"] = path.stem
     if "summary" not in meta:

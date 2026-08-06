@@ -58,7 +58,7 @@ cat > "$FAKE_PI_DIR/pi" <<'SH'
 printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"fake response"}],"usage":{"input":10,"output":5,"cacheRead":100,"cacheWrite":0,"totalTokens":115,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}}}}'
 SH
 chmod +x "$FAKE_PI_DIR/pi"
-PATH="$FAKE_PI_DIR:$PATH" bin/agnt invoke --metrics-dir "$ASSUMED_COST_TMP" olla-cloud/gpt-4.1-mini 'hello' >/tmp/agnt-assumed-cost-stdout.txt
+PATH="$FAKE_PI_DIR:$PATH" bin/agnt invoke --metrics-dir "$ASSUMED_COST_TMP" openrouter/minimax/minimax-m3 'hello' >/tmp/agnt-assumed-cost-stdout.txt
 python3 - <<PY
 import json, pathlib
 files = list(pathlib.Path('$ASSUMED_COST_TMP').glob('*.metrics.json'))
@@ -66,26 +66,9 @@ assert len(files) == 1, files
 data = json.loads(files[0].read_text())
 assert data['usage']['costSource'] == 'openrouter-assumed'
 assert data['usage']['costEstimated'] is True
-assert abs(data['usage']['cost']['total'] - 0.000012) < 0.0000001, data['usage']['cost']
+assert abs(data['usage']['cost']['total'] - 0.000015) < 0.0000001, data['usage']['cost']
 PY
 rm -rf "$ASSUMED_COST_TMP"
-LOCAL_COST_TMP=$(mktemp -d)
-PATH="$FAKE_PI_DIR:$PATH" AGNT_LOCAL_GPU_WATTS=285 AGNT_ELECTRICITY_USD_PER_KWH=0.1304 bin/agnt invoke --metrics-dir "$LOCAL_COST_TMP" olla-local/gemma4:31b 'hello' >/tmp/agnt-local-cost-stdout.txt
-python3 - <<PY
-import json, pathlib
-files = list(pathlib.Path('$LOCAL_COST_TMP').glob('*.metrics.json'))
-assert len(files) == 1, files
-data = json.loads(files[0].read_text())
-usage = data['usage']
-assert usage['costSource'] == 'local-free'
-assert usage['cost']['total'] == 0
-assert usage['opportunityCost']['source'] == 'metered-family-proxy'
-assert usage['localCompute']['electricityUsdPerKwh'] == 0.1304
-assert usage['localCompute']['gpuWatts'] == 285
-assert usage['localCompute']['gpuWattsSource'] == 'env:AGNT_LOCAL_GPU_WATTS'
-assert usage['localCompute']['estimatedEnergyCostUsd'] >= 0
-PY
-rm -rf "$LOCAL_COST_TMP"
 bin/agnt metrics status --metrics-dir "$METRICS_TMP" >/tmp/agnt-metrics-status.txt
 rg -n '"pendingFiles": 1|"totalTokens": 18' /tmp/agnt-metrics-status.txt >/dev/null
 bin/agnt metrics consolidate --metrics-dir "$METRICS_TMP" --consumed-dir "$CONSUMED_TMP" --output "$AGG_TMP" >/tmp/agnt-metrics-consolidate.txt
@@ -118,9 +101,9 @@ bin/agnt soul "$SOUL_TMP/SOUL.md" | rg -n "Soul root|Soul supplement" >/dev/null
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP" "$SOUL_TMP"' EXIT
-mkdir -p "$TMP/AGENTS.d/models/olla-cloud"
+mkdir -p "$TMP/AGENTS.d/models/openrouter/minimax"
 printf '# Root\n' > "$TMP/AGENTS.md"
-printf '# Provider context\n' > "$TMP/AGENTS.d/models/olla-cloud.md"
-printf '# Nested model context\n' > "$TMP/AGENTS.d/models/olla-cloud/gemma-4-31b-it.md"
-bin/agent-instructions "$TMP/AGENTS.md" --context olla-cloud/gemma-4-31b-it > /tmp/agnt-nested-context.txt
+printf '# Provider context\n' > "$TMP/AGENTS.d/models/openrouter.md"
+printf '# Nested model context\n' > "$TMP/AGENTS.d/models/openrouter/minimax/minimax-m3.md"
+bin/agent-instructions "$TMP/AGENTS.md" --context openrouter/minimax/minimax-m3 > /tmp/agnt-nested-context.txt
 rg -n "Provider context|Nested model context" /tmp/agnt-nested-context.txt >/dev/null

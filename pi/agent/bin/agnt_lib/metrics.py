@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import _agnt_common as common
 
-from .core import ROOT, VALID_OUTCOMES, capture, split_target
+from .core import VALID_OUTCOMES, capture, split_target
 from .review import load_review_document, review_annotation_fields
 from .runtime_paths import resolve_runtime_directory
 
@@ -21,10 +21,7 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-# Model facts (family/venue equivalence, opportunity-cost rates, GPU watt
-# assumptions) live in catalog.json; these are last-resort code fallbacks.
-FALLBACK_GPU_WATTS = 34.2
-FALLBACK_ELECTRICITY_USD_PER_KWH = 0.1304
+# Model facts and opportunity-cost rates live in catalog.json.
 MAX_ARTIFACT_REFS = 16
 MAX_ARTIFACT_REF_CHARS = 256
 
@@ -58,122 +55,20 @@ def empty_usage() -> Dict[str, Any]:
     }
 
 
-def openrouter_model_prices() -> Dict[str, Dict[str, float]]:
-    prices: Dict[str, Dict[str, float]] = {}
-    path = ROOT / "models.json"
-    if not path.is_file():
-        return prices
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return prices
-    providers = data.get("providers") if isinstance(data, dict) else None
-    if not isinstance(providers, dict):
-        return prices
-    for provider, config in providers.items():
-        if not isinstance(config, dict):
-            continue
-        for model in config.get("models") or []:
-            if not isinstance(model, dict) or not isinstance(model.get("cost"), dict):
-                continue
-            target = f"{provider}/{model.get('id')}"
-            prices[target] = {key: float(model["cost"].get(key) or 0.0) for key in ("input", "output", "cacheRead", "cacheWrite")}
-    return prices
-
-
-def is_local_target(target: str) -> bool:
-    provider = target.split("/", 1)[0]
-    return provider in {"ollama", "olla-local"}
-
-
 def priced_usage(usage: Dict[str, Any], prices: Dict[str, float]) -> Dict[str, float]:
     estimated = {key: int(usage.get(key) or 0) * float(prices.get(key) or 0.0) / 1_000_000 for key in ("input", "output", "cacheRead", "cacheWrite")}
     estimated["total"] = sum(estimated.values())
     return estimated
 
 
-def local_gpu_watts(target: str) -> Tuple[float, str]:
-    value = os.environ.get("AGNT_LOCAL_GPU_WATTS")
-    if value:
-        try:
-            return float(value), "env:AGNT_LOCAL_GPU_WATTS"
-        except ValueError:
-            pass
-    if os.environ.get("AGNT_USE_NVIDIA_SMI") == "1":
-        try:
-            out = capture(["nvidia-smi", "--query-gpu=power.draw", "--format=csv,noheader,nounits"])
-            readings = [float(line.strip()) for line in out.splitlines() if line.strip()]
-            if readings:
-                return max(readings), "nvidia-smi-local-host"
-        except (OSError, subprocess.CalledProcessError, ValueError):
-            pass
-    info = common.venue_info(target)
-    if info and info.get("gpuWatts") is not None:
-        return float(info["gpuWatts"]), "catalog-venue"
-    provider = target.split("/", 1)[0]
-    watts = common.provider_gpu_watts(provider)
-    if watts is not None:
-        return watts, f"catalog-provider-default:{provider}"
-    return FALLBACK_GPU_WATTS, "assumed-local-gpu"
-
-
-def electricity_usd_per_kwh() -> float:
-    value = os.environ.get("AGNT_ELECTRICITY_USD_PER_KWH")
-    if value:
-        try:
-            return float(value)
-        except ValueError:
-            pass
-    catalog_value = common.default_electricity_usd_per_kwh()
-    return catalog_value if catalog_value is not None else FALLBACK_ELECTRICITY_USD_PER_KWH
-
-
-def apply_assumed_cost(usage: Dict[str, Any] | None, target: str | None, elapsed_ms: int | None = None) -> Dict[str, Any] | None:
+def apply_assumed_cost(usage: Dict[str, Any] | None, target: str | None) -> Dict[str, Any] | None:
     if not isinstance(usage, dict) or not target:
         return usage
     cost = usage.get("cost") if isinstance(usage.get("cost"), dict) else None
     if cost and float(cost.get("total") or 0.0) > 0:
         usage.setdefault("costSource", "provider-reported")
         return usage
-    venue = common.venue_info(target)
-    if venue and venue.get("billingClass") == "free":
-        usage["cost"] = {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.0}
-        usage["costSource"] = "catalog-free"
-        usage["costEstimated"] = False
-        return usage
-    prices = openrouter_model_prices()
-    if is_local_target(target):
-        usage.setdefault("cost", {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.0})
-        usage["costSource"] = "local-free"
-        usage["costEstimated"] = False
-        proxy = common.proxy_for_target(target)
-        if proxy:
-            proxy_target = proxy["target"]
-            proxy_prices = prices.get(proxy_target) or common.opportunity_rates(proxy_target)
-            if proxy_prices:
-                usage["opportunityCost"] = {
-                    "source": "metered-family-proxy",
-                    "proxyTarget": proxy_target,
-                    "proxyQuality": proxy.get("quality"),
-                    "unit": "USD_PER_MILLION_TOKENS",
-                    "rates": proxy_prices,
-                    "cost": priced_usage(usage, proxy_prices),
-                }
-        if elapsed_ms is not None:
-            watts, watts_source = local_gpu_watts(target)
-            kwh = (watts / 1000.0) * (max(elapsed_ms, 0) / 3_600_000.0)
-            price = electricity_usd_per_kwh()
-            usage["localCompute"] = {
-                "source": "rough-gpu-marginal-estimate",
-                "elapsedMs": elapsed_ms,
-                "gpuWatts": watts,
-                "gpuWattsSource": watts_source,
-                "electricityUsdPerKwh": price,
-                "estimatedEnergyKWh": kwh,
-                "estimatedEnergyCostUsd": kwh * price,
-            }
-        return usage
-    target_prices = prices.get(target) or common.opportunity_rates(target)
+    target_prices = common.opportunity_rates(target)
     if not target_prices:
         return usage
     estimated = priced_usage(usage, target_prices)
@@ -182,6 +77,8 @@ def apply_assumed_cost(usage: Dict[str, Any] | None, target: str | None, elapsed
     usage["costSource"] = "openrouter-assumed"
     usage["costPricing"] = {"unit": "USD_PER_MILLION_TOKENS", "source": "OpenRouter", "rates": target_prices}
     return usage
+
+
 def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
     for key in ("input", "output", "cacheRead", "cacheWrite", "totalTokens"):
         total[key] += int(usage.get(key) or 0)
@@ -254,7 +151,7 @@ def metrics_record(
     invocation_mode: str = "agentic",
 ) -> Dict[str, Any]:
     provider, model = split_target(target)
-    usage = apply_assumed_cost(usage, target, elapsed_ms)
+    usage = apply_assumed_cost(usage, target)
     if outcome not in VALID_OUTCOMES:
         outcome = "unknown"
     return {
@@ -398,7 +295,7 @@ def load_metric_records(files: List[Path], *, include_annotations: bool = True) 
             continue
         if isinstance(data, dict):
             target = str(data.get("target") or f"{data.get('provider')}/{data.get('model')}")
-            data["usage"] = apply_assumed_cost(data.get("usage"), target, int(data.get("elapsedMs") or 0))
+            data["usage"] = apply_assumed_cost(data.get("usage"), target)
             data.setdefault("family", common.family_for_target(target))
             data.setdefault("sourceFile", str(path))
             data.setdefault("outcome", "unknown")

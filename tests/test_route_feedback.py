@@ -43,7 +43,7 @@ def run_route(tmp_path, store_lines):
 def test_negative_history_transfers_from_dormant_to_active_venue(tmp_path):
     rejected = [
         {
-            "target": "olla-cloud/kimi-k2.7-code",
+            "target": "openrouter/moonshotai/kimi-k2.7-code",
             "family": "kimi-k2.7-code",
             "outcome": "rejected",
         }
@@ -94,7 +94,7 @@ def test_open_provider_circuit_excludes_only_direct_openrouter(tmp_path):
 def test_positive_history_transfers_from_dormant_to_active_venue(tmp_path):
     accepted = [
         {
-            "target": "olla-cloud/kimi-k2.7-code",
+            "target": "openrouter/moonshotai/kimi-k2.7-code",
             "family": "kimi-k2.7-code",
             "outcome": "accepted",
         }

@@ -56,7 +56,7 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 - `agent/AGENTS.d/roles/` — delegated-worker stances and output contracts
 - `agent/AGENTS.d/models/` — family-wide and venue-specific instruction overlays
 - `agent/settings.json` — shared Pi settings, package declarations, and runtime defaults
-- `agent/catalog.json` — model family catalog: maps each family to active direct OpenRouter/Codex targets plus retained dormant venue facts; records cost classes, billing classes, context, rates, and model-overlay keys
+- `agent/catalog.json` — model family catalog: maps each family to configured direct OpenRouter/Codex targets and records cost classes, billing classes, context, rates, and model-overlay keys
 - `agent/tasks/` — operational routing labels and preferred, qualified, or avoided model targets
 - `agent/actions/` — action templates that bind routing task, skills, role, allowed effects, and output contract
 - [`agent/bin/`](agent/bin/) — helper commands used by skills and instructions; see the [agnt command reference](agent/bin/README.md)
@@ -71,7 +71,7 @@ Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must h
 
 ## Provider credentials
 
-Provider credentials belong in Pi's ignored `auth.json`, the shell environment, or ignored local env files—not in git. Pi has a built-in OpenRouter provider: run `/login openrouter` or set `OPENROUTER_API_KEY`. `models.json` uses only per-model output-cap overrides; it does not duplicate the provider, endpoint, or credential. OpenAI/Codex remains the default root provider; direct OpenRouter is reserved for fresh bounded delegated calls under the approved [model portfolio](../docs/MODEL-PORTFOLIO-2026-08.md). Local Ollama and Olla/LiteLLM routes are inactive.
+Provider credentials belong in Pi's ignored `auth.json`, the shell environment, or ignored local env files—not in git. Pi has a built-in OpenRouter provider: run `/login openrouter` or set `OPENROUTER_API_KEY`. `models.json` uses only per-model output-cap overrides; it does not duplicate the provider, endpoint, or credential. OpenAI/Codex remains the default root provider; direct OpenRouter is reserved for fresh bounded delegated calls under the approved [model portfolio](../docs/MODEL-PORTFOLIO-2026-08.md). No local or relay provider is configured.
 
 The Langfuse extension and official Langfuse skill share credentials from private `~/.pi/agent/pi-langfuse/config.json`. During Pi sessions, `langfuse-config-env.ts` exposes that config to Langfuse CLI child processes; explicit `LANGFUSE_*` credentials still take precedence. No second credential file is needed.
 
@@ -94,7 +94,7 @@ Some helpers use environment-provided local or self-hosted services. Keep these 
 export SEARXNG_URL=https://your-searxng.example
 ```
 
-`SEARXNG_URL` enables `agnt web-search`. Dormant Olla/local provider code remains available for rollback, but `OLLA_HOST` and laptop Ollama are not part of the active routing configuration.
+`SEARXNG_URL` enables `agnt web-search`. No local or relay model provider is configured; restore prior provider code from Git history only after explicit approval.
 
 ## Excluded runtime state
 

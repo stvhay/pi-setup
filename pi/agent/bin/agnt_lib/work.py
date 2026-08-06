@@ -479,7 +479,6 @@ def selection_policy_from_bead(bead: Dict[str, Any], validation: Dict[str, Any] 
         "risk": normalized.get("risk") or "medium",
         "budget": normalized.get("budget") or "balanced",
         "modelPolicy": model_policy,
-        "localOk": bool(model_policy.get("localOk", False)),
         "diversity": str(model_policy.get("diversity") or "normal"),
         "sessionPolicy": normalized.get("sessionPolicy") or "recorded",
         "memoryPolicy": normalized.get("memoryPolicy") or "auto",
@@ -548,7 +547,6 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         str(dispatch["routingTask"]),
         risk=str(policy["risk"]),
         budget=str(policy["budget"]),
-        local_ok=bool(policy["localOk"]),
         model_policy=policy["modelPolicy"],
         diversity=str(policy["diversity"]),
     )

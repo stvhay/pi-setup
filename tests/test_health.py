@@ -19,7 +19,7 @@ def _bundle(agnt, runs_dir: Path, run_id: str, *, bead: str = "pi-task.1") -> Pa
         action="implement",
         routing_task="implementation",
         bead=bead,
-        selected_model="olla-local/gemma4:31b",
+        selected_model="openrouter/minimax/minimax-m3",
         runs_dir=runs_dir,
         id_value=run_id,
     )

@@ -295,7 +295,7 @@ def test_metered_models_are_not_changed(tmp_path):
 
       const message = {{
         role: "assistant",
-        provider: "olla-cloud",
+        provider: "openrouter",
         model: "gpt-5.6-sol",
         usage: {{ cost: {{ total: 10 }} }},
       }};
@@ -306,7 +306,7 @@ def test_metered_models_are_not_changed(tmp_path):
       }}
 
       assert.deepEqual(globalThis.__piLangfuseObserved, [{{
-        provider: "olla-cloud",
+        provider: "openrouter",
         model: "gpt-5.6-sol",
         cost: 10,
       }}]);

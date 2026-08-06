@@ -22,7 +22,7 @@ Output the debate header:
 
 ### Step 2: Round 1 - Initial Positions
 
-Launch 4 parallel Pi peer calls (one per council member). Route each role first. Prefer subscription-backed Luna/Terra plus bounded direct OpenRouter diversity such as M3 or Kimi K2.7 Code; reserve Opus 5 for stakes that justify its cost. Local and Olla routes are inactive.
+Launch 4 parallel Pi peer calls (one per council member). Route each role first. Prefer subscription-backed Luna/Terra plus bounded direct OpenRouter diversity such as M3 or Kimi K2.7 Code; reserve Opus 5 for stakes that justify its cost.
 
 **Each peer prompt includes:**
 ```
@@ -182,7 +182,7 @@ If user specifies custom members, adjust accordingly:
 - Round 3: ~10-20 seconds (parallel)
 - Synthesis: ~5 seconds
 
-**Total:** 30-90 seconds for cloud-heavy debates; longer when using local models.
+**Total:** 30-90 seconds for typical debates; longer when providers queue or throttle work.
 
 ## Done
 

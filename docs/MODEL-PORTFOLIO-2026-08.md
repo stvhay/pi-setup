@@ -10,7 +10,7 @@
 
 ## Decision
 
-Keep ChatGPT/OpenAI Codex **Pro 20×** as root capacity and default controller. Use a small pay-as-you-go **OpenRouter API** portfolio for bounded, fresh delegated diversity calls. Do not add another subscription yet. Keep local Ollama and the Olla/LiteLLM relay inactive; retain dormant implementation only for easy rollback.
+Keep ChatGPT/OpenAI Codex **Pro 20×** as root capacity and default controller. Use a small pay-as-you-go **OpenRouter API** portfolio for bounded, fresh delegated diversity calls. Do not add another subscription yet. Keep only configured Codex and OpenRouter venues; use Git history instead of dormant provider code for rollback.
 
 Pi has a built-in `openrouter` provider. Authenticate with `/login openrouter` or `OPENROUTER_API_KEY`; do not define a duplicate custom provider and never commit credentials. `pi/agent/models.json` only applies a 16,384-token operational output cap to each approved OpenRouter model, preventing provider credit checks from reserving each model's much larger catalog maximum. Active model selection lives in `pi/agent/settings.json`, deterministic model facts in `pi/agent/catalog.json`, and task routing in `pi/agent/tasks/`.
 
@@ -41,7 +41,7 @@ Consequences:
 | Frontier escalation | `openrouter/moonshotai/kimi-k3` | Concrete unresolved critical issue only, after budget and evidence gates |
 | Independent high-risk reviewer | `openrouter/anthropic/claude-opus-5` | Architecture, high-risk review, or phase checkpoint |
 
-GLM-5.2 remains disabled. Earlier Olla-path calls produced almost no usable output; diagnose transport and collect direct-provider canary evidence before promotion.
+GLM-5.2 remains unconfigured. Earlier relay-path calls produced almost no usable output; require direct-provider canary evidence before adding it again.
 
 ## Primary matrix
 
@@ -115,4 +115,4 @@ Prices and limits were checked on official pages on 2026-08-06:
 
 ## Rollback
 
-Restore prior enabled targets and task policy from Git history, redeploy with `scripts/update-pi-config.sh`, and re-enable `OLLA_HOST`/local routes only after explicit human approval. No data migration is involved.
+Restore prior provider code, enabled targets, and task policy from Git history only after explicit human approval, then redeploy with `scripts/update-pi-config.sh`. No data migration is involved.

@@ -8,9 +8,6 @@ import _agnt_common as common
 
 from .core import TASKS, die
 
-def parse_frontmatter(path: Path) -> Tuple[Dict[str, object], str]:
-    return common.parse_frontmatter_file(path)
-
 
 def task_files() -> List[Path]:
     if not TASKS.is_dir():
@@ -21,7 +18,7 @@ def task_files() -> List[Path]:
 def task_rows() -> List[Tuple[str, Dict[str, object], str]]:
     rows = []
     for path in task_files():
-        meta, body = parse_frontmatter(path)
+        meta, body = common.parse_frontmatter_file(path)
         tid = str(meta.get("id", path.stem))
         rows.append((tid, meta, body))
     return rows

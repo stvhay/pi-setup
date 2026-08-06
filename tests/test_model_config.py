@@ -32,6 +32,14 @@ def test_active_routes_use_builtin_openrouter_without_local_or_olla_targets():
     assert "ollama/" not in task_text
 
 
+def test_catalog_and_extensions_have_no_dormant_olla_stack():
+    catalog_text = CATALOG.read_text(encoding="utf-8")
+
+    assert "olla-cloud/" not in catalog_text
+    assert "olla-local/" not in catalog_text
+    assert not (AGENT / "extensions" / "olla-provider.ts").exists()
+
+
 def test_builtin_openrouter_uses_only_bounded_model_overrides():
     models = json.loads(MODELS.read_text(encoding="utf-8"))
     provider = models["providers"]["openrouter"]
@@ -54,7 +62,7 @@ def test_metered_openrouter_models_require_fresh_delegation_context():
 
     assert "Metered `openrouter` models must run in fresh workers" in instructions
     assert "never switch a long-running root conversation to them" in instructions
-    assert "Local and Olla routes are inactive" in instructions
+    assert "Only tracked Codex and OpenRouter routes are configured" in instructions
 
 
 def test_review_skill_matches_approved_diversity_matrix():
@@ -64,11 +72,20 @@ def test_review_skill_matches_approved_diversity_matrix():
     assert "openrouter/moonshotai/kimi-k2.7-code" in skill
     assert "openrouter/anthropic/claude-opus-5" in skill
     assert "Kimi K3 is never an automatic review target" in skill
-    assert "Local and Olla routes remain inactive" in skill
+    assert "Only tracked Codex and OpenRouter routes are configured" in skill
 
 
 def test_approved_openrouter_models_have_cataloged_runtime_metadata():
     families = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+    assert set(families) == {
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "claude-opus-5",
+        "minimax-m3",
+        "kimi-k2.7-code",
+        "kimi-k3",
+    }
     expected = {
         "minimax-m3": {
             "target": "openrouter/minimax/minimax-m3",

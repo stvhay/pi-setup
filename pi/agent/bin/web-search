@@ -11,8 +11,6 @@ import sys
 import urllib.parse
 import urllib.request
 
-DEFAULT_BASE = ""
-
 
 def infer_category(query: str) -> str | None:
     """Infer a SearXNG category. None means use the instance default."""
@@ -60,7 +58,7 @@ parser.add_argument(
 parser.add_argument("--json", action="store_true", help="print raw JSON response")
 args = parser.parse_args()
 
-base = os.environ.get("SEARXNG_URL", DEFAULT_BASE).rstrip("/")
+base = os.environ.get("SEARXNG_URL", "").rstrip("/")
 if not base:
     print("SEARXNG_URL is not set; configure a SearXNG instance URL before using web-search", file=sys.stderr)
     sys.exit(2)

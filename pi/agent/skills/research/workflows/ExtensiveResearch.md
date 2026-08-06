@@ -104,25 +104,7 @@ Persist returned results under `.pi/research/scratch/` only when synthesis needs
 
 ### Step 4: VERIFY ALL URLs (MANDATORY)
 
-**Before delivering results, verify EVERY URL:**
-
-```bash
-# For each URL returned by agents:
-curl -s -o /dev/null -w "%{http_code}" -L "URL"
-# Must return 200
-
-# Then verify content:
-curl -L "URL" | head -c 4000  # confirm content matches the citation
-# Must return actual content, not error
-```
-
-**If URL fails verification:**
-- Remove it from results
-- Find an alternative source using an available search method
-- Verify the replacement URL
-- NEVER include unverified URLs
-
-**Extensive mode generates MANY URLs - allocate time for verification.**
+Follow `references/UrlVerificationProtocol.md`. Verify every URL and its support for the cited claim; remove or replace anything unverified. Extensive mode needs time for this pass.
 
 ### Step 5: Return Results
 

@@ -270,7 +270,7 @@ export function providerFailureClass(message?: string): ProviderFailureClass | u
 
 function providerError(message?: string): string {
   if (message && /OpenrouterException/i.test(message) && /Key limit exceeded \(monthly limit\)/i.test(message)) {
-    return `upstream OpenRouter monthly limit exceeded${message.startsWith("403:") ? " (HTTP 403 via Olla)" : ""}`;
+    return "upstream OpenRouter monthly limit exceeded";
   }
   return message || "unknown upstream error";
 }

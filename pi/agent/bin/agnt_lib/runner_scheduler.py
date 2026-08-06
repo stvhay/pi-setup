@@ -21,7 +21,6 @@ CheckpointHandler = Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], D
 DEFAULT_CONCURRENCY = 1
 DEFAULT_RETRY_LIMIT = 2
 DEFAULT_RETRY_BACKOFF_SECONDS = 60
-TERMINAL_STATUSES = {"succeeded", "failed", "blocked", "superseded"}
 
 
 def _format_time(value: datetime) -> str:

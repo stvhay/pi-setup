@@ -24,9 +24,6 @@
               ripgrep
               direnv
             ];
-            shellHook = ''
-              true
-            '';
           };
         });
     };

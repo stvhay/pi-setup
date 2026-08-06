@@ -6,7 +6,7 @@
   "cases": [
     {
       "name": "code-reviewer-role",
-      "args": ["--role", "code-reviewer", "--context", "olla-cloud/qwen3.5-9b"],
+      "args": ["--role", "code-reviewer", "--context", "openrouter/minimax/minimax-m3"],
       "contains": ["# Role: code reviewer", "### Verdict: PASS | NEEDS_WORK | NOT_SURE", "# Project Instructions"]
     },
     {
@@ -21,28 +21,13 @@
     },
     {
       "name": "finding-discoverer-role",
-      "args": ["--role", "finding-discoverer", "--context", "olla-cloud/gemma-4-31b-it"],
-      "contains": ["# Role: finding discoverer", "specific failure scenario", "review-findings.schema.json", "# Model notes: gemma4-31b"]
+      "args": ["--role", "finding-discoverer", "--context", "openai-codex/gpt-5.6-luna"],
+      "contains": ["# Role: finding discoverer", "specific failure scenario", "review-findings.schema.json"]
     },
     {
       "name": "finding-verifier-role",
       "args": ["--role", "finding-verifier", "--context", "openai-codex/gpt-5.6-sol"],
       "contains": ["# Role: finding verifier", "Treat every discovery finding as a hypothesis to refute", "confirmed", "refuted", "unresolved"]
-    },
-    {
-      "name": "family-overlay-local-venue",
-      "args": ["--context", "olla-local/gemma4:31b"],
-      "contains": ["# Model notes: gemma4-31b (all venues)"]
-    },
-    {
-      "name": "family-overlay-openrouter-venue",
-      "args": ["--context", "olla-cloud/gemma-4-31b-it"],
-      "contains": ["# Model notes: gemma4-31b (all venues)"]
-    },
-    {
-      "name": "family-overlay-gpt41mini",
-      "args": ["--context", "olla-cloud/gpt-4.1-mini"],
-      "contains": ["# Model notes: gpt-4.1-mini (all venues)", "agnt plans-dir"]
     }
   ]
 }

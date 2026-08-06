@@ -28,31 +28,12 @@ def enabled_models() -> set[str]:
 
 def configured_model_info() -> Dict[str, Dict[str, Any]]:
     info: Dict[str, Dict[str, Any]] = {}
-    models_path = ROOT / "models.json"
-    if models_path.is_file():
-        try:
-            data = json.loads(models_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            data = {}
-        providers = data.get("providers") if isinstance(data, dict) else None
-        if isinstance(providers, dict):
-            for provider, provider_data in providers.items():
-                models = provider_data.get("models") if isinstance(provider_data, dict) else None
-                if not isinstance(models, list):
-                    continue
-                for item in models:
-                    if not isinstance(item, dict) or not item.get("id"):
-                        continue
-                    target = f"{provider}/{item['id']}"
-                    info[target] = dict(item)
-                    info[target]["target"] = target
-                    info[target]["provider"] = provider
     for family_id, family in (common.load_catalog().get("families") or {}).items():
         for venue in (family.get("venues") or []) if isinstance(family, dict) else []:
             if not isinstance(venue, dict) or not venue.get("target"):
                 continue
             target = str(venue["target"])
-            merged = {**venue, **info.get(target, {})}
+            merged = dict(venue)
             if merged.get("billingClass") == "metered" and "cost" not in merged:
                 rates = family.get("openrouterRates")
                 if isinstance(rates, dict):
@@ -63,10 +44,6 @@ def configured_model_info() -> Dict[str, Dict[str, Any]]:
     return info
 
 
-def is_local_route_target(target: str) -> bool:
-    return target.startswith("ollama/") or target.startswith("olla-local/")
-
-
 def route_cost_rank(target: str, info: Dict[str, Any], budget: str) -> Tuple[int, str]:
     cost_class = str(info.get("costClass") or "")
     billing_class = str(info.get("billingClass") or "")
@@ -75,8 +52,6 @@ def route_cost_rank(target: str, info: Dict[str, Any], budget: str) -> Tuple[int
     if budget == "quality":
         quality_rank = 0 if cost_class == "frontier" else 1 if cost_class == "balanced" else 2 if cost_class == "cheap" else 3
         return quality_rank, target
-    if cost_class == "local" or billing_class == "free" or is_local_route_target(target):
-        return 0, target
     if billing_class == "subscription":
         return 1, target
     if billing_class == "metered":
@@ -130,9 +105,18 @@ def paid_review_spend(records: List[Dict[str, Any]], *, month: str | None = None
             continue
         target = str(record.get("target") or "")
         usage = record.get("usage") if isinstance(record.get("usage"), dict) else {}
+        cost = usage.get("cost") if isinstance(usage.get("cost"), dict) else {}
         venue = common.venue_info(target) or {}
-        marginal = target.startswith("openrouter") or venue.get("billingClass") == "metered"
-        if is_local_route_target(target) or not marginal:
+        marginal = (
+            target.startswith("openrouter")
+            or venue.get("billingClass") == "metered"
+            or (
+                usage.get("costSource") == "provider-reported"
+                and float(cost.get("total") or 0.0) > 0
+                and venue.get("billingClass") != "subscription"
+            )
+        )
+        if not marginal:
             continue
         key = str(
             record.get("recordId")
@@ -142,7 +126,6 @@ def paid_review_spend(records: List[Dict[str, Any]], *, month: str | None = None
         if key in seen:
             continue
         seen.add(key)
-        cost = usage.get("cost") if isinstance(usage.get("cost"), dict) else {}
         total += float(cost.get("total") or 0.0)
     return total
 
@@ -176,8 +159,7 @@ def stats_family(record: Dict[str, Any]) -> str:
 
 
 def route_metric_stats() -> Dict[str, Dict[str, int]]:
-    """Outcome history aggregated by model family, so evidence gathered on one
-    venue (e.g. local Ollama) informs routing to every venue of the same weights.
+    """Outcome history aggregated by model family across configured venues.
     Reads the durable global store plus this project's pending records."""
     pending, _warnings = load_metric_records(metric_files(default_metrics_dir()))
     stats: Dict[str, Dict[str, int]] = {}
@@ -279,7 +261,7 @@ def score_candidate(
         policy_score = base_rank * 100 + cost_key[0]
         policy_reason = "task policy ordering"
     score = policy_score + metric_adjustment
-    context_policy = "fresh" if target.startswith("olla-cloud/") or info.get("billingClass") == "metered" else "reuse-ok"
+    context_policy = "fresh" if info.get("billingClass") == "metered" else "reuse-ok"
     return {
         "target": target,
         "score": score,
@@ -293,7 +275,7 @@ def score_candidate(
             reason for reason in [
                 policy_reason,
                 metric_reason,
-                "fresh worker context required for Olla/OpenRouter model" if context_policy == "fresh" else None,
+                "fresh worker context required for metered model" if context_policy == "fresh" else None,
             ] if reason
         ],
         "costSortKey": list(cost_key),
@@ -351,7 +333,6 @@ def select_model(
     budget: str = "balanced",
     context_tokens: int = 0,
     modality: str = "text",
-    local_ok: bool = False,
     model_policy: Dict[str, Any] | None = None,
     fanout_size: int = 0,
     diversity: str | None = None,
@@ -374,8 +355,6 @@ def select_model(
     policy = model_policy or {}
     requested_thinking = str(meta.get(f"thinking{risk.title()}") or "") or None
     avoid_families = {str(item) for item in as_list(policy.get("avoidFamilies"))}
-    if isinstance(policy.get("localOk"), bool):
-        local_ok = local_ok or bool(policy["localOk"])
     diversity = diversity or str(policy.get("diversity") or "normal")
     ordered: List[str] = []
     for target in [*preferred, *qualified]:
@@ -432,9 +411,6 @@ def select_model(
                 "reason": f"provider circuit open: {circuit['reason']} until {circuit['expiresAt']}",
             })
             continue
-        if is_local_route_target(target) and not local_ok:
-            rejected.append({"target": target, "diversityGroup": group, "reason": "local model requires --local-ok"})
-            continue
         modalities = as_list(info.get("input")) or ["text"]
         if modality not in modalities:
             rejected.append({"target": target, "diversityGroup": group, "reason": f"missing modality {modality}"})
@@ -478,7 +454,6 @@ def select_model(
             "budget": budget,
             "modality": modality,
             "contextTokens": context_tokens,
-            "localOk": local_ok,
             "routeStatus": "no_candidate",
             "selected": None,
             "selection": None,
@@ -516,7 +491,6 @@ def select_model(
         "budget": budget,
         "modality": modality,
         "contextTokens": context_tokens,
-        "localOk": local_ok,
         "routeStatus": "selected",
         "selected": selected["target"],
         "selection": selection,
@@ -547,7 +521,6 @@ def cmd_route(argv: List[str]) -> int:
     parser.add_argument("--risk", choices=["low", "medium", "high"], default="medium")
     parser.add_argument("--context-tokens", type=int, default=0)
     parser.add_argument("--modality", choices=["text", "image", "audio", "video"], default="text")
-    parser.add_argument("--local-ok", action="store_true", help="allow local models in recommendations")
     parser.add_argument("--budget", choices=["cheap", "balanced", "quality"], default="balanced")
     parser.add_argument("--fanout-size", type=int, default=0, help="include N scored diverse fanout selections")
     parser.add_argument("--ignore-history", action="store_true", help="ignore outcome history for deterministic evaluation")
@@ -565,7 +538,6 @@ def cmd_route(argv: List[str]) -> int:
         budget=args.budget,
         context_tokens=args.context_tokens,
         modality=args.modality,
-        local_ok=args.local_ok,
         fanout_size=args.fanout_size,
         diversity=args.diversity,
         paid_review_spend_usd=args.monthly_paid_spend,

@@ -158,7 +158,7 @@ def test_invoke_one_reports_timeout(agnt, monkeypatch):
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
 
     code, out, err, record = agnt.invoke_one(
-        "olla-cloud/gpt-4.1-mini",
+        "openrouter/minimax/minimax-m3",
         "prompt",
         metrics=False,
         timeout_seconds=12,
@@ -189,7 +189,7 @@ def test_invoke_one_parses_json_stream_on_timeout(agnt, monkeypatch):
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
 
     code, out, err, record = agnt.invoke_one(
-        "olla-cloud/gemma-4-31b-it",
+        "openrouter/moonshotai/kimi-k2.7-code",
         "prompt",
         metrics=True,
         task="review",
@@ -226,7 +226,7 @@ def test_invoke_one_fails_terminal_provider_error(agnt, monkeypatch):
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", lambda cmd, **kwargs: Proc())
 
     code, out, err, record = agnt.invoke_one(
-        "olla-cloud/gemma-4-31b-it",
+        "openrouter/moonshotai/kimi-k2.7-code",
         "prompt",
         metrics=True,
         task="review",
@@ -270,7 +270,7 @@ def test_invoke_one_one_shot_disables_agent_context_and_records_request_count(ag
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
 
     code, out, err, record = agnt.invoke_one(
-        "olla-cloud/gemma-4-31b-it",
+        "openrouter/moonshotai/kimi-k2.7-code",
         "complete review packet",
         metrics=True,
         task="review",
@@ -313,7 +313,7 @@ def test_invoke_one_can_record_named_session(agnt, monkeypatch, tmp_path):
     monkeypatch.setattr(agnt.invoke_one.__globals__["subprocess"], "run", fake_run)
 
     code, out, err, record = agnt.invoke_one(
-        "olla-cloud/gpt-4.1-mini",
+        "openrouter/minimax/minimax-m3",
         "prompt",
         metrics=False,
         record_session=True,
@@ -342,7 +342,7 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
         action="implement",
         routing_task="implementation",
         bead="pi-ready.1",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         thinking_level="high",
         worktree={"schemaVersion": 1, "path": str(worktree), "dispatchable": True, "status": "ready"},
         allowed_effects=["read_workspace", "write_artifacts", "edit_files", "write_workspace", "update_beads"],
@@ -375,7 +375,7 @@ def test_invoke_run_bundle_review_stays_read_only(agnt, monkeypatch, tmp_path):
         action="review",
         routing_task="review",
         bead="pi-ready.1",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         allowed_effects=["read_workspace", "write_artifacts"],
         output_contract="findings-with-evidence",
         runs_dir=tmp_path / "runs",
@@ -405,7 +405,7 @@ def test_invoke_run_bundle_verify_with_command_evidence_gets_safe_bash(agnt, mon
         action="verify",
         routing_task="review",
         bead="pi-ready.1",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         allowed_effects=["read_workspace", "write_artifacts"],
         acceptance_criteria=["Run `/usr/bin/python -m pytest e2e-test/test_edabit_challenges.py -q` and report result."],
         output_contract="verification-review",
@@ -434,7 +434,7 @@ def test_create_run_bundle_initializes_live_logs_and_lessons_handoff(agnt, tmp_p
         action="verify",
         routing_task="review",
         bead="pi-ready.1",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         output_contract="verification-review",
         runs_dir=tmp_path / "runs",
         id_value="run-live-layout",
@@ -458,7 +458,7 @@ def test_canonical_invocation_id_survives_run_start_result_and_metrics(agnt, mon
         action="verify",
         routing_task="review",
         bead="pi-test.canonical",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         parent_session_id="parent-session",
         output_contract="verification-review",
         runs_dir=tmp_path / "runs",
@@ -508,7 +508,7 @@ def test_legacy_v1_bundle_execution_migrates_to_fresh_canonical_invocation_id(ag
         "id": "legacy-readable-id",
         "action": "review",
         "routingTask": "review",
-        "model": "olla-cloud/gpt-4.1-mini",
+        "model": "openrouter/minimax/minimax-m3",
         "allowedEffects": ["read_workspace", "write_artifacts"],
         "createdAt": "2026-06-27T01:02:03Z",
     })
@@ -558,7 +558,7 @@ def test_render_invocation_prompt_includes_ticket_description(agnt, tmp_path):
         action="review",
         routing_task="review",
         bead="pi-ready.1",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         ticket_metadata={"title": "Review plan", "description": "Read docs/PLAN.md and report stop conditions."},
         output_contract="findings-with-evidence",
         runs_dir=tmp_path / "runs",
@@ -576,7 +576,7 @@ def test_invoke_run_bundle_fails_unresolved_tool_call_markup(agnt, monkeypatch, 
         action="review",
         routing_task="review",
         bead="pi-ready.1",
-        selected_model="olla-cloud/gpt-4.1-mini",
+        selected_model="openrouter/minimax/minimax-m3",
         output_contract="findings-with-evidence",
         runs_dir=tmp_path / "runs",
         id_value="run-tool-call",

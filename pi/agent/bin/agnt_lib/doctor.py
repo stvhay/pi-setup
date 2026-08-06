@@ -17,6 +17,7 @@ from .startup_policy import (
     ORCHESTRATOR_STARTUP_PROFILE,
     build_startup_report,
     check_beads_workspace,
+    check_result,
     check_searxng_url,
     load_intent_config,
     profile_check_names,
@@ -25,7 +26,6 @@ from .startup_policy import (
 PASS = "pass"
 WARNING = "warning"
 FAIL = "fail"
-SKIP = "skip"
 
 DEFAULT_CHECKS = [
     "command.pi",
@@ -44,29 +44,9 @@ PROVIDER_ENV_VARS = {
     "anthropic": ["ANTHROPIC_API_KEY"],
     "gemini": ["GEMINI_API_KEY"],
     "google": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-    "olla-cloud": ["OLLA_HOST"],
 }
 
 DEFAULT_NODE_LTS_MAJORS = {20, 22, 24}
-
-
-def check_result(
-    check_id: str,
-    status: str,
-    message: str,
-    *,
-    severity: str = "low",
-    evidence: Dict[str, Any] | None = None,
-    suggested_actions: List[str] | None = None,
-) -> Dict[str, Any]:
-    return {
-        "id": check_id,
-        "status": status,
-        "severity": severity,
-        "message": message,
-        "evidence": evidence or {},
-        "suggestedActions": suggested_actions or [],
-    }
 
 
 def run_quiet(argv: List[str], timeout: float = 5.0) -> subprocess.CompletedProcess[str]:

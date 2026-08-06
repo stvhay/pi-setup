@@ -69,13 +69,12 @@ def load_catalog(path: Path | None = None) -> Dict[str, Any]:
     key = str(catalog_path)
     if key in _CATALOG_CACHE:
         return _CATALOG_CACHE[key]
-    catalog: Dict[str, Any] = {"families": {}, "defaults": {}}
+    catalog: Dict[str, Any] = {"families": {}}
     if catalog_path.is_file():
         try:
             data = json.loads(catalog_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 catalog["families"] = data.get("families") or {}
-                catalog["defaults"] = data.get("defaults") or {}
         except (OSError, json.JSONDecodeError):
             pass
     _CATALOG_CACHE[key] = catalog
@@ -115,31 +114,6 @@ def venue_info(
     return None
 
 
-def proxy_for_target(
-    target: str, catalog: Dict[str, Any] | None = None
-) -> Dict[str, str] | None:
-    """Metered family venue standing in for local opportunity-cost pricing."""
-    catalog = catalog or load_catalog()
-    info = venue_info(target, catalog)
-    if not info:
-        return None
-    family = (catalog.get("families") or {}).get(info["family"]) or {}
-    for venue in family.get("venues") or []:
-        if not isinstance(venue, dict):
-            continue
-        proxy_target = str(venue.get("target") or "")
-        if (
-            proxy_target != target
-            and venue.get("billingClass") == "metered"
-            and venue.get("equivalence")
-        ):
-            return {
-                "target": proxy_target,
-                "quality": str(venue["equivalence"]),
-            }
-    return None
-
-
 def opportunity_rates(
     target: str, catalog: Dict[str, Any] | None = None
 ) -> Dict[str, float] | None:
@@ -158,20 +132,3 @@ def opportunity_rates(
         "cacheRead": float(rates.get("cacheRead") or 0.0),
         "cacheWrite": float(rates.get("cacheWrite") or 0.0),
     }
-
-
-def provider_gpu_watts(
-    provider: str, catalog: Dict[str, Any] | None = None
-) -> float | None:
-    catalog = catalog or load_catalog()
-    watts = (catalog.get("defaults") or {}).get("providerGpuWatts") or {}
-    value = watts.get(provider)
-    return float(value) if value is not None else None
-
-
-def default_electricity_usd_per_kwh(
-    catalog: Dict[str, Any] | None = None,
-) -> float | None:
-    catalog = catalog or load_catalog()
-    value = (catalog.get("defaults") or {}).get("electricityUsdPerKwh")
-    return float(value) if value is not None else None

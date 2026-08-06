@@ -89,10 +89,7 @@ def _validate_model_policy(pi_meta: Mapping[str, Any], failures: List[str]) -> D
         failures.append("metadata.pi.modelPolicy.avoidFamilies must be a list of strings")
         avoid_families = []
 
-    normalized = {"mode": mode, "diversity": diversity, "avoidFamilies": list(avoid_families)}
-    if isinstance(raw.get("localOk"), bool):
-        normalized["localOk"] = raw["localOk"]
-    return normalized
+    return {"mode": mode, "diversity": diversity, "avoidFamilies": list(avoid_families)}
 
 
 def _validate_continuation(pi_meta: Mapping[str, Any], failures: List[str], *, action: str | None) -> Dict[str, str] | None:

@@ -115,7 +115,7 @@ STPA-Sec generates compliance artifacts as outputs, not separate activities:
 
 ## Methodology Deep Dive
 
-For detailed coverage of mission-focused analysis, wargaming with STPA-Sec (DoD Cyber Table Top exercises), and security requirements derivation, see [references/stpa-security.md](references/stpa-security.md).
+Read and follow [references/stpa-security.md](references/stpa-security.md) for the STPA-Sec process, mission-focused analysis, wargaming, and security-requirements derivation.
 
 ## Core Insight
 
@@ -166,47 +166,6 @@ Microsoft's STRIDE threat taxonomy maps to control structure elements:
 | Flawed control algorithm | **Tampering** - modify software/firmware |
 | Incorrect process model | **Spoofing** - corrupt state information |
 | Wrong goals | **Tampering** - modify configuration/policy |
-
-## STPA-Sec Process
-
-Follow STPA steps with security additions:
-
-### Step 1: Define Purpose (Security Addition)
-
-In addition to safety losses, identify:
-- **Security-specific losses**: Confidentiality, integrity, availability
-- **Adversary-relevant hazards**: System states an adversary would want to cause
-- **Trust boundaries**: Where control/feedback crosses security domains
-
-### Step 2: Model Control Structure (Security Addition)
-
-Annotate the control structure with:
-- **Trust boundaries**: Mark where controllers/paths cross security domains
-- **Attack surfaces**: External interfaces, network connections, physical access points
-- **Authentication points**: Where identity is verified (or assumed)
-
-### Step 3: Identify Unsafe Control Actions (No Change)
-
-UCAs remain the same—STPA-Sec doesn't change what's unsafe, only adds reasons why it might occur.
-
-### Step 4: Identify Loss Scenarios (Security Addition)
-
-For each UCA, add security-specific scenarios:
-
-```
-UCA: [Controller] [does/does not] [action] when [context]
-
-Security Scenarios:
-- Spoofing: Adversary impersonates [X] to cause [UCA]
-- Tampering: Adversary modifies [Y] to cause [UCA]
-- DoS: Adversary blocks [Z] to cause [UCA]
-```
-
-For each scenario, identify:
-1. **Attack vector**: How adversary gains access
-2. **Required capabilities**: What adversary needs (access, knowledge, resources)
-3. **Indicators**: How attack might be detected
-4. **Mitigations**: Controls that prevent or limit attack
 
 ## Output Schema
 

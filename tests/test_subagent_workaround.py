@@ -100,7 +100,7 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
       install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
         observe() {{}},
         providerCircuit(action, provider, reason) {{ circuits.push({{ action, provider, reason }}); }},
-        activeProviderCircuits() {{ return ["olla-cloud"]; }},
+        activeProviderCircuits() {{ return ["openrouter"]; }},
       }});
       assert.equal(typeof handlers.message_end, "function");
       assert.deepEqual([
@@ -123,23 +123,23 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
 
       try {{
         await handlers.session_start({{}}, {{ cwd: process.cwd() }});
-        await handlers.message_end({{ message: {{ role: "assistant", provider: "olla-cloud", stopReason: "stop" }} }}, {{ cwd: process.cwd() }});
-        assert.deepEqual(circuits, [{{ action: "success", provider: "olla-cloud", reason: undefined }}]);
+        await handlers.message_end({{ message: {{ role: "assistant", provider: "openrouter", stopReason: "stop" }} }}, {{ cwd: process.cwd() }});
+        assert.deepEqual(circuits, [{{ action: "success", provider: "openrouter", reason: undefined }}]);
         circuits.length = 0;
         process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
 
         await handlers.message_end({{
           message: {{
             role: "assistant",
-            provider: "olla-cloud",
-            model: "gpt-4.1-mini",
+            provider: "openrouter",
+            model: "minimax/minimax-m3",
             stopReason: "error",
             errorMessage: "403: upstream monthly limit exceeded",
           }},
         }});
         assert.equal(process.exitCode, 1);
         assert.deepEqual(errors, [
-          "[subagent] olla-cloud/gpt-4.1-mini failed: 403: upstream monthly limit exceeded",
+          "[subagent] openrouter/minimax/minimax-m3 failed: 403: upstream monthly limit exceeded",
         ]);
 
         process.exitCode = undefined;
@@ -147,19 +147,19 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
         await handlers.message_end({{
           message: {{
             role: "assistant",
-            provider: "olla-cloud",
-            model: "gpt-4.1-mini",
+            provider: "openrouter",
+            model: "minimax/minimax-m3",
             stopReason: "error",
             errorMessage: '403: {{"message":"litellm.APIError: OpenrouterException - Key limit exceeded (monthly limit). Manage it using https://openrouter.ai/workspaces/default/keys/private-key-id"}}',
           }},
         }});
         assert.equal(process.exitCode, 1);
         assert.deepEqual(errors, [
-          "[subagent] olla-cloud/gpt-4.1-mini failed: upstream OpenRouter monthly limit exceeded (HTTP 403 via Olla)",
+          "[subagent] openrouter/minimax/minimax-m3 failed: upstream OpenRouter monthly limit exceeded",
         ]);
         assert.deepEqual(circuits, [
-          {{ action: "open", provider: "olla-cloud", reason: "quota" }},
-          {{ action: "open", provider: "olla-cloud", reason: "quota" }},
+          {{ action: "open", provider: "openrouter", reason: "quota" }},
+          {{ action: "open", provider: "openrouter", reason: "quota" }},
         ]);
 
         process.exitCode = undefined;
@@ -167,15 +167,15 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
         await handlers.message_end({{
           message: {{
             role: "assistant",
-            provider: "olla-cloud",
-            model: "gpt-4.1-mini",
+            provider: "openrouter",
+            model: "minimax/minimax-m3",
             stopReason: "stop",
             content: [],
           }},
         }});
         assert.equal(process.exitCode, undefined);
         assert.deepEqual(errors, []);
-        assert.deepEqual(circuits.at(-1), {{ action: "success", provider: "olla-cloud", reason: undefined }});
+        assert.deepEqual(circuits.at(-1), {{ action: "success", provider: "openrouter", reason: undefined }});
       }} finally {{
         console.error = originalError;
         process.exitCode = originalExitCode;
@@ -238,7 +238,7 @@ def test_interactive_results_emit_evaluator_ready_observations():
       await handlers.agent_settled({{}});
       assert.equal(
         observations[1].attributes.output,
-        "Useful partial report\\n\\n[execution failed: upstream OpenRouter monthly limit exceeded (HTTP 403 via Olla)]",
+        "Useful partial report\\n\\n[execution failed: upstream OpenRouter monthly limit exceeded]",
       );
       assert.deepEqual(observations[1].attributes.metadata, {{
         executionOutcome: "failed",
@@ -345,12 +345,12 @@ def test_subagent_results_emit_evaluator_ready_observations():
         toolName: "subagent",
         toolCallId: "parallel",
         input: {{ tasks: [
-          {{ task: "Review auth", model: "olla-cloud/gpt-4.1-mini", outputContract: "inline" }},
+          {{ task: "Review auth", model: "openrouter/minimax/minimax-m3", outputContract: "inline" }},
           {{ task: "Check tests", model: "openai-codex/gpt-5.6-luna", outputContract: "artifact" }},
         ] }},
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
-          {{ task: "Review auth", model: "gpt-4.1-mini", exitCode: 0, finalOutput: "Auth review complete" }},
+          {{ task: "Review auth", model: "minimax/minimax-m3", exitCode: 0, finalOutput: "Auth review complete" }},
           {{ task: "Check tests", model: "gpt-5.6-luna", exitCode: 1, error: "Provider unavailable" }},
         ] }},
         isError: false,
@@ -383,9 +383,9 @@ def test_subagent_results_emit_evaluator_ready_observations():
             output: "Auth review complete",
             metadata: {{
               index: 0,
-              provider: "olla-cloud",
-              model: "gpt-4.1-mini",
-              target: "olla-cloud/gpt-4.1-mini",
+              provider: "openrouter",
+              model: "minimax/minimax-m3",
+              target: "openrouter/minimax/minimax-m3",
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
               executionOutcome: "succeeded",
@@ -902,8 +902,8 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       }}, {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
 
       const parallelInput = {{ tasks: [
-        {{ task: "first private task", model: "olla-cloud/gemini-flash" }},
-        {{ task: "second private task", model: "olla-cloud/gpt-4.1-mini" }},
+        {{ task: "first private task", model: "openrouter/minimax/minimax-m3" }},
+        {{ task: "second private task", model: "openrouter/moonshotai/kimi-k2.7-code" }},
       ] }};
       await handlers.tool_call({{ toolName: "subagent", toolCallId: "parallel", input: parallelInput }}, {{ cwd }});
       await handlers.tool_result({{
@@ -912,8 +912,8 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
         input: parallelInput,
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
-          {{ agent: "subagent", task: "first private task", exitCode: 0, usage: {{ input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0.01, turns: 1 }}, model: "gemini-flash", finalOutput: "first private output", progressSummary: {{ toolCount: 1, tokens: 15, durationMs: 500 }} }},
-          {{ agent: "subagent", task: "second private task", exitCode: 0, usage: {{ input: 20, output: 8, cacheRead: 2, cacheWrite: 0, cost: 0.02, turns: 2 }}, model: "gpt-4.1-mini", finalOutput: "second private output", progressSummary: {{ toolCount: 0, tokens: 30, durationMs: 700 }} }},
+          {{ agent: "subagent", task: "first private task", exitCode: 0, usage: {{ input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0.01, turns: 1 }}, model: "minimax/minimax-m3", finalOutput: "first private output", progressSummary: {{ toolCount: 1, tokens: 15, durationMs: 500 }} }},
+          {{ agent: "subagent", task: "second private task", exitCode: 0, usage: {{ input: 20, output: 8, cacheRead: 2, cacheWrite: 0, cost: 0.02, turns: 2 }}, model: "moonshotai/kimi-k2.7-code", finalOutput: "second private output", progressSummary: {{ toolCount: 0, tokens: 30, durationMs: 700 }} }},
         ], progress: [] }},
         isError: false,
       }}, {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }});
@@ -930,14 +930,14 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
           task: "inherited private task",
           exitCode: 0,
           usage: {{ input: 6, output: 3, cacheRead: 0, cacheWrite: 0, cost: 0.01, turns: 1 }},
-          model: "gemma-4-31b-it",
+          model: "minimax/minimax-m3",
           finalOutput: "inherited output",
           progressSummary: {{ toolCount: 0, tokens: 9, durationMs: 100 }},
         }}], progress: [] }},
         isError: false,
-      }}, {{ cwd, model: {{ provider: "olla-cloud", id: "gemma-4-31b-it" }} }});
+      }}, {{ cwd, model: {{ provider: "openrouter", id: "minimax/minimax-m3" }} }});
 
-      const namedInput = {{ agent: "configured-reviewer", task: "named private task", model: "olla-cloud/gpt-4.1-mini" }};
+      const namedInput = {{ agent: "configured-reviewer", task: "named private task", model: "openrouter/minimax/minimax-m3" }};
       await handlers.tool_call({{ toolName: "subagent", toolCallId: "named", input: namedInput }}, {{ cwd }});
       await handlers.tool_result({{
         toolName: "subagent",
@@ -981,9 +981,9 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       assert.equal(single.providerRequests, 3);
       assert.equal(single.usage.totalTokens, 190);
       assert.equal(single.usage.cost.total, 0.12);
-      assert.equal(records.find((record) => record.target === "olla-cloud/gemini-flash").workerElapsedMs, 500);
-      assert.equal(records.find((record) => record.target === "olla-cloud/gpt-4.1-mini").workerElapsedMs, 700);
-      assert.ok(records.some((record) => record.target === "olla-cloud/gemma-4-31b-it"));
+      assert.equal(records.find((record) => record.target === "openrouter/minimax/minimax-m3").workerElapsedMs, 500);
+      assert.equal(records.find((record) => record.target === "openrouter/moonshotai/kimi-k2.7-code").workerElapsedMs, 700);
+      assert.ok(records.some((record) => record.target === "openrouter/moonshotai/kimi-k2.7-code"));
 
       const serialized = JSON.stringify(records);
       for (const secret of [secretPrompt, secretOutput, "first private task", "second private task", "first private output", "second private output", "inherited private task", "inherited output"]) {{

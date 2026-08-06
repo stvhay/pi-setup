@@ -40,7 +40,7 @@ Route to the appropriate workflow based on the request.
 
 **Pi execution model:** Route council work with `agnt route`, then call unnamed Archimedes `subagent` peers. Use one parallel `tasks` array per round and run rounds sequentially so later prompts can include earlier transcripts.
 
-**Speed:** Parallel execution within rounds, sequential between rounds. A 3-round debate of 4 agents = 12 peer calls but only 3 sequential waits. Local models may take longer than cloud models.
+**Speed:** Parallel execution within rounds, sequential between rounds. A 3-round debate of 4 agents = 12 peer calls but only 3 sequential waits.
 
 ## Examples
 

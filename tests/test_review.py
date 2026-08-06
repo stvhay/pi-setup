@@ -16,8 +16,8 @@ def discovery_document() -> dict:
         "reviewId": "review-123",
         "scope": "behavioral",
         "reviewer": {
-            "target": "olla-cloud/gemma-4-31b-it",
-            "family": "gemma4-31b",
+            "target": "openrouter/moonshotai/kimi-k2.7-code",
+            "family": "kimi-k2.7-code",
         },
         "findings": [
             {
@@ -144,7 +144,7 @@ def test_review_annotation_fields_link_findings_to_invocation(agnt):
         agnt.review_annotation_fields(
             document,
             expected_record_id="metric-123",
-            expected_target="olla-cloud/deepseek-v4-flash",
+            expected_target="openrouter/minimax/minimax-m3",
         )
 
 
@@ -172,7 +172,7 @@ def test_review_cli_validates_and_summarizes_document(agnt, tmp_path, capsys):
 
 
 def test_metrics_summary_exposes_verified_finding_yield_per_cost(agnt):
-    target = "olla-cloud/gemma-4-31b-it"
+    target = "openrouter/moonshotai/kimi-k2.7-code"
     record = {
         "target": target,
         "task": "review",
@@ -219,7 +219,7 @@ def test_metrics_annotation_accepts_validated_findings_file(agnt, tmp_path, caps
     annotations = tmp_path / "annotations.jsonl"
     findings = tmp_path / "findings.json"
     record = agnt.metrics_record(
-        target="olla-cloud/gemma-4-31b-it",
+        target="openrouter/moonshotai/kimi-k2.7-code",
         task="review",
         started_at="2026-07-21T00:00:00Z",
         ended_at="2026-07-21T00:00:01Z",
