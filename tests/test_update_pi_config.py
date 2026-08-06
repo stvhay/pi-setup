@@ -12,9 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "update-pi-config.sh"
 
 
-def run_update(dest: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_update(
+    dest: Path, *args: str, env_overrides: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PI_CONFIG_DEST"] = str(dest)
+    env.update(env_overrides or {})
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         cwd=ROOT,
@@ -84,6 +87,63 @@ def test_update_preserves_machine_local_extensions(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert extension.read_text(encoding="utf-8") == content
+
+
+def test_update_backs_up_retired_ollama_local_extension(tmp_path):
+    dest = tmp_path / ".pi"
+    extension = dest / "agent" / "extensions" / "ollama.local.ts"
+    extension.parent.mkdir(parents=True)
+    content = 'import { buildModels } from "./olla-provider.ts";\n'
+    extension.write_text(content, encoding="utf-8")
+
+    proc = run_update(dest)
+
+    assert proc.returncode == 0, proc.stderr
+    assert not extension.exists()
+    backups = list((dest / "runtime" / "retired-config").glob("ollama.local.ts-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == content
+    assert "Retiring incompatible machine-local Ollama extension" in proc.stdout
+
+
+def test_update_dry_run_reports_retired_ollama_local_extension_without_mutating(tmp_path):
+    dest = tmp_path / ".pi"
+    extension = dest / "agent" / "extensions" / "ollama.local.ts"
+    extension.parent.mkdir(parents=True)
+    content = 'import { buildModels } from "./olla-provider.ts";\n'
+    extension.write_text(content, encoding="utf-8")
+
+    proc = run_update(dest, "--dry-run")
+
+    assert proc.returncode == 0, proc.stderr
+    assert extension.read_text(encoding="utf-8") == content
+    assert "Retiring incompatible machine-local Ollama extension" in proc.stdout
+    assert "runtime/retired-config/ollama.local.ts-" in proc.stdout
+
+
+def test_update_does_not_overwrite_existing_retired_ollama_backup(tmp_path):
+    dest = tmp_path / ".pi"
+    extension = dest / "agent" / "extensions" / "ollama.local.ts"
+    extension.parent.mkdir(parents=True)
+    extension.write_text('./olla-provider.ts\n', encoding="utf-8")
+    retired = dest / "runtime" / "retired-config"
+    retired.mkdir(parents=True)
+    existing = retired / "ollama.local.ts-20000101-000000"
+    existing.write_text("existing backup\n", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    date = fake_bin / "date"
+    date.write_text("#!/bin/sh\necho 20000101-000000\n", encoding="utf-8")
+    date.chmod(0o755)
+
+    proc = run_update(
+        dest,
+        env_overrides={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert existing.read_text(encoding="utf-8") == "existing backup\n"
+    assert len(list(retired.glob("ollama.local.ts-*"))) == 2
 
 
 def test_update_preserves_langfuse_credentials(tmp_path):

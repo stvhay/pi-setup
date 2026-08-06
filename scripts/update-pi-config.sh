@@ -127,6 +127,23 @@ if [ "$MODE" = apply ] && [ -f "$DEST/agent/settings.json" ]; then
   cp "$DEST/agent/settings.json" "$RUNTIME_SETTINGS_BACKUP"
 fi
 
+# Olla provider support was retired, but machine-local extensions normally
+# survive deploys. Preserve the obsolete override as runtime evidence while
+# removing it from Pi extension discovery.
+legacy_ollama_extension="$DEST/agent/extensions/ollama.local.ts"
+if [ -f "$legacy_ollama_extension" ] && grep -qF './olla-provider.ts' "$legacy_ollama_extension"; then
+  retired_dir="$DEST/runtime/retired-config"
+  if [ "$MODE" = apply ]; then
+    mkdir -p "$retired_dir"
+    backup=$(mktemp "$retired_dir/ollama.local.ts-XXXXXX")
+  else
+    backup="$retired_dir/ollama.local.ts-XXXXXX"
+    run mkdir -p "$retired_dir"
+  fi
+  echo "Retiring incompatible machine-local Ollama extension to $backup."
+  run mv "$legacy_ollama_extension" "$backup"
+fi
+
 # Preserve runtime secrets/state while deleting stale managed files. Python
 # caches are sender-only excludes, so they are not deployed or deletion-protected.
 RSYNC_EXCLUDES=(
