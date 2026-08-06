@@ -115,6 +115,16 @@ def test_ponytail_code_cuts_use_native_and_existing_helpers():
     assert "catalog-free" not in (AGENT / "bin" / "agnt_lib" / "metrics.py").read_text(encoding="utf-8")
 
 
+def test_project_init_eval_excludes_opt_in_github_templates():
+    skill = (AGENT / "skills" / "project-init" / "SKILL.md").read_text(encoding="utf-8")
+    workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
+    case = workflow_eval.split("case_project_init_clean_scaffold()", 1)[1].split("case_implementation_commits_task_owned_changes()", 1)[0]
+
+    assert ".github/pull_request_template.md" in skill.split("Optional only when requested:", 1)[1]
+    assert ".github/pull_request_template.md" not in case.split("for path in", 1)[1].split("; do", 1)[0]
+    assert "created opt-in GitHub template without request" in case
+
+
 def test_approved_implementation_defaults_through_local_commit():
     global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")

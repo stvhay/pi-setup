@@ -424,12 +424,15 @@ case_project_init_clean_scaffold() {
   repo=$(new_repo)
   (
     cd "$repo"
-    run_pi '/skill:project-init Fresh init this repo. I approve creating the standard Pi scaffolding files using .envrc/.envrc.d/flake.nix. Do not commit, push, configure branch protection, or install hooks.' > "$RUN_DIR/$name.out"
-    for path in .envrc .envrc.d/gh.sh flake.nix AGENTS.md CONTRIBUTING.md .project-init .pi/plans .worktrees .github/pull_request_template.md; do
+    run_pi '/skill:project-init Fresh init this repo. I approve creating the standard Pi scaffolding files using .envrc/.envrc.d/flake.nix. Do not create opt-in GitHub templates. Do not commit, push, configure branch protection, or install hooks.' > "$RUN_DIR/$name.out"
+    for path in .envrc .envrc.d/gh.sh flake.nix AGENTS.md CONTRIBUTING.md .project-init .pi/plans .worktrees; do
       if [ ! -e "$path" ]; then
         fail "$name" "missing expected scaffold: $path"
       fi
     done
+    if [ -e .github/pull_request_template.md ]; then
+      fail "$name" "project-init created opt-in GitHub template without request"
+    fi
     if rg -n 'CLAUDE|\.claude' . --hidden -g '!/.git/**' >/dev/null; then
       fail "$name" "scaffold contains forbidden Claude references"
     fi
