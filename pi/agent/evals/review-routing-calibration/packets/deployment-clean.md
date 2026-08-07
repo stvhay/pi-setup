@@ -8,6 +8,7 @@ Review only this packet. Anchors B1–B3 are candidate review locations; an anch
 - Any failure restores the complete previous package.
 - Exact clean and fully patched bases are accepted.
 - Interrupted or mixed patch states are rejected and reinstalled; marker presence alone is not proof of completeness.
+- In this minimal fixture, a complete package contains both `package.json` and `runtime.py`.
 
 ## Patch
 
@@ -19,35 +20,41 @@ import subprocess
 
 def patch_state(package: Path, patch_file: Path):
     # ANCHOR B2
-    reverse = subprocess.run(["patch", "--force", "--reverse", "--dry-run", "-p1"],
+    reverse = subprocess.run(["patch", "--force", "--fuzz=0", "--reverse", "--dry-run", "-p1"],
                              cwd=package, input=patch_file.read_bytes()).returncode
     if reverse == 0:
         return "applied"
-    forward = subprocess.run(["patch", "--force", "--dry-run", "-p1"],
+    forward = subprocess.run(["patch", "--force", "--fuzz=0", "--dry-run", "-p1"],
                              cwd=package, input=patch_file.read_bytes()).returncode
     return "pending" if forward == 0 else "invalid"
 
 
 def deploy(package: Path, backup: Path, install, apply_patch, validate):
+    if backup.exists():
+        raise RuntimeError("stale backup requires operator cleanup")
     shutil.move(package, backup)
     try:
         install(package)
         apply_patch(package)
         validate(package)
-        # ANCHOR B1
-        shutil.rmtree(backup)
     except Exception:
         if package.exists():
             shutil.rmtree(package)
         if backup.exists():
             shutil.move(backup, package)
         raise
+    # ANCHOR B1 — committed; backup cleanup cannot invalidate the new package.
+    try:
+        shutil.rmtree(backup)
+    except OSError:
+        pass
 
 
 def validate(package: Path):
     # ANCHOR B3
-    if not (package / "package.json").is_file():
-        raise RuntimeError("missing package manifest")
+    required = (package / "package.json", package / "runtime.py")
+    if not all(path.is_file() for path in required):
+        raise RuntimeError("incomplete package")
 ```
 
 ## Existing tests

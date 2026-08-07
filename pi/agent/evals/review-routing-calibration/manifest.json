@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "review-routing-calibration",
-  "taskPrefix": "review-calibration:v2",
+  "taskPrefix": "review-calibration:v3",
   "models": [
     {
       "name": "terra",
@@ -42,8 +42,8 @@
       "prompt": "packets/ingestion-seeded.md",
       "anchors": ["A1", "A2", "A3"],
       "expectedFindings": {
-        "A1": {"requiredTerms": ["utf-8", "byte"]},
-        "A2": {"requiredTerms": ["retry", "id"]}
+        "A1": {"semanticAlternatives": [["utf-8", "byte"], ["multibyte", "character"], ["encode", "length"]]},
+        "A2": {"semanticAlternatives": [["retry", "id"], ["uuid", "attempt"], ["deduplication", "different"], ["retry", "duplicate"], ["non-idempotent", "score"]]}
       },
       "control": "case-01b"
     },
@@ -63,8 +63,8 @@
       "prompt": "packets/deployment-seeded.md",
       "anchors": ["B1", "B2", "B3"],
       "expectedFindings": {
-        "B1": {"requiredTerms": ["backup", "patch"]},
-        "B2": {"requiredTerms": ["marker", "partial"]}
+        "B1": {"semanticAlternatives": [["backup", "patch"], ["rollback", "delet"], ["restore", "remov"], ["recover", "previous"]]},
+        "B2": {"semanticAlternatives": [["marker", "partial"], ["marker", "complet"], ["mixed", "state"], ["marker", "missing"], ["hunk", "state"]]}
       },
       "control": "case-02b"
     },

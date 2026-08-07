@@ -27,7 +27,10 @@ def send_score(post, score, attempts=2):
     for attempt in range(attempts):
         # ANCHOR A2
         envelope = {"id": str(uuid4()), "type": "score-create", "body": score}
-        response = post(json.dumps({"batch": [envelope]}, ensure_ascii=False))
+        body = json.dumps({"batch": [envelope]}, ensure_ascii=False)
+        if len(body.encode("utf-8")) > MAX_BODY_BYTES:
+            raise ValueError("score request exceeds 3,000,000 UTF-8 bytes")
+        response = post(body)
         if response.status < 500:
             return response
     return response

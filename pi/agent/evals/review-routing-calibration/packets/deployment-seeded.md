@@ -8,6 +8,7 @@ Review only this packet. Anchors B1–B3 are candidate review locations; an anch
 - Any failure restores the complete previous package.
 - Exact clean and fully patched bases are accepted.
 - Interrupted or mixed patch states are rejected and reinstalled; marker presence alone is not proof of completeness.
+- In this minimal fixture, a complete package contains both `package.json` and `runtime.py`.
 
 ## Patch
 
@@ -21,12 +22,14 @@ def patch_state(package: Path, patch_file: Path):
     # ANCHOR B2
     if "CURRENT_PATCH_MARKER" in (package / "runtime.py").read_text():
         return "applied"
-    forward = subprocess.run(["patch", "--dry-run", "-p1"], cwd=package,
+    forward = subprocess.run(["patch", "--force", "--fuzz=0", "--dry-run", "-p1"], cwd=package,
                              input=patch_file.read_bytes()).returncode
     return "pending" if forward == 0 else "invalid"
 
 
 def deploy(package: Path, backup: Path, install, apply_patch, validate):
+    if backup.exists():
+        raise RuntimeError("stale backup requires operator cleanup")
     shutil.move(package, backup)
     try:
         install(package)
@@ -44,8 +47,9 @@ def deploy(package: Path, backup: Path, install, apply_patch, validate):
 
 def validate(package: Path):
     # ANCHOR B3
-    if not (package / "package.json").is_file():
-        raise RuntimeError("missing package manifest")
+    required = (package / "package.json", package / "runtime.py")
+    if not all(path.is_file() for path in required):
+        raise RuntimeError("incomplete package")
 ```
 
 ## Existing tests

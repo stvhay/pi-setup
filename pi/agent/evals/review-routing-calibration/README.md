@@ -22,7 +22,7 @@ Packet anchors are candidate locations, not defect disclosures. Ground truth sta
 For each packet and repetition, send one `subagent` tool call containing two tasks in manifest model order. Build each task as:
 
 ```text
-review-calibration:v2 packet=<packet-id> repetition=<1..3>
+review-calibration:v3 packet=<packet-id> repetition=<1..3>
 
 <exact packet file contents>
 ```

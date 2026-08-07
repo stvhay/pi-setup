@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -61,11 +64,22 @@ def output(packet: dict, finding_ids: list[str], *, semantic: bool = True) -> st
 
 
 def task(packet_id: str, repetition: int) -> str:
-    return f"review-calibration:v2 packet={packet_id} repetition={repetition}\n\npacket body"
+    packet = next(item for item in manifest()["packets"] if item["id"] == packet_id)
+    prompt = (EVAL_DIR / packet["prompt"]).read_text(encoding="utf-8").strip()
+    return f"review-calibration:v3 packet={packet_id} repetition={repetition}\n\n{prompt}"
 
 
 def session_entry(message: dict) -> str:
     return json.dumps({"type": "message", "id": "entry", "message": message})
+
+
+def packet_namespace(filename: str) -> dict:
+    text = (EVAL_DIR / "packets" / filename).read_text(encoding="utf-8")
+    match = re.search(r"```python\n(.*?)\n```", text, flags=re.DOTALL)
+    assert match
+    namespace: dict = {}
+    exec(compile(match.group(1), filename, "exec"), namespace)
+    return namespace
 
 
 def test_real_manifest_and_packets_validate():
@@ -74,16 +88,154 @@ def test_real_manifest_and_packets_validate():
     checked = module.validate_manifest(manifest(), EVAL_DIR)
 
     assert checked["id"] == "review-routing-calibration"
-    assert checked["taskPrefix"] == "review-calibration:v2"
+    assert checked["taskPrefix"] == "review-calibration:v3"
     assert len(checked["packets"]) == 4
     assert {packet["kind"] for packet in checked["packets"]} == {"seeded", "clean"}
     assert checked["execution"]["repetitions"] == 3
     assert checked["thresholds"]["minLatencyAdjustedYieldRatio"] == 1.25
-    seeded = (EVAL_DIR / "packets/ingestion-seeded.md").read_text(encoding="utf-8")
-    assert 'len(event_body.encode("utf-8")) > MAX_BODY_BYTES' in seeded
+    for packet in checked["packets"]:
+        for rubric in packet["expectedFindings"].values():
+            assert len(rubric["semanticAlternatives"]) >= 2
 
 
-def test_collect_ignores_stale_trial_prefixes(tmp_path):
+@pytest.mark.parametrize(("packet_index", "finding_id", "claim"), [
+    (0, "A1", "Character-counting underestimates wire length for multibyte payloads."),
+    (0, "A2", "A retry after 503 can create a duplicate score; the operation is non-idempotent."),
+    (2, "B1", "Failure after backup deletion cannot recover the previous package."),
+    (2, "B2", "The marker can exist while a required hunk is missing."),
+])
+def test_semantic_rubric_accepts_specific_paraphrases(packet_index, finding_id, claim):
+    module = load_module()
+    packet = manifest()["packets"][packet_index]
+    paraphrase = finding(packet, finding_id, semantic=False)
+    paraphrase["claim"] = claim
+
+    assert module.verify_finding(paraphrase, packet)["status"] == "confirmed"
+
+
+def test_ingestion_packets_have_only_the_declared_seeded_defects():
+    seeded = packet_namespace("ingestion-seeded.md")
+    clean = packet_namespace("ingestion-clean.md")
+    first = {"id": "1", "body": "🙂" * 400_000}
+    second = {"id": "2", "body": "🙂" * 400_000}
+    later = {"id": "later", "body": "ok"}
+    oversized = {"id": "big", "body": "🙂" * 800_000}
+
+    assert seeded["serialized_size"]([first, second]) < seeded["MAX_BODY_BYTES"]
+    assert len(json.dumps({"batch": [first, second]}, ensure_ascii=False).encode("utf-8")) > seeded["MAX_BODY_BYTES"]
+    assert [event["id"] for batch in seeded["partition"]([oversized, later]) for event in batch] == ["later"]
+    assert all(clean["serialized_size"](batch) <= clean["MAX_BODY_BYTES"] for batch in clean["partition"]([first, second]))
+
+    class Post:
+        def __init__(self):
+            self.bodies = []
+
+        def __call__(self, body):
+            self.bodies.append(json.loads(body))
+            return SimpleNamespace(status=503 if len(self.bodies) == 1 else 200)
+
+    seeded_post = Post()
+    clean_post = Post()
+    seeded["send_score"](seeded_post, {"value": 1})
+    clean["send_score"](clean_post, {"value": 1})
+    assert seeded_post.bodies[0]["batch"][0]["id"] != seeded_post.bodies[1]["batch"][0]["id"]
+    assert clean_post.bodies[0]["batch"][0]["id"] == clean_post.bodies[1]["batch"][0]["id"]
+    with pytest.raises(ValueError, match="3,000,000"):
+        seeded["send_score"](Post(), {"value": "🙂" * 800_000})
+    with pytest.raises(ValueError, match="3,000,000"):
+        clean["send_score"](Post(), {"value": "🙂" * 800_000})
+
+
+def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monkeypatch):
+    seeded_text = (EVAL_DIR / "packets/deployment-seeded.md").read_text(encoding="utf-8")
+    clean_text = (EVAL_DIR / "packets/deployment-clean.md").read_text(encoding="utf-8")
+    assert seeded_text.count("CURRENT_PATCH_MARKER") == 1
+    assert seeded_text.count('"--fuzz=0"') == 1
+    assert clean_text.count('"--fuzz=0"') == 2
+    seeded = packet_namespace("deployment-seeded.md")
+    clean = packet_namespace("deployment-clean.md")
+    patch_file = tmp_path / "runtime.patch"
+    patch_file.write_text(
+        "--- a/runtime.py\n+++ b/runtime.py\n@@ -1,3 +1,3 @@\n CONTEXT\n-OLD\n+CURRENT_PATCH_MARKER\n TAIL\n",
+        encoding="utf-8",
+    )
+
+    clean_package = tmp_path / "clean"
+    clean_package.mkdir()
+    (clean_package / "package.json").write_text("{}\n", encoding="utf-8")
+    (clean_package / "runtime.py").write_text("CONTEXT\nOLD\nTAIL\n", encoding="utf-8")
+    assert clean["patch_state"](clean_package, patch_file) == "pending"
+    subprocess.run(["patch", "--force", "--fuzz=0", "-p1"], cwd=clean_package,
+                   input=patch_file.read_bytes(), check=True, capture_output=True)
+    assert clean["patch_state"](clean_package, patch_file) == "applied"
+    (clean_package / "runtime.py").write_text("MIXED CURRENT_PATCH_MARKER\n", encoding="utf-8")
+    assert clean["patch_state"](clean_package, patch_file) == "invalid"
+    assert seeded["patch_state"](clean_package, patch_file) == "applied"
+    fuzzy = tmp_path / "fuzzy"
+    fuzzy.mkdir()
+    (fuzzy / "runtime.py").write_text("DRIFT\nOLD\nTAIL\n", encoding="utf-8")
+    assert subprocess.run(["patch", "--force", "--dry-run", "-p1"], cwd=fuzzy,
+                          input=patch_file.read_bytes(), capture_output=True).returncode == 0
+    assert seeded["patch_state"](fuzzy, patch_file) == "invalid"
+    incomplete = tmp_path / "incomplete"
+    incomplete.mkdir()
+    (incomplete / "package.json").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="incomplete package"):
+        clean["validate"](incomplete)
+
+    cleanup_root = tmp_path / "cleanup"
+    cleanup_package = cleanup_root / "package"
+    cleanup_backup = cleanup_root / "backup"
+    cleanup_package.mkdir(parents=True)
+    (cleanup_package / "package.json").write_text("{}\n", encoding="utf-8")
+    (cleanup_package / "runtime.py").write_text("OLD\n", encoding="utf-8")
+
+    def install_new(path):
+        path.mkdir()
+        (path / "package.json").write_text("{}\n", encoding="utf-8")
+        (path / "runtime.py").write_text("NEW\n", encoding="utf-8")
+
+    original_rmtree = clean["shutil"].rmtree
+
+    def partial_cleanup(path, *args, **kwargs):
+        if Path(path) == cleanup_backup:
+            (cleanup_backup / "runtime.py").unlink()
+            raise OSError("partial backup cleanup")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(clean["shutil"], "rmtree", partial_cleanup)
+    clean["deploy"](cleanup_package, cleanup_backup, install_new, lambda _path: None, clean["validate"])
+    assert (cleanup_package / "runtime.py").read_text(encoding="utf-8") == "NEW\n"
+    with pytest.raises(RuntimeError, match="stale backup"):
+        clean["deploy"](cleanup_package, cleanup_backup, install_new, lambda _path: None, clean["validate"])
+    assert (cleanup_package / "runtime.py").read_text(encoding="utf-8") == "NEW\n"
+
+    def exercise_deploy(namespace, root):
+        package = root / "package"
+        backup = root / "backup"
+        package.mkdir(parents=True)
+        (package / "package.json").write_text("{}\n", encoding="utf-8")
+        (package / "runtime.py").write_text("OLD\n", encoding="utf-8")
+
+        def install(path):
+            path.mkdir()
+            (path / "package.json").write_text("{}\n", encoding="utf-8")
+            (path / "runtime.py").write_text("NEW\n", encoding="utf-8")
+
+        def fail_patch(_path):
+            raise RuntimeError("patch failed")
+
+        with pytest.raises(RuntimeError, match="patch failed"):
+            namespace["deploy"](package, backup, install, fail_patch, namespace["validate"])
+        return package
+
+    assert not exercise_deploy(seeded, tmp_path / "seeded").exists()
+    restored = exercise_deploy(clean, tmp_path / "control")
+    assert (restored / "runtime.py").read_text(encoding="utf-8") == "OLD\n"
+
+
+@pytest.mark.parametrize("stale_prefix", ["review-calibration:v1", "review-calibration:v2"])
+def test_collect_ignores_stale_trial_prefixes(tmp_path, stale_prefix):
     module = load_module()
     session = tmp_path / "session.jsonl"
     session.write_text(session_entry({
@@ -92,7 +244,7 @@ def test_collect_ignores_stale_trial_prefixes(tmp_path):
             "type": "toolCall",
             "id": "stale-call",
             "name": "subagent",
-            "arguments": {"tasks": [{"task": "review-calibration:v1 packet=case-01a repetition=1"}]},
+            "arguments": {"tasks": [{"task": f"{stale_prefix} packet=case-01a repetition=1"}]},
         }],
     }), encoding="utf-8")
 
@@ -156,6 +308,24 @@ def test_collect_correlates_subagent_call_and_result_dimensions(tmp_path):
     assert all(record["providerRequests"] == 1 for record in records)
     assert all(record["durationMs"] == 1_000 for record in records)
     assert all(record["responseChars"] <= 6_000 for record in records)
+
+    tasks[0]["task"] = f"review-calibration:v3 packet={packet['id']} repetition=1\n\nwrong packet"
+    results[0]["task"] = tasks[0]["task"]
+    session.write_text("\n".join([
+        session_entry({
+            "role": "assistant",
+            "content": [{"type": "toolCall", "id": call_id, "name": "subagent", "arguments": {"tasks": tasks}}],
+        }),
+        session_entry({
+            "role": "toolResult",
+            "toolCallId": call_id,
+            "toolName": "subagent",
+            "details": {"results": results},
+        }),
+    ]), encoding="utf-8")
+    drifted = module.collect_records(session, spec)
+    terra = next(record for record in drifted if record["target"].endswith("terra"))
+    assert "taskPayload" in terra["dimensionErrors"]
 
 
 def test_collect_correlates_reordered_results_by_task_and_model(tmp_path):

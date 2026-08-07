@@ -74,8 +74,11 @@ def validate_manifest(spec: dict[str, Any], base_dir: Path = HERE) -> dict[str, 
         if not isinstance(expected, dict) or not set(expected).issubset(anchors):
             raise ValueError(f"invalid expected findings: {packet['id']}")
         for finding_id, rubric in expected.items():
-            terms = rubric.get("requiredTerms") if isinstance(rubric, dict) else None
-            if not isinstance(terms, list) or not terms or not all(isinstance(term, str) and term for term in terms):
+            alternatives = rubric.get("semanticAlternatives") if isinstance(rubric, dict) else None
+            if (not isinstance(alternatives, list) or len(alternatives) < 2
+                    or any(not isinstance(terms, list) or not terms
+                           or not all(isinstance(term, str) and term for term in terms)
+                           for terms in alternatives)):
                 raise ValueError(f"invalid semantic rubric: {packet['id']}:{finding_id}")
         if packet["kind"] == "clean" and expected:
             raise ValueError(f"clean packet has expected findings: {packet['id']}")
@@ -118,6 +121,14 @@ def parse_task_header(task: Any, prefix: str) -> tuple[str, int] | None:
     first_line = task.splitlines()[0] if task.splitlines() else ""
     match = TASK_RE.fullmatch(first_line)
     return (match.group(2), int(match.group(3))) if match and match.group(1) == prefix else None
+
+
+def expected_task_text(spec: dict[str, Any], packet_id: str, repetition: int) -> str | None:
+    packet = next((item for item in spec["packets"] if item["id"] == packet_id), None)
+    if packet is None:
+        return None
+    prompt = (HERE / packet["prompt"]).read_text(encoding="utf-8").strip()
+    return f"{spec['taskPrefix']} packet={packet_id} repetition={repetition}\n\n{prompt}"
 
 
 def session_messages(path: Path) -> list[dict[str, Any]]:
@@ -226,6 +237,8 @@ def collect_records(session_path: Path, spec: dict[str, Any]) -> list[dict[str, 
             if result:
                 unmatched_results.remove(result)
             errors = dimension_errors(task, result, spec)
+            if task.get("task") != expected_task_text(spec, packet_id, repetition):
+                errors.append("taskPayload")
             if len(matches) != 1:
                 errors.append("resultCorrelation")
             progress = result.get("progressSummary") if isinstance(result.get("progressSummary"), dict) else {}
@@ -331,14 +344,16 @@ def verify_finding(finding: dict[str, Any], packet: dict[str, Any]) -> dict[str,
     rubric = packet["expectedFindings"].get(finding_id)
     searchable = " ".join(str(finding.get(field) or "") for field in
                           ("claim", "failureScenario", "evidence")).lower()
-    terms = rubric.get("requiredTerms", []) if isinstance(rubric, dict) else []
-    confirmed = bool(terms) and all(term.lower() in searchable for term in terms)
+    alternatives = rubric.get("semanticAlternatives", []) if isinstance(rubric, dict) else []
+    matched = next((terms for terms in alternatives
+                    if all(term.lower() in searchable for term in terms)), None)
+    confirmed = matched is not None
     return {
         "findingId": finding_id,
         "status": "confirmed" if confirmed else "refuted",
         "method": "private-semantic-rubric",
         "evidence": (
-            f"matched private rubric terms: {', '.join(terms)}" if confirmed
+            "matched a private semantic alternative" if confirmed
             else "finding did not match a seeded private semantic rubric"
         ),
         "durationMs": (time.perf_counter() - started) * 1000,
