@@ -327,7 +327,11 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     marker.parent.mkdir(parents=True)
     marker.write_text("const PARALLEL_OUTPUT_MAX_CHARS = 12_000;\n", encoding="utf-8")
     progress_marker = marker.parent / "types.ts"
-    progress_marker.write_text("interface Progress { turnTokens?: number }\n", encoding="utf-8")
+    progress_marker.write_text(
+        "interface Progress { turnTokens?: number; streamingParts?: Map<number, unknown> }\n",
+        encoding="utf-8",
+    )
+    (marker.parent / "handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
     breaker_marker = marker.parent / "stream.ts"
     breaker_marker.write_text('const stop = { reason: "repeated-error" };\n', encoding="utf-8")
     langfuse = dest / "agent" / "npm" / "node_modules" / "pi-langfuse"
@@ -388,7 +392,11 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
     stale.parent.mkdir(parents=True)
     stale.write_text("const PARALLEL_OUTPUT_MAX_CHARS = 12_000;\n", encoding="utf-8")
     (stale.parent / "types.ts").write_text(
-        "interface Progress { turnTokens?: number }\n",
+        "interface Progress { turnTokens?: number; streamingParts?: Map<number, unknown> }\n",
+        encoding="utf-8",
+    )
+    (stale.parent / "stream.ts").write_text(
+        'const stop = { reason: "repeated-error" };\n',
         encoding="utf-8",
     )
     fake_pi = tmp_path / "pi"
@@ -444,7 +452,8 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
     subagent = dest / "agent" / "npm" / "node_modules" / "@pi-archimedes/subagent/src"
     subagent.mkdir(parents=True)
     (subagent / "index.ts").write_text("PARALLEL_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "types.ts").write_text("turnTokens\n", encoding="utf-8")
+    (subagent / "types.ts").write_text("turnTokens\nstreamingParts\n", encoding="utf-8")
+    (subagent / "handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
     (subagent / "stream.ts").write_text('reason: "repeated-error"\n', encoding="utf-8")
     langfuse = dest / "agent" / "npm" / "node_modules" / "pi-langfuse"
     (langfuse / "src").mkdir()
@@ -512,7 +521,8 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
     subagent = modules / "@pi-archimedes/subagent/src"
     subagent.mkdir(parents=True)
     (subagent / "index.ts").write_text("PARALLEL_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "types.ts").write_text("turnTokens\n", encoding="utf-8")
+    (subagent / "types.ts").write_text("turnTokens\nstreamingParts\n", encoding="utf-8")
+    (subagent / "handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
     (subagent / "stream.ts").write_text('reason: "repeated-error"\n', encoding="utf-8")
     langfuse = modules / "pi-langfuse"
     (langfuse / "index.ts").write_text("getSessionId?.();\n", encoding="utf-8")

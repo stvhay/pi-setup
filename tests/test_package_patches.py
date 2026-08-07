@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
-ARCHIMEDES_VENDOR_HEAD = "6adcc78635d4174422badf79db84bc2a50fd1865"
+ARCHIMEDES_VENDOR_HEAD = "9e9e142126ddcf13fddee60e125beddd344aa770"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "f1568028debf9af89f64a648f7559b49b7793743"
 
@@ -302,6 +302,9 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "PARALLEL_OUTPUT_MAX_CHARS" in archimedes
     assert "turnTokens" in archimedes
     assert "turnCount" in archimedes
+    assert "streamingParts" in archimedes
+    assert "assistantMessageEvent" in archimedes
+    assert "STREAMING_OUTPUT_MAX_CHARS" in archimedes
     assert 'reason: "repeated-error"' in archimedes
     assert "MAX_TRACKED_TOOL_CALL_IDS" in archimedes
     assert "MAX_FINGERPRINT_DEPTH" in archimedes

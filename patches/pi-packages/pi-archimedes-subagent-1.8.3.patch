@@ -386,40 +386,47 @@ index 0f9dfed..7828cff 100644
 +      : formatTokens(tokens) + " tok");
 +  }
 diff --git a/src/handlers.ts b/src/handlers.ts
-index f0fb6f5..9335008 100644
+index f0fb6f5..8f7463c 100644
 --- a/src/handlers.ts
 +++ b/src/handlers.ts
 @@ -0,0 +1 @@
 +import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
-@@ -1,0 +3,9 @@ import type { StreamState } from "./types.js";
+@@ -1,0 +3,14 @@ import type { StreamState } from "./types.js";
 +import { addUsage, isUsage, readUsage } from "./usage.js";
 +
-+export type JsonEvent = ExtensionEvent;
++export type MessageUpdateEvent = {
++  type: "message_update";
++  message?: unknown;
++  assistantMessageEvent?: unknown;
++};
++export type JsonEvent = Exclude<ExtensionEvent, { type: "message_update" }> | MessageUpdateEvent;
 +type ToolStartEvent = Extract<ExtensionEvent, { type: "tool_execution_start" }>;
 +type ToolEndEvent = Extract<ExtensionEvent, { type: "tool_execution_end" }>;
-+type MessageUpdateEvent = Extract<ExtensionEvent, { type: "message_update" }>;
++type MessageStartEvent = Extract<ExtensionEvent, { type: "message_start" }>;
 +type MessageEndEvent = Extract<ExtensionEvent, { type: "message_end" }>;
 +type AgentEndEvent = Extract<ExtensionEvent, { type: "agent_end" }>;
 +type AssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
-@@ -8,5 +17,0 @@ const RECENT_OUTPUT_MAX = 50;
+@@ -7,5 +22,2 @@ const RECENT_OUTPUT_MAX = 50;
+-
 -export interface JsonEvent {
 -  type: string;
 -  [key: string]: unknown;
 -}
--
-@@ -50 +55 @@ export function extractArgsPreview(args: unknown): string {
++const STREAMING_PARTS_MAX = 50;
++const STREAMING_OUTPUT_MAX_CHARS = 12_000;
+@@ -50 +62 @@ export function extractArgsPreview(args: unknown): string {
 -export function handleToolStart(state: StreamState, event: JsonEvent): void {
 +export function handleToolStart(state: StreamState, event: ToolStartEvent): void {
-@@ -52 +57 @@ export function handleToolStart(state: StreamState, event: JsonEvent): void {
+@@ -52 +64 @@ export function handleToolStart(state: StreamState, event: JsonEvent): void {
 -  state.currentTool = event.toolName as string;
 +  state.currentTool = event.toolName;
-@@ -76 +81 @@ export function handleToolEnd(state: StreamState): void {
+@@ -76 +88 @@ export function handleToolEnd(state: StreamState): void {
 -export function handleToolResult(state: StreamState, event: JsonEvent): void {
 +export function handleToolResult(state: StreamState, event: ToolEndEvent): void {
-@@ -80 +85 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -80 +92 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 -  const toolName = (event.toolName as string) ?? "tool";
 +  const toolName = event.toolName;
-@@ -103,0 +109,60 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -103,0 +116,126 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 +function objectItems<T>(value: unknown): T[] {
 +  if (!Array.isArray(value)) return [];
 +  return value.filter((item) => item !== null && typeof item === "object") as T[];
@@ -466,21 +473,87 @@ index f0fb6f5..9335008 100644
 +  state.partialUsage = readUsage(undefined);
 +}
 +
-+/** Handle the latest in-flight assistant message as replaceable partial state. */
-+export function handleMessageUpdate(state: StreamState, event: MessageUpdateEvent): void {
-+  const message = event.message;
-+  if (
-+    !message ||
-+    typeof message !== "object" ||
-+    message.role !== "assistant" ||
-+    !hasAssistantStreamData(message)
-+  ) return;
-+  if (!state.model && message.model) state.model = message.model;
-+  state.streamingOutput = assistantText(message);
-+  state.partialUsage = readUsage(message.usage);
++function clearStreamingMessage(state: StreamState): void {
++  state.streamingOutput = undefined;
++  state.streamingParts.clear();
 +}
 +
-@@ -107,3 +172,12 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
++function renderStreamingParts(state: StreamState): string | undefined {
++  const parts = [...state.streamingParts.entries()]
++    .sort(([left], [right]) => left - right)
++    .map(([, part]) => part)
++    .filter((part) => part.content.trim())
++    .map((part) => part.type === "thinking" ? `[thinking] ${part.content.trim()}` : part.content);
++  return parts.length > 0 ? parts.join("\n\n").slice(0, STREAMING_OUTPUT_MAX_CHARS) : undefined;
++}
++
++function updateStreamingPart(
++  state: StreamState,
++  index: number,
++  type: "text" | "thinking",
++  content: string,
++  replace: boolean,
++): boolean {
++  const existing = state.streamingParts.get(index);
++  if (!existing && state.streamingParts.size >= STREAMING_PARTS_MAX) return false;
++  const otherChars = [...state.streamingParts.entries()].reduce(
++    (total, [partIndex, part]) => total + (partIndex === index ? 0 : part.content.length),
++    0,
++  );
++  const previous = existing?.type === type ? existing.content : "";
++  const next = (replace ? content : `${previous}${content}`)
++    .slice(0, Math.max(0, STREAMING_OUTPUT_MAX_CHARS - otherChars));
++  if (existing?.type === type && existing.content === next) return false;
++  state.streamingParts.set(index, { type, content: next });
++  state.streamingOutput = renderStreamingParts(state);
++  return true;
++}
++
++/** Reset replaceable assistant state when a new assistant message starts. */
++export function handleMessageStart(state: StreamState, event: MessageStartEvent): void {
++  if (event.message?.role !== "assistant") return;
++  clearStreamingMessage(state);
++  if (!state.model && event.message.model) state.model = event.message.model;
++}
++
++/** Handle the latest in-flight assistant message as replaceable partial state. */
++export function handleMessageUpdate(state: StreamState, event: MessageUpdateEvent): boolean {
++  const message = event.message;
++  if (message && typeof message === "object" && (message as { role?: unknown }).role === "assistant") {
++    const assistant = message as AssistantMessage;
++    if (!hasAssistantStreamData(assistant)) return false;
++    if (!state.model && assistant.model) state.model = assistant.model;
++    state.streamingParts.clear();
++    state.streamingOutput = assistantText(assistant)?.slice(0, STREAMING_OUTPUT_MAX_CHARS);
++    state.partialUsage = readUsage(assistant.usage);
++    return true;
++  }
++
++  const update = event.assistantMessageEvent;
++  if (!update || typeof update !== "object" || Array.isArray(update)) return false;
++  const delta = update as Record<string, unknown>;
++  const index = delta.contentIndex;
++  if (!Number.isSafeInteger(index) || (index as number) < 0) return false;
++
++  const eventType = delta.type;
++  const type = typeof eventType === "string" && eventType.startsWith("thinking_") ? "thinking"
++    : typeof eventType === "string" && eventType.startsWith("text_") ? "text"
++    : undefined;
++  if (!type || typeof eventType !== "string") return false;
++
++  if (eventType.endsWith("_start")) {
++    return updateStreamingPart(state, index as number, type, "", true);
++  }
++  if (eventType.endsWith("_delta") && typeof delta.delta === "string") {
++    return updateStreamingPart(state, index as number, type, delta.delta, false);
++  }
++  if (eventType.endsWith("_end") && typeof delta.content === "string") {
++    return updateStreamingPart(state, index as number, type, delta.content, true);
++  }
++  return false;
++}
++
+@@ -107,3 +245,12 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 -export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const message = event.message as Record<string, unknown> | undefined;
 -  if (!message || message.role !== "assistant") return;
@@ -494,12 +567,12 @@ index f0fb6f5..9335008 100644
 +  ) return;
 +
 +  // Finalized data replaces the latest partial message.
-+  state.streamingOutput = undefined;
++  clearStreamingMessage(state);
 +  clearPartialUsage(state);
-@@ -113 +187 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -113 +260 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -    state.model = message.model as string;
 +    state.model = message.model;
-@@ -117,18 +191,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -117,18 +264,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const content = message.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
 -    state.accumulatedOutput.push(content);
@@ -531,7 +604,7 @@ index f0fb6f5..9335008 100644
 +      state.accumulatedOutput.push(`[thinking] ${part.thinking.trim()}`);
 +      const lines = part.thinking.split("\n").filter((line: string) => line.trim());
 +      state.recentOutput.push(...lines.slice(-5).map((line: string) => `[thinking] ${line}`));
-@@ -144,9 +213,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -144,9 +286,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  if (message.usage) {
 -    const usage = message.usage as Record<string, unknown>;
 -    state.totalInput += (usage.input as number) || 0;
@@ -543,18 +616,18 @@ index f0fb6f5..9335008 100644
 -  }
 +  state.turnUsage = readUsage(message.usage);
 +  state.usage = addUsage(state.usage, state.turnUsage);
-@@ -158,3 +220,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -158,3 +293,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const messages = event.messages as Array<Record<string, unknown>> | undefined;
 -  if (!messages || messages.length === 0) return;
 +export function handleAgentEnd(state: StreamState, event: AgentEndEvent): void {
 +  const messages = objectItems<AgentEndEvent["messages"][number]>(event.messages);
 +  if (messages.length === 0) return;
-@@ -163 +225,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -163 +298,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 +  const lastAssistant = [...messages].reverse().find((message): message is AssistantMessage =>
 +    message.role === "assistant");
-@@ -166,14 +229 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -166,14 +302 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const allText: string[] = [];
 -  const content = lastAssistant.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
@@ -571,14 +644,15 @@ index f0fb6f5..9335008 100644
 -  state.finalOutput = allText.length > 0 ? allText.join("\n\n") : undefined;
 +  state.finalOutput = assistantText(lastAssistant);
 diff --git a/src/index.ts b/src/index.ts
-index d79c663..9e3d764 100644
+index d79c663..10d5550 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -1 +1 @@
+@@ -1,3 +1,4 @@
 -import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-+import { SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
-@@ -3 +3,2 @@ import { Text, TUI } from "@earendil-works/pi-tui";
+-import { Text, TUI } from "@earendil-works/pi-tui";
 -import { Type } from "typebox";
++import { SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
++import { Text, type TUI } from "@earendil-works/pi-tui";
 +import { StringEnum } from "@earendil-works/pi-ai";
 +import { Type, type Static } from "typebox";
 @@ -7,0 +9,5 @@ import { validateModel, firstError } from "./model-validation.js";
@@ -1211,7 +1285,7 @@ index d64d741..683dc22 100644
 +    if (options.signal.aborted) abortHandler();
 +    else options.signal.addEventListener("abort", abortHandler, { once: true });
 diff --git a/src/stream.ts b/src/stream.ts
-index f1fd14a..a3f4955 100644
+index f1fd14a..06d63b6 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
 @@ -0,0 +1 @@
@@ -1220,9 +1294,10 @@ index f1fd14a..a3f4955 100644
 +import { decodeLimitStop } from "./limits.js";
 +import { scheduleTerminateChild } from "./spawn.js";
 +import { addUsage, readUsage, toSubagentUsage } from "./usage.js";
-@@ -9,0 +14 @@ import {
+@@ -9,0 +14,2 @@ import {
++  handleMessageStart,
 +  handleMessageUpdate,
-@@ -19,0 +25,43 @@ export interface StreamCallbacks {
+@@ -19,0 +26,43 @@ export interface StreamCallbacks {
 +type ChildJsonEvent = JsonEvent | { type: "session"; id?: unknown };
 +
 +const REPEATED_ERROR_LIMIT = 3;
@@ -1266,7 +1341,7 @@ index f1fd14a..a3f4955 100644
 +  }
 +}
 +
-@@ -55,5 +103,3 @@ export function streamEvents(
+@@ -55,5 +104,3 @@ export function streamEvents(
 -      totalInput: 0,
 -      totalOutput: 0,
 -      totalCacheRead: 0,
@@ -1275,15 +1350,16 @@ index f1fd14a..a3f4955 100644
 +      usage: readUsage(undefined),
 +      turnUsage: readUsage(undefined),
 +      partialUsage: readUsage(undefined),
-@@ -64,0 +111 @@ export function streamEvents(
+@@ -64,0 +112,2 @@ export function streamEvents(
 +      streamingOutput: undefined,
-@@ -70,4 +117 @@ export function streamEvents(
++      streamingParts: new Map(),
+@@ -70,4 +119 @@ export function streamEvents(
 -    // Collect stderr for error reporting
 -    const stderrChunks: Buffer[] = [];
 -    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 -
 +    const stderrLines: string[] = [];
-@@ -74,0 +119,9 @@ export function streamEvents(
+@@ -74,0 +121,9 @@ export function streamEvents(
 +    let termination = undefined as SubagentResult["termination"];
 +    const toolFingerprints = new Map<
 +      string,
@@ -1293,7 +1369,7 @@ index f1fd14a..a3f4955 100644
 +    let repeatedErrorTracking = true;
 +    let lastErrorFingerprint: string | undefined;
 +    let repeatedErrorCount = 0;
-@@ -76,22 +129,93 @@ export function streamEvents(
+@@ -76,22 +131,93 @@ export function streamEvents(
 -    const buildProgress = (): SubagentProgress => ({
 -      agent: callbacks.agent ?? "subagent",
 -      status: "running",
@@ -1409,18 +1485,18 @@ index f1fd14a..a3f4955 100644
 +        model: state.model,
 +      };
 +    };
-@@ -118 +242 @@ export function streamEvents(
+@@ -118 +244 @@ export function streamEvents(
 -      let event: JsonEvent;
 +      let event: ChildJsonEvent;
-@@ -120 +244 @@ export function streamEvents(
+@@ -120 +246 @@ export function streamEvents(
 -        event = JSON.parse(trimmed) as JsonEvent;
 +        event = JSON.parse(trimmed) as ChildJsonEvent;
-@@ -129,0 +254,4 @@ export function streamEvents(
+@@ -129,0 +256,4 @@ export function streamEvents(
 +        case "session": {
 +          if (typeof event.id === "string" && event.id) state.childSessionId = event.id;
 +          break;
 +        }
-@@ -130,0 +259,25 @@ export function streamEvents(
+@@ -130,0 +261,25 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1446,7 +1522,7 @@ index f1fd14a..a3f4955 100644
 +              }
 +            }
 +          }
-@@ -146,0 +300,22 @@ export function streamEvents(
+@@ -146,0 +302,22 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1469,36 +1545,40 @@ index f1fd14a..a3f4955 100644
 +            if (pending.call) observeToolResult(pending.call, event.result, event.isError);
 +            else resetRepeatedErrorStreak();
 +          }
-@@ -154,0 +330,7 @@ export function streamEvents(
+@@ -154,0 +332,11 @@ export function streamEvents(
 +          state.turnUsage = readUsage(undefined);
 +          state.partialUsage = readUsage(undefined);
 +          break;
 +        }
-+        case "message_update": {
-+          handleMessageUpdate(state, event);
++        case "message_start": {
++          handleMessageStart(state, event);
 +          emitProgress();
-@@ -166 +348 @@ export function streamEvents(
++          break;
++        }
++        case "message_update": {
++          if (handleMessageUpdate(state, event)) emitProgress();
+@@ -166 +354 @@ export function streamEvents(
 -        // Ignore: session, agent_start, message_start, message_update, turn_end, tool_execution_update
-+        // Ignore: agent_start, message_start, turn_end, tool_execution_update
-@@ -175 +357,2 @@ export function streamEvents(
++        // Ignore: agent_start, turn_end, tool_execution_update
+@@ -175 +363,2 @@ export function streamEvents(
 -      const exitCode = code ?? 1;
 +      const exitCode = termination ? 2 : (code ?? 1);
 +      const usage = observedUsage();
-@@ -177 +359,0 @@ export function streamEvents(
+@@ -177 +365,0 @@ export function streamEvents(
 -      // Surface stderr as error if the process failed and we have no other error
-@@ -179 +361 @@ export function streamEvents(
+@@ -179 +367 @@ export function streamEvents(
 -        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
 +        const stderr = stderrLines.join("\n").trim();
-@@ -181,0 +364,6 @@ export function streamEvents(
+@@ -181,0 +370,6 @@ export function streamEvents(
 +      termination ??= exitCode === 0
 +        ? { reason: "completed", usageState: "complete" }
 +        : {
 +          reason: "process-error",
 +          usageState: state.streamingOutput ? "partial" : "unknown",
 +        };
-@@ -185,0 +374 @@ export function streamEvents(
+@@ -185,0 +380 @@ export function streamEvents(
 +        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
-@@ -188,9 +377,2 @@ export function streamEvents(
+@@ -188,9 +383,2 @@ export function streamEvents(
 -        usage: {
 -          input: state.totalInput,
 -          output: state.totalOutput,
@@ -1510,13 +1590,13 @@ index f1fd14a..a3f4955 100644
 -        finalOutput: state.finalOutput,
 +        usage: toSubagentUsage(usage, state.turnCount),
 +        finalOutput: state.finalOutput ?? observedOutput(),
-@@ -197,0 +380 @@ export function streamEvents(
+@@ -197,0 +386 @@ export function streamEvents(
 +        termination,
-@@ -205 +388 @@ export function streamEvents(
+@@ -205 +394 @@ export function streamEvents(
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index b90f829..e7c9ed7 100644
+index b90f829..cb79a01 100644
 --- a/src/types.ts
 +++ b/src/types.ts
 @@ -0,0 +1,59 @@
@@ -1608,8 +1688,9 @@ index b90f829..e7c9ed7 100644
 +  usage: Usage;
 +  turnUsage: Usage;
 +  partialUsage: Usage;
-@@ -71,0 +142 @@ export interface StreamState {
+@@ -71,0 +142,2 @@ export interface StreamState {
 +  streamingOutput: string | undefined;
++  streamingParts: Map<number, { type: "text" | "thinking"; content: string }>;
 diff --git a/src/usage.ts b/src/usage.ts
 new file mode 100644
 index 0000000..884279c

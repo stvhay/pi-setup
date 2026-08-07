@@ -169,11 +169,14 @@ install_archimedes_patch_base() {
   local subagent="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/package.json"
   local patch_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/index.ts"
   local progress_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/types.ts"
+  local preview_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/handlers.ts"
   local breaker_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/stream.ts"
   if package_is_exact "$meta" pi-archimedes 1.8.3 \
     && package_is_exact "$subagent" @pi-archimedes/subagent 1.8.3; then
     if grep -Fq "PARALLEL_OUTPUT_MAX_CHARS" "$patch_marker" \
       && grep -Fq "turnTokens" "$progress_marker" \
+      && grep -Fq "streamingParts" "$progress_marker" \
+      && grep -Fq "STREAMING_OUTPUT_MAX_CHARS" "$preview_marker" \
       && grep -Fq 'reason: "repeated-error"' "$breaker_marker"; then
       echo "pi-archimedes 1.8.3: already installed"
       echo "@pi-archimedes/subagent 1.8.3: already installed"
