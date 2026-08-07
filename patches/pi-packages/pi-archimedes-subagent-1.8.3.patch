@@ -1,25 +1,1457 @@
+diff --git a/package.json b/package.json
+index b9e0648..a707960 100644
+--- a/package.json
++++ b/package.json
+@@ -12,0 +13,4 @@
++  "exports": {
++    ".": "./src/index.ts",
++    "./config": "./src/config.ts"
++  },
+@@ -18 +22 @@
+-    "@earendil-works/pi-coding-agent": ">=0.1.0",
++    "@earendil-works/pi-coding-agent": ">=0.74.0",
+diff --git a/src/child-guard.ts b/src/child-guard.ts
+new file mode 100644
+index 0000000..2e71a2d
+--- /dev/null
++++ b/src/child-guard.ts
+@@ -0,0 +1,12 @@
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++import {
++  decodeLimitsEnvironment,
++  registerChildLimitGuard,
++  SUBAGENT_LIMITS_ENV,
++} from "./limits.js";
++
++export default function registerChildGuard(pi: ExtensionAPI): void {
++  const encodedLimits = process.env[SUBAGENT_LIMITS_ENV];
++  if (!encodedLimits) return;
++  registerChildLimitGuard(pi, decodeLimitsEnvironment(encodedLimits));
++}
+diff --git a/src/config.ts b/src/config.ts
+new file mode 100644
+index 0000000..e334533
+--- /dev/null
++++ b/src/config.ts
+@@ -0,0 +1,77 @@
++import type { SettingItem } from "@earendil-works/pi-tui";
++import { loadConfig, saveConfig } from "@pi-archimedes/core/settings-io";
++import { normalizeLimits } from "./limits.js";
++import type { SubagentLimits } from "./types.js";
++
++export interface SubagentConfig {
++  maxParallel: number;
++  defaultLimits: Required<SubagentLimits>;
++}
++
++export const DEFAULT_SUBAGENT_CONFIG: SubagentConfig = {
++  maxParallel: 0,
++  defaultLimits: {
++    maxProviderRequests: 0,
++    maxToolCalls: 0,
++    maxTotalTokens: 0,
++    maxCostUsd: 0,
++    maxDurationMs: 0,
++  },
++};
++
++const NAMESPACE = "archimedes.subagent";
++
++export function loadSubagentConfig(): SubagentConfig {
++  const raw = loadConfig<Partial<SubagentConfig>>(NAMESPACE, DEFAULT_SUBAGENT_CONFIG);
++  if (
++    raw.defaultLimits !== undefined &&
++    (!raw.defaultLimits || typeof raw.defaultLimits !== "object" || Array.isArray(raw.defaultLimits))
++  ) {
++    throw new Error("archimedes.subagent.defaultLimits must be an object");
++  }
++
++  const config: SubagentConfig = {
++    maxParallel: raw.maxParallel ?? 0,
++    defaultLimits: {
++      ...DEFAULT_SUBAGENT_CONFIG.defaultLimits,
++      ...(raw.defaultLimits ?? {}),
++    },
++  };
++  validateConfig(config);
++  return config;
++}
++
++export function loadSubagentConfigOrDefault(): SubagentConfig {
++  try {
++    return loadSubagentConfig();
++  } catch {
++    return structuredClone(DEFAULT_SUBAGENT_CONFIG);
++  }
++}
++
++export function saveSubagentConfig(config: SubagentConfig): void {
++  validateConfig(config);
++  saveConfig(NAMESPACE, config);
++}
++
++export function getSubagentSettingsItems(config = loadSubagentConfig()): SettingItem[] {
++  return [
++    setting("subagentMaxParallel", "Subagent Max Parallel", "Maximum children per parallel call; 0 is unlimited", config.maxParallel),
++    setting("subagentMaxProviderRequests", "Subagent Max Provider Requests", "Per-child provider requests; 0 is unlimited", config.defaultLimits.maxProviderRequests),
++    setting("subagentMaxToolCalls", "Subagent Max Tool Calls", "Per-child tool calls; 0 is unlimited", config.defaultLimits.maxToolCalls),
++    setting("subagentMaxTotalTokens", "Subagent Max Total Tokens", "Per-child input, output, and cache tokens; 0 is unlimited", config.defaultLimits.maxTotalTokens),
++    setting("subagentMaxCostUsd", "Subagent Max Cost USD", "Observed per-child cost in USD; 0 is unlimited", config.defaultLimits.maxCostUsd),
++    setting("subagentMaxDurationMs", "Subagent Max Duration", "Per-child wall time in milliseconds; 0 is unlimited", config.defaultLimits.maxDurationMs),
++  ];
++}
++
++function setting(id: string, label: string, description: string, value: number): SettingItem {
++  return { id, label, description, currentValue: String(value) };
++}
++
++function validateConfig(config: SubagentConfig): void {
++  if (!Number.isInteger(config.maxParallel) || config.maxParallel < 0) {
++    throw new Error("maxParallel must be a non-negative integer");
++  }
++  normalizeLimits(config.defaultLimits, true);
++}
+diff --git a/src/dispatch-policy.ts b/src/dispatch-policy.ts
+new file mode 100644
+index 0000000..8e1ce98
+--- /dev/null
++++ b/src/dispatch-policy.ts
+@@ -0,0 +1,24 @@
++import type { SubagentConfig } from "./config.js";
++import { normalizeLimits } from "./limits.js";
++import type { SubagentLimits } from "./types.js";
++
++export interface ChildDispatchPolicy {
++  limits: SubagentLimits | undefined;
++  providerMaxRetries: number;
++}
++
++export function resolveConfiguredLimits(config: SubagentConfig): SubagentLimits | undefined {
++  return normalizeLimits(config.defaultLimits, true);
++}
++
++export function validateDispatchPolicy(
++  config: SubagentConfig,
++  children: readonly ChildDispatchPolicy[],
++): void {
++  if (config.maxParallel > 0 && children.length > config.maxParallel) {
++    throw new Error(`Parallel task count ${children.length} exceeds archimedes.subagent.maxParallel (${config.maxParallel})`);
++  }
++  if (children.some((child) => child.limits && child.providerMaxRetries > 0)) {
++    throw new Error("Bounded subagents require retry.provider.maxRetries to be 0");
++  }
++}
+diff --git a/src/execute.ts b/src/execute.ts
+index f41835a..e423ee4 100644
+--- a/src/execute.ts
++++ b/src/execute.ts
+@@ -3,0 +4,2 @@ import { emitCostUpdate } from "./cost.js";
++import { addUsage, fromSubagentUsage } from "./usage.js";
++import type { Usage } from "@earendil-works/pi-ai";
+@@ -5 +7,23 @@ import type { AgentConfig } from "./agents.js";
+-import type { SubagentProgress, SubagentResult, SubagentUsage } from "./types.js";
++import type { ResolvedChildExecution, SubagentProgress, SubagentResult, SubagentUsage } from "./types.js";
++
++export interface ExecutionControl {
++  signal: AbortSignal;
++  timedOut: () => boolean;
++}
++
++export function createExecutionControl(
++  parentSignal: AbortSignal | undefined,
++  durationMs: number | undefined,
++): ExecutionControl {
++  const timeoutSignal = durationMs === undefined ? undefined : AbortSignal.timeout(durationMs);
++  const signals = [parentSignal, timeoutSignal].filter((signal): signal is AbortSignal => Boolean(signal));
++  const signal = AbortSignal.any(signals);
++  return {
++    signal,
++    timedOut: () => timeoutSignal?.aborted === true && signal.reason === timeoutSignal.reason,
++  };
++}
++
++export function aggregateUsage(results: SubagentResult[]): Usage {
++  return addUsage(...results.map((result) => fromSubagentUsage(result.usage)));
++}
+@@ -15,0 +40,50 @@ export interface ExecuteOptions {
++  execution: ResolvedChildExecution;
++}
++
++export type ParallelTask = Omit<ExecuteOptions, "signal" | "onUpdate">;
++
++export interface ParallelExecuteOptions {
++  tasks: ParallelTask[];
++  signal: AbortSignal | undefined;
++  onUpdate: ((progress: SubagentProgress[]) => void) | undefined;
++}
++
++export function applyControlTermination(
++  result: SubagentResult,
++  options: ExecuteOptions,
++  control: ExecutionControl,
++  durationMs: number,
++): SubagentResult {
++  const reason = result.termination?.reason;
++  if (reason && reason !== "completed" && reason !== "process-error") return result;
++  if (control.timedOut()) {
++    const error = "Subagent stopped: time-limit";
++    return {
++      ...result,
++      exitCode: 2,
++      error,
++      termination: {
++        reason: "time-limit",
++        ...(options.execution.limits?.maxDurationMs !== undefined
++          ? { limit: options.execution.limits.maxDurationMs }
++          : {}),
++        observed: durationMs,
++        usageState: result.finalOutput ? "partial" : "unknown",
++      },
++      progress: result.progress ? { ...result.progress, status: "failed", error } : result.progress,
++    };
++  }
++  if (options.signal?.aborted) {
++    const error = "Subagent cancelled";
++    return {
++      ...result,
++      exitCode: 1,
++      error,
++      termination: {
++        reason: "user-abort",
++        usageState: result.finalOutput ? "partial" : "unknown",
++      },
++      progress: result.progress ? { ...result.progress, status: "failed", error } : result.progress,
++    };
++  }
++  return result;
+@@ -23,0 +98 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++  const control = createExecutionControl(options.signal, options.execution.limits?.maxDurationMs);
+@@ -27,0 +103,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++  let lastEmittedCacheRead = 0;
++  let lastEmittedCacheWrite = 0;
+@@ -36 +113 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+-      signal: options.signal,
++      signal: control.signal,
+@@ -37,0 +115 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      execution: options.execution,
+@@ -46,0 +125,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++        const cacheReadTokens = progress.cacheReadTokens ?? 0;
++        const cacheWriteTokens = progress.cacheWriteTokens ?? 0;
++        const deltaCacheRead = cacheReadTokens - lastEmittedCacheRead;
++        const deltaCacheWrite = cacheWriteTokens - lastEmittedCacheWrite;
+@@ -48 +130 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+-        if (deltaInput > 0 || deltaOutput > 0 || deltaCost > 0) {
++        if (deltaInput > 0 || deltaOutput > 0 || deltaCacheRead > 0 || deltaCacheWrite > 0 || deltaCost > 0) {
+@@ -51,0 +134,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++            cacheReadTokens: deltaCacheRead,
++            cacheWriteTokens: deltaCacheWrite,
+@@ -55,0 +140,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++          lastEmittedCacheRead = cacheReadTokens;
++          lastEmittedCacheWrite = cacheWriteTokens;
+@@ -64 +150 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+-    return {
++    return applyControlTermination({
+@@ -81,0 +168,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++            cacheReadTokens: 0,
++            cacheWriteTokens: 0,
+@@ -94 +182 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+-    };
++    }, options, control, durationMs);
+@@ -112,0 +201 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      termination: { reason: "process-error", usageState: "unknown" },
+@@ -126,0 +216,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++        cacheReadTokens: 0,
++        cacheWriteTokens: 0,
+@@ -141 +232 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+-    return result;
++    return applyControlTermination(result, options, control, durationMs);
+@@ -148,5 +239,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+-export async function executeParallel(options: {
+-  tasks: Array<{ agent: string | undefined; agentConfig: AgentConfig | undefined; task: string; model: string | undefined; activeModel: string | undefined; cwd: string | undefined }>;
+-  signal: AbortSignal | undefined;
+-  onUpdate: ((progress: SubagentProgress[]) => void) | undefined;
+-}): Promise<SubagentResult[]> {
++export async function executeParallel(
++  options: ParallelExecuteOptions,
++  runner: (options: ExecuteOptions) => Promise<SubagentResult> = executeSubagent,
++): Promise<SubagentResult[]> {
+@@ -165,0 +256,2 @@ export async function executeParallel(options: {
++    cacheReadTokens: 0,
++    cacheWriteTokens: 0,
+@@ -180 +272 @@ export async function executeParallel(options: {
+-      executeSubagent({
++      runner({
+diff --git a/src/execution-profile.ts b/src/execution-profile.ts
+new file mode 100644
+index 0000000..75d91b7
+--- /dev/null
++++ b/src/execution-profile.ts
+@@ -0,0 +1,47 @@
++import { resolveLimits } from "./limits.js";
++import type {
++  ResolvedChildExecution,
++  SubagentExecutionMode,
++  SubagentExecutionProfile,
++  SubagentLimits,
++  SubagentThinkingLevel,
++} from "./types.js";
++
++export const ONE_SHOT_LIMITS = {
++  maxProviderRequests: 1,
++} as const satisfies SubagentLimits;
++
++export const ONE_SHOT_SYSTEM_PROMPT =
++  "You are a read-only peer. Treat the task as a complete context packet. You have no tools or ambient project context. Return one final response.";
++
++export interface ExecutionOverrides {
++  limits?: SubagentLimits | undefined;
++  mode?: SubagentExecutionMode | undefined;
++  thinking?: SubagentThinkingLevel | undefined;
++}
++
++export interface ExecutionProfileOptions {
++  topLevel?: ExecutionOverrides | undefined;
++  task?: ExecutionOverrides | undefined;
++  agentThinking?: string | undefined;
++}
++
++export function resolveExecutionProfile(options: ExecutionProfileOptions): SubagentExecutionProfile {
++  return {
++    mode: options.task?.mode ?? options.topLevel?.mode ?? "agentic",
++    thinking: options.agentThinking ?? options.task?.thinking ?? options.topLevel?.thinking,
++  };
++}
++
++export function resolveChildExecution(options: ExecutionProfileOptions & {
++  operatorLimits?: SubagentLimits | undefined;
++}): ResolvedChildExecution {
++  const profile = resolveExecutionProfile(options);
++  const limits = resolveLimits(
++    options.operatorLimits,
++    options.topLevel?.limits,
++    options.task?.limits,
++    profile.mode === "one-shot" ? ONE_SHOT_LIMITS : undefined,
++  );
++  return { profile, limits };
++}
+diff --git a/src/handlers.ts b/src/handlers.ts
+index f0fb6f5..fcc358c 100644
+--- a/src/handlers.ts
++++ b/src/handlers.ts
+@@ -0,0 +1 @@
++import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
+@@ -1,0 +3,9 @@ import type { StreamState } from "./types.js";
++import { addUsage, isUsage, readUsage } from "./usage.js";
++
++export type JsonEvent = ExtensionEvent;
++type ToolStartEvent = Extract<ExtensionEvent, { type: "tool_execution_start" }>;
++type ToolEndEvent = Extract<ExtensionEvent, { type: "tool_execution_end" }>;
++type MessageUpdateEvent = Extract<ExtensionEvent, { type: "message_update" }>;
++type MessageEndEvent = Extract<ExtensionEvent, { type: "message_end" }>;
++type AgentEndEvent = Extract<ExtensionEvent, { type: "agent_end" }>;
++type AssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
+@@ -8,5 +17,0 @@ const RECENT_OUTPUT_MAX = 50;
+-export interface JsonEvent {
+-  type: string;
+-  [key: string]: unknown;
+-}
+-
+@@ -50 +55 @@ export function extractArgsPreview(args: unknown): string {
+-export function handleToolStart(state: StreamState, event: JsonEvent): void {
++export function handleToolStart(state: StreamState, event: ToolStartEvent): void {
+@@ -52 +57 @@ export function handleToolStart(state: StreamState, event: JsonEvent): void {
+-  state.currentTool = event.toolName as string;
++  state.currentTool = event.toolName;
+@@ -76 +81 @@ export function handleToolEnd(state: StreamState): void {
+-export function handleToolResult(state: StreamState, event: JsonEvent): void {
++export function handleToolResult(state: StreamState, event: ToolEndEvent): void {
+@@ -80 +85 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+-  const toolName = (event.toolName as string) ?? "tool";
++  const toolName = event.toolName;
+@@ -103,0 +109,60 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
++function objectItems<T>(value: unknown): T[] {
++  if (!Array.isArray(value)) return [];
++  return value.filter((item) => item !== null && typeof item === "object") as T[];
++}
++
++type AssistantContentPart = AssistantMessage["content"][number];
++
++function isAssistantContentPart(value: unknown): value is AssistantContentPart {
++  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
++  const part = value as Record<string, unknown>;
++  if (part.type === "text") return typeof part.text === "string";
++  if (part.type === "thinking") return typeof part.thinking === "string";
++  return part.type === "toolCall" &&
++    typeof part.id === "string" &&
++    typeof part.name === "string" &&
++    Boolean(part.arguments) &&
++    typeof part.arguments === "object" &&
++    !Array.isArray(part.arguments);
++}
++
++function assistantContent(message: AssistantMessage): AssistantMessage["content"] {
++  return Array.isArray(message.content) ? message.content.filter(isAssistantContentPart) : [];
++}
++
++function hasAssistantStreamData(message: AssistantMessage): boolean {
++  return Array.isArray(message.content) &&
++    message.content.every(isAssistantContentPart) &&
++    isUsage(message.usage);
++}
++
++function assistantText(message: AssistantMessage): string | undefined {
++  const parts: string[] = [];
++  for (const part of assistantContent(message)) {
++    if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
++      parts.push(part.text);
++    } else if (part.type === "thinking" && typeof part.thinking === "string" && part.thinking.trim()) {
++      parts.push(`[thinking] ${part.thinking.trim()}`);
++    }
++  }
++  return parts.length > 0 ? parts.join("\n\n") : undefined;
++}
++
++function clearPartialUsage(state: StreamState): void {
++  state.partialUsage = readUsage(undefined);
++}
++
++/** Handle the latest in-flight assistant message as replaceable partial state. */
++export function handleMessageUpdate(state: StreamState, event: MessageUpdateEvent): void {
++  const message = event.message;
++  if (
++    !message ||
++    typeof message !== "object" ||
++    message.role !== "assistant" ||
++    !hasAssistantStreamData(message)
++  ) return;
++  if (!state.model && message.model) state.model = message.model;
++  state.streamingOutput = assistantText(message);
++  state.partialUsage = readUsage(message.usage);
++}
++
+@@ -107,3 +172,12 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+-export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-  const message = event.message as Record<string, unknown> | undefined;
+-  if (!message || message.role !== "assistant") return;
++export function handleMessageEnd(state: StreamState, event: MessageEndEvent): void {
++  const message = event.message;
++  if (
++    !message ||
++    typeof message !== "object" ||
++    message.role !== "assistant" ||
++    !hasAssistantStreamData(message)
++  ) return;
++
++  // Finalized data replaces the latest partial message.
++  state.streamingOutput = undefined;
++  clearPartialUsage(state);
+@@ -113 +187 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-    state.model = message.model as string;
++    state.model = message.model;
+@@ -117,18 +191,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-  const content = message.content as Array<Record<string, unknown>> | string | undefined;
+-  if (typeof content === "string" && content.trim()) {
+-    state.accumulatedOutput.push(content);
+-    const lines = content.split("\n").filter((l) => l.trim());
+-    state.recentOutput.push(...lines.slice(-10));
+-  } else if (Array.isArray(content)) {
+-    for (const part of content) {
+-      if (part.type === "text" && (part.text as string)?.trim()) {
+-        const text = part.text as string;
+-        state.accumulatedOutput.push(text);
+-        const lines = text.split("\n").filter((l) => l.trim());
+-        state.recentOutput.push(...lines.slice(-10));
+-      } else if (part.type === "thinking" && (part.thinking as string)?.trim()) {
+-        const thinking = part.thinking as string;
+-        state.accumulatedOutput.push(`[thinking] ${thinking.trim()}`);
+-        const lines = thinking.split("\n").filter((l) => l.trim());
+-        state.recentOutput.push(...lines.slice(-5).map((l) => `[thinking] ${l}`));
+-      }
++  for (const part of assistantContent(message)) {
++    if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
++      state.accumulatedOutput.push(part.text);
++      const lines = part.text.split("\n").filter((line: string) => line.trim());
++      state.recentOutput.push(...lines.slice(-10));
++    } else if (
++      part.type === "thinking" &&
++      typeof part.thinking === "string" &&
++      part.thinking.trim()
++    ) {
++      state.accumulatedOutput.push(`[thinking] ${part.thinking.trim()}`);
++      const lines = part.thinking.split("\n").filter((line: string) => line.trim());
++      state.recentOutput.push(...lines.slice(-5).map((line: string) => `[thinking] ${line}`));
+@@ -144,9 +213 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-  if (message.usage) {
+-    const usage = message.usage as Record<string, unknown>;
+-    state.totalInput += (usage.input as number) || 0;
+-    state.totalOutput += (usage.output as number) || 0;
+-    state.totalCacheRead += (usage.cacheRead as number) || 0;
+-    state.totalCacheWrite += (usage.cacheWrite as number) || 0;
+-    const costObj = usage.cost as { total?: number } | undefined;
+-    state.totalCost += costObj?.total ?? 0;
+-  }
++  state.usage = addUsage(state.usage, readUsage(message.usage));
+@@ -158,3 +219,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+-  const messages = event.messages as Array<Record<string, unknown>> | undefined;
+-  if (!messages || messages.length === 0) return;
++export function handleAgentEnd(state: StreamState, event: AgentEndEvent): void {
++  const messages = objectItems<AgentEndEvent["messages"][number]>(event.messages);
++  if (messages.length === 0) return;
+@@ -163 +224,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
++  const lastAssistant = [...messages].reverse().find((message): message is AssistantMessage =>
++    message.role === "assistant");
+@@ -166,14 +228 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+-  const allText: string[] = [];
+-  const content = lastAssistant.content as Array<Record<string, unknown>> | string | undefined;
+-  if (typeof content === "string" && content.trim()) {
+-    allText.push(content);
+-  } else if (Array.isArray(content)) {
+-    for (const part of content) {
+-      if (part.type === "text" && (part.text as string)?.trim()) {
+-        allText.push(part.text as string);
+-      } else if (part.type === "thinking" && (part.thinking as string)?.trim()) {
+-        allText.push(`[thinking] ${(part.thinking as string).trim()}`);
+-      }
+-    }
+-  }
+-  state.finalOutput = allText.length > 0 ? allText.join("\n\n") : undefined;
++  state.finalOutput = assistantText(lastAssistant);
+diff --git a/src/index.ts b/src/index.ts
+index d79c663..df400ff 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1 +1 @@
+-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
++import { SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
+@@ -3 +3,2 @@ import { Text, TUI } from "@earendil-works/pi-tui";
+-import { Type } from "typebox";
++import { StringEnum } from "@earendil-works/pi-ai";
++import { Type, type Static } from "typebox";
+@@ -7,0 +9,5 @@ import { validateModel, firstError } from "./model-validation.js";
++import {
++  MAX_SUBAGENT_DURATION_MS,
++  SUBAGENT_EXECUTION_MODES,
++  SUBAGENT_THINKING_LEVELS,
++} from "./types.js";
+@@ -16,0 +23,15 @@ import type {
++const SubagentLimitsSchema = Type.Object({
++  maxProviderRequests: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum provider requests for this child" })),
++  maxToolCalls: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum tool calls for this child" })),
++  maxTotalTokens: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum input, output, and cache tokens for this child" })),
++  maxCostUsd: Type.Optional(Type.Number({ exclusiveMinimum: 0, description: "Observed cost ceiling in USD; may overshoot by one response" })),
++  maxDurationMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SUBAGENT_DURATION_MS, description: "Maximum wall time in milliseconds for this child" })),
++});
++
++const ExecutionModeSchema = StringEnum(SUBAGENT_EXECUTION_MODES, {
++  description: "agentic: normal child with tools and ambient context; one-shot: isolated packet with one provider request",
++});
++const ThinkingLevelSchema = StringEnum(SUBAGENT_THINKING_LEVELS, {
++  description: "Child thinking level. Agent frontmatter wins, then task-level, then top-level thinking.",
++});
++
+@@ -23,0 +45,3 @@ const TaskItem = Type.Object({
++  limits: Type.Optional(SubagentLimitsSchema),
++  mode: Type.Optional(ExecutionModeSchema),
++  thinking: Type.Optional(ThinkingLevelSchema),
+@@ -44,0 +69,3 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
++  limits: Type.Optional(SubagentLimitsSchema),
++  mode: Type.Optional(ExecutionModeSchema),
++  thinking: Type.Optional(ThinkingLevelSchema),
+@@ -46,0 +74,2 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
++type SubagentParams = Static<typeof SUBAGENT_PARAMS_SCHEMA>;
++
+@@ -56,0 +86,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
++  if (process.env.PI_SUBAGENT_SOCKET) return;
++
+@@ -61 +92 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Model override is rarely needed; the agent config or parent model is used by default.",
++      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Use mode 'one-shot' for one isolated response from a complete packet. Model override is rarely needed; the agent config or parent model is used by default.",
+@@ -66,8 +97 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-      params: {
+-        agent?: string;
+-        task?: string;
+-        tasks?: Array<{ agent?: string; task: string; count?: number; model?: string; cwd?: string }>;
+-        model?: string;
+-        cwd?: string;
+-        async?: boolean;
+-      },
++      params: SubagentParams,
+@@ -79 +103,7 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-      const { executeSubagent, executeParallel } = await import("./execute.js");
++      const { executeSubagent, executeParallel, aggregateUsage } = await import("./execute.js");
++      const { loadSubagentConfig } = await import("./config.js");
++      const {
++        resolveConfiguredLimits,
++        validateDispatchPolicy,
++      } = await import("./dispatch-policy.js");
++      const { resolveChildExecution } = await import("./execution-profile.js");
+@@ -80,0 +111,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
++      let config;
++      let configuredLimits;
++      try {
++        config = loadSubagentConfig();
++        configuredLimits = resolveConfiguredLimits(config);
++      } catch (error) {
++        return policyError(params.tasks?.length ? "parallel" : "single", error);
++      }
+@@ -83,0 +122,23 @@ export function registerSubagent(pi: ExtensionAPI): void {
++        const taskPlans = params.tasks.map((task) => {
++          const agentConfig = task.agent ? findAgent(agents, task.agent) : undefined;
++          return {
++            task,
++            agentConfig,
++            execution: resolveChildExecution({
++              operatorLimits: configuredLimits,
++              topLevel: params,
++              task,
++              agentThinking: agentConfig?.thinking,
++            }),
++          };
++        });
++        try {
++          validateDispatchPolicy(config, taskPlans.map(({ task, execution }) => ({
++            limits: execution.limits,
++            providerMaxRetries: SettingsManager.create(task.cwd ?? process.cwd())
++              .getProviderRetrySettings().maxRetries ?? 0,
++          })));
++        } catch (error) {
++          return policyError("parallel", error);
++        }
++
+@@ -88,3 +149,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-        const unknownAgents = params.tasks
+-          .filter((t) => t.agent && !findAgent(agents, t.agent!))
+-          .map((t) => `"${t.agent}"`);
++        const unknownAgents = taskPlans
++          .filter(({ task, agentConfig }) => task.agent && !agentConfig)
++          .map(({ task }) => `"${task.agent}"`);
+@@ -95,2 +156 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-        const unknownAgentSet = new Set(unknownAgents.map((n) => n.replace(/"/g, '')));
+-        for (const t of params.tasks) {
++        for (const { task, agentConfig } of taskPlans) {
+@@ -98,2 +158 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-          if (t.agent && unknownAgentSet.has(t.agent)) continue;
+-          const taskAgentConfig = t.agent ? findAgent(agents, t.agent) : undefined;
++          if (task.agent && !agentConfig) continue;
+@@ -101,4 +160,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-            validateModel(t.model, ctx.modelRegistry, { agentName: t.agent }),
+-            validateModel(taskAgentConfig?.model, ctx.modelRegistry, {
+-              agentName: t.agent,
+-              agentFilePath: taskAgentConfig?.filePath,
++            validateModel(task.model, ctx.modelRegistry, { agentName: task.agent }),
++            validateModel(agentConfig?.model, ctx.modelRegistry, {
++              agentName: task.agent,
++              agentFilePath: agentConfig?.filePath,
+@@ -121,5 +180,5 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-          tasks: params.tasks.map((t) => ({
+-            agent: t.agent ?? undefined,
+-            agentConfig: t.agent ? findAgent(agents, t.agent) : undefined,
+-            task: t.task,
+-            model: t.model,
++          tasks: taskPlans.map(({ task, agentConfig, execution }) => ({
++            agent: task.agent ?? undefined,
++            agentConfig,
++            task: task.task,
++            model: task.model,
+@@ -127 +186,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
+-            cwd: t.cwd ?? undefined,
++            cwd: task.cwd ?? undefined,
++            execution,
+@@ -152,0 +213 @@ export function registerSubagent(pi: ExtensionAPI): void {
++          usage: aggregateUsage(results),
+@@ -186,0 +248,15 @@ export function registerSubagent(pi: ExtensionAPI): void {
++        const execution = resolveChildExecution({
++          operatorLimits: configuredLimits,
++          topLevel: params,
++          agentThinking: agentConfig?.thinking,
++        });
++        try {
++          const retries = SettingsManager.create(params.cwd ?? process.cwd())
++            .getProviderRetrySettings().maxRetries ?? 0;
++          validateDispatchPolicy(config, [{
++            limits: execution.limits,
++            providerMaxRetries: retries,
++          }]);
++        } catch (error) {
++          return policyError("single", error);
++        }
+@@ -194,0 +271 @@ export function registerSubagent(pi: ExtensionAPI): void {
++          execution,
+@@ -214,0 +292 @@ export function registerSubagent(pi: ExtensionAPI): void {
++          usage: aggregateUsage([result]),
+@@ -283,0 +362,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
++function policyError(mode: "single" | "parallel", error: unknown): SubagentToolResult {
++  return {
++    content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
++    details: { mode, results: [], progress: undefined },
++    isError: true,
++  };
++}
++
+diff --git a/src/limits.ts b/src/limits.ts
+new file mode 100644
+index 0000000..eb00b6a
+--- /dev/null
++++ b/src/limits.ts
+@@ -0,0 +1,248 @@
++import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
++import {
++  MAX_SUBAGENT_DURATION_MS,
++  SUBAGENT_TERMINATION_REASONS,
++  SUBAGENT_USAGE_STATES,
++} from "./types.js";
++import type { SubagentLimits, SubagentTermination, SubagentTerminationReason } from "./types.js";
++
++const LIMIT_KEYS = [
++  "maxProviderRequests",
++  "maxToolCalls",
++  "maxTotalTokens",
++  "maxCostUsd",
++  "maxDurationMs",
++] as const satisfies readonly (keyof SubagentLimits)[];
++
++const INTEGER_KEYS = new Set<keyof SubagentLimits>([
++  "maxProviderRequests",
++  "maxToolCalls",
++  "maxTotalTokens",
++  "maxDurationMs",
++]);
++
++export const SUBAGENT_LIMITS_ENV = "PI_ARCHIMEDES_SUBAGENT_LIMITS";
++const STOP_PREFIX = "PI_ARCHIMEDES_LIMIT_STOP ";
++const STOP_REASONS = new Set<string>(SUBAGENT_TERMINATION_REASONS);
++const USAGE_STATES = new Set<string>(SUBAGENT_USAGE_STATES);
++
++export function normalizeLimits(
++  value: Partial<Record<keyof SubagentLimits, unknown>> | undefined,
++  zeroMeansUnlimited: boolean,
++): SubagentLimits | undefined {
++  if (!value) return undefined;
++
++  const normalized: SubagentLimits = {};
++  for (const key of LIMIT_KEYS) {
++    const raw = value[key];
++    if (raw === undefined || (zeroMeansUnlimited && raw === 0)) continue;
++    if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
++      throw new Error(`${key} must be a finite positive number${zeroMeansUnlimited ? " or 0 for unlimited" : ""}`);
++    }
++    if (INTEGER_KEYS.has(key) && !Number.isInteger(raw)) {
++      throw new Error(`${key} must be an integer`);
++    }
++    if (key === "maxDurationMs" && raw > MAX_SUBAGENT_DURATION_MS) {
++      throw new Error(`${key} must not exceed ${MAX_SUBAGENT_DURATION_MS}`);
++    }
++    normalized[key] = raw;
++  }
++
++  return Object.keys(normalized).length > 0 ? normalized : undefined;
++}
++
++export function resolveLimits(...sources: Array<SubagentLimits | undefined>): SubagentLimits | undefined {
++  const resolved: SubagentLimits = {};
++  for (const key of LIMIT_KEYS) {
++    const values = sources
++      .map((source) => source?.[key])
++      .filter((value): value is number => value !== undefined);
++    if (values.length > 0) resolved[key] = Math.min(...values);
++  }
++  return Object.keys(resolved).length > 0 ? resolved : undefined;
++}
++
++interface AssistantUsage {
++  input?: unknown;
++  output?: unknown;
++  cacheRead?: unknown;
++  cacheWrite?: unknown;
++  cost?: { total?: unknown } | unknown;
++}
++
++export class BudgetTracker {
++  private providerRequests = 0;
++  private toolCalls = 0;
++  private totalTokens = 0;
++  private totalCost = 0;
++  private readonly onStop: (termination: SubagentTermination) => void;
++
++  termination: SubagentTermination | undefined;
++
++  constructor(
++    readonly limits: SubagentLimits,
++    onStop: (termination: SubagentTermination) => void,
++  ) {
++    this.onStop = onStop;
++  }
++
++  admitProviderRequest(): boolean {
++    if (this.termination) return false;
++    if (this.limits.maxTotalTokens !== undefined && this.totalTokens >= this.limits.maxTotalTokens) {
++      return this.stop("token-limit", this.limits.maxTotalTokens, this.totalTokens);
++    }
++    if (this.limits.maxCostUsd !== undefined && this.totalCost >= this.limits.maxCostUsd) {
++      return this.stop("cost-limit", this.limits.maxCostUsd, this.totalCost);
++    }
++    if (
++      this.limits.maxProviderRequests !== undefined &&
++      this.providerRequests >= this.limits.maxProviderRequests
++    ) {
++      return this.stop("request-limit", this.limits.maxProviderRequests, this.providerRequests);
++    }
++    this.providerRequests++;
++    return true;
++  }
++
++  admitToolCall(): boolean {
++    if (this.termination) return false;
++    if (this.limits.maxToolCalls !== undefined && this.toolCalls >= this.limits.maxToolCalls) {
++      return this.stop("tool-limit", this.limits.maxToolCalls, this.toolCalls);
++    }
++    this.toolCalls++;
++    return true;
++  }
++
++  observeAssistantUsage(value: AssistantUsage | undefined): void {
++    if (this.termination || (this.limits.maxTotalTokens === undefined && this.limits.maxCostUsd === undefined)) {
++      return;
++    }
++
++    const tokenFields = [value?.input, value?.output, value?.cacheRead, value?.cacheWrite];
++    const tokenUsageKnown = tokenFields.every(isNonNegativeFiniteNumber);
++    const costTotal = value?.cost && typeof value.cost === "object"
++      ? (value.cost as { total?: unknown }).total
++      : undefined;
++    const costKnown = isNonNegativeFiniteNumber(costTotal);
++
++    if (
++      (this.limits.maxTotalTokens !== undefined && !tokenUsageKnown) ||
++      (this.limits.maxCostUsd !== undefined && !costKnown)
++    ) {
++      this.stop("usage-unknown", undefined, undefined, "unknown");
++      return;
++    }
++
++    if (tokenUsageKnown) {
++      this.totalTokens += tokenFields.reduce<number>((sum, item) => sum + (item as number), 0);
++    }
++    if (costKnown) this.totalCost += costTotal;
++
++    if (this.limits.maxTotalTokens !== undefined && this.totalTokens > this.limits.maxTotalTokens) {
++      this.stop("token-limit", this.limits.maxTotalTokens, this.totalTokens);
++      return;
++    }
++    if (this.limits.maxCostUsd !== undefined && this.totalCost > this.limits.maxCostUsd) {
++      this.stop("cost-limit", this.limits.maxCostUsd, this.totalCost);
++    }
++  }
++
++  private stop(
++    reason: SubagentTerminationReason,
++    limit: number | undefined,
++    observed: number | undefined,
++    usageState: SubagentTermination["usageState"] = "complete",
++  ): false {
++    if (!this.termination) {
++      this.termination = {
++        reason,
++        ...(limit !== undefined ? { limit } : {}),
++        ...(observed !== undefined ? { observed } : {}),
++        usageState,
++      };
++      this.onStop(this.termination);
++    }
++    return false;
++  }
++}
++
++function isNonNegativeFiniteNumber(value: unknown): value is number {
++  return typeof value === "number" && Number.isFinite(value) && value >= 0;
++}
++
++export function encodeLimitsEnvironment(limits: SubagentLimits): string {
++  const normalized = normalizeLimits(limits, false);
++  if (!normalized) throw new Error("limits environment must contain at least one limit");
++  return JSON.stringify(normalized);
++}
++
++export function decodeLimitsEnvironment(value: string): SubagentLimits {
++  try {
++    const parsed = JSON.parse(value) as unknown;
++    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
++    const normalized = normalizeLimits(parsed as Partial<Record<keyof SubagentLimits, unknown>>, false);
++    if (!normalized) throw new Error();
++    return normalized;
++  } catch (error) {
++    if (error instanceof Error && error.message.includes("must be")) {
++      throw new Error(`invalid limits environment: ${error.message}`);
++    }
++    throw new Error("invalid limits environment");
++  }
++}
++
++export function registerChildLimitGuard(
++  pi: ExtensionAPI,
++  limits: SubagentLimits,
++  writeStop: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
++): BudgetTracker {
++  let activeContext: ExtensionContext | undefined;
++  const tracker = new BudgetTracker(limits, (termination) => {
++    writeStop(encodeLimitStop(termination));
++    activeContext?.abort();
++  });
++
++  pi.on("before_provider_request", (_event, ctx) => {
++    activeContext = ctx;
++    tracker.admitProviderRequest();
++  });
++  pi.on("tool_call", (_event, ctx) => {
++    activeContext = ctx;
++    if (!tracker.admitToolCall()) {
++      return { block: true, reason: "Subagent tool-call limit reached" };
++    }
++    return undefined;
++  });
++  pi.on("message_end", (event, ctx) => {
++    if (event.message.role !== "assistant") return;
++    activeContext = ctx;
++    tracker.observeAssistantUsage(event.message.usage);
++  });
++  pi.on("session_before_compact", () => ({ cancel: true }));
++
++  return tracker;
++}
++
++export function encodeLimitStop(termination: SubagentTermination): string {
++  return STOP_PREFIX + JSON.stringify(termination);
++}
++
++export function decodeLimitStop(line: string): SubagentTermination | undefined {
++  if (!line.startsWith(STOP_PREFIX)) return undefined;
++  try {
++    const value = JSON.parse(line.slice(STOP_PREFIX.length)) as Partial<SubagentTermination>;
++    if (
++      !value.reason ||
++      !STOP_REASONS.has(value.reason) ||
++      !value.usageState ||
++      !USAGE_STATES.has(value.usageState) ||
++      (value.limit !== undefined && !isNonNegativeFiniteNumber(value.limit)) ||
++      (value.observed !== undefined && !isNonNegativeFiniteNumber(value.observed))
++    ) {
++      return undefined;
++    }
++    return value as SubagentTermination;
++  } catch {
++    return undefined;
++  }
++}
+diff --git a/src/spawn.ts b/src/spawn.ts
+index d64d741..683dc22 100644
+--- a/src/spawn.ts
++++ b/src/spawn.ts
+@@ -5,0 +6 @@ import * as path from "node:path";
++import { fileURLToPath } from "node:url";
+@@ -8,0 +10,3 @@ import type { AgentConfig } from "./agents.js";
++import { ONE_SHOT_SYSTEM_PROMPT } from "./execution-profile.js";
++import { encodeLimitsEnvironment, SUBAGENT_LIMITS_ENV } from "./limits.js";
++import type { ResolvedChildExecution, SubagentLimits } from "./types.js";
+@@ -16,0 +21 @@ export interface SpawnOptions {
++  execution: ResolvedChildExecution;
+@@ -166,0 +172,72 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
++export function buildSubagentArgs(
++  options: SpawnOptions,
++  childGuardPath = fileURLToPath(new URL("./child-guard.ts", import.meta.url)),
++): string[] {
++  const args: string[] = ["--mode", "json", "--no-session", "-p"];
++  const model = options.agent?.model ?? options.model ?? options.activeModel;
++  if (model) args.push("--model", model);
++  const thinking = options.execution.profile.thinking;
++  if (thinking) args.push("--thinking", thinking);
++
++  const mode = options.execution.profile.mode;
++  if (mode === "one-shot") {
++    args.push(
++      "--no-tools",
++      "--no-extensions",
++      "--no-skills",
++      "--no-context-files",
++    );
++  } else if (options.agent?.tools && options.agent.tools.length > 0) {
++    args.push("--tools", options.agent.tools.join(","));
++  }
++
++  const systemPrompt = options.agent?.systemPrompt?.trim() ||
++    (mode === "one-shot" ? ONE_SHOT_SYSTEM_PROMPT : undefined);
++  if (systemPrompt) args.push("--system-prompt", systemPrompt);
++
++  if (options.execution.limits) args.push("--extension", childGuardPath);
++  args.push(options.task);
++  return args;
++}
++
++export function buildSpawnEnvironment(
++  socketPath: string,
++  limits: SubagentLimits | undefined,
++  baseEnvironment: NodeJS.ProcessEnv = process.env,
++): NodeJS.ProcessEnv {
++  const env: NodeJS.ProcessEnv = { ...baseEnvironment, PI_SUBAGENT_SOCKET: socketPath };
++  delete env[SUBAGENT_LIMITS_ENV];
++  if (limits) env[SUBAGENT_LIMITS_ENV] = encodeLimitsEnvironment(limits);
++  return env;
++}
++
++export function buildSpawnInvocation(
++  piBinary: string,
++  args: string[],
++  platform: NodeJS.Platform = process.platform,
++): { command: string; args: string[] } {
++  const useNode = platform === "win32" && piBinary !== "pi";
++  return {
++    command: useNode ? process.execPath : piBinary,
++    args: useNode ? [piBinary, ...args] : args,
++  };
++}
++
++export function terminateChild(child: ChildProcess, graceMs = 3000): void {
++  if (!child.pid || child.killed || child.exitCode !== null || child.signalCode !== null) return;
++  child.kill("SIGTERM");
++  const forceKill = setTimeout(() => {
++    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
++  }, graceMs);
++  forceKill.unref();
++  child.once("exit", () => clearTimeout(forceKill));
++}
++
++// ponytail: short drain grace preserves final JSON; use explicit child IPC ack if 250ms proves insufficient.
++export function scheduleTerminateChild(child: ChildProcess, drainMs = 250): void {
++  if (!child.pid || child.killed || child.exitCode !== null || child.signalCode !== null) return;
++  const timer = setTimeout(() => terminateChild(child), drainMs);
++  timer.unref();
++  child.once("exit", () => clearTimeout(timer));
++}
++
+@@ -176,2 +252,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+-
+-  // Start ask bridge socket before spawning so the env var is ready
+@@ -178,0 +254 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
++  const invocation = buildSpawnInvocation(piBinary, buildSubagentArgs(options));
+@@ -180,30 +256,6 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+-  // Build CLI args
+-  const args: string[] = ["--mode", "json", "--no-session", "-p"];
+-
+-  // Model: agent.model > options.model > options.activeModel
+-  const model = options.agent?.model ?? options.model ?? options.activeModel;
+-  if (model) {
+-    args.push("--model", model);
+-  }
+-
+-  // Thinking level from agent config
+-  if (options.agent?.thinking) {
+-    args.push("--thinking", options.agent.thinking);
+-  }
+-
+-  // Tool allowlist from agent config
+-  if (options.agent?.tools && options.agent.tools.length > 0) {
+-    args.push("--tools", options.agent.tools.join(","));
+-  }
+-
+-  // Always exclude the subagent tool itself to prevent infinite recursion
+-  args.push("--exclude-tools", "subagent");
+-
+-  // Agent system prompt
+-  const systemPrompt = options.agent?.systemPrompt?.trim();
+-  if (systemPrompt) {
+-    args.push("--system-prompt", systemPrompt);
+-  }
+-
+-  // The task is the final positional argument
+-  args.push(options.task);
++  const child = spawn(invocation.command, invocation.args, {
++    cwd: options.cwd || process.cwd(),
++    env: buildSpawnEnvironment(socketPath, options.execution.limits),
++    stdio: ["ignore", "pipe", "pipe"],
++    windowsHide: true,
++  });
+@@ -211,23 +262,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+-  // On Windows, spawn `node <resolved-js-path>` instead of the raw binary.
+-  // The resolved path is a .js file which cannot be spawned directly on Windows.
+-  // Using process.execPath avoids shell: true (no escaping risks, kill() works).
+-  const isWindowsResolved = process.platform === "win32" && piBinary !== "pi";
+-
+-  const child = spawn(
+-    isWindowsResolved ? process.execPath : piBinary,
+-    [
+-      ...(isWindowsResolved ? [piBinary] : []),
+-      ...args,
+-    ],
+-    {
+-      cwd: options.cwd || process.cwd(),
+-      env: {
+-        ...process.env,
+-        PI_SUBAGENT_SOCKET: socketPath,
+-      },
+-      stdio: ["ignore", "pipe", "pipe"],
+-      windowsHide: true,
+-    },
+-  );
+-
+-  // Clean up socket server when child exits
+@@ -237 +265,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+-  // Handle abort signal
+@@ -239,10 +267,3 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+-    const abortHandler = () => {
+-      if (child.pid && !child.killed) {
+-        child.kill("SIGTERM");
+-        const forceKill = setTimeout(() => {
+-          if (!child.killed) child.kill("SIGKILL");
+-        }, 3000);
+-        forceKill.unref();
+-      }
+-    };
+-    options.signal.addEventListener("abort", abortHandler, { once: true });
++    const abortHandler = () => terminateChild(child);
++    if (options.signal.aborted) abortHandler();
++    else options.signal.addEventListener("abort", abortHandler, { once: true });
 diff --git a/src/stream.ts b/src/stream.ts
-index f1fd14a..d3a2524 100644
+index f1fd14a..586360d 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
-@@ -129,0 +130,6 @@ export function streamEvents(
+@@ -4,0 +5,3 @@ import { getBus, Events } from "@pi-archimedes/core/bus";
++import { decodeLimitStop } from "./limits.js";
++import { scheduleTerminateChild } from "./spawn.js";
++import { addUsage, readUsage, toSubagentUsage } from "./usage.js";
+@@ -9,0 +13 @@ import {
++  handleMessageUpdate,
+@@ -19,0 +24,2 @@ export interface StreamCallbacks {
++type ChildJsonEvent = JsonEvent | { type: "session"; id?: unknown };
++
+@@ -55,5 +61,2 @@ export function streamEvents(
+-      totalInput: 0,
+-      totalOutput: 0,
+-      totalCacheRead: 0,
+-      totalCacheWrite: 0,
+-      totalCost: 0,
++      usage: readUsage(undefined),
++      partialUsage: readUsage(undefined),
+@@ -64,0 +68 @@ export function streamEvents(
++      streamingOutput: undefined,
+@@ -70,4 +74 @@ export function streamEvents(
+-    // Collect stderr for error reporting
+-    const stderrChunks: Buffer[] = [];
+-    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+-
++    const stderrLines: string[] = [];
+@@ -74,0 +76,14 @@ export function streamEvents(
++    let termination = undefined as SubagentResult["termination"];
++    if (child.stderr) {
++      const stderrReader = createInterface({ input: child.stderr, crlfDelay: Infinity });
++      stderrReader.on("line", (line) => {
++        const stop = decodeLimitStop(line);
++        if (stop && !termination) {
++          termination = stop;
++          error = `Subagent stopped: ${stop.reason}`;
++          scheduleTerminateChild(child);
++        } else if (!stop) {
++          stderrLines.push(line);
++        }
++      });
++    }
+@@ -76,22 +91,34 @@ export function streamEvents(
+-    const buildProgress = (): SubagentProgress => ({
+-      agent: callbacks.agent ?? "subagent",
+-      status: "running",
+-      task: callbacks.task ?? "",
+-      currentTool: state.currentTool,
+-      currentToolArgs: state.currentToolArgs,
+-      currentToolStartedAt: state.currentToolStartedAt,
+-      toolCount: state.toolCount,
+-      inputTokens: state.totalInput,
+-      outputTokens: state.totalOutput,
+-      tokens: state.totalInput + state.totalOutput,
+-      cost: state.totalCost,
+-      durationMs: Date.now() - startTime,
+-      error,
+-      output:
+-        state.accumulatedOutput.length > 0
+-          ? state.accumulatedOutput.join("\n\n")
+-          : undefined,
+-      recentOutput: state.recentOutput.length > 0 ? state.recentOutput : undefined,
+-      toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
+-      model: state.model,
+-    });
++    const observedUsage = () => addUsage(state.usage, state.partialUsage);
++
++    const observedOutput = (): string | undefined => {
++      const parts = [
++        ...state.accumulatedOutput,
++        ...(state.streamingOutput ? [state.streamingOutput] : []),
++      ];
++      return parts.length > 0 ? parts.join("\n\n") : undefined;
++    };
++
++    const buildProgress = (): SubagentProgress => {
++      const usage = observedUsage();
++      return {
++        agent: callbacks.agent ?? "subagent",
++        status: "running",
++        task: callbacks.task ?? "",
++        currentTool: state.currentTool,
++        currentToolArgs: state.currentToolArgs,
++        currentToolStartedAt: state.currentToolStartedAt,
++        toolCount: state.toolCount,
++        inputTokens: usage.input,
++        outputTokens: usage.output,
++        cacheReadTokens: usage.cacheRead,
++        cacheWriteTokens: usage.cacheWrite,
++        tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
++        cost: usage.cost.total,
++        durationMs: Date.now() - startTime,
++        error,
++        output: observedOutput(),
++        recentOutput: state.recentOutput.length > 0 ? state.recentOutput : undefined,
++        toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
++        model: state.model,
++      };
++    };
+@@ -118 +145 @@ export function streamEvents(
+-      let event: JsonEvent;
++      let event: ChildJsonEvent;
+@@ -120 +147 @@ export function streamEvents(
+-        event = JSON.parse(trimmed) as JsonEvent;
++        event = JSON.parse(trimmed) as ChildJsonEvent;
+@@ -129,0 +157,4 @@ export function streamEvents(
 +        case "session": {
-+          if (typeof event.id === "string" && event.id) {
-+            state.childSessionId = event.id;
-+          }
++          if (typeof event.id === "string" && event.id) state.childSessionId = event.id;
 +          break;
 +        }
-@@ -166 +172 @@ export function streamEvents(
+@@ -156,0 +188,5 @@ export function streamEvents(
++        case "message_update": {
++          handleMessageUpdate(state, event);
++          emitProgress();
++          break;
++        }
+@@ -166 +202 @@ export function streamEvents(
 -        // Ignore: session, agent_start, message_start, message_update, turn_end, tool_execution_update
-+        // Ignore: agent_start, message_start, message_update, turn_end, tool_execution_update
-@@ -185,0 +192 @@ export function streamEvents(
++        // Ignore: agent_start, message_start, turn_end, tool_execution_update
+@@ -175 +211,2 @@ export function streamEvents(
+-      const exitCode = code ?? 1;
++      const exitCode = termination ? 2 : (code ?? 1);
++      const usage = observedUsage();
+@@ -177 +213,0 @@ export function streamEvents(
+-      // Surface stderr as error if the process failed and we have no other error
+@@ -179 +215 @@ export function streamEvents(
+-        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
++        const stderr = stderrLines.join("\n").trim();
+@@ -181,0 +218,6 @@ export function streamEvents(
++      termination ??= exitCode === 0
++        ? { reason: "completed", usageState: "complete" }
++        : {
++          reason: "process-error",
++          usageState: state.streamingOutput ? "partial" : "unknown",
++        };
+@@ -185,0 +228 @@ export function streamEvents(
 +        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
+@@ -188,9 +231,2 @@ export function streamEvents(
+-        usage: {
+-          input: state.totalInput,
+-          output: state.totalOutput,
+-          cacheRead: state.totalCacheRead,
+-          cacheWrite: state.totalCacheWrite,
+-          cost: state.totalCost,
+-          turns: state.turnCount,
+-        },
+-        finalOutput: state.finalOutput,
++        usage: toSubagentUsage(usage, state.turnCount),
++        finalOutput: state.finalOutput ?? observedOutput(),
+@@ -197,0 +234 @@ export function streamEvents(
++        termination,
+@@ -205 +242 @@ export function streamEvents(
+-          tokens: state.totalInput + state.totalOutput,
++          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index b90f829..247dffb 100644
+index b90f829..4c100b4 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -36,0 +37,2 @@ export interface SubagentResult {
+@@ -0,0 +1,58 @@
++import type { Usage } from "@earendil-works/pi-ai";
++
++export const MAX_SUBAGENT_DURATION_MS = 2_147_483_647;
++
++export const SUBAGENT_EXECUTION_MODES = ["agentic", "one-shot"] as const;
++export type SubagentExecutionMode = (typeof SUBAGENT_EXECUTION_MODES)[number];
++
++export const SUBAGENT_THINKING_LEVELS = [
++  "off",
++  "minimal",
++  "low",
++  "medium",
++  "high",
++  "xhigh",
++] as const;
++export type SubagentThinkingLevel = (typeof SUBAGENT_THINKING_LEVELS)[number];
++
++export interface SubagentExecutionProfile {
++  mode: SubagentExecutionMode;
++  thinking: string | undefined;
++}
++
++export interface ResolvedChildExecution {
++  profile: SubagentExecutionProfile;
++  limits: SubagentLimits | undefined;
++}
++
++export interface SubagentLimits {
++  maxProviderRequests?: number;
++  maxToolCalls?: number;
++  maxTotalTokens?: number;
++  maxCostUsd?: number;
++  maxDurationMs?: number;
++}
++
++export const SUBAGENT_TERMINATION_REASONS = [
++  "completed",
++  "user-abort",
++  "request-limit",
++  "tool-limit",
++  "token-limit",
++  "cost-limit",
++  "time-limit",
++  "usage-unknown",
++  "process-error",
++] as const;
++export type SubagentTerminationReason = (typeof SUBAGENT_TERMINATION_REASONS)[number];
++
++export const SUBAGENT_USAGE_STATES = ["complete", "partial", "unknown"] as const;
++export type SubagentUsageState = (typeof SUBAGENT_USAGE_STATES)[number];
++
++export interface SubagentTermination {
++  reason: SubagentTerminationReason;
++  limit?: number;
++  observed?: number;
++  usageState: SubagentUsageState;
++}
++
+@@ -6,0 +65 @@ export interface SubagentUsage {
++  costBreakdown?: Usage["cost"];
+@@ -19,0 +79,2 @@ export interface SubagentProgress {
++  cacheReadTokens?: number;
++  cacheWriteTokens?: number;
+@@ -36,0 +98,2 @@ export interface SubagentResult {
 +  /** Logical Pi session UUID for this spawned subagent process. */
 +  childSessionId?: string;
-@@ -59,0 +62 @@ export interface StreamState {
+@@ -41,0 +105 @@ export interface SubagentResult {
++  termination?: SubagentTermination;
+@@ -49,0 +114,2 @@ export interface SubagentToolResult {
++  /** Nested child-model usage for Pi versions that support tool-result accounting. */
++  usage?: Usage;
+@@ -59,0 +126 @@ export interface StreamState {
 +  childSessionId?: string;
+@@ -62,5 +129,2 @@ export interface StreamState {
+-  totalInput: number;
+-  totalOutput: number;
+-  totalCacheRead: number;
+-  totalCacheWrite: number;
+-  totalCost: number;
++  usage: Usage;
++  partialUsage: Usage;
+@@ -71,0 +136 @@ export interface StreamState {
++  streamingOutput: string | undefined;
+diff --git a/src/usage.ts b/src/usage.ts
+new file mode 100644
+index 0000000..884279c
+--- /dev/null
++++ b/src/usage.ts
+@@ -0,0 +1,94 @@
++import type { Usage } from "@earendil-works/pi-ai";
++import type { SubagentUsage } from "./types.js";
++
++function isNonNegativeFiniteNumber(value: unknown): value is number {
++  return typeof value === "number" && Number.isFinite(value) && value >= 0;
++}
++
++function number(value: unknown): number {
++  return isNonNegativeFiniteNumber(value) ? value : 0;
++}
++
++export function isUsage(value: unknown): value is Usage {
++  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
++  const source = value as Record<string, unknown>;
++  const cost = source.cost;
++  if (!cost || typeof cost !== "object" || Array.isArray(cost)) return false;
++  const costRecord = cost as Record<string, unknown>;
++  return [
++    source.input,
++    source.output,
++    source.cacheRead,
++    source.cacheWrite,
++    source.totalTokens,
++    costRecord.input,
++    costRecord.output,
++    costRecord.cacheRead,
++    costRecord.cacheWrite,
++    costRecord.total,
++  ].every(isNonNegativeFiniteNumber);
++}
++
++export function readUsage(value: unknown): Usage {
++  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
++  const cost = source.cost && typeof source.cost === "object"
++    ? source.cost as Record<string, unknown>
++    : {};
++  const input = number(source.input);
++  const output = number(source.output);
++  const cacheRead = number(source.cacheRead);
++  const cacheWrite = number(source.cacheWrite);
++  return {
++    input,
++    output,
++    cacheRead,
++    cacheWrite,
++    totalTokens: input + output + cacheRead + cacheWrite,
++    cost: {
++      input: number(cost.input),
++      output: number(cost.output),
++      cacheRead: number(cost.cacheRead),
++      cacheWrite: number(cost.cacheWrite),
++      total: number(cost.total),
++    },
++  };
++}
++
++export function addUsage(...sources: Usage[]): Usage {
++  const usage = readUsage(undefined);
++  for (const source of sources) {
++    usage.input += source.input;
++    usage.output += source.output;
++    usage.cacheRead += source.cacheRead;
++    usage.cacheWrite += source.cacheWrite;
++    usage.cost.input += source.cost.input;
++    usage.cost.output += source.cost.output;
++    usage.cost.cacheRead += source.cost.cacheRead;
++    usage.cost.cacheWrite += source.cost.cacheWrite;
++    usage.cost.total += source.cost.total;
++  }
++  usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
++  return usage;
++}
++
++export function fromSubagentUsage(usage: SubagentUsage): Usage {
++  return readUsage({
++    input: usage.input,
++    output: usage.output,
++    cacheRead: usage.cacheRead,
++    cacheWrite: usage.cacheWrite,
++    cost: { ...usage.costBreakdown, total: usage.cost },
++  });
++}
++
++export function toSubagentUsage(usage: Usage, turns: number): SubagentUsage {
++  return {
++    input: usage.input,
++    output: usage.output,
++    cacheRead: usage.cacheRead,
++    cacheWrite: usage.cacheWrite,
++    cost: usage.cost.total,
++    costBreakdown: { ...usage.cost },
++    turns,
++  };
++}

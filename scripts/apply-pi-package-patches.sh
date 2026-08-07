@@ -92,21 +92,29 @@ apply_preflighted_patch() {
 LANGFUSE_LABEL="pi-langfuse 1.5.9"
 LANGFUSE_DIR="$PACKAGE_ROOT/pi-langfuse"
 LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.5.9.patch"
-ARCHIMEDES_LABEL="@pi-archimedes/subagent 1.8.3"
-ARCHIMEDES_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
-ARCHIMEDES_PATCH="$PATCH_ROOT/pi-archimedes-subagent-1.8.3.patch"
+ARCHIMEDES_META_LABEL="pi-archimedes 1.8.3"
+ARCHIMEDES_META_DIR="$PACKAGE_ROOT/pi-archimedes"
+ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-1.8.3.patch"
+ARCHIMEDES_SUBAGENT_LABEL="@pi-archimedes/subagent 1.8.3"
+ARCHIMEDES_SUBAGENT_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
+ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-1.8.3.patch"
 
-# Validate every package and patch before mutating either installed source tree.
+# Validate every package and patch before mutating any installed source tree.
 LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.9" "$LANGFUSE_PATCH" \
   "index.ts" "getSessionId?.()" "src/langfuse.ts" 'import { randomUUID } from "node:crypto";')
-ARCHIMEDES_STATE=$(patch_state "$ARCHIMEDES_LABEL" "$ARCHIMEDES_DIR" "@pi-archimedes/subagent" "1.8.3" \
-  "$ARCHIMEDES_PATCH" "src/stream.ts" "childSessionId")
+ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "1.8.3" \
+  "$ARCHIMEDES_META_PATCH" "src/settings.ts" "subagentMaxProviderRequests")
+ARCHIMEDES_SUBAGENT_STATE=$(patch_state "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDES_SUBAGENT_DIR" \
+  "@pi-archimedes/subagent" "1.8.3" "$ARCHIMEDES_SUBAGENT_PATCH" "src/stream.ts" "childSessionId")
 
 if [ "$MODE" = check ]; then
   echo "$LANGFUSE_LABEL: $LANGFUSE_STATE"
-  echo "$ARCHIMEDES_LABEL: $ARCHIMEDES_STATE"
+  echo "$ARCHIMEDES_META_LABEL: $ARCHIMEDES_META_STATE"
+  echo "$ARCHIMEDES_SUBAGENT_LABEL: $ARCHIMEDES_SUBAGENT_STATE"
   exit
 fi
 
 apply_preflighted_patch "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "$LANGFUSE_PATCH" "$LANGFUSE_STATE"
-apply_preflighted_patch "$ARCHIMEDES_LABEL" "$ARCHIMEDES_DIR" "$ARCHIMEDES_PATCH" "$ARCHIMEDES_STATE"
+apply_preflighted_patch "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "$ARCHIMEDES_META_PATCH" "$ARCHIMEDES_META_STATE"
+apply_preflighted_patch "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDES_SUBAGENT_DIR" \
+  "$ARCHIMEDES_SUBAGENT_PATCH" "$ARCHIMEDES_SUBAGENT_STATE"

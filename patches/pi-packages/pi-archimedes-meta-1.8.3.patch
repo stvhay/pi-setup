@@ -1,0 +1,80 @@
+diff --git a/src/config.ts b/src/config.ts
+index af85d2e..646af3d 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -69,0 +70,16 @@ export {
++// ── Re-export subagent config ──────────────────────────────────────────
++
++import {
++  loadSubagentConfig,
++  loadSubagentConfigOrDefault,
++  saveSubagentConfig,
++  DEFAULT_SUBAGENT_CONFIG,
++  type SubagentConfig,
++} from "@pi-archimedes/subagent/config";
++export {
++  loadSubagentConfig,
++  saveSubagentConfig,
++  DEFAULT_SUBAGENT_CONFIG,
++  type SubagentConfig,
++} from "@pi-archimedes/subagent/config";
++
+@@ -76,0 +93 @@ export function loadAllConfig(): {
++  subagent: SubagentConfig;
+@@ -82,0 +100 @@ export function loadAllConfig(): {
++    subagent: loadSubagentConfigOrDefault(),
+diff --git a/src/settings.ts b/src/settings.ts
+index 5dedf69..c555968 100644
+--- a/src/settings.ts
++++ b/src/settings.ts
+@@ -9,0 +10 @@ import { getNotifySettingsItems } from "@pi-archimedes/notify";
++import { getSubagentSettingsItems } from "@pi-archimedes/subagent/config";
+@@ -15,0 +17 @@ import {
++  saveSubagentConfig,
+@@ -20,0 +23 @@ import {
++  type SubagentConfig,
+@@ -62,0 +66 @@ function createNumberSubmenu(opts: {
++  allowDecimal?: boolean;
+@@ -83,2 +87,2 @@ function createNumberSubmenu(opts: {
+-          const n = parseInt(state.value, 10);
+-          if (Number.isFinite(n) && (!opts.min || n >= opts.min)) done(String(n));
++          const n = opts.allowDecimal ? Number.parseFloat(state.value) : Number.parseInt(state.value, 10);
++          if (Number.isFinite(n) && (opts.min === undefined || n >= opts.min)) done(String(n));
+@@ -89 +93,5 @@ function createNumberSubmenu(opts: {
+-        else if (/^\d$/.test(data)) { state.value += data; }
++        else {
++          const isDigit = /^\d$/.test(data);
++          const isDecimalPoint = opts.allowDecimal && data === "." && !state.value.includes(".");
++          if (isDigit || isDecimalPoint) state.value += data;
++        }
+@@ -105,0 +114,4 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
++  const subagentConfig: SubagentConfig = {
++    ...allConfig.subagent,
++    defaultLimits: { ...allConfig.subagent.defaultLimits },
++  };
+@@ -111,0 +124 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
++  const subagentItems = getSubagentSettingsItems(subagentConfig);
+@@ -154,0 +168,8 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
++      } else if (item.id.startsWith("subagentMax")) {
++        item.submenu = createNumberSubmenu({
++          label: `Enter ${item.label} (ESC to cancel):`,
++          cancelHint: "ESC: cancel",
++          confirmHint: "0: unlimited",
++          min: 0,
++          allowDecimal: item.id === "subagentMaxCostUsd",
++        });
+@@ -169,0 +191 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
++  addSubmenus(subagentItems);
+@@ -175,0 +198 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
++    ...subagentItems,
+@@ -224,0 +248,8 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
++        // ── Subagent settings ──
++        case "subagentMaxParallel": subagentConfig.maxParallel = Number.parseInt(newValue, 10); break;
++        case "subagentMaxProviderRequests": subagentConfig.defaultLimits.maxProviderRequests = Number.parseInt(newValue, 10); break;
++        case "subagentMaxToolCalls": subagentConfig.defaultLimits.maxToolCalls = Number.parseInt(newValue, 10); break;
++        case "subagentMaxTotalTokens": subagentConfig.defaultLimits.maxTotalTokens = Number.parseInt(newValue, 10); break;
++        case "subagentMaxCostUsd": subagentConfig.defaultLimits.maxCostUsd = Number.parseFloat(newValue); break;
++        case "subagentMaxDurationMs": subagentConfig.defaultLimits.maxDurationMs = Number.parseInt(newValue, 10); break;
++
+@@ -230,0 +262 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
++          saveSubagentConfig(subagentConfig);

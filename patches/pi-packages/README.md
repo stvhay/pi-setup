@@ -1,11 +1,14 @@
 # Temporary Pi package patches
 
-These version-locked runtime patches unblock canonical parent/subagent telemetry until upstream releases contain the fixes. Reviewed upstream branches are pinned as submodules under `forks/pi-langfuse` and `forks/pi-archimedes`; runtime patches contain only the production hunks needed by installed npm packages. `forks/pi-langfuse` tracks temporary branch `vendor/pi-setup`, which combines upstream PRs [#9](https://github.com/gooyoung/pi-langfuse/pull/9) and [#10](https://github.com/gooyoung/pi-langfuse/pull/10) without rewriting either PR branch.
+These version-locked runtime patches project reviewed fork changes onto exact installed npm releases until upstream releases contain them. Reviewed sources are pinned as submodules under `forks/pi-langfuse` and `forks/pi-archimedes`; patches contain only installed production/package files. Each fork's `vendor/pi-setup` branch combines reviewed work without rewriting or merging its draft PR branches.
+
+Pi's git package installer cannot consume the Archimedes source monorepo directly: it runs npm while that repository requires pnpm and uses npm-unsupported `workspace:*` dependency specs. Keep `npm:pi-archimedes@1.8.3` as the installable base, then apply the exact production projection pinned by `forks/pi-archimedes`.
 
 | Package | Base | Patch |
 |---|---:|---|
 | `pi-langfuse` | 1.5.9 | Prefer Pi's logical `SessionManager.getSessionId()` before the legacy session-file fallback and assign stable entity IDs to queued scores. |
-| `@pi-archimedes/subagent` | 1.8.3 | Return the existing ephemeral child Pi session UUID as `childSessionId`. |
+| `pi-archimedes` | 1.8.3 | Add `/archimedes` operator controls for bounded subagent defaults. |
+| `@pi-archimedes/subagent` | 1.8.3 | Preserve child session correlation and add bounded agentic plus isolated one-shot execution from fork branch [`vendor/pi-setup`](https://github.com/stvhay/pi-archimedes/tree/vendor/pi-setup). |
 
 Apply after Pi has installed the exact pinned packages:
 
@@ -14,6 +17,6 @@ scripts/apply-pi-package-patches.sh --check
 scripts/apply-pi-package-patches.sh
 ```
 
-`--check` is read-only. Apply is idempotent and rejects version, source-context, or incomplete-patch mismatches. Apply is not filesystem-transactional: after an interrupted write or permission failure, reinstall the exact pinned packages before checking and applying again. Remove each patch and its package pin after a verified upstream release includes the corresponding change.
+`--check` is read-only. Apply is idempotent and rejects version, source-context, or incomplete-patch mismatches. Apply is not filesystem-transactional: after an interrupted write or permission failure, reinstall the exact pinned packages before checking and applying again. Remove each patch and its package pin after a verified upstream release includes the corresponding change. Reinstall the exact npm base before moving between materially different patch revisions; partial states fail closed.
 
-No patch changes `--no-session`, persists child transcripts, or adds invocation/trace transport.
+The Archimedes projection retains `--no-session`, does not persist child transcripts, and adds no invocation/trace transport. One-shot disables tools, discovered extensions, skills, context files, and persistence; explicit prompt-template macros remain available.
