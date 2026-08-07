@@ -66,11 +66,11 @@ git submodule update --init --recursive # checkout active upstream fork sources
 direnv allow                         # optional, if using direnv
 scripts/check-pi-config.sh           # validate tracked configuration
 scripts/update-pi-config.sh --dry-run # preview runtime update
-scripts/update-pi-config.sh           # update ~/.pi and apply tracked Langfuse evaluators
-scripts/apply-pi-package-patches.sh   # patch exact pinned packages until upstream releases
+scripts/update-pi-config.sh           # update ~/.pi, reconcile patch bases, apply patches/evaluators
+scripts/apply-pi-package-patches.sh --check # inspect installed patch state
 ```
 
-Deployment replaces the managed runtime copy from tracked `pi/` while preserving excluded credentials, sessions, trust state, metrics, and caches. When Langfuse credentials are configured, setup also applies tracked evaluator definitions; use `agnt langfuse check` for a read-only drift check or `agnt langfuse apply` to reconcile them. Pi checks evaluator drift on interactive startup, stays silent when current, and warns when reconciliation is needed. Do not hand-edit managed files under `~/.pi`; edit `pi/`, verify, and deploy again. See [Pi Config](pi/README.md) for package installation, credentials, optional endpoints, and excluded-state details.
+Deployment replaces the managed runtime copy from tracked `pi/` while preserving excluded credentials, sessions, trust state, metrics, and caches. It installs only missing or mismatched exact package releases required by tracked runtime patches, then applies those patches idempotently; it does not broadly update packages. When Langfuse credentials are configured, setup also applies tracked evaluator definitions; use `agnt langfuse check` for a read-only drift check or `agnt langfuse apply` to reconcile them. Pi checks evaluator drift on interactive startup, stays silent when current, and warns when reconciliation is needed. Do not hand-edit managed files under `~/.pi`; edit `pi/`, verify, and deploy again. See [Pi Config](pi/README.md) for package installation, credentials, optional endpoints, and excluded-state details.
 
 After `~/.pi/agent/bin` is on `PATH`, inspect the everyday control surface:
 

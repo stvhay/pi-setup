@@ -5,6 +5,8 @@ MODE=apply
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SOURCE=${PI_CONFIG_SOURCE:-$ROOT/pi}
 DEST=${PI_CONFIG_DEST:-$HOME/.pi}
+PI_COMMAND=${PI_COMMAND:-pi}
+PACKAGE_PATCH_HELPER=${PI_PACKAGE_PATCH_HELPER:-$ROOT/scripts/apply-pi-package-patches.sh}
 
 usage() {
   cat <<'EOF'
@@ -13,7 +15,8 @@ Usage: scripts/update-pi-config.sh [--dry-run]
 Update ~/.pi from this repository's tracked pi/ directory.
 
 This repository is the source of truth. The live ~/.pi directory is treated as
-runtime/deployed state. Runtime secrets and local state are preserved.
+runtime/deployed state. Runtime secrets and local state are preserved. Missing
+or mismatched exact package patch bases are installed, then tracked patches run.
 
 Environment overrides:
   PI_CONFIG_SOURCE          Source config directory. Default: <repo>/pi
@@ -38,6 +41,43 @@ run() {
     printf 'DRY-RUN:'
     printf ' %q' "$@"
     printf '\n'
+  fi
+}
+
+package_is_exact() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+try:
+    package = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
+raise SystemExit(0 if (package.get("name"), package.get("version")) == tuple(sys.argv[2:]) else 1)
+PY
+}
+
+install_patch_base() {
+  local source=$1 relative=$2 expected_name=$3 expected_version=$4
+  local package_json="$DEST/agent/npm/node_modules/$relative/package.json"
+  if package_is_exact "$package_json" "$expected_name" "$expected_version"; then
+    echo "$expected_name $expected_version: already installed"
+  else
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install "$source"
+  fi
+}
+
+install_archimedes_patch_base() {
+  local meta="$DEST/agent/npm/node_modules/pi-archimedes/package.json"
+  local subagent="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/package.json"
+  if package_is_exact "$meta" pi-archimedes 1.8.3 \
+    && package_is_exact "$subagent" @pi-archimedes/subagent 1.8.3; then
+    echo "pi-archimedes 1.8.3: already installed"
+    echo "@pi-archimedes/subagent 1.8.3: already installed"
+  else
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@1.8.3
   fi
 }
 
@@ -205,6 +245,12 @@ PY
 elif [ "$MODE" = dry-run ] && [ -f "$DEST/agent/settings.json" ]; then
   echo "DRY-RUN: preserve Pi-managed lastChangelogVersion in $DEST/agent/settings.json"
 fi
+
+# Reconcile only missing or mismatched version-locked patch bases. Exact
+# installations are left untouched so unrelated npm ranges are never reified.
+install_archimedes_patch_base
+install_patch_base npm:pi-langfuse@1.5.9 pi-langfuse pi-langfuse 1.5.9
+run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
 
 if [ "$MODE" = apply ]; then
   if [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_BASE_URL:-${LANGFUSE_HOST:-}}" ] || python3 - "$DEST/agent/pi-langfuse/config.json" <<'PY'

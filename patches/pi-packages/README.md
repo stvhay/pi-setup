@@ -10,12 +10,15 @@ Pi's git package installer cannot consume the Archimedes source monorepo directl
 | `pi-archimedes` | 1.8.3 | Add `/archimedes` operator controls for bounded subagent defaults. |
 | `@pi-archimedes/subagent` | 1.8.3 | Preserve child session correlation and add bounded agentic plus isolated one-shot execution from fork branch [`vendor/pi-setup`](https://github.com/stvhay/pi-archimedes/tree/vendor/pi-setup). |
 
-Apply after Pi has installed the exact pinned packages:
+Normal deployment installs missing or mismatched exact bases and applies patches automatically:
 
 ```bash
+scripts/update-pi-config.sh --dry-run
+scripts/update-pi-config.sh
 scripts/apply-pi-package-patches.sh --check
-scripts/apply-pi-package-patches.sh
 ```
+
+Run `scripts/apply-pi-package-patches.sh` directly only when repairing an already installed exact base without redeploying config.
 
 `--check` is read-only. Apply is idempotent and rejects version, source-context, or incomplete-patch mismatches. Apply is not filesystem-transactional: after an interrupted write or permission failure, reinstall the exact pinned packages before checking and applying again. Remove each patch and its package pin after a verified upstream release includes the corresponding change. Reinstall the exact npm base before moving between materially different patch revisions; partial states fail closed.
 

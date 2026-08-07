@@ -17,6 +17,8 @@ def run_update(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PI_CONFIG_DEST"] = str(dest)
+    env["PI_COMMAND"] = "/usr/bin/true"
+    env["PI_PACKAGE_PATCH_HELPER"] = "/usr/bin/true"
     env.update(env_overrides or {})
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
@@ -189,6 +191,145 @@ def test_update_dry_run_excludes_models_store(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert "--exclude=agent/models-store.json" in proc.stdout
+
+
+def test_update_installs_exact_patch_bases_before_applying_patches(tmp_path):
+    dest = tmp_path / ".pi"
+    log = tmp_path / "package-sync.log"
+    fake_pi = tmp_path / "pi"
+    fake_patch = tmp_path / "apply-patches"
+    fake_pi.write_text(
+        '#!/bin/sh\nprintf "pi|%s|%s\\n" "$PI_CODING_AGENT_DIR" "$*" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_patch.write_text(
+        '#!/bin/sh\nprintf "patch|%s|%s\\n" "$PI_CONFIG_DEST" "$*" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    fake_patch.chmod(0o755)
+
+    proc = run_update(
+        dest,
+        env_overrides={
+            "PI_COMMAND": str(fake_pi),
+            "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
+            "PI_DEPLOY_LOG": str(log),
+        },
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"pi|{dest / 'agent'}|install npm:pi-archimedes@1.8.3",
+        f"pi|{dest / 'agent'}|install npm:pi-langfuse@1.5.9",
+        f"patch|{dest}|",
+    ]
+
+
+def test_update_repairs_missing_archimedes_subagent_before_patching(tmp_path):
+    dest = tmp_path / ".pi"
+    log = tmp_path / "package-sync.log"
+    for relative, name, version in (
+        ("pi-archimedes", "pi-archimedes", "1.8.3"),
+        ("pi-langfuse", "pi-langfuse", "1.5.9"),
+    ):
+        package = dest / "agent" / "npm" / "node_modules" / relative
+        package.mkdir(parents=True)
+        (package / "package.json").write_text(
+            json.dumps({"name": name, "version": version}),
+            encoding="utf-8",
+        )
+    fake_pi = tmp_path / "pi"
+    fake_patch = tmp_path / "apply-patches"
+    fake_pi.write_text(
+        '#!/bin/sh\nprintf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_patch.write_text(
+        '#!/bin/sh\nprintf "patch|%s\\n" "$PI_CONFIG_DEST" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    fake_patch.chmod(0o755)
+
+    proc = run_update(
+        dest,
+        env_overrides={
+            "PI_COMMAND": str(fake_pi),
+            "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
+            "PI_DEPLOY_LOG": str(log),
+        },
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "pi|install npm:pi-archimedes@1.8.3",
+        f"patch|{dest}",
+    ]
+
+
+def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
+    dest = tmp_path / ".pi"
+    log = tmp_path / "package-sync.log"
+    for relative, name, version in (
+        ("pi-archimedes", "pi-archimedes", "1.8.3"),
+        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "1.8.3"),
+        ("pi-langfuse", "pi-langfuse", "1.5.9"),
+    ):
+        package = dest / "agent" / "npm" / "node_modules" / relative
+        package.mkdir(parents=True)
+        (package / "package.json").write_text(
+            json.dumps({"name": name, "version": version}),
+            encoding="utf-8",
+        )
+    fake_pi = tmp_path / "pi"
+    fake_patch = tmp_path / "apply-patches"
+    fake_pi.write_text(
+        '#!/bin/sh\nprintf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_patch.write_text(
+        '#!/bin/sh\nprintf "patch|%s\\n" "$PI_CONFIG_DEST" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    fake_patch.chmod(0o755)
+
+    proc = run_update(
+        dest,
+        env_overrides={
+            "PI_COMMAND": str(fake_pi),
+            "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
+            "PI_DEPLOY_LOG": str(log),
+        },
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [f"patch|{dest}"]
+    assert "pi-archimedes 1.8.3: already installed" in proc.stdout
+    assert "@pi-archimedes/subagent 1.8.3: already installed" in proc.stdout
+    assert "pi-langfuse 1.5.9: already installed" in proc.stdout
+
+
+def test_update_dry_run_reports_package_sync_without_executing_it(tmp_path):
+    dest = tmp_path / ".pi"
+    missing = tmp_path / "must-not-run"
+
+    proc = run_update(
+        dest,
+        "--dry-run",
+        env_overrides={
+            "PI_COMMAND": str(missing),
+            "PI_PACKAGE_PATCH_HELPER": str(missing),
+        },
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert f"PI_CODING_AGENT_DIR={dest / 'agent'}" in proc.stdout
+    assert "install npm:pi-archimedes@1.8.3" in proc.stdout
+    assert "install npm:@pi-archimedes/subagent@1.8.3" not in proc.stdout
+    assert "install npm:pi-langfuse@1.5.9" in proc.stdout
+    assert f"PI_CONFIG_DEST={dest}" in proc.stdout
 
 
 def test_update_rejects_apply_flag(tmp_path):

@@ -22,11 +22,14 @@ pi-setup/ (this repo, source of truth)
 - `scripts/update-pi-config.sh` deploys `pi/` → `~/.pi` by default;
   `--dry-run` previews changes. Runtime secrets/state (`auth.json`, `sessions/`,
   `trust.json`, `~/.pi/metrics/`, caches) are rsync-excluded and survive deploys.
+  Missing or mismatched exact package patch bases are installed before tracked
+  patches run; exact existing installs are left untouched to avoid broad npm reification.
 - Edits go in this repo, then deploy. The live `~/.pi` is never the place to
   change config; `rsync --delete` will overwrite it.
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches
-  from `patches/pi-packages/` after Pi installs exact package pins. It is
-  idempotent and fails closed on version or source-context mismatch.
+  from `patches/pi-packages/`. Normal deployment invokes it automatically after
+  exact base reconciliation. It is idempotent and fails closed on version or
+  source-context mismatch.
 - Two instruction levels share one filename: the repo root `AGENTS.md` is
   *project* instructions for working on pi-setup itself; `pi/agent/AGENTS.md`
   is the *global* instruction file every Pi session loads after deploy.
