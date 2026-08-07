@@ -289,6 +289,8 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     marker.write_text("const PARALLEL_OUTPUT_MAX_CHARS = 12_000;\n", encoding="utf-8")
     progress_marker = marker.parent / "types.ts"
     progress_marker.write_text("interface Progress { turnTokens?: number }\n", encoding="utf-8")
+    breaker_marker = marker.parent / "stream.ts"
+    breaker_marker.write_text('const stop = { reason: "repeated-error" };\n', encoding="utf-8")
     fake_pi = tmp_path / "pi"
     fake_patch = tmp_path / "apply-patches"
     fake_pi.write_text(
@@ -335,6 +337,10 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
     stale = dest / "agent" / "npm" / "node_modules" / "@pi-archimedes/subagent/src/index.ts"
     stale.parent.mkdir(parents=True)
     stale.write_text("const PARALLEL_OUTPUT_MAX_CHARS = 12_000;\n", encoding="utf-8")
+    (stale.parent / "types.ts").write_text(
+        "interface Progress { turnTokens?: number }\n",
+        encoding="utf-8",
+    )
     fake_pi = tmp_path / "pi"
     fake_patch = tmp_path / "apply-patches"
     fake_pi.write_text(

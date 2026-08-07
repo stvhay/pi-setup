@@ -1,5 +1,5 @@
 diff --git a/package.json b/package.json
-index 01577e9..dffd9bd 100644
+index 01577e9..f3df37b 100644
 --- a/package.json
 +++ b/package.json
 @@ -12,0 +13,4 @@
@@ -10,6 +10,10 @@ index 01577e9..dffd9bd 100644
 @@ -18 +22 @@
 -    "@earendil-works/pi-coding-agent": ">=0.1.0",
 +    "@earendil-works/pi-coding-agent": ">=0.74.0",
+@@ -33 +37 @@
+-}
+\ No newline at end of file
++}
 diff --git a/src/child-guard.ts b/src/child-guard.ts
 new file mode 100644
 index 0000000..2e71a2d
@@ -1207,19 +1211,62 @@ index d64d741..683dc22 100644
 +    if (options.signal.aborted) abortHandler();
 +    else options.signal.addEventListener("abort", abortHandler, { once: true });
 diff --git a/src/stream.ts b/src/stream.ts
-index f1fd14a..0f34efb 100644
+index f1fd14a..a3f4955 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
-@@ -4,0 +5,3 @@ import { getBus, Events } from "@pi-archimedes/core/bus";
+@@ -0,0 +1 @@
++import { createHash } from "node:crypto";
+@@ -4,0 +6,3 @@ import { getBus, Events } from "@pi-archimedes/core/bus";
 +import { decodeLimitStop } from "./limits.js";
 +import { scheduleTerminateChild } from "./spawn.js";
 +import { addUsage, readUsage, toSubagentUsage } from "./usage.js";
-@@ -9,0 +13 @@ import {
+@@ -9,0 +14 @@ import {
 +  handleMessageUpdate,
-@@ -19,0 +24,2 @@ export interface StreamCallbacks {
+@@ -19,0 +25,43 @@ export interface StreamCallbacks {
 +type ChildJsonEvent = JsonEvent | { type: "session"; id?: unknown };
 +
-@@ -55,5 +61,3 @@ export function streamEvents(
++const REPEATED_ERROR_LIMIT = 3;
++const MAX_FINGERPRINT_DEPTH = 64;
++const MAX_FINGERPRINT_NODES = 10_000;
++// ponytail: cap malformed-stream state; use a bounded LRU if legitimate children exceed 1,000 tools.
++const MAX_TRACKED_TOOL_CALL_IDS = 1_000;
++
++function canonicalJsonValue(
++  value: unknown,
++  depth = 0,
++  budget = { remaining: MAX_FINGERPRINT_NODES },
++): unknown {
++  if (depth > MAX_FINGERPRINT_DEPTH) throw new RangeError("fingerprint input is too deep");
++  if (--budget.remaining < 0) throw new RangeError("fingerprint input is too large");
++  if (Array.isArray(value)) {
++    if (value.length > budget.remaining) throw new RangeError("fingerprint input is too large");
++    return value.map((item) => canonicalJsonValue(item, depth + 1, budget));
++  }
++  if (!value || typeof value !== "object") return value;
++  const record = value as Record<string, unknown>;
++  const keys: string[] = [];
++  for (const key in record) {
++    if (!Object.hasOwn(record, key)) continue;
++    if (keys.length >= budget.remaining) throw new RangeError("fingerprint input is too large");
++    keys.push(key);
++  }
++  keys.sort();
++  return Object.fromEntries(
++    keys.map((key) => [key, canonicalJsonValue(record[key], depth + 1, budget)]),
++  );
++}
++
++function fingerprint(value: unknown): string | undefined {
++  try {
++    const json = JSON.stringify(canonicalJsonValue(value));
++    if (typeof json !== "string") return undefined;
++    return createHash("sha256").update(json).digest("hex");
++  } catch {
++    return undefined;
++  }
++}
++
+@@ -55,5 +103,3 @@ export function streamEvents(
 -      totalInput: 0,
 -      totalOutput: 0,
 -      totalCacheRead: 0,
@@ -1228,30 +1275,25 @@ index f1fd14a..0f34efb 100644
 +      usage: readUsage(undefined),
 +      turnUsage: readUsage(undefined),
 +      partialUsage: readUsage(undefined),
-@@ -64,0 +69 @@ export function streamEvents(
+@@ -64,0 +111 @@ export function streamEvents(
 +      streamingOutput: undefined,
-@@ -70,4 +75 @@ export function streamEvents(
+@@ -70,4 +117 @@ export function streamEvents(
 -    // Collect stderr for error reporting
 -    const stderrChunks: Buffer[] = [];
 -    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 -
 +    const stderrLines: string[] = [];
-@@ -74,0 +77,14 @@ export function streamEvents(
+@@ -74,0 +119,9 @@ export function streamEvents(
 +    let termination = undefined as SubagentResult["termination"];
-+    if (child.stderr) {
-+      const stderrReader = createInterface({ input: child.stderr, crlfDelay: Infinity });
-+      stderrReader.on("line", (line) => {
-+        const stop = decodeLimitStop(line);
-+        if (stop && !termination) {
-+          termination = stop;
-+          error = `Subagent stopped: ${stop.reason}`;
-+          scheduleTerminateChild(child);
-+        } else if (!stop) {
-+          stderrLines.push(line);
-+        }
-+      });
-+    }
-@@ -76,22 +92,37 @@ export function streamEvents(
++    const toolFingerprints = new Map<
++      string,
++      { toolName: string; call?: string } | null
++    >();
++    const seenToolCallIds = new Set<string>();
++    let repeatedErrorTracking = true;
++    let lastErrorFingerprint: string | undefined;
++    let repeatedErrorCount = 0;
+@@ -76,22 +129,93 @@ export function streamEvents(
 -    const buildProgress = (): SubagentProgress => ({
 -      agent: callbacks.agent ?? "subagent",
 -      status: "running",
@@ -1274,6 +1316,62 @@ index f1fd14a..0f34efb 100644
 -      toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
 -      model: state.model,
 -    });
++    const resetRepeatedErrorStreak = (): void => {
++      lastErrorFingerprint = undefined;
++      repeatedErrorCount = 0;
++    };
++
++    const disableRepeatedErrorTracking = (): void => {
++      repeatedErrorTracking = false;
++      toolFingerprints.clear();
++      seenToolCallIds.clear();
++      resetRepeatedErrorStreak();
++    };
++
++    const observeToolResult = (
++      toolFingerprint: string,
++      result: unknown,
++      isError: boolean,
++    ): void => {
++      if (termination) return;
++      if (!isError) {
++        resetRepeatedErrorStreak();
++        return;
++      }
++
++      const failedResultFingerprint = fingerprint([toolFingerprint, result]);
++      if (!failedResultFingerprint) {
++        resetRepeatedErrorStreak();
++        return;
++      }
++      repeatedErrorCount = failedResultFingerprint === lastErrorFingerprint ? repeatedErrorCount + 1 : 1;
++      lastErrorFingerprint = failedResultFingerprint;
++      if (repeatedErrorCount < REPEATED_ERROR_LIMIT) return;
++
++      termination = {
++        reason: "repeated-error",
++        limit: REPEATED_ERROR_LIMIT,
++        observed: repeatedErrorCount,
++        usageState: "partial",
++      };
++      error = "Subagent stopped: repeated-error";
++      scheduleTerminateChild(child);
++    };
++
++    if (child.stderr) {
++      const stderrReader = createInterface({ input: child.stderr, crlfDelay: Infinity });
++      stderrReader.on("line", (line) => {
++        const stop = decodeLimitStop(line);
++        if (stop && !termination) {
++          termination = stop;
++          error = `Subagent stopped: ${stop.reason}`;
++          scheduleTerminateChild(child);
++        } else if (!stop) {
++          stderrLines.push(line);
++        }
++      });
++    }
++
 +    const observedUsage = () => addUsage(state.usage, state.partialUsage);
 +
 +    const observedOutput = (): string | undefined => {
@@ -1311,18 +1409,67 @@ index f1fd14a..0f34efb 100644
 +        model: state.model,
 +      };
 +    };
-@@ -118 +149 @@ export function streamEvents(
+@@ -118 +242 @@ export function streamEvents(
 -      let event: JsonEvent;
 +      let event: ChildJsonEvent;
-@@ -120 +151 @@ export function streamEvents(
+@@ -120 +244 @@ export function streamEvents(
 -        event = JSON.parse(trimmed) as JsonEvent;
 +        event = JSON.parse(trimmed) as ChildJsonEvent;
-@@ -129,0 +161,4 @@ export function streamEvents(
+@@ -129,0 +254,4 @@ export function streamEvents(
 +        case "session": {
 +          if (typeof event.id === "string" && event.id) state.childSessionId = event.id;
 +          break;
 +        }
-@@ -154,0 +190,7 @@ export function streamEvents(
+@@ -130,0 +259,25 @@ export function streamEvents(
++          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
++            ? event.toolCallId
++            : undefined;
++          const toolCallKey = repeatedErrorTracking && toolCallId
++            ? fingerprint(toolCallId)
++            : undefined;
++          if (toolCallKey) {
++            const duplicate = seenToolCallIds.has(toolCallKey);
++            if (!duplicate && seenToolCallIds.size >= MAX_TRACKED_TOOL_CALL_IDS) {
++              disableRepeatedErrorTracking();
++            } else {
++              seenToolCallIds.add(toolCallKey);
++              if (duplicate) {
++                toolFingerprints.set(toolCallKey, null);
++              } else if (
++                typeof event.toolName === "string" &&
++                event.toolName &&
++                event.args !== undefined
++              ) {
++                const toolName = fingerprint(event.toolName);
++                const call = fingerprint([event.toolName, event.args]);
++                if (toolName) toolFingerprints.set(toolCallKey, { toolName, ...(call ? { call } : {}) });
++              }
++            }
++          }
+@@ -146,0 +300,22 @@ export function streamEvents(
++          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
++            ? event.toolCallId
++            : undefined;
++          const toolCallKey = repeatedErrorTracking && toolCallId
++            ? fingerprint(toolCallId)
++            : undefined;
++          const pending = toolCallKey ? toolFingerprints.get(toolCallKey) : undefined;
++          if (toolCallKey && pending === null) {
++            toolFingerprints.delete(toolCallKey);
++          } else if (
++            toolCallKey &&
++            pending &&
++            typeof event.toolName === "string" &&
++            event.toolName &&
++            pending.toolName === fingerprint(event.toolName) &&
++            event.result !== undefined &&
++            typeof event.isError === "boolean"
++          ) {
++            toolFingerprints.delete(toolCallKey);
++            if (pending.call) observeToolResult(pending.call, event.result, event.isError);
++            else resetRepeatedErrorStreak();
++          }
+@@ -154,0 +330,7 @@ export function streamEvents(
 +          state.turnUsage = readUsage(undefined);
 +          state.partialUsage = readUsage(undefined);
 +          break;
@@ -1330,28 +1477,28 @@ index f1fd14a..0f34efb 100644
 +        case "message_update": {
 +          handleMessageUpdate(state, event);
 +          emitProgress();
-@@ -166 +208 @@ export function streamEvents(
+@@ -166 +348 @@ export function streamEvents(
 -        // Ignore: session, agent_start, message_start, message_update, turn_end, tool_execution_update
 +        // Ignore: agent_start, message_start, turn_end, tool_execution_update
-@@ -175 +217,2 @@ export function streamEvents(
+@@ -175 +357,2 @@ export function streamEvents(
 -      const exitCode = code ?? 1;
 +      const exitCode = termination ? 2 : (code ?? 1);
 +      const usage = observedUsage();
-@@ -177 +219,0 @@ export function streamEvents(
+@@ -177 +359,0 @@ export function streamEvents(
 -      // Surface stderr as error if the process failed and we have no other error
-@@ -179 +221 @@ export function streamEvents(
+@@ -179 +361 @@ export function streamEvents(
 -        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
 +        const stderr = stderrLines.join("\n").trim();
-@@ -181,0 +224,6 @@ export function streamEvents(
+@@ -181,0 +364,6 @@ export function streamEvents(
 +      termination ??= exitCode === 0
 +        ? { reason: "completed", usageState: "complete" }
 +        : {
 +          reason: "process-error",
 +          usageState: state.streamingOutput ? "partial" : "unknown",
 +        };
-@@ -185,0 +234 @@ export function streamEvents(
+@@ -185,0 +374 @@ export function streamEvents(
 +        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
-@@ -188,9 +237,2 @@ export function streamEvents(
+@@ -188,9 +377,2 @@ export function streamEvents(
 -        usage: {
 -          input: state.totalInput,
 -          output: state.totalOutput,
@@ -1363,16 +1510,16 @@ index f1fd14a..0f34efb 100644
 -        finalOutput: state.finalOutput,
 +        usage: toSubagentUsage(usage, state.turnCount),
 +        finalOutput: state.finalOutput ?? observedOutput(),
-@@ -197,0 +240 @@ export function streamEvents(
+@@ -197,0 +380 @@ export function streamEvents(
 +        termination,
-@@ -205 +248 @@ export function streamEvents(
+@@ -205 +388 @@ export function streamEvents(
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index b90f829..33e756a 100644
+index b90f829..e7c9ed7 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,59 @@
 +import type { Usage } from "@earendil-works/pi-ai";
 +
 +export const MAX_SUBAGENT_DURATION_MS = 2_147_483_647;
@@ -1417,6 +1564,7 @@ index b90f829..33e756a 100644
 +  "cost-limit",
 +  "time-limit",
 +  "usage-unknown",
++  "repeated-error",
 +  "process-error",
 +] as const;
 +export type SubagentTerminationReason = (typeof SUBAGENT_TERMINATION_REASONS)[number];
@@ -1431,27 +1579,27 @@ index b90f829..33e756a 100644
 +  usageState: SubagentUsageState;
 +}
 +
-@@ -6,0 +65 @@ export interface SubagentUsage {
+@@ -6,0 +66 @@ export interface SubagentUsage {
 +  costBreakdown?: Usage["cost"];
-@@ -17,0 +77,4 @@ export interface SubagentProgress {
+@@ -17,0 +78,4 @@ export interface SubagentProgress {
 +  /** Current provider turn number. Optional for external progress producers. */
 +  turnCount?: number;
 +  /** Tokens observed in the current provider turn. */
 +  turnTokens?: number;
-@@ -19,0 +83,2 @@ export interface SubagentProgress {
+@@ -19,0 +84,2 @@ export interface SubagentProgress {
 +  cacheReadTokens?: number;
 +  cacheWriteTokens?: number;
-@@ -36,0 +102,2 @@ export interface SubagentResult {
+@@ -36,0 +103,2 @@ export interface SubagentResult {
 +  /** Logical Pi session UUID for this spawned subagent process. */
 +  childSessionId?: string;
-@@ -41,0 +109 @@ export interface SubagentResult {
+@@ -41,0 +110 @@ export interface SubagentResult {
 +  termination?: SubagentTermination;
-@@ -49,0 +118,2 @@ export interface SubagentToolResult {
+@@ -49,0 +119,2 @@ export interface SubagentToolResult {
 +  /** Nested child-model usage for Pi versions that support tool-result accounting. */
 +  usage?: Usage;
-@@ -59,0 +130 @@ export interface StreamState {
+@@ -59,0 +131 @@ export interface StreamState {
 +  childSessionId?: string;
-@@ -62,5 +133,3 @@ export interface StreamState {
+@@ -62,5 +134,3 @@ export interface StreamState {
 -  totalInput: number;
 -  totalOutput: number;
 -  totalCacheRead: number;
@@ -1460,7 +1608,7 @@ index b90f829..33e756a 100644
 +  usage: Usage;
 +  turnUsage: Usage;
 +  partialUsage: Usage;
-@@ -71,0 +141 @@ export interface StreamState {
+@@ -71,0 +142 @@ export interface StreamState {
 +  streamingOutput: string | undefined;
 diff --git a/src/usage.ts b/src/usage.ts
 new file mode 100644
