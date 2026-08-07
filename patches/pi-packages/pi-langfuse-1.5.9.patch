@@ -2,22 +2,13 @@ diff --git a/index.ts b/index.ts
 index 9e45515..f64dcdf 100644
 --- a/index.ts
 +++ b/index.ts
-@@ -8,7 +8,7 @@
-  */
-
- import { basename } from "node:path";
+@@ -11 +11 @@ import { basename } from "node:path";
 -import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 +import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-
- import { state, resetRunState, runWithSession, setCurrentSession } from "./src/state.js";
- import { ensureConfig, promptForConfig, loadConfig } from "./src/config.js";
-@@ -74,10 +74,18 @@ export default async function (pi: ExtensionAPI) {
-     },
-   });
-
+@@ -77 +77 @@ export default async function (pi: ExtensionAPI) {
 -  const getSessionId = (ctx?: any) => {
 +  const getSessionId = (ctx?: unknown): string | undefined => {
-     try {
+@@ -79,2 +79,10 @@ export default async function (pi: ExtensionAPI) {
 -      const sessionFile = ctx?.sessionManager?.getSessionFile?.();
 -      return sessionFile ? basename(sessionFile, ".jsonl") : undefined;
 +      const sessionManager = (ctx as ExtensionContext | undefined)?.sessionManager;
@@ -30,41 +21,167 @@ index 9e45515..f64dcdf 100644
 +      return typeof sessionFile === "string" && sessionFile
 +        ? basename(sessionFile, ".jsonl")
 +        : undefined;
-     } catch {
-       return undefined;
-     }
 diff --git a/src/langfuse.ts b/src/langfuse.ts
-index dcbebd5..54c2c51 100644
+index dcbebd5..454c30e 100644
 --- a/src/langfuse.ts
 +++ b/src/langfuse.ts
-@@ -219,6 +219,9 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
-
-   while (pendingScores.length > 0) {
-     const scores = pendingScores.slice(0, MAX_SCORE_BATCH_SIZE);
+@@ -68,0 +69,3 @@ const MAX_SCORE_BATCH_SIZE = 100;
++// Legacy POST /api/public/ingestion batches are limited to 3.5 MB.
++const MAX_INGESTION_REQUEST_BYTES = 3_000_000;
++const EMPTY_INGESTION_BODY_BYTES = Buffer.byteLength('{"batch":[]}');
+@@ -70,0 +74 @@ let shutdownStepTimeoutMs = DEFAULT_SHUTDOWN_STEP_TIMEOUT_MS;
++const scoreEventIds = new WeakMap<PendingScore, string>();
+@@ -195,9 +199,19 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+-  const response = await fetch(`${config.host.replace(/\/$/, "")}/api/public/ingestion`, {
+-    method: "POST",
+-    headers: ingestionHeaders(rt),
+-    body: JSON.stringify({ batch }),
+-    signal,
+-  });
+-  if (!response.ok) {
+-    throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
+-  }
++  const url = `${config.host.replace(/\/$/, "")}/api/public/ingestion`;
++  const errors: unknown[] = [];
++  let serializedEvents: string[] = [];
++  let bodyBytes = EMPTY_INGESTION_BODY_BYTES;
++
++  async function flush() {
++    if (serializedEvents.length === 0) {
++      return;
++    }
++
++    const response = await fetch(url, {
++      method: "POST",
++      headers: ingestionHeaders(rt),
++      body: `{"batch":[${serializedEvents.join(",")}]}`,
++      signal,
++    });
++    if (!response.ok) {
++      throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
++    }
+@@ -205,3 +219,32 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+-  const text = await response.text();
+-  if (!text) {
+-    return [];
++    const text = await response.text();
++    if (text) {
++      const responseBody = JSON.parse(text) as { errors?: unknown[] };
++      if (Array.isArray(responseBody.errors)) {
++        errors.push(...responseBody.errors);
++      }
++    }
++    serializedEvents = [];
++    bodyBytes = EMPTY_INGESTION_BODY_BYTES;
++  }
++
++  for (const [index, event] of batch.entries()) {
++    const serialized = JSON.stringify(event) ?? "null";
++    const eventBytes = Buffer.byteLength(serialized);
++    if (EMPTY_INGESTION_BODY_BYTES + eventBytes > MAX_INGESTION_REQUEST_BYTES) {
++      const eventId = event && typeof event === "object" && typeof (event as { id?: unknown }).id === "string"
++        ? (event as { id: string }).id
++        : `batch[${index}]`;
++      errors.push({
++        id: eventId,
++        status: 413,
++        message: `Langfuse ingestion event at batch index ${index} exceeds the ${MAX_INGESTION_REQUEST_BYTES.toLocaleString("en-US")} byte request ceiling (${eventBytes.toLocaleString("en-US")} event bytes)`,
++      });
++      continue;
++    }
++
++    const separatorBytes = serializedEvents.length > 0 ? 1 : 0;
++    if (bodyBytes + separatorBytes + eventBytes > MAX_INGESTION_REQUEST_BYTES) {
++      await flush();
++    }
++    bodyBytes += (serializedEvents.length > 0 ? 1 : 0) + eventBytes;
++    serializedEvents.push(serialized);
+@@ -210,2 +253,12 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+-  const responseBody = JSON.parse(text) as { errors?: unknown[] };
+-  return Array.isArray(responseBody.errors) ? responseBody.errors : [];
++  await flush();
++  return errors;
++}
++
++function scoreEventId(score: PendingScore): string {
++  const existing = scoreEventIds.get(score);
++  if (existing) {
++    return existing;
++  }
++  const id = randomUUID();
++  scoreEventIds.set(score, id);
++  return id;
+@@ -221,0 +275,3 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
 +    for (const score of scores) {
 +      score.id ??= randomUUID();
 +    }
-     try {
-       const errors = await ingestBatch(
-         rt,
+@@ -227 +283 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
+-          id: randomUUID(),
++          id: scoreEventId(score),
+@@ -465,2 +521,9 @@ async function traceExists(rt: LangfuseRuntime, traceId: string, signal: AbortSi
+-async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, signal: AbortSignal): Promise<boolean> {
+-  const deadline = Date.now() + OTEL_VISIBILITY_TIMEOUT_MS;
++async function waitForTraceVisibility(
++  rt: LangfuseRuntime,
++  traceId: string,
++  signal: AbortSignal,
++  timeoutMs = OTEL_VISIBILITY_TIMEOUT_MS,
++): Promise<boolean> {
++  if (timeoutMs <= 0) {
++    return false;
++  }
+@@ -468,4 +531,7 @@ async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, sign
+-  while (true) {
+-    if (await traceExists(rt, traceId, signal)) {
+-      return true;
+-    }
++  const deadline = Date.now() + timeoutMs;
++  const visibilitySignal = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
++  try {
++    while (true) {
++      if (await traceExists(rt, traceId, visibilitySignal)) {
++        return true;
++      }
+@@ -473,4 +539,4 @@ async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, sign
+-    const remainingMs = deadline - Date.now();
+-    if (remainingMs <= 0) {
+-      return false;
+-    }
++      const remainingMs = deadline - Date.now();
++      if (remainingMs <= 0) {
++        return false;
++      }
+@@ -478 +544,7 @@ async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, sign
+-    await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), signal);
++      await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), visibilitySignal);
++    }
++  } catch (error) {
++    if (signal.aborted) {
++      throw error;
++    }
++    return false;
+@@ -486 +558 @@ function eventTimestamp(record: { endTime?: string; startTime?: string; timestam
+-async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal) {
++async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal, deadline: number) {
+@@ -493 +565,3 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+-  if (await waitForTraceVisibility(rt, store.trace.id, signal)) {
++  const remainingMs = Math.max(0, deadline - Date.now());
++  const visibilityTimeoutMs = Math.min(OTEL_VISIBILITY_TIMEOUT_MS, Math.floor(remainingMs / 2));
++  if (await waitForTraceVisibility(rt, store.trace.id, signal, visibilityTimeoutMs)) {
+@@ -671 +745 @@ function doShutdownRuntime(): Promise<void> {
+-        () => fallbackToRestIngestion(rt, controller.signal),
++        () => fallbackToRestIngestion(rt, controller.signal, deadline),
 diff --git a/src/types.ts b/src/types.ts
 index 531537b..23f266e 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -60,6 +60,7 @@ export interface LangfuseScoreClient {
- }
-
- export interface PendingScore {
+@@ -62,0 +63 @@ export interface PendingScore {
 +  id?: string;
-   traceId?: string;
-   sessionId?: string;
-   observationId?: string;
 diff --git a/types/pi-coding-agent.d.ts b/types/pi-coding-agent.d.ts
 index 3f7e7aa..6462011 100644
 --- a/types/pi-coding-agent.d.ts
 +++ b/types/pi-coding-agent.d.ts
-@@ -1,4 +1,11 @@
- declare module "@earendil-works/pi-coding-agent" {
+@@ -1,0 +2,7 @@ declare module "@earendil-works/pi-coding-agent" {
 +  export interface ExtensionContext {
 +    sessionManager?: {
 +      getSessionId?: () => unknown;
@@ -72,6 +189,3 @@ index 3f7e7aa..6462011 100644
 +    };
 +  }
 +
-   export interface ExtensionAPI {
-     on(event: string, handler: (event: any, ctx: any) => unknown): void;
-     registerCommand(

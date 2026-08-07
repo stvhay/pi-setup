@@ -7,7 +7,9 @@ SOURCE=${PI_CONFIG_SOURCE:-$ROOT/pi}
 DEST=${PI_CONFIG_DEST:-$HOME/.pi}
 PI_COMMAND=${PI_COMMAND:-pi}
 PACKAGE_PATCH_HELPER=${PI_PACKAGE_PATCH_HELPER:-$ROOT/scripts/apply-pi-package-patches.sh}
+PACKAGE_PATCH_DIR=${PI_PACKAGE_PATCH_DIR:-$ROOT/patches/pi-packages}
 ARCHIMEDES_REINSTALL_BACKUP=
+LANGFUSE_REINSTALL_BACKUP=
 
 usage() {
   cat <<'EOF'
@@ -71,7 +73,7 @@ install_patch_base() {
 }
 
 restore_archimedes_reinstall_backup() {
-  [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ] || return
+  [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ] || return 0
   local modules="$DEST/agent/npm/node_modules"
   if [ -d "$ARCHIMEDES_REINSTALL_BACKUP/pi-archimedes" ]; then
     rm -rf "$modules/pi-archimedes"
@@ -83,6 +85,57 @@ restore_archimedes_reinstall_backup() {
   fi
   rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
   ARCHIMEDES_REINSTALL_BACKUP=
+}
+
+restore_langfuse_reinstall_backup() {
+  [ -n "$LANGFUSE_REINSTALL_BACKUP" ] || return 0
+  local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
+  if [ -d "$LANGFUSE_REINSTALL_BACKUP/pi-langfuse" ]; then
+    rm -rf "$package_dir"
+    mv "$LANGFUSE_REINSTALL_BACKUP/pi-langfuse" "$package_dir"
+  fi
+  rm -rf "$LANGFUSE_REINSTALL_BACKUP"
+  LANGFUSE_REINSTALL_BACKUP=
+}
+
+reinstall_langfuse_patch_base() {
+  local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
+  if [ "$MODE" = dry-run ]; then
+    run rm -rf "$package_dir"
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.9
+    return
+  fi
+
+  local backup
+  backup=$(mktemp -d "$DEST/agent/npm/.langfuse-reinstall.XXXXXX")
+  LANGFUSE_REINSTALL_BACKUP=$backup
+  mv "$package_dir" "$backup/pi-langfuse"
+  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.9 \
+    && package_is_exact "$package_dir/package.json" pi-langfuse 1.5.9; then
+    return
+  fi
+
+  restore_langfuse_reinstall_backup
+  echo "Could not reinstall exact Langfuse patch base; restored previous package files" >&2
+  return 1
+}
+
+install_langfuse_patch_base() {
+  local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
+  local package_json="$package_dir/package.json"
+  local patch_file="$PACKAGE_PATCH_DIR/pi-langfuse-1.5.9.patch"
+  if package_is_exact "$package_json" pi-langfuse 1.5.9; then
+    if patch --force --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" \
+      < "$patch_file" >/dev/null 2>&1 \
+      || patch --force --silent --fuzz=0 --dry-run -p1 -d "$package_dir" \
+        < "$patch_file" >/dev/null 2>&1; then
+      echo "pi-langfuse 1.5.9: already installed"
+    else
+      reinstall_langfuse_patch_base
+    fi
+  else
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.9
+  fi
 }
 
 reinstall_archimedes_patch_base() {
@@ -210,9 +263,16 @@ cleanup() {
   local status=$?
   if [ "$status" -ne 0 ]; then
     restore_archimedes_reinstall_backup
-  elif [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ]; then
-    rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
-    ARCHIMEDES_REINSTALL_BACKUP=
+    restore_langfuse_reinstall_backup
+  else
+    if [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ]; then
+      rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
+      ARCHIMEDES_REINSTALL_BACKUP=
+    fi
+    if [ -n "$LANGFUSE_REINSTALL_BACKUP" ]; then
+      rm -rf "$LANGFUSE_REINSTALL_BACKUP"
+      LANGFUSE_REINSTALL_BACKUP=
+    fi
   fi
   if [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
     rm -f "$RUNTIME_SETTINGS_BACKUP"
@@ -308,7 +368,7 @@ fi
 # Reconcile only missing, mismatched, or stale version-locked patch bases.
 # Current installations stay untouched so unrelated npm ranges are never reified.
 install_archimedes_patch_base
-install_patch_base npm:pi-langfuse@1.5.9 pi-langfuse pi-langfuse 1.5.9
+install_langfuse_patch_base
 if [ "$MODE" = dry-run ]; then
   run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
 elif env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"; then

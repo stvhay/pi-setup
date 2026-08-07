@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/gooyoung/pi-langfuse
-last_checked_utc: 2026-08-05T22:44:07Z
+last_checked_utc: 2026-08-07T17:18:34Z
 target_ref: v1.5.9
 source_commit: 3243208ea89d6fdc2b5f0e66660a4a626880ebd0
 status: current-for-target-ref
@@ -53,7 +53,7 @@ source_files:
 - Required candidate checks: `npm run typecheck`, hermetic `npm test`, `npm pack --dry-run`, and diff checks.
 - `DEVELOPMENT.md` and `DEVELOPMENT_CN.md` at this target ref prescribe `node --test test/*.test.ts`, which fails on the clean baseline under Node v22.22.3. `npm test` is the working package-native command. Treat correction as separate by default.
 - No PR template or repository AI-contribution policy observed in checked sources.
-- Mutable state rechecked 2026-08-05T22:44:07Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; no open issues or PR/issue templates observed; upstream draft PRs #10, #9, and #6 plus fork-local draft `stvhay/pi-langfuse#1` are open; branch-protection details were unavailable through the API (HTTP 404).
+- Mutable state rechecked 2026-08-07T17:18:34Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has two open issues, no PR/issue templates observed, open PRs #13, #10, #9, and draft #6, plus fork-local drafts `stvhay/pi-langfuse#1` and `#2`; branch-protection details were unavailable through the API (HTTP 404).
 - Publish workflow is release/tag driven; PR approval does not authorize release or publication.
 
 ## Policy findings

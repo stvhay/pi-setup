@@ -11,6 +11,8 @@ SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
 ARCHIMEDES_VENDOR_HEAD = "6adcc78635d4174422badf79db84bc2a50fd1865"
+LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
+LANGFUSE_VENDOR_HEAD = "f1568028debf9af89f64a648f7559b49b7793743"
 
 
 def _package(root: Path, relative: str, name: str, version: str, source: str) -> Path:
@@ -167,6 +169,39 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
     assert "scoreEntityId" not in score_source.read_text(encoding="utf-8")
 
 
+def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
+    package_root = tmp_path / "node_modules"
+    langfuse = _package(
+        package_root,
+        "pi-langfuse",
+        "pi-langfuse",
+        "1.5.9",
+        'export const session = "file";\n',
+    )
+    score_source = langfuse.parent / "src/langfuse.ts"
+    score_source.write_text(
+        score_source.read_text(encoding="utf-8").replace(
+            "export const flush = true;",
+            "export const scoreEntityId = randomUUID();\nexport const flush = true;",
+        ),
+        encoding="utf-8",
+    )
+    _package(
+        package_root,
+        "@pi-archimedes/subagent",
+        "@pi-archimedes/subagent",
+        "1.8.3",
+        "export const result = {};\n",
+    )
+    _archimedes_meta(package_root)
+    patch_root = _fixture_patches(tmp_path / "patches")
+
+    rejected = _run(package_root, patch_root, "--check")
+
+    assert rejected.returncode != 0
+    assert "patch does not match installed source" in rejected.stderr
+
+
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
     package_root = tmp_path / "node_modules"
     langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.9", 'export const session = "file";\n')
@@ -229,6 +264,20 @@ def test_archimedes_vendor_submodule_pins_combined_runtime_head():
     ).returncode == 0
 
 
+def test_langfuse_vendor_submodule_pins_combined_runtime_head():
+    head = subprocess.run(
+        ["git", "-C", str(LANGFUSE_VENDOR), "rev-parse", "HEAD"],
+        text=True,
+        capture_output=True,
+    )
+
+    assert head.returncode == 0, head.stderr
+    assert head.stdout.strip() == LANGFUSE_VENDOR_HEAD
+    assert subprocess.run(
+        ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", "3243208", "HEAD"],
+    ).returncode == 0
+
+
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
     langfuse = (PATCHES / "pi-langfuse-1.5.9.patch").read_text(encoding="utf-8")
     archimedes = (PATCHES / "pi-archimedes-subagent-1.8.3.patch").read_text(encoding="utf-8")
@@ -244,6 +293,9 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert 'basename(sessionFile, ".jsonl")' in langfuse
     assert "score.id ??= randomUUID()" in langfuse
     assert "id?: string;" in langfuse
+    assert "MAX_INGESTION_REQUEST_BYTES" in langfuse
+    assert "scoreEventIds" in langfuse
+    assert "AbortSignal.any" in langfuse
     assert "childSessionId" in archimedes
     assert "ResolvedChildExecution" in archimedes
     assert "maxProviderRequests" in archimedes
@@ -260,10 +312,9 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert ".test.ts" not in archimedes + meta
     assert '"--mode", "json", "--no-session", "-p"' in archimedes
     assert "invocationId" not in added
-    assert "traceId" not in added
 
 
-def test_langfuse_runtime_patch_hunks_verify_source_context():
+def test_langfuse_runtime_patch_uses_zero_context_without_losing_source_removals():
     patch = (PATCHES / "pi-langfuse-1.5.9.patch").read_text(encoding="utf-8")
     hunks: list[list[str]] = []
     current: list[str] | None = None
@@ -277,4 +328,5 @@ def test_langfuse_runtime_patch_hunks_verify_source_context():
             current.append(line)
 
     assert hunks
-    assert all(any(line.startswith((" ", "-")) for line in hunk) for hunk in hunks)
+    assert all(not any(line.startswith(" ") for line in hunk) for hunk in hunks)
+    assert any(any(line.startswith("-") for line in hunk) for hunk in hunks)

@@ -63,7 +63,7 @@ patch_state() {
   fi
   if grep -Fq "$marker" "$package_dir/$marker_file"; then
     local reverse_output
-    if reverse_output=$(patch --batch --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
+    if reverse_output=$(patch --force --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
       && [ -z "$reverse_output" ]; then
       echo applied
       return
@@ -71,7 +71,7 @@ patch_state() {
     echo "$label: installed source is only partially patched" >&2
     return 1
   fi
-  if patch --batch --silent --fuzz=0 --forward --dry-run -p1 -d "$package_dir" < "$patch_file" >/dev/null 2>&1; then
+  if patch --force --silent --fuzz=0 --dry-run -p1 -d "$package_dir" < "$patch_file" >/dev/null 2>&1; then
     echo pending
     return
   fi
