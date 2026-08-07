@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
-ARCHIMEDES_VENDOR_HEAD = "eb78e66b13d85a09b18254213a6553218a9c81d5"
+ARCHIMEDES_VENDOR_HEAD = "826c6ed6c070aca9df59bf08bff9af5371adf27e"
 
 
 def _package(root: Path, relative: str, name: str, version: str, source: str) -> Path:
@@ -248,6 +248,8 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "ResolvedChildExecution" in archimedes
     assert "maxProviderRequests" in archimedes
     assert "PARALLEL_OUTPUT_MAX_CHARS" in archimedes
+    assert "turnTokens" in archimedes
+    assert "turnCount" in archimedes
     assert "subagentMaxProviderRequests" in meta
     assert "DEVELOPMENT.md" not in langfuse
     assert "diff --git a/test/" not in langfuse
