@@ -115,9 +115,11 @@ install_archimedes_patch_base() {
   local meta="$DEST/agent/npm/node_modules/pi-archimedes/package.json"
   local subagent="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/package.json"
   local patch_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/index.ts"
+  local progress_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/types.ts"
   if package_is_exact "$meta" pi-archimedes 1.8.3 \
     && package_is_exact "$subagent" @pi-archimedes/subagent 1.8.3; then
-    if grep -Fq "PARALLEL_OUTPUT_MAX_CHARS" "$patch_marker"; then
+    if grep -Fq "PARALLEL_OUTPUT_MAX_CHARS" "$patch_marker" \
+      && grep -Fq "turnTokens" "$progress_marker"; then
       echo "pi-archimedes 1.8.3: already installed"
       echo "@pi-archimedes/subagent 1.8.3: already installed"
     else
