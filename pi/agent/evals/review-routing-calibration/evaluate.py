@@ -16,7 +16,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = HERE / "manifest.json"
-TASK_RE = re.compile(r"^review-calibration:v1 packet=([a-z0-9-]+) repetition=([1-9][0-9]*)$")
+TASK_RE = re.compile(r"^([a-z0-9:-]+) packet=([a-z0-9-]+) repetition=([1-9][0-9]*)$")
 FINDING_FIELDS = ("id", "severity", "category", "location", "claim", "failureScenario", "evidence", "status")
 
 
@@ -34,6 +34,8 @@ def write_json(path: Path, value: Any) -> None:
 def validate_manifest(spec: dict[str, Any], base_dir: Path = HERE) -> dict[str, Any]:
     if spec.get("schemaVersion") != 1 or spec.get("id") != "review-routing-calibration":
         raise ValueError("manifest identity must be review-routing-calibration schemaVersion 1")
+    if not isinstance(spec.get("taskPrefix"), str) or not re.fullmatch(r"review-calibration:v[1-9][0-9]*", spec["taskPrefix"]):
+        raise ValueError("manifest requires a versioned review-calibration task prefix")
     models = spec.get("models")
     if not isinstance(models, list) or len(models) != 2:
         raise ValueError("manifest requires exactly two models")
@@ -110,12 +112,12 @@ def validate_manifest(spec: dict[str, Any], base_dir: Path = HERE) -> dict[str, 
     return spec
 
 
-def parse_task_header(task: Any) -> tuple[str, int] | None:
+def parse_task_header(task: Any, prefix: str) -> tuple[str, int] | None:
     if not isinstance(task, str):
         return None
     first_line = task.splitlines()[0] if task.splitlines() else ""
     match = TASK_RE.fullmatch(first_line)
-    return (match.group(1), int(match.group(2))) if match else None
+    return (match.group(2), int(match.group(3))) if match and match.group(1) == prefix else None
 
 
 def session_messages(path: Path) -> list[dict[str, Any]]:
@@ -199,7 +201,8 @@ def collect_records(session_path: Path, spec: dict[str, Any]) -> list[dict[str, 
                     continue
                 arguments = block.get("arguments") if isinstance(block.get("arguments"), dict) else {}
                 tasks = arguments.get("tasks") if isinstance(arguments.get("tasks"), list) else []
-                selected = [task for task in tasks if isinstance(task, dict) and parse_task_header(task.get("task"))]
+                selected = [task for task in tasks if isinstance(task, dict)
+                            and parse_task_header(task.get("task"), spec["taskPrefix"])]
                 if selected:
                     calls[str(block.get("id"))] = selected
         elif message.get("role") == "toolResult" and message.get("toolName") == "subagent":
@@ -211,7 +214,7 @@ def collect_records(session_path: Path, spec: dict[str, Any]) -> list[dict[str, 
     for tool_call_id, tasks in calls.items():
         unmatched_results = list(results.get(tool_call_id, []))
         for index, task in enumerate(tasks):
-            header = parse_task_header(task.get("task"))
+            header = parse_task_header(task.get("task"), spec["taskPrefix"])
             if not header:
                 continue
             packet_id, repetition = header

@@ -61,7 +61,7 @@ def output(packet: dict, finding_ids: list[str], *, semantic: bool = True) -> st
 
 
 def task(packet_id: str, repetition: int) -> str:
-    return f"review-calibration:v1 packet={packet_id} repetition={repetition}\n\npacket body"
+    return f"review-calibration:v2 packet={packet_id} repetition={repetition}\n\npacket body"
 
 
 def session_entry(message: dict) -> str:
@@ -74,10 +74,29 @@ def test_real_manifest_and_packets_validate():
     checked = module.validate_manifest(manifest(), EVAL_DIR)
 
     assert checked["id"] == "review-routing-calibration"
+    assert checked["taskPrefix"] == "review-calibration:v2"
     assert len(checked["packets"]) == 4
     assert {packet["kind"] for packet in checked["packets"]} == {"seeded", "clean"}
     assert checked["execution"]["repetitions"] == 3
     assert checked["thresholds"]["minLatencyAdjustedYieldRatio"] == 1.25
+    seeded = (EVAL_DIR / "packets/ingestion-seeded.md").read_text(encoding="utf-8")
+    assert 'len(event_body.encode("utf-8")) > MAX_BODY_BYTES' in seeded
+
+
+def test_collect_ignores_stale_trial_prefixes(tmp_path):
+    module = load_module()
+    session = tmp_path / "session.jsonl"
+    session.write_text(session_entry({
+        "role": "assistant",
+        "content": [{
+            "type": "toolCall",
+            "id": "stale-call",
+            "name": "subagent",
+            "arguments": {"tasks": [{"task": "review-calibration:v1 packet=case-01a repetition=1"}]},
+        }],
+    }), encoding="utf-8")
+
+    assert module.collect_records(session, manifest()) == []
 
 
 def test_collect_correlates_subagent_call_and_result_dimensions(tmp_path):

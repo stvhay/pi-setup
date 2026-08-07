@@ -38,7 +38,11 @@ def partition(events):
     pending = list(events)
     batches = []
     while pending:
-        batch = [pending.pop(0)]
+        event = pending.pop(0)
+        event_body = json.dumps({"batch": [event]}, ensure_ascii=False)
+        if len(event_body.encode("utf-8")) > MAX_BODY_BYTES:
+            continue
+        batch = [event]
         while pending and serialized_size([*batch, pending[0]]) <= MAX_BODY_BYTES:
             batch.append(pending.pop(0))
         batches.append(batch)
