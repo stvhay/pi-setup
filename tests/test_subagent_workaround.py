@@ -434,6 +434,117 @@ def test_subagent_results_emit_evaluator_ready_observations():
     run_node(script)
 
 
+def test_parallel_inline_contract_projects_only_inline_child_outputs():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe() {{}},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel-inline",
+        input: {{
+          outputContract: "inline",
+          tasks: [
+            {{ task: "First" }},
+            {{ task: "Second", outputContract: "artifact" }},
+          ],
+        }},
+        content: [{{ type: "text", text: "parallel summary" }}],
+        details: {{ mode: "parallel", results: [
+          {{ exitCode: 0, finalOutput: "VISIBLE_ALPHA" }},
+          {{ exitCode: 0, finalOutput: "PRIVATE_BETA" }},
+        ] }},
+      }}, {{ cwd: process.cwd() }});
+
+      assert.equal(patch.content[0].text, "parallel summary");
+      assert.equal(patch.content[1].text, "Child 1 output:\\nVISIBLE_ALPHA");
+      assert.match(patch.content[2].text, /^Delegated artifacts:/);
+      assert.equal(JSON.stringify(patch.content).includes("PRIVATE_BETA"), false);
+      assert.deepEqual(patch.details.results.map((result) => result.finalOutput), ["VISIBLE_ALPHA", "PRIVATE_BETA"]);
+    """
+    run_node(script)
+
+
+def test_parallel_inline_outputs_share_bounded_parent_context():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe() {{}},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel-bounded",
+        input: {{ outputContract: "inline", tasks: [{{ task: "First" }}, {{ task: "Second" }}] }},
+        content: [{{ type: "text", text: "parallel summary" }}],
+        details: {{ mode: "parallel", results: [
+          {{ exitCode: 0, finalOutput: "A".repeat(20_000) }},
+          {{ exitCode: 0, finalOutput: "B".repeat(20_000) }},
+        ] }},
+      }}, {{ cwd: process.cwd() }});
+
+      const outputs = patch.content.filter((part) => /^Child \\d+ output:/.test(part.text));
+      assert.equal(outputs.length, 2);
+      assert.match(outputs[0].text, /^Child 1 output:\\nA+/);
+      assert.match(outputs[1].text, /^Child 2 output:\\nB+/);
+      assert.equal(outputs.every((part) => part.text.includes("delegated output truncated")), true);
+      assert.equal(outputs.reduce((total, part) => total + part.text.length, 0) <= 12_000, true);
+      assert.match(patch.content.at(-1).text, /^Delegated artifacts:/);
+    """
+    run_node(script)
+
+
+def test_parallel_inline_projection_caps_large_fanout():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe() {{}},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const tasks = Array.from({{ length: 200 }}, (_, index) => ({{ task: `Task ${{index}}` }}));
+      const results = tasks.map((_, index) => ({{ exitCode: 0, finalOutput: `${{index}}:` + "X".repeat(200) }}));
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel-large-fanout",
+        input: {{ outputContract: "inline", tasks }},
+        content: [{{ type: "text", text: "parallel summary" }}],
+        details: {{ mode: "parallel", results }},
+      }}, {{ cwd: process.cwd() }});
+
+      const outputs = patch.content.filter((part) => /^Child \\d+ output:/.test(part.text));
+      assert.equal(outputs.length > 0, true);
+      assert.equal(outputs.reduce((total, part) => total + part.text.length, 0) <= 12_000, true);
+      assert.equal((patch.content.at(-1).text.match(/^- /gm) ?? []).length, 200);
+    """
+    run_node(script)
+
+
 def test_subagent_evaluator_view_bounds_output_and_marks_unavailable():
     script = f"""
       import assert from "node:assert/strict";

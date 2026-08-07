@@ -18,6 +18,7 @@ type NormalizedOutputContract = OutputContract | "unknown";
 
 const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
+const INLINE_OUTPUT_MAX_CHARS = 12_000;
 
 type SubagentInput = {
   agent?: string;
@@ -171,6 +172,34 @@ function evaluationOutput(result: SubagentResult): string {
   if (!value) return "[delegated output unavailable]";
   if (value.length <= EVALUATION_OUTPUT_MAX_CHARS) return value;
   return `${value.slice(0, EVALUATION_OUTPUT_MAX_CHARS)}\n[delegated output truncated at ${EVALUATION_OUTPUT_MAX_CHARS} characters]`;
+}
+
+function parallelInlineOutputMessages(
+  input: SubagentInput,
+  details: SubagentDetails,
+): Array<{ type: "text"; text: string }> {
+  if (details.mode !== "parallel") return [];
+  const outputs = details.results.flatMap((result, index) => {
+    const value = typeof result.finalOutput === "string"
+      ? result.finalOutput
+      : typeof result.error === "string" ? result.error : undefined;
+    return outputContract(input, index) === "inline" && value
+      ? [{ index, value }]
+      : [];
+  });
+  const messageMaxChars = Math.floor(INLINE_OUTPUT_MAX_CHARS / Math.max(1, outputs.length));
+  const suffix = "\n[delegated output truncated]";
+  return outputs.flatMap(({ index, value }) => {
+    const header = `Child ${index + 1} output:\n`;
+    const available = messageMaxChars - header.length;
+    if (available <= 0) return [];
+    if (value.length <= available) return [{ type: "text" as const, text: `${header}${value}` }];
+    const outputChars = Math.max(0, available - suffix.length);
+    return [{
+      type: "text" as const,
+      text: `${header}${value.slice(0, outputChars)}${outputChars ? suffix : ""}`,
+    }];
+  });
 }
 
 async function loadDefaultObserve(): Promise<Observe> {
@@ -710,6 +739,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       }
     }));
 
+    const inlineOutputMessages = parallelInlineOutputMessages(input, details);
     const persistedRefs = details.results.flatMap((result) => result.artifact?.refs ?? []);
     const artifactMessages = [
       ...(persistedRefs.length ? [{ type: "text" as const, text: `Delegated artifacts:\n${persistedRefs.map((ref) => `- ${ref}`).join("\n")}` }] : []),
@@ -717,7 +747,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
         ? [{ type: "text" as const, text: `Delegated artifact unavailable for child ${index} (${result.artifact.failureClass}).` }]
         : []),
     ];
-    const patch = { content: [...event.content, ...artifactMessages], details };
+    const patch = { content: [...event.content, ...inlineOutputMessages, ...artifactMessages], details };
     if (synthesized || details.results.some((result) => result.exitCode !== 0)) return { ...patch, isError: true };
     return patch;
   });
