@@ -164,7 +164,7 @@ index 0000000..8e1ce98
 +  }
 +}
 diff --git a/src/execute.ts b/src/execute.ts
-index f41835a..e423ee4 100644
+index f41835a..58c7499 100644
 --- a/src/execute.ts
 +++ b/src/execute.ts
 @@ -3,0 +4,2 @@ import { emitCostUpdate } from "./cost.js";
@@ -195,11 +195,18 @@ index f41835a..e423ee4 100644
 +export function aggregateUsage(results: SubagentResult[]): Usage {
 +  return addUsage(...results.map((result) => fromSubagentUsage(result.usage)));
 +}
-@@ -15,0 +40,50 @@ export interface ExecuteOptions {
+@@ -15,0 +40,57 @@ export interface ExecuteOptions {
 +  execution: ResolvedChildExecution;
 +}
 +
 +export type ParallelTask = Omit<ExecuteOptions, "signal" | "onUpdate">;
++
++function executionEvidence(execution: ResolvedChildExecution): ResolvedChildExecution {
++  return {
++    profile: { ...execution.profile },
++    limits: execution.limits ? { ...execution.limits } : undefined,
++  };
++}
 +
 +export interface ParallelExecuteOptions {
 +  tasks: ParallelTask[];
@@ -246,48 +253,52 @@ index f41835a..e423ee4 100644
 +    };
 +  }
 +  return result;
-@@ -23,0 +98 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -23,0 +105 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +  const control = createExecutionControl(options.signal, options.execution.limits?.maxDurationMs);
-@@ -27,0 +103,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -27,0 +110,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +  let lastEmittedCacheRead = 0;
 +  let lastEmittedCacheWrite = 0;
-@@ -36 +113 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -36 +120 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -      signal: options.signal,
 +      signal: control.signal,
-@@ -37,0 +115 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -37,0 +122 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      execution: options.execution,
-@@ -46,0 +125,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -46,0 +132,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +        const cacheReadTokens = progress.cacheReadTokens ?? 0;
 +        const cacheWriteTokens = progress.cacheWriteTokens ?? 0;
 +        const deltaCacheRead = cacheReadTokens - lastEmittedCacheRead;
 +        const deltaCacheWrite = cacheWriteTokens - lastEmittedCacheWrite;
-@@ -48 +130 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -48 +137 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -        if (deltaInput > 0 || deltaOutput > 0 || deltaCost > 0) {
 +        if (deltaInput > 0 || deltaOutput > 0 || deltaCacheRead > 0 || deltaCacheWrite > 0 || deltaCost > 0) {
-@@ -51,0 +134,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -51,0 +141,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +            cacheReadTokens: deltaCacheRead,
 +            cacheWriteTokens: deltaCacheWrite,
-@@ -55,0 +140,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -55,0 +147,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +          lastEmittedCacheRead = cacheReadTokens;
 +          lastEmittedCacheWrite = cacheWriteTokens;
-@@ -64 +150 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -64 +157 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    return {
 +    return applyControlTermination({
-@@ -81,0 +168,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -67,0 +161 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      execution: executionEvidence(options.execution),
+@@ -81,0 +176,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +            cacheReadTokens: 0,
 +            cacheWriteTokens: 0,
-@@ -94 +182 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -94 +190 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    };
 +    }, options, control, durationMs);
-@@ -112,0 +201 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -110,0 +207 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      execution: executionEvidence(options.execution),
+@@ -112,0 +210 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      termination: { reason: "process-error", usageState: "unknown" },
-@@ -126,0 +216,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -126,0 +225,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +        cacheReadTokens: 0,
 +        cacheWriteTokens: 0,
-@@ -141 +232 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -141 +241 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    return result;
 +    return applyControlTermination(result, options, control, durationMs);
-@@ -148,5 +239,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -148,5 +248,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -export async function executeParallel(options: {
 -  tasks: Array<{ agent: string | undefined; agentConfig: AgentConfig | undefined; task: string; model: string | undefined; activeModel: string | undefined; cwd: string | undefined }>;
 -  signal: AbortSignal | undefined;
@@ -297,10 +308,10 @@ index f41835a..e423ee4 100644
 +  options: ParallelExecuteOptions,
 +  runner: (options: ExecuteOptions) => Promise<SubagentResult> = executeSubagent,
 +): Promise<SubagentResult[]> {
-@@ -165,0 +256,2 @@ export async function executeParallel(options: {
+@@ -165,0 +265,2 @@ export async function executeParallel(options: {
 +    cacheReadTokens: 0,
 +    cacheWriteTokens: 0,
-@@ -180 +272 @@ export async function executeParallel(options: {
+@@ -180 +281 @@ export async function executeParallel(options: {
 -      executeSubagent({
 +      runner({
 diff --git a/src/execution-profile.ts b/src/execution-profile.ts
@@ -386,7 +397,7 @@ index 0f9dfed..7828cff 100644
 +      : formatTokens(tokens) + " tok");
 +  }
 diff --git a/src/handlers.ts b/src/handlers.ts
-index f0fb6f5..8f7463c 100644
+index f0fb6f5..45de31c 100644
 --- a/src/handlers.ts
 +++ b/src/handlers.ts
 @@ -0,0 +1 @@
@@ -426,7 +437,7 @@ index f0fb6f5..8f7463c 100644
 @@ -80 +92 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 -  const toolName = (event.toolName as string) ?? "tool";
 +  const toolName = event.toolName;
-@@ -103,0 +116,126 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -103,0 +116,128 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 +function objectItems<T>(value: unknown): T[] {
 +  if (!Array.isArray(value)) return [];
 +  return value.filter((item) => item !== null && typeof item === "object") as T[];
@@ -513,6 +524,7 @@ index f0fb6f5..8f7463c 100644
 +export function handleMessageStart(state: StreamState, event: MessageStartEvent): void {
 +  if (event.message?.role !== "assistant") return;
 +  clearStreamingMessage(state);
++  if (!state.provider && event.message.provider) state.provider = event.message.provider;
 +  if (!state.model && event.message.model) state.model = event.message.model;
 +}
 +
@@ -522,6 +534,7 @@ index f0fb6f5..8f7463c 100644
 +  if (message && typeof message === "object" && (message as { role?: unknown }).role === "assistant") {
 +    const assistant = message as AssistantMessage;
 +    if (!hasAssistantStreamData(assistant)) return false;
++    if (!state.provider && assistant.provider) state.provider = assistant.provider;
 +    if (!state.model && assistant.model) state.model = assistant.model;
 +    state.streamingParts.clear();
 +    state.streamingOutput = assistantText(assistant)?.slice(0, STREAMING_OUTPUT_MAX_CHARS);
@@ -553,7 +566,7 @@ index f0fb6f5..8f7463c 100644
 +  return false;
 +}
 +
-@@ -107,3 +245,12 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -107,3 +247,12 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 -export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const message = event.message as Record<string, unknown> | undefined;
 -  if (!message || message.role !== "assistant") return;
@@ -569,10 +582,14 @@ index f0fb6f5..8f7463c 100644
 +  // Finalized data replaces the latest partial message.
 +  clearStreamingMessage(state);
 +  clearPartialUsage(state);
-@@ -113 +260 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -111 +260,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-  // Capture model name
++  // Capture provider/model identity
++  if (!state.provider && message.provider) state.provider = message.provider;
+@@ -113 +263 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -    state.model = message.model as string;
 +    state.model = message.model;
-@@ -117,18 +264,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -117,18 +267,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const content = message.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
 -    state.accumulatedOutput.push(content);
@@ -604,7 +621,7 @@ index f0fb6f5..8f7463c 100644
 +      state.accumulatedOutput.push(`[thinking] ${part.thinking.trim()}`);
 +      const lines = part.thinking.split("\n").filter((line: string) => line.trim());
 +      state.recentOutput.push(...lines.slice(-5).map((line: string) => `[thinking] ${line}`));
-@@ -144,9 +286,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -144,9 +289,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  if (message.usage) {
 -    const usage = message.usage as Record<string, unknown>;
 -    state.totalInput += (usage.input as number) || 0;
@@ -616,18 +633,18 @@ index f0fb6f5..8f7463c 100644
 -  }
 +  state.turnUsage = readUsage(message.usage);
 +  state.usage = addUsage(state.usage, state.turnUsage);
-@@ -158,3 +293,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -158,3 +296,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const messages = event.messages as Array<Record<string, unknown>> | undefined;
 -  if (!messages || messages.length === 0) return;
 +export function handleAgentEnd(state: StreamState, event: AgentEndEvent): void {
 +  const messages = objectItems<AgentEndEvent["messages"][number]>(event.messages);
 +  if (messages.length === 0) return;
-@@ -163 +298,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -163 +301,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 +  const lastAssistant = [...messages].reverse().find((message): message is AssistantMessage =>
 +    message.role === "assistant");
-@@ -166,14 +302 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -166,14 +305 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const allText: string[] = [];
 -  const content = lastAssistant.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
@@ -1285,7 +1302,7 @@ index d64d741..683dc22 100644
 +    if (options.signal.aborted) abortHandler();
 +    else options.signal.addEventListener("abort", abortHandler, { once: true });
 diff --git a/src/stream.ts b/src/stream.ts
-index f1fd14a..06d63b6 100644
+index f1fd14a..8e350e2 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
 @@ -0,0 +1 @@
@@ -1350,16 +1367,18 @@ index f1fd14a..06d63b6 100644
 +      usage: readUsage(undefined),
 +      turnUsage: readUsage(undefined),
 +      partialUsage: readUsage(undefined),
-@@ -64,0 +112,2 @@ export function streamEvents(
+@@ -62,0 +110 @@ export function streamEvents(
++      provider: undefined,
+@@ -64,0 +113,2 @@ export function streamEvents(
 +      streamingOutput: undefined,
 +      streamingParts: new Map(),
-@@ -70,4 +119 @@ export function streamEvents(
+@@ -70,4 +120 @@ export function streamEvents(
 -    // Collect stderr for error reporting
 -    const stderrChunks: Buffer[] = [];
 -    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 -
 +    const stderrLines: string[] = [];
-@@ -74,0 +121,9 @@ export function streamEvents(
+@@ -74,0 +122,9 @@ export function streamEvents(
 +    let termination = undefined as SubagentResult["termination"];
 +    const toolFingerprints = new Map<
 +      string,
@@ -1369,7 +1388,7 @@ index f1fd14a..06d63b6 100644
 +    let repeatedErrorTracking = true;
 +    let lastErrorFingerprint: string | undefined;
 +    let repeatedErrorCount = 0;
-@@ -76,22 +131,93 @@ export function streamEvents(
+@@ -76,22 +132,93 @@ export function streamEvents(
 -    const buildProgress = (): SubagentProgress => ({
 -      agent: callbacks.agent ?? "subagent",
 -      status: "running",
@@ -1485,18 +1504,18 @@ index f1fd14a..06d63b6 100644
 +        model: state.model,
 +      };
 +    };
-@@ -118 +244 @@ export function streamEvents(
+@@ -118 +245 @@ export function streamEvents(
 -      let event: JsonEvent;
 +      let event: ChildJsonEvent;
-@@ -120 +246 @@ export function streamEvents(
+@@ -120 +247 @@ export function streamEvents(
 -        event = JSON.parse(trimmed) as JsonEvent;
 +        event = JSON.parse(trimmed) as ChildJsonEvent;
-@@ -129,0 +256,4 @@ export function streamEvents(
+@@ -129,0 +257,4 @@ export function streamEvents(
 +        case "session": {
 +          if (typeof event.id === "string" && event.id) state.childSessionId = event.id;
 +          break;
 +        }
-@@ -130,0 +261,25 @@ export function streamEvents(
+@@ -130,0 +262,25 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1522,7 +1541,7 @@ index f1fd14a..06d63b6 100644
 +              }
 +            }
 +          }
-@@ -146,0 +302,22 @@ export function streamEvents(
+@@ -146,0 +303,22 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1545,7 +1564,7 @@ index f1fd14a..06d63b6 100644
 +            if (pending.call) observeToolResult(pending.call, event.result, event.isError);
 +            else resetRepeatedErrorStreak();
 +          }
-@@ -154,0 +332,11 @@ export function streamEvents(
+@@ -154,0 +333,11 @@ export function streamEvents(
 +          state.turnUsage = readUsage(undefined);
 +          state.partialUsage = readUsage(undefined);
 +          break;
@@ -1557,28 +1576,30 @@ index f1fd14a..06d63b6 100644
 +        }
 +        case "message_update": {
 +          if (handleMessageUpdate(state, event)) emitProgress();
-@@ -166 +354 @@ export function streamEvents(
+@@ -166 +355 @@ export function streamEvents(
 -        // Ignore: session, agent_start, message_start, message_update, turn_end, tool_execution_update
 +        // Ignore: agent_start, turn_end, tool_execution_update
-@@ -175 +363,2 @@ export function streamEvents(
+@@ -175 +364,2 @@ export function streamEvents(
 -      const exitCode = code ?? 1;
 +      const exitCode = termination ? 2 : (code ?? 1);
 +      const usage = observedUsage();
-@@ -177 +365,0 @@ export function streamEvents(
+@@ -177 +366,0 @@ export function streamEvents(
 -      // Surface stderr as error if the process failed and we have no other error
-@@ -179 +367 @@ export function streamEvents(
+@@ -179 +368 @@ export function streamEvents(
 -        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
 +        const stderr = stderrLines.join("\n").trim();
-@@ -181,0 +370,6 @@ export function streamEvents(
+@@ -181,0 +371,6 @@ export function streamEvents(
 +      termination ??= exitCode === 0
 +        ? { reason: "completed", usageState: "complete" }
 +        : {
 +          reason: "process-error",
 +          usageState: state.streamingOutput ? "partial" : "unknown",
 +        };
-@@ -185,0 +380 @@ export function streamEvents(
+@@ -185,0 +381 @@ export function streamEvents(
 +        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
-@@ -188,9 +383,2 @@ export function streamEvents(
+@@ -186,0 +383 @@ export function streamEvents(
++        provider: state.provider,
+@@ -188,9 +385,2 @@ export function streamEvents(
 -        usage: {
 -          input: state.totalInput,
 -          output: state.totalOutput,
@@ -1590,13 +1611,13 @@ index f1fd14a..06d63b6 100644
 -        finalOutput: state.finalOutput,
 +        usage: toSubagentUsage(usage, state.turnCount),
 +        finalOutput: state.finalOutput ?? observedOutput(),
-@@ -197,0 +386 @@ export function streamEvents(
+@@ -197,0 +388 @@ export function streamEvents(
 +        termination,
-@@ -205 +394 @@ export function streamEvents(
+@@ -205 +396 @@ export function streamEvents(
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index b90f829..cb79a01 100644
+index b90f829..f1f2562 100644
 --- a/src/types.ts
 +++ b/src/types.ts
 @@ -0,0 +1,59 @@
@@ -1672,14 +1693,19 @@ index b90f829..cb79a01 100644
 @@ -36,0 +103,2 @@ export interface SubagentResult {
 +  /** Logical Pi session UUID for this spawned subagent process. */
 +  childSessionId?: string;
-@@ -41,0 +110 @@ export interface SubagentResult {
+@@ -38,0 +107 @@ export interface SubagentResult {
++  provider?: string | undefined;
+@@ -39,0 +109,2 @@ export interface SubagentResult {
++  /** Effective child profile and limits after operator/call resolution. */
++  execution?: ResolvedChildExecution;
+@@ -41,0 +113 @@ export interface SubagentResult {
 +  termination?: SubagentTermination;
-@@ -49,0 +119,2 @@ export interface SubagentToolResult {
+@@ -49,0 +122,2 @@ export interface SubagentToolResult {
 +  /** Nested child-model usage for Pi versions that support tool-result accounting. */
 +  usage?: Usage;
-@@ -59,0 +131 @@ export interface StreamState {
+@@ -59,0 +134 @@ export interface StreamState {
 +  childSessionId?: string;
-@@ -62,5 +134,3 @@ export interface StreamState {
+@@ -62,5 +137,3 @@ export interface StreamState {
 -  totalInput: number;
 -  totalOutput: number;
 -  totalCacheRead: number;
@@ -1688,7 +1714,9 @@ index b90f829..cb79a01 100644
 +  usage: Usage;
 +  turnUsage: Usage;
 +  partialUsage: Usage;
-@@ -71,0 +142,2 @@ export interface StreamState {
+@@ -69,0 +143 @@ export interface StreamState {
++  provider: string | undefined;
+@@ -71,0 +146,2 @@ export interface StreamState {
 +  streamingOutput: string | undefined;
 +  streamingParts: Map<number, { type: "text" | "thinking"; content: string }>;
 diff --git a/src/usage.ts b/src/usage.ts

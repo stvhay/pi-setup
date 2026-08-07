@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "review-routing-calibration",
+  "taskPrefix": "review-calibration:v1",
+  "models": [
+    {
+      "name": "terra",
+      "role": "incumbent",
+      "target": "openai-codex/gpt-5.6-terra"
+    },
+    {
+      "name": "luna",
+      "role": "candidate",
+      "target": "openai-codex/gpt-5.6-luna"
+    }
+  ],
+  "execution": {
+    "mode": "one-shot",
+    "thinking": "high",
+    "maxProviderRequests": 1,
+    "maxDurationMs": 180000,
+    "maxFindings": 2,
+    "maxResponseChars": 6000,
+    "repetitions": 3,
+    "outputContract": "inline",
+    "tokenOrCostLimits": false
+  },
+  "thresholds": {
+    "minRecall": 0.75,
+    "minPrecision": 0.9,
+    "maxCleanRunFalsePositiveRate": 0.1,
+    "maxTimeoutRate": 0.1,
+    "minValidOutputRate": 0.9,
+    "maxRecallDeficit": 0.05,
+    "minLatencyAdjustedYieldRatio": 1.25
+  },
+  "packets": [
+    {
+      "id": "case-01a",
+      "kind": "seeded",
+      "scope": "behavioral",
+      "prompt": "packets/ingestion-seeded.md",
+      "anchors": ["A1", "A2", "A3"],
+      "expectedFindings": {
+        "A1": {"requiredTerms": ["utf-8", "byte"]},
+        "A2": {"requiredTerms": ["retry", "id"]}
+      },
+      "control": "case-01b"
+    },
+    {
+      "id": "case-01b",
+      "kind": "clean",
+      "scope": "behavioral",
+      "prompt": "packets/ingestion-clean.md",
+      "anchors": ["A1", "A2", "A3"],
+      "expectedFindings": {},
+      "controlFor": "case-01a"
+    },
+    {
+      "id": "case-02a",
+      "kind": "seeded",
+      "scope": "boundary",
+      "prompt": "packets/deployment-seeded.md",
+      "anchors": ["B1", "B2", "B3"],
+      "expectedFindings": {
+        "B1": {"requiredTerms": ["backup", "patch"]},
+        "B2": {"requiredTerms": ["marker", "partial"]}
+      },
+      "control": "case-02b"
+    },
+    {
+      "id": "case-02b",
+      "kind": "clean",
+      "scope": "boundary",
+      "prompt": "packets/deployment-clean.md",
+      "anchors": ["B1", "B2", "B3"],
+      "expectedFindings": {},
+      "controlFor": "case-02a"
+    }
+  ]
+}
