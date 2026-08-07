@@ -459,7 +459,11 @@ def test_parallel_inline_contract_projects_only_inline_child_outputs():
             {{ task: "Second", outputContract: "artifact" }},
           ],
         }},
-        content: [{{ type: "text", text: "parallel summary" }}],
+        content: [
+          {{ type: "text", text: "parallel summary" }},
+          {{ type: "text", text: "Child 1 output:\\nVISIBLE_ALPHA" }},
+          {{ type: "text", text: "Child 2 output:\\nPRIVATE_BETA" }},
+        ],
         details: {{ mode: "parallel", results: [
           {{ exitCode: 0, finalOutput: "VISIBLE_ALPHA" }},
           {{ exitCode: 0, finalOutput: "PRIVATE_BETA" }},
@@ -470,7 +474,50 @@ def test_parallel_inline_contract_projects_only_inline_child_outputs():
       assert.equal(patch.content[1].text, "Child 1 output:\\nVISIBLE_ALPHA");
       assert.match(patch.content[2].text, /^Delegated artifacts:/);
       assert.equal(JSON.stringify(patch.content).includes("PRIVATE_BETA"), false);
+      assert.equal(JSON.stringify(patch.content).match(/VISIBLE_ALPHA/g)?.length, 1);
       assert.deepEqual(patch.details.results.map((result) => result.finalOutput), ["VISIBLE_ALPHA", "PRIVATE_BETA"]);
+    """
+    run_node(script)
+
+
+def test_parallel_unspecified_contract_keeps_upstream_outputs_once():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe() {{}},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel-default",
+        input: {{ tasks: [{{ task: "First" }}, {{ task: "Second" }}] }},
+        content: [
+          {{ type: "text", text: "parallel summary" }},
+          {{ type: "text", text: "Child 1 output:\\nALPHA" }},
+          {{ type: "text", text: "Child 2 output:\\nBETA" }},
+        ],
+        details: {{ mode: "parallel", results: [
+          {{ exitCode: 0, finalOutput: "ALPHA" }},
+          {{ exitCode: 0, finalOutput: "BETA" }},
+        ] }},
+      }}, {{ cwd: process.cwd() }});
+
+      assert.deepEqual(patch.content.slice(0, 3).map((part) => part.text), [
+        "parallel summary",
+        "Child 1 output:\\nALPHA",
+        "Child 2 output:\\nBETA",
+      ]);
+      assert.equal(JSON.stringify(patch.content).match(/ALPHA/g)?.length, 1);
+      assert.equal(JSON.stringify(patch.content).match(/BETA/g)?.length, 1);
+      assert.match(patch.content.at(-1).text, /^Delegated artifacts:/);
     """
     run_node(script)
 
@@ -512,7 +559,7 @@ def test_parallel_inline_outputs_share_bounded_parent_context():
     run_node(script)
 
 
-def test_parallel_inline_projection_caps_large_fanout():
+def test_parallel_inline_projection_reports_extreme_fanout_omissions():
     script = f"""
       import assert from "node:assert/strict";
       import install from {EXTENSION.as_uri()!r};
@@ -527,20 +574,90 @@ def test_parallel_inline_projection_caps_large_fanout():
         }},
       }});
 
-      const tasks = Array.from({{ length: 200 }}, (_, index) => ({{ task: `Task ${{index}}` }}));
+      const tasks = Array.from({{ length: 800 }}, (_, index) => ({{ task: `Task ${{index}}` }}));
       const results = tasks.map((_, index) => ({{ exitCode: 0, finalOutput: `${{index}}:` + "X".repeat(200) }}));
       const patch = await handlers.tool_result({{
         toolName: "subagent",
         toolCallId: "parallel-large-fanout",
         input: {{ outputContract: "inline", tasks }},
-        content: [{{ type: "text", text: "parallel summary" }}],
+        content: [
+          {{ type: "text", text: "parallel summary" }},
+          {{ type: "text", text: "Child 1 output:\\n0:XXX\\n[799 later child outputs omitted; complete results remain in details.results]" }},
+        ],
         details: {{ mode: "parallel", results }},
       }}, {{ cwd: process.cwd() }});
 
       const outputs = patch.content.filter((part) => /^Child \\d+ output:/.test(part.text));
-      assert.equal(outputs.length > 0, true);
-      assert.equal(outputs.reduce((total, part) => total + part.text.length, 0) <= 12_000, true);
-      assert.equal((patch.content.at(-1).text.match(/^- /gm) ?? []).length, 200);
+      assert.equal(outputs.length, 1);
+      assert.match(outputs[0].text, /^Child 1 output:\\n0:X+/);
+      assert.equal(outputs[0].text.includes("799 later child outputs omitted"), true);
+      assert.equal(outputs[0].text.length <= 12_000, true);
+      const artifacts = patch.content.at(-1).text;
+      assert.equal(artifacts.length <= 4_000, true);
+      assert.equal((artifacts.match(/^- /gm) ?? []).length < 800, true);
+      assert.equal(artifacts.includes("artifact refs omitted"), true);
+    """
+    run_node(script)
+
+
+def test_parallel_malformed_tasks_container_does_not_break_projection():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe() {{}},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel-malformed-tasks",
+        input: {{ tasks: {{ malformed: true }} }},
+        content: [
+          {{ type: "text", text: "parallel summary" }},
+          {{ type: "text", text: "Child 1 output:\\nVISIBLE" }},
+        ],
+        details: {{ mode: "parallel", results: [{{ exitCode: 0, finalOutput: "VISIBLE" }}] }},
+      }}, {{ cwd: process.cwd() }});
+
+      assert.equal(patch.content[1].text, "Child 1 output:\\nVISIBLE");
+      assert.match(patch.content.at(-1).text, /^Delegated artifacts:/);
+    """
+    run_node(script)
+
+
+def test_parallel_malformed_tasks_with_empty_results_synthesizes_failure():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe() {{}},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "parallel-malformed-empty",
+        input: {{ tasks: {{ malformed: true }} }},
+        content: [{{ type: "text", text: "dispatch failed" }}],
+        details: {{ mode: "parallel", results: [] }},
+      }}, {{ cwd: process.cwd() }});
+
+      assert.equal(patch.isError, true);
+      assert.equal(patch.details.results[0].agent, "subagent");
+      assert.equal(patch.details.results[0].error, "dispatch failed");
     """
     run_node(script)
 

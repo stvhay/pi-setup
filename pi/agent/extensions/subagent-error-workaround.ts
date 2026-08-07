@@ -19,6 +19,7 @@ type NormalizedOutputContract = OutputContract | "unknown";
 const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
 const INLINE_OUTPUT_MAX_CHARS = 12_000;
+const ARTIFACT_MESSAGE_MAX_CHARS = 4_000;
 
 type SubagentInput = {
   agent?: string;
@@ -174,6 +175,22 @@ function evaluationOutput(result: SubagentResult): string {
   return `${value.slice(0, EVALUATION_OUTPUT_MAX_CHARS)}\n[delegated output truncated at ${EVALUATION_OUTPUT_MAX_CHARS} characters]`;
 }
 
+function artifactReferenceMessage(refs: string[]): { type: "text"; text: string } | undefined {
+  if (refs.length === 0) return undefined;
+  let text = "Delegated artifacts:";
+  for (const [index, ref] of refs.entries()) {
+    const line = `\n- ${ref}`;
+    const omitted = refs.length - index;
+    const notice = `\n[${omitted} artifact refs omitted; complete refs remain in details.results]`;
+    if (text.length + line.length + notice.length > ARTIFACT_MESSAGE_MAX_CHARS) {
+      text += notice;
+      break;
+    }
+    text += line;
+  }
+  return { type: "text", text };
+}
+
 function parallelInlineOutputMessages(
   input: SubagentInput,
   details: SubagentDetails,
@@ -183,12 +200,26 @@ function parallelInlineOutputMessages(
     const value = typeof result.finalOutput === "string"
       ? result.finalOutput
       : typeof result.error === "string" ? result.error : undefined;
-    return outputContract(input, index) === "inline" && value
+    const contract = outputContract(input, index);
+    return (contract === "inline" || contract === "unknown") && value
       ? [{ index, value }]
       : [];
   });
   const messageMaxChars = Math.floor(INLINE_OUTPUT_MAX_CHARS / Math.max(1, outputs.length));
   const suffix = "\n[delegated output truncated]";
+  const lastIndex = outputs.at(-1)?.index;
+  if (lastIndex !== undefined && messageMaxChars <= `Child ${lastIndex + 1} output:\n`.length) {
+    const { index, value } = outputs[0]!;
+    const header = `Child ${index + 1} output:\n`;
+    const omitted = outputs.length - 1;
+    let notice = `\n[${omitted} later child outputs omitted; complete results remain in delegated artifacts]`;
+    let outputChars = INLINE_OUTPUT_MAX_CHARS - header.length - notice.length;
+    if (value.length > outputChars) {
+      notice = `\n[delegated output truncated; ${omitted} later child outputs omitted; complete results remain in delegated artifacts]`;
+      outputChars = INLINE_OUTPUT_MAX_CHARS - header.length - notice.length;
+    }
+    return [{ type: "text", text: `${header}${value.slice(0, Math.max(0, outputChars))}${notice}` }];
+  }
   return outputs.flatMap(({ index, value }) => {
     const header = `Child ${index + 1} output:\n`;
     const available = messageMaxChars - header.length;
@@ -677,7 +708,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     const input = event.input as SubagentInput;
     const synthesized = details.results.length === 0;
     if (synthesized) {
-      const tasks = input.tasks ?? [];
+      const tasks = Array.isArray(input.tasks) ? input.tasks : [];
       details = {
         ...details,
         results: [{
@@ -739,15 +770,21 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       }
     }));
 
-    const inlineOutputMessages = parallelInlineOutputMessages(input, details);
+    const normalizeParallelOutputs = details.mode === "parallel" && (
+      input.outputContract !== undefined
+      || (Array.isArray(input.tasks) && input.tasks.some((task) => task.outputContract !== undefined))
+    );
+    const baseContent = normalizeParallelOutputs ? event.content.slice(0, 1) : event.content;
+    const inlineOutputMessages = normalizeParallelOutputs ? parallelInlineOutputMessages(input, details) : [];
     const persistedRefs = details.results.flatMap((result) => result.artifact?.refs ?? []);
+    const artifactReference = artifactReferenceMessage(persistedRefs);
     const artifactMessages = [
-      ...(persistedRefs.length ? [{ type: "text" as const, text: `Delegated artifacts:\n${persistedRefs.map((ref) => `- ${ref}`).join("\n")}` }] : []),
+      ...(artifactReference ? [artifactReference] : []),
       ...details.results.flatMap((result, index) => result.artifact?.status === "failed"
         ? [{ type: "text" as const, text: `Delegated artifact unavailable for child ${index} (${result.artifact.failureClass}).` }]
         : []),
     ];
-    const patch = { content: [...event.content, ...inlineOutputMessages, ...artifactMessages], details };
+    const patch = { content: [...baseContent, ...inlineOutputMessages, ...artifactMessages], details };
     if (synthesized || details.results.some((result) => result.exitCode !== 0)) return { ...patch, isError: true };
     return patch;
   });

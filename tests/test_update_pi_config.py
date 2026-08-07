@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "update-pi-config.sh"
@@ -282,6 +284,9 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
             json.dumps({"name": name, "version": version}),
             encoding="utf-8",
         )
+    marker = dest / "agent" / "npm" / "node_modules" / "@pi-archimedes/subagent/src/index.ts"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("const PARALLEL_OUTPUT_MAX_CHARS = 12_000;\n", encoding="utf-8")
     fake_pi = tmp_path / "pi"
     fake_patch = tmp_path / "apply-patches"
     fake_pi.write_text(
@@ -309,6 +314,134 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     assert "pi-archimedes 1.8.3: already installed" in proc.stdout
     assert "@pi-archimedes/subagent 1.8.3: already installed" in proc.stdout
     assert "pi-langfuse 1.5.9: already installed" in proc.stdout
+
+
+def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_path):
+    dest = tmp_path / ".pi"
+    log = tmp_path / "package-sync.log"
+    for relative, name, version in (
+        ("pi-archimedes", "pi-archimedes", "1.8.3"),
+        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "1.8.3"),
+        ("pi-langfuse", "pi-langfuse", "1.5.9"),
+    ):
+        package = dest / "agent" / "npm" / "node_modules" / relative
+        package.mkdir(parents=True)
+        (package / "package.json").write_text(
+            json.dumps({"name": name, "version": version}),
+            encoding="utf-8",
+        )
+    stale = dest / "agent" / "npm" / "node_modules" / "@pi-archimedes/subagent/src/index.ts"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("const previousPatch = true;\n", encoding="utf-8")
+    fake_pi = tmp_path / "pi"
+    fake_patch = tmp_path / "apply-patches"
+    fake_pi.write_text(
+        '#!/bin/sh\n'
+        'root="$PI_CODING_AGENT_DIR/npm/node_modules"\n'
+        'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent"\n'
+        'printf \'{"name":"pi-archimedes","version":"1.8.3"}\\n\' >"$root/pi-archimedes/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/subagent","version":"1.8.3"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
+        'printf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_patch.write_text(
+        '#!/bin/sh\nprintf "patch|%s\\n" "$PI_CONFIG_DEST" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    fake_patch.chmod(0o755)
+
+    proc = run_update(
+        dest,
+        env_overrides={
+            "PI_COMMAND": str(fake_pi),
+            "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
+            "PI_DEPLOY_LOG": str(log),
+        },
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "pi|install npm:pi-archimedes@1.8.3",
+        f"patch|{dest}",
+    ]
+
+
+@pytest.mark.parametrize("failure", ["second-move", "langfuse-install", "patch-helper", "langfuse-apply"])
+def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure):
+    dest = tmp_path / ".pi"
+    modules = dest / "agent" / "npm" / "node_modules"
+    meta = modules / "pi-archimedes"
+    subagent = modules / "@pi-archimedes/subagent"
+    langfuse = modules / "pi-langfuse"
+    for package, name, version in (
+        (meta, "pi-archimedes", "1.8.3"),
+        (subagent, "@pi-archimedes/subagent", "1.8.3"),
+        (langfuse, "pi-langfuse", "1.5.8" if failure == "langfuse-install" else "1.5.9"),
+    ):
+        package.mkdir(parents=True)
+        (package / "package.json").write_text(
+            json.dumps({"name": name, "version": version}),
+            encoding="utf-8",
+        )
+    stale = subagent / "src/index.ts"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("const previousPatch = true;\n", encoding="utf-8")
+    (meta / "old-runtime.txt").write_text("keep me\n", encoding="utf-8")
+    fake_pi = tmp_path / "pi"
+    fake_patch = tmp_path / "apply-patches"
+    fake_pi.write_text(
+        '#!/bin/sh\n'
+        'root="$PI_CODING_AGENT_DIR/npm/node_modules"\n'
+        'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent"\n'
+        'printf \'{"name":"pi-archimedes","version":"1.8.3"}\\n\' >"$root/pi-archimedes/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/subagent","version":"1.8.3"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
+        + ('case "$*" in *pi-langfuse*) exit 7;; esac\n' if failure == "langfuse-install" else ""),
+        encoding="utf-8",
+    )
+    fake_patch.write_text(
+        "#!/bin/sh\n" + ("exit 7\n" if failure == "patch-helper" else "exit 0\n"),
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    fake_patch.chmod(0o755)
+
+    overrides = {
+        "PI_COMMAND": str(fake_pi),
+        "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
+    }
+    if failure == "second-move":
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        fake_mv = fake_bin / "mv"
+        fake_mv.write_text(
+            "#!/bin/sh\n"
+            f'case "$1" in *"{subagent}") exit 7;; esac\n'
+            'exec /bin/mv "$@"\n',
+            encoding="utf-8",
+        )
+        fake_mv.chmod(0o755)
+        overrides["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
+    if failure == "langfuse-apply":
+        source = tmp_path / "source"
+        agnt = source / "agent/bin/agnt"
+        agnt.parent.mkdir(parents=True)
+        (source / "agent/AGENTS.md").write_text("test config\n", encoding="utf-8")
+        agnt.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+        agnt.chmod(0o755)
+        overrides.update({
+            "PI_CONFIG_SOURCE": str(source),
+            "LANGFUSE_PUBLIC_KEY": "test-public",
+            "LANGFUSE_SECRET_KEY": "test-secret",
+            "LANGFUSE_BASE_URL": "https://example.invalid",
+        })
+
+    proc = run_update(dest, env_overrides=overrides)
+
+    assert proc.returncode != 0
+    assert stale.read_text(encoding="utf-8") == "const previousPatch = true;\n"
+    assert (meta / "old-runtime.txt").read_text(encoding="utf-8") == "keep me\n"
+    assert not list((dest / "agent" / "npm").glob(".archimedes-reinstall.*"))
 
 
 def test_update_dry_run_reports_package_sync_without_executing_it(tmp_path):

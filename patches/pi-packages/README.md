@@ -8,9 +8,9 @@ Pi's git package installer cannot consume the Archimedes source monorepo directl
 |---|---:|---|
 | `pi-langfuse` | 1.5.9 | Prefer Pi's logical `SessionManager.getSessionId()` before the legacy session-file fallback and assign stable entity IDs to queued scores. |
 | `pi-archimedes` | 1.8.3 | Add `/archimedes` operator controls for bounded subagent defaults. |
-| `@pi-archimedes/subagent` | 1.8.3 | Preserve child session correlation and add bounded agentic plus isolated one-shot execution from fork branch [`vendor/pi-setup`](https://github.com/stvhay/pi-archimedes/tree/vendor/pi-setup). |
+| `@pi-archimedes/subagent` | 1.8.3 | Preserve child session correlation; add bounded agentic and isolated one-shot execution; expose globally bounded parallel child outputs from fork branch [`vendor/pi-setup`](https://github.com/stvhay/pi-archimedes/tree/vendor/pi-setup). |
 
-Normal deployment installs missing or mismatched exact bases and applies patches automatically:
+Normal deployment installs missing, mismatched, or stale-patch exact bases and applies patches automatically:
 
 ```bash
 scripts/update-pi-config.sh --dry-run

@@ -22,8 +22,8 @@ pi-setup/ (this repo, source of truth)
 - `scripts/update-pi-config.sh` deploys `pi/` → `~/.pi` by default;
   `--dry-run` previews changes. Runtime secrets/state (`auth.json`, `sessions/`,
   `trust.json`, `~/.pi/metrics/`, caches) are rsync-excluded and survive deploys.
-  Missing or mismatched exact package patch bases are installed before tracked
-  patches run; exact existing installs are left untouched to avoid broad npm reification.
+  Missing, mismatched, or stale-patch exact package bases are installed before
+  tracked patches run; current exact installs stay untouched to avoid broad npm reification.
 - Edits go in this repo, then deploy. The live `~/.pi` is never the place to
   change config; `rsync --delete` will overwrite it.
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches

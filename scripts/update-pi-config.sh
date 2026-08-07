@@ -7,6 +7,7 @@ SOURCE=${PI_CONFIG_SOURCE:-$ROOT/pi}
 DEST=${PI_CONFIG_DEST:-$HOME/.pi}
 PI_COMMAND=${PI_COMMAND:-pi}
 PACKAGE_PATCH_HELPER=${PI_PACKAGE_PATCH_HELPER:-$ROOT/scripts/apply-pi-package-patches.sh}
+ARCHIMEDES_REINSTALL_BACKUP=
 
 usage() {
   cat <<'EOF'
@@ -15,8 +16,8 @@ Usage: scripts/update-pi-config.sh [--dry-run]
 Update ~/.pi from this repository's tracked pi/ directory.
 
 This repository is the source of truth. The live ~/.pi directory is treated as
-runtime/deployed state. Runtime secrets and local state are preserved. Missing
-or mismatched exact package patch bases are installed, then tracked patches run.
+runtime/deployed state. Runtime secrets and local state are preserved. Missing,
+mismatched, or stale-patch exact package bases are installed, then tracked patches run.
 
 Environment overrides:
   PI_CONFIG_SOURCE          Source config directory. Default: <repo>/pi
@@ -69,13 +70,59 @@ install_patch_base() {
   fi
 }
 
+restore_archimedes_reinstall_backup() {
+  [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ] || return
+  local modules="$DEST/agent/npm/node_modules"
+  if [ -d "$ARCHIMEDES_REINSTALL_BACKUP/pi-archimedes" ]; then
+    rm -rf "$modules/pi-archimedes"
+    mv "$ARCHIMEDES_REINSTALL_BACKUP/pi-archimedes" "$modules/pi-archimedes"
+  fi
+  if [ -d "$ARCHIMEDES_REINSTALL_BACKUP/@pi-archimedes/subagent" ]; then
+    rm -rf "$modules/@pi-archimedes/subagent"
+    mv "$ARCHIMEDES_REINSTALL_BACKUP/@pi-archimedes/subagent" "$modules/@pi-archimedes/subagent"
+  fi
+  rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
+  ARCHIMEDES_REINSTALL_BACKUP=
+}
+
+reinstall_archimedes_patch_base() {
+  local modules="$DEST/agent/npm/node_modules"
+  local meta_dir="$modules/pi-archimedes" subagent_dir="$modules/@pi-archimedes/subagent"
+  if [ "$MODE" = dry-run ]; then
+    run rm -rf "$meta_dir" "$subagent_dir"
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@1.8.3
+    return
+  fi
+
+  local backup
+  backup=$(mktemp -d "$DEST/agent/npm/.archimedes-reinstall.XXXXXX")
+  ARCHIMEDES_REINSTALL_BACKUP=$backup
+  mkdir -p "$backup/@pi-archimedes"
+  mv "$meta_dir" "$backup/pi-archimedes"
+  mv "$subagent_dir" "$backup/@pi-archimedes/subagent"
+  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@1.8.3 \
+    && package_is_exact "$meta_dir/package.json" pi-archimedes 1.8.3 \
+    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 1.8.3; then
+    return
+  fi
+
+  restore_archimedes_reinstall_backup
+  echo "Could not reinstall exact Archimedes patch base; restored previous package files" >&2
+  return 1
+}
+
 install_archimedes_patch_base() {
   local meta="$DEST/agent/npm/node_modules/pi-archimedes/package.json"
   local subagent="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/package.json"
+  local patch_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/index.ts"
   if package_is_exact "$meta" pi-archimedes 1.8.3 \
     && package_is_exact "$subagent" @pi-archimedes/subagent 1.8.3; then
-    echo "pi-archimedes 1.8.3: already installed"
-    echo "@pi-archimedes/subagent 1.8.3: already installed"
+    if grep -Fq "PARALLEL_OUTPUT_MAX_CHARS" "$patch_marker"; then
+      echo "pi-archimedes 1.8.3: already installed"
+      echo "@pi-archimedes/subagent 1.8.3: already installed"
+    else
+      reinstall_archimedes_patch_base
+    fi
   else
     run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@1.8.3
   fi
@@ -156,9 +203,17 @@ fi
 # removed on exit.
 RUNTIME_SETTINGS_BACKUP=
 cleanup() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    restore_archimedes_reinstall_backup
+  elif [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ]; then
+    rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
+    ARCHIMEDES_REINSTALL_BACKUP=
+  fi
   if [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
     rm -f "$RUNTIME_SETTINGS_BACKUP"
   fi
+  return "$status"
 }
 trap cleanup EXIT
 
@@ -246,11 +301,18 @@ elif [ "$MODE" = dry-run ] && [ -f "$DEST/agent/settings.json" ]; then
   echo "DRY-RUN: preserve Pi-managed lastChangelogVersion in $DEST/agent/settings.json"
 fi
 
-# Reconcile only missing or mismatched version-locked patch bases. Exact
-# installations are left untouched so unrelated npm ranges are never reified.
+# Reconcile only missing, mismatched, or stale version-locked patch bases.
+# Current installations stay untouched so unrelated npm ranges are never reified.
 install_archimedes_patch_base
 install_patch_base npm:pi-langfuse@1.5.9 pi-langfuse pi-langfuse 1.5.9
-run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
+if [ "$MODE" = dry-run ]; then
+  run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
+elif env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"; then
+  : # Keep any reinstall backup until every later deployment step succeeds.
+else
+  restore_archimedes_reinstall_backup
+  exit 1
+fi
 
 if [ "$MODE" = apply ]; then
   if [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_BASE_URL:-${LANGFUSE_HOST:-}}" ] || python3 - "$DEST/agent/pi-langfuse/config.json" <<'PY'
