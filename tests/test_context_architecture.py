@@ -209,6 +209,22 @@ def test_brainstorming_distinguishes_transient_todos_from_durable_work_state():
     assert "Do not create or mutate Beads, issues, or PRs before design approval" in brainstorming
 
 
+def test_preparing_upstream_pr_allows_safe_user_fork_staging_drafts():
+    skill_root = AGENT / "skills" / "preparing-upstream-pr"
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    mechanics = (skill_root / "references" / "pr-mechanics.md").read_text(encoding="utf-8")
+
+    assert "creation and iterative updates of draft PRs" in skill
+    assert "create or update a draft in the user's fork without asking again" in skill
+    assert "reviewed predecessor branch for a stacked sequence" in skill
+    assert "does not include fork creation, any upstream-repository branch or PR" in skill
+    assert "Never mark any draft ready" in skill
+    assert "remote destination is absent or an ancestor of the reviewed head" in mechanics
+    assert 'git merge-base --is-ancestor "$remote_sha" HEAD' in mechanics
+    assert "Without another approval, create the staging draft" in mechanics
+    assert "It does not include fork creation, upstream-repository pushes or PRs" in mechanics
+
+
 def test_nested_skill_runtime_references_are_checked(tmp_path):
     skill_root = tmp_path / "skills" / "example"
     (skill_root / "references").mkdir(parents=True)
