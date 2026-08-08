@@ -27,7 +27,7 @@
 - [x] One-shot missing roots become `expected-unavailable`, while a deliberately available completed root becomes `available`.
 - [x] Ambiguous, incomplete, malformed, missing-key, failed, out-of-window, and incomplete-discovery cases remain truthful.
 - [x] Existing schema-1 and schema-2 consumers remain compatible; no raw child IDs enter cohort summaries.
-- [ ] Deterministic, full-project, and bounded live regressions pass. Deterministic/full gates pass; live proof awaits deployment approval.
+- [x] Deterministic, full-project, and bounded live regressions pass.
 
 **Verification Commands:**
 ```bash
@@ -89,7 +89,7 @@ git diff --check
 
 ## Candidate Result
 
-TDD RED covered missing projection semantics, every bounded join state, capture gaps, malformed root metadata, and pre/post-window or malformed child IDs. Candidate verification passed 149 focused tests and 639 full project tests plus Ruff, config, shell, routing/role evals, and diff checks. Terra's two valid window/ID findings were fixed test-first; its follow-up claim that a completed one-shot root contradicts the expectation was refuted because safely loaded telemetry must resolve `available`. Deployment/live proof remains separately gated.
+TDD RED covered missing projection semantics, every bounded join state, capture gaps, malformed root metadata, and pre/post-window or malformed child IDs. Candidate verification passed 149 focused tests and 639 full project tests plus Ruff, config, shell, routing/role evals, and diff checks. Terra's two valid window/ID findings were fixed test-first; its follow-up claim that a completed one-shot root contradicts the expectation was refuted because safely loaded telemetry must resolve `available`. After deployment and manual restart, one bounded agentic child produced exactly one completed root and one bounded isolated one-shot child produced none; both parent projections exposed the expected mode/availability fields. The deployed scanner reported agentic, one-shot, available, and expected-unavailable states with zero missing, ambiguous, incomplete, or declaration-mismatch results while retaining historical missing-mode records as unknown.
 
 ## Execution Handoff
 
