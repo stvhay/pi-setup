@@ -70,7 +70,7 @@
     },
     {
       "id": "case-02b",
-      "taskPrefix": "review-calibration:v4",
+      "taskPrefix": "review-calibration:v5",
       "kind": "clean",
       "scope": "boundary",
       "prompt": "packets/deployment-clean.md",

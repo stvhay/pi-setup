@@ -92,7 +92,7 @@ def test_real_manifest_and_packets_validate():
     assert checked["id"] == "review-routing-calibration"
     assert checked["taskPrefix"] == "review-calibration:v3"
     assert len(checked["packets"]) == 4
-    assert next(packet for packet in checked["packets"] if packet["id"] == "case-02b")["taskPrefix"] == "review-calibration:v4"
+    assert next(packet for packet in checked["packets"] if packet["id"] == "case-02b")["taskPrefix"] == "review-calibration:v5"
     assert {packet["kind"] for packet in checked["packets"]} == {"seeded", "clean"}
     assert checked["execution"]["repetitions"] == 3
     assert checked["thresholds"]["minLatencyAdjustedYieldRatio"] == 1.25
@@ -154,7 +154,8 @@ def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monk
     clean_text = (EVAL_DIR / "packets/deployment-clean.md").read_text(encoding="utf-8")
     assert seeded_text.count("CURRENT_PATCH_MARKER") == 1
     assert seeded_text.count('"--fuzz=0"') == 1
-    assert clean_text.count('"--fuzz=0"') == 2
+    assert "runtime == APPLIED_RUNTIME" in clean_text
+    assert "runtime == CLEAN_RUNTIME" in clean_text
     seeded = packet_namespace("deployment-seeded.md")
     clean = packet_namespace("deployment-clean.md")
     patch_file = tmp_path / "runtime.patch"
@@ -241,6 +242,7 @@ def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monk
     ("review-calibration:v1", "case-01a"),
     ("review-calibration:v2", "case-01a"),
     ("review-calibration:v3", "case-02b"),
+    ("review-calibration:v4", "case-02b"),
 ])
 def test_collect_ignores_stale_trial_prefixes(tmp_path, stale_prefix, packet_id):
     module = load_module()

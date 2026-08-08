@@ -7,7 +7,7 @@ Review only this packet. Anchors B1–B3 are candidate review locations; an anch
 - Existing package files must remain recoverable until install, patch, and validation all succeed.
 - Any install, patch, or validation helper failure restores the complete previous package; pre-commit package moves/removals succeed in this fixture.
 - Post-commit backup cleanup may fail, but must not invalidate the new package; a leftover backup blocks the next deployment for operator cleanup.
-- Exact clean and fully patched bases are accepted.
+- Exact clean and fully patched bases are accepted against the fixture's embedded expected runtime contents.
 - Interrupted or mixed patch states are rejected and reinstalled; marker presence alone is not proof of completeness.
 - In this minimal fixture, a complete package contains both `package.json` and `runtime.py`.
 
@@ -16,18 +16,20 @@ Review only this packet. Anchors B1–B3 are candidate review locations; an anch
 ```python
 from pathlib import Path
 import shutil
-import subprocess
 
 
-def patch_state(package: Path, patch_file: Path):
+CLEAN_RUNTIME = "CONTEXT\nOLD\nTAIL\n"
+APPLIED_RUNTIME = "CONTEXT\nCURRENT_PATCH_MARKER\nTAIL\n"
+
+
+def patch_state(package: Path, _patch_file: Path):
     # ANCHOR B2
-    reverse = subprocess.run(["patch", "--force", "--fuzz=0", "--reverse", "--dry-run", "-p1"],
-                             cwd=package, input=patch_file.read_bytes()).returncode
-    if reverse == 0:
+    runtime = (package / "runtime.py").read_text()
+    if runtime == APPLIED_RUNTIME:
         return "applied"
-    forward = subprocess.run(["patch", "--force", "--fuzz=0", "--dry-run", "-p1"],
-                             cwd=package, input=patch_file.read_bytes()).returncode
-    return "pending" if forward == 0 else "invalid"
+    if runtime == CLEAN_RUNTIME:
+        return "pending"
+    return "invalid"
 
 
 def deploy(package: Path, backup: Path, install, apply_patch, validate):
