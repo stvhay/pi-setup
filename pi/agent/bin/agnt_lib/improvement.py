@@ -32,6 +32,15 @@ MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
 SCORES_PER_QUERY = 100
 COHORT_OUTCOMES = ("success", "partial", "failure", "unclear", "unknown")
+CHILD_TRACE_MODES = ("agentic", "one-shot", "unknown")
+CHILD_TRACE_AVAILABILITY = (
+    "available",
+    "expected-unavailable",
+    "missing",
+    "ambiguous",
+    "incomplete",
+    "unknown",
+)
 COHORT_CAPTURE_GAPS = (
     "no-generations",
     "missing-usage",
@@ -45,6 +54,11 @@ COHORT_CAPTURE_GAPS = (
     "trace-limit",
     "observation-limit",
     "score-limit",
+    "missing-child-trace",
+    "ambiguous-child-trace",
+    "incomplete-child-trace",
+    "unknown-child-trace",
+    "invalid-child-trace-declaration",
 )
 SESSION_DECISIONS = {"no-action", "actions-created", "needs-human", "excluded"}
 FINDING_CATEGORIES = {
@@ -354,10 +368,83 @@ def _error_taxonomy(observations: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _child_trace_health(
+    observations: list[dict[str, Any]],
+    roots_by_session: dict[str, list[dict[str, Any]]],
+    *,
+    discovery_complete: bool,
+    discovery_since: str | None = None,
+    discovery_until: str | None = None,
+) -> dict[str, Any]:
+    modes = Counter({key: 0 for key in CHILD_TRACE_MODES})
+    availability = Counter({key: 0 for key in CHILD_TRACE_AVAILABILITY})
+    mismatches = 0
+    projections = 0
+    for observation in observations:
+        if observation.get("name") != "subagent-result":
+            continue
+        projections += 1
+        metadata = observation.get("metadata") if isinstance(observation.get("metadata"), dict) else {}
+        raw_mode = metadata.get("effectiveMode")
+        mode = raw_mode if raw_mode in {"agentic", "one-shot"} else "unknown"
+        modes[mode] += 1
+        child_id = metadata.get("childSessionId")
+        if not isinstance(child_id, str) or not child_id or len(child_id) > 200:
+            child_id = None
+        declared = metadata.get("childTraceAvailability")
+        expected = (
+            "expected-unavailable" if mode == "one-shot"
+            else "expected-available" if mode == "agentic" and child_id
+            else "unknown"
+        )
+        if declared not in {"expected-available", "expected-unavailable", "unknown"}:
+            declared = "unknown"
+        if declared != expected:
+            mismatches += 1
+            availability["unknown"] += 1
+            continue
+        roots = roots_by_session.get(child_id, []) if child_id else []
+        root_metadata = roots[0].get("metadata") if len(roots) == 1 else None
+        in_window = child_id is not None and _session_starts_within(
+            child_id,
+            discovery_since,
+            discovery_until,
+        )
+        if len(roots) > 1:
+            availability["ambiguous"] += 1
+        elif roots and isinstance(root_metadata, dict) and root_metadata.get("completed") is True:
+            availability["available"] += 1
+        elif roots:
+            availability["incomplete"] += 1
+        elif discovery_complete and mode == "one-shot" and in_window:
+            availability["expected-unavailable"] += 1
+        elif (
+            discovery_complete
+            and mode == "agentic"
+            and in_window
+            and metadata.get("executionOutcome") == "succeeded"
+        ):
+            availability["missing"] += 1
+        else:
+            availability["unknown"] += 1
+    return {
+        "schemaVersion": 1,
+        "projections": projections,
+        "byMode": {key: modes[key] for key in CHILD_TRACE_MODES},
+        "byAvailability": {key: availability[key] for key in CHILD_TRACE_AVAILABILITY},
+        "declarationMismatches": mismatches,
+    }
+
+
 def _features(
     traces: list[dict[str, Any]],
     observations: list[dict[str, Any]],
     scores: list[dict[str, Any]],
+    *,
+    child_trace_roots: dict[str, list[dict[str, Any]]] | None = None,
+    trace_discovery_complete: bool = False,
+    trace_discovery_since: str | None = None,
+    trace_discovery_until: str | None = None,
 ) -> dict[str, Any]:
     generations = [item for item in observations if item.get("type") == "GENERATION"]
     tools = [item for item in observations if item.get("type") == "TOOL"]
@@ -440,6 +527,13 @@ def _features(
         add_model(metadata.get("model"))
 
     tool_input_bytes, tool_output_bytes, tool_payload_metadata, tool_payload_gap = _tool_payload_bytes(tools)
+    child_trace_health = _child_trace_health(
+        observations,
+        child_trace_roots or {},
+        discovery_complete=trace_discovery_complete,
+        discovery_since=trace_discovery_since,
+        discovery_until=trace_discovery_until,
+    )
     signatures = Counter()
     evaluator_timeouts = 0
     for observation in observations:
@@ -520,6 +614,16 @@ def _features(
         capture_gaps.append("missing-outcome")
     if tool_payload_gap:
         capture_gaps.append(tool_payload_gap)
+    for state, gap in (
+        ("missing", "missing-child-trace"),
+        ("ambiguous", "ambiguous-child-trace"),
+        ("incomplete", "incomplete-child-trace"),
+        ("unknown", "unknown-child-trace"),
+    ):
+        if child_trace_health["byAvailability"][state]:
+            capture_gaps.append(gap)
+    if child_trace_health["declarationMismatches"]:
+        capture_gaps.append("invalid-child-trace-declaration")
 
     return {
         "executionOutcome": execution_outcome,
@@ -548,6 +652,7 @@ def _features(
         "errorSignatures": [{"hash": key, "count": count} for key, count in sorted(signatures.items())],
         "toolErrorSignals": _tool_error_signals(observations),
         "errorTaxonomy": _error_taxonomy(observations),
+        "childTraceHealth": child_trace_health,
         "captureGaps": capture_gaps,
     }
 
@@ -630,6 +735,10 @@ def _cohort_health(
     errors["bySource"] = {key: 0 for key in ERROR_SOURCES}
     errors["outcomeBlocking"] = {key: 0 for key in ("true", "false", "unknown")}
     capture_gaps = {key: 0 for key in COHORT_CAPTURE_GAPS}
+    child_trace_modes = Counter({key: 0 for key in CHILD_TRACE_MODES})
+    child_trace_availability = Counter({key: 0 for key in CHILD_TRACE_AVAILABILITY})
+    child_trace_projections = 0
+    child_trace_declaration_mismatches = 0
 
     for feature in features:
         raw_outcomes = feature.get("evaluatorOutcomes")
@@ -657,6 +766,17 @@ def _cohort_health(
             if gap in capture_gaps:
                 capture_gaps[gap] += 1
 
+        child_traces = feature.get("childTraceHealth") if isinstance(feature.get("childTraceHealth"), dict) else {}
+        child_trace_projections += max(0, _int(child_traces.get("projections")))
+        child_trace_declaration_mismatches += max(0, _int(child_traces.get("declarationMismatches")))
+        for field, target, keys in (
+            ("byMode", child_trace_modes, CHILD_TRACE_MODES),
+            ("byAvailability", child_trace_availability, CHILD_TRACE_AVAILABILITY),
+        ):
+            values = child_traces.get(field) if isinstance(child_traces.get(field), dict) else {}
+            for key in keys:
+                target[key] += max(0, _int(values.get(key)))
+
     continuation = trace_discovery.get("continuation") if isinstance(trace_discovery.get("continuation"), dict) else {}
     discovery_complete = trace_discovery.get("complete") is True
     discovery_has_more = continuation.get("hasMore") is True
@@ -683,6 +803,13 @@ def _cohort_health(
             "outcomeRecords": evaluator_records,
             "sessionsWithTimeouts": sessions_with_timeouts,
             "timeouts": evaluator_timeouts,
+        },
+        "childTraces": {
+            "schemaVersion": 1,
+            "projections": child_trace_projections,
+            "byMode": {key: child_trace_modes[key] for key in CHILD_TRACE_MODES},
+            "byAvailability": {key: child_trace_availability[key] for key in CHILD_TRACE_AVAILABILITY},
+            "declarationMismatches": child_trace_declaration_mismatches,
         },
         "errors": errors,
         "captureGaps": capture_gaps,
@@ -1283,25 +1410,43 @@ def promote_finding(
         )
 
 
-def _session_score_since(session_id: str, fallback: str) -> str:
+def _session_start(session_id: str) -> datetime | None:
     try:
-        fallback_time = datetime.fromisoformat(fallback.replace("Z", "+00:00"))
-    except ValueError:
-        return fallback
-    try:
-        started = datetime.strptime(session_id.split("_", 1)[0], "%Y-%m-%dT%H-%M-%S-%fZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(session_id.split("_", 1)[0], "%Y-%m-%dT%H-%M-%S-%fZ").replace(tzinfo=timezone.utc)
     except ValueError:
         try:
             session_uuid = uuid.UUID(session_id)
             if session_uuid.version != 7:
-                return fallback
+                return None
             milliseconds = session_uuid.int >> 80
-            started = datetime.fromtimestamp(milliseconds // 1000, tz=timezone.utc).replace(
+            return datetime.fromtimestamp(milliseconds // 1000, tz=timezone.utc).replace(
                 microsecond=(milliseconds % 1000) * 1000
             )
         except (ValueError, OverflowError, OSError):
-            return fallback
-    if started >= fallback_time:
+            return None
+
+
+def _session_starts_within(session_id: str, since: str | None, until: str | None) -> bool:
+    if since is None and until is None:
+        return True
+    started = _session_start(session_id)
+    if started is None:
+        return False
+    try:
+        lower = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else None
+        upper = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else None
+    except ValueError:
+        return False
+    return (lower is None or started >= lower) and (upper is None or started <= upper)
+
+
+def _session_score_since(session_id: str, fallback: str) -> str:
+    started = _session_start(session_id)
+    try:
+        fallback_time = datetime.fromisoformat(fallback.replace("Z", "+00:00"))
+    except ValueError:
+        return fallback
+    if started is None or started >= fallback_time:
         return fallback
     return started.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -1356,6 +1501,11 @@ def scan_sessions(
         "complete": discovery["complete"],
         "continuation": discovery["continuation"],
     }
+    child_trace_roots: dict[str, list[dict[str, Any]]] = {}
+    for trace in traces:
+        session_id = trace.get("sessionId")
+        if trace.get("name") == "pi-agent" and isinstance(session_id, str) and session_id:
+            child_trace_roots.setdefault(session_id, []).append(trace)
     review_cache: dict[str, bool] = {}
     review_scores_truncated: dict[str, bool] = {}
     for session_id in groups:
@@ -1415,7 +1565,15 @@ def scan_sessions(
         link_scores = link_score_rows[:SCORES_PER_QUERY]
         outcome_scores = outcome_score_rows[:SCORES_PER_QUERY]
         correlation = _correlate(session_id, runs_dir, link_scores)
-        features = _features(selected_traces, observations, [*trace_scores, *outcome_scores])
+        features = _features(
+            selected_traces,
+            observations,
+            [*trace_scores, *outcome_scores],
+            child_trace_roots=child_trace_roots,
+            trace_discovery_complete=trace_discovery["complete"] is True,
+            trace_discovery_since=since,
+            trace_discovery_until=until,
+        )
         if len(session_traces) > len(selected_traces):
             features["captureGaps"].append("trace-limit")
         if observations_truncated:

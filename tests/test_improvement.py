@@ -653,6 +653,30 @@ def _private_observations():
     ]
 
 
+def _child_projection(
+    mode: str,
+    child_id: str | None,
+    *,
+    outcome: str = "succeeded",
+    declared: str | None = None,
+):
+    expected = (
+        "expected-unavailable" if mode == "one-shot"
+        else "expected-available" if mode == "agentic" and child_id
+        else "unknown"
+    )
+    return {
+        "type": "AGENT",
+        "name": "subagent-result",
+        "metadata": {
+            **({"childSessionId": child_id} if child_id else {}),
+            "effectiveMode": mode,
+            "childTraceAvailability": declared or expected,
+            "executionOutcome": outcome,
+        },
+    }
+
+
 def _cohort_session(
     *,
     providers=(),
@@ -894,6 +918,194 @@ def test_scan_emits_identical_cohort_health_without_extra_api_calls(tmp_path):
     assert "session-one" not in json.dumps(summary)
     assert "trace-one" not in json.dumps(summary)
     assert client.observation_traces == ["trace-one"]
+
+
+def test_scan_classifies_child_traces_from_bounded_discovery_without_extra_api_calls(tmp_path):
+    parent_root = _private_trace("parent-session", "parent-root")
+    parent_root.update({"name": "pi-agent"})
+    parent_root["metadata"]["completed"] = True
+    agentic_projection = _private_trace("parent-session", "agentic-projection")
+    agentic_projection.update({"name": "subagent-result"})
+    one_shot_projection = _private_trace("parent-session", "one-shot-projection")
+    one_shot_projection.update({"name": "subagent-result"})
+    child_root = _private_trace("agentic-child", "agentic-child-root")
+    child_root.update({"name": "pi-agent"})
+    child_root["metadata"]["completed"] = True
+    client = FakeScanClient(
+        [parent_root, agentic_projection, one_shot_projection, child_root],
+        {
+            "parent-root": _private_observations(),
+            "agentic-projection": [_child_projection("agentic", "agentic-child")],
+            "one-shot-projection": [_child_projection(
+                "one-shot",
+                "019f9e82-cc80-7000-8000-000000000000",
+            )],
+            "agentic-child-root": [],
+        },
+    )
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=10,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    parent = next(item for item in packet["sessions"] if item["sessionId"] == "parent-session")
+    assert parent["features"]["childTraceHealth"] == {
+        "schemaVersion": 1,
+        "projections": 2,
+        "byMode": {"agentic": 1, "one-shot": 1, "unknown": 0},
+        "byAvailability": {
+            "available": 1,
+            "expected-unavailable": 1,
+            "missing": 0,
+            "ambiguous": 0,
+            "incomplete": 0,
+            "unknown": 0,
+        },
+        "declarationMismatches": 0,
+    }
+    assert summary["cohortHealth"]["childTraces"] == parent["features"]["childTraceHealth"]
+    assert client.observation_traces == [
+        "parent-root",
+        "agentic-projection",
+        "one-shot-projection",
+        "agentic-child-root",
+    ]
+    assert "parent-session" not in json.dumps(summary)
+    assert "agentic-child" not in json.dumps(summary)
+    assert "019f9e82-cc80-7000-8000-000000000000" not in json.dumps(summary)
+
+
+@pytest.mark.parametrize(("projection", "roots", "complete", "expected", "mismatches"), [
+    (_child_projection("agentic", "missing-child"), {}, True, "missing", 0),
+    (
+        _child_projection("agentic", "duplicate-child"),
+        {"duplicate-child": [{"metadata": {"completed": True}}, {"metadata": {"completed": True}}]},
+        True,
+        "ambiguous",
+        0,
+    ),
+    (
+        _child_projection("agentic", "active-child"),
+        {"active-child": [{"metadata": {"completed": False}}]},
+        True,
+        "incomplete",
+        0,
+    ),
+    (
+        _child_projection("agentic", "malformed-root-child"),
+        {"malformed-root-child": [{"metadata": "private malformed metadata"}]},
+        True,
+        "incomplete",
+        0,
+    ),
+    (_child_projection("agentic", "bounded-child"), {}, False, "unknown", 0),
+    (_child_projection("agentic", "failed-child", outcome="failed"), {}, True, "unknown", 0),
+    (
+        _child_projection("one-shot", "instrumented-one-shot"),
+        {"instrumented-one-shot": [{"metadata": {"completed": True}}]},
+        True,
+        "available",
+        0,
+    ),
+    (_child_projection("one-shot", None), {}, True, "unknown", 0),
+    (
+        _child_projection("one-shot", "mismatch-child", declared="expected-available"),
+        {},
+        True,
+        "unknown",
+        1,
+    ),
+    (_child_projection("future-mode", "unknown-mode-child"), {}, True, "unknown", 0),
+])
+def test_child_trace_health_classifies_bounded_join_states(projection, roots, complete, expected, mismatches):
+    health = improvement._child_trace_health([projection], roots, discovery_complete=complete)
+
+    assert health["projections"] == 1
+    assert health["byAvailability"][expected] == 1
+    assert sum(health["byAvailability"].values()) == 1
+    assert health["declarationMismatches"] == mismatches
+    assert "childSessionId" not in json.dumps(health)
+
+
+def test_child_trace_health_projects_join_failures_into_count_only_capture_gaps():
+    observations = [
+        _child_projection("agentic", "private-missing-id"),
+        _child_projection("agentic", "duplicate-child"),
+        _child_projection("agentic", "active-child"),
+        _child_projection("one-shot", "mismatch-child", declared="expected-available"),
+    ]
+    roots = {
+        "duplicate-child": [{"metadata": {"completed": True}}, {"metadata": {"completed": True}}],
+        "active-child": [{"metadata": {"completed": False}}],
+    }
+
+    features = improvement._features(
+        [],
+        observations,
+        [],
+        child_trace_roots=roots,
+        trace_discovery_complete=True,
+    )
+    health = improvement._cohort_health(
+        [{"features": features}],
+        trace_discovery={"maxTraces": 500, "complete": True, "continuation": {"hasMore": False}},
+        scan_limit=1,
+        eligible_session_count=1,
+        allowed_providers=set(),
+        allowed_models=set(),
+    )
+
+    expected = {
+        "missing-child-trace",
+        "ambiguous-child-trace",
+        "incomplete-child-trace",
+        "unknown-child-trace",
+        "invalid-child-trace-declaration",
+    }
+    assert expected <= set(features["captureGaps"])
+    assert all(health["captureGaps"][gap] == 1 for gap in expected)
+    assert health["childTraces"] == features["childTraceHealth"]
+    assert "private-missing-id" not in json.dumps(health)
+    assert "mismatch-child" not in json.dumps(health)
+
+
+@pytest.mark.parametrize(("mode", "child_id"), [
+    ("agentic", "019f9b81-c180-7000-8000-000000000000"),
+    ("agentic", "019fa605-6800-7000-8000-000000000000"),
+    ("one-shot", "not-a-logical-pi-session"),
+])
+def test_scan_keeps_out_of_window_or_malformed_child_absence_unknown(tmp_path, mode, child_id):
+    projection = _private_trace("parent-session", "child-projection")
+    projection.update({"name": "subagent-result"})
+    client = FakeScanClient(
+        [projection],
+        {"child-projection": [_child_projection(mode, child_id)]},
+    )
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    health = packet["sessions"][0]["features"]["childTraceHealth"]
+    assert health["byAvailability"]["unknown"] == 1
+    assert health["byAvailability"]["missing"] == 0
+    assert summary["cohortHealth"]["captureGaps"]["unknown-child-trace"] == 1
+    assert summary["cohortHealth"]["captureGaps"]["missing-child-trace"] == 0
+    assert child_id not in json.dumps(summary)
 
 
 def test_scan_marks_score_capture_limit_as_lower_bound(tmp_path):

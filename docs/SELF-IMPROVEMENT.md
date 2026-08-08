@@ -43,11 +43,13 @@ effective provider or thinking level.
 
 `subagent-result` quality evaluation receives a bounded view of parent-held
 output plus objective outcome, declared contract, artifact persistence/content
-status, and ref count. It does not receive raw refs or filesystem paths.
-Requested status-only and PASS/no-findings responses are judged against that
-contract; missing required
-inline/artifact output remains visible as poor quality independently of objective
-execution outcome.
+status, and ref count. Parent metadata also carries validated `effectiveMode` and
+a declared child-trace expectation derived from Archimedes's resolved execution
+evidence. Agentic children with a usable foreign key are expected available;
+isolated one-shot children are expected unavailable. It does not receive raw refs
+or filesystem paths. Requested status-only and PASS/no-findings responses are
+judged against that contract; missing required inline/artifact output remains
+visible as poor quality independently of objective execution outcome.
 
 The Langfuse extension records private interactive telemetry. Evaluator-ready
 result projections share the Pi session ID, allowing sampled outcome scores to
@@ -179,7 +181,17 @@ safe membership row and its unknown count; `invalid-provider` and
 `invalid-model` preserve that gap. Evaluator coverage reports sessions
 with/without evaluator outcomes, outcome-record counts, and evaluator timeout
 counts. Error class/source/blocking totals sum the existing per-session taxonomy,
-and capture-gap totals use the existing fixed gap categories.
+and capture-gap totals use the existing fixed gap categories. Additive
+`childTraces` totals classify parent projections by effective mode and by actual
+bounded-discovery state: `available`, `expected-unavailable`, `missing`,
+`ambiguous`, `incomplete`, or `unknown`. Exactly one completed discovered root is
+available. No discovered root is expected for an isolated one-shot child; it is a
+missing gap only for a successful agentic child under complete discovery.
+Malformed declarations, missing foreign keys, failed children without roots,
+out-of-window child starts, and incomplete discovery remain unknown rather than
+guessed. The same count-only
+health appears per private session; safe cohort summaries never include child
+session IDs and scanning adds no per-child Langfuse calls.
 
 `cohortHealth.completeness.lowerBound` is true when trace discovery is
 incomplete, the session selection cap is reached, or any selected session hits

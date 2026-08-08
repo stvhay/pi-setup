@@ -37,7 +37,7 @@ This matrix covers the packages configured in `pi/agent/settings.json` and track
 | `langfuse-config-env.ts` | Public composition adapter | Reads pre-provisioned credentials, sets managed capture values before public package registration, keeps startup notification non-blocking, and surrounds upstream telemetry with a transient subscription alias that is removed before persistence. It does not proxy package event registration. |
 | `orchestrator-service.ts` | Unchanged | Portable status, text widgets, and notifications; agent-os strips ANSI styling. |
 | `ponytail-skill-input.ts` | Package composition adapter / no UI | Restores explicit `/skill:ponytail*` commands after package skill discovery is disabled. Reads package-owned bodies at invocation time and leaves active-mode injection to Ponytail. |
-| `subagent-error-workaround.ts` | Adapted / no UI | Tool-result normalization persists output contracts with parent artifacts/metrics, retains exact `childSessionId` foreign keys, and emits a bounded contract-aware evaluator view; it has no extension UI. |
+| `subagent-error-workaround.ts` | Adapted / no UI | Tool-result normalization persists output contracts with parent artifacts/metrics, retains exact `childSessionId` foreign keys, emits validated effective mode and child-trace expectation, and provides a bounded contract-aware evaluator view; it has no extension UI. |
 | `ticket-gateway.ts` | Unchanged | Portable confirm, notifications, and text widgets. |
 
 ## Verification

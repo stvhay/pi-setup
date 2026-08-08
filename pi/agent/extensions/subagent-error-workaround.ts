@@ -15,6 +15,8 @@ const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agen
 
 type OutputContract = "inline" | "artifact" | "status-only" | "pass-no-findings";
 type NormalizedOutputContract = OutputContract | "unknown";
+type EffectiveMode = "agentic" | "one-shot" | "unknown";
+type ChildTraceAvailability = "expected-available" | "expected-unavailable" | "unknown";
 
 const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
@@ -41,6 +43,7 @@ type SubagentResult = {
   exitCode?: number;
   task?: string;
   model?: string;
+  execution?: { profile?: { mode?: unknown } };
   finalOutput?: string;
   error?: string;
   usage?: {
@@ -283,6 +286,16 @@ function langfuseSessionId(ctx?: ExtensionContext): string | undefined {
 function childSessionId(result: SubagentResult): string | null {
   const value = result.childSessionId;
   return typeof value === "string" && value.length > 0 && value.length <= 200 ? value : null;
+}
+
+function effectiveMode(result: SubagentResult): EffectiveMode {
+  const mode = result.execution?.profile?.mode;
+  return mode === "agentic" || mode === "one-shot" ? mode : "unknown";
+}
+
+function childTraceAvailability(result: SubagentResult, mode: EffectiveMode): ChildTraceAvailability {
+  if (mode === "one-shot") return "expected-unavailable";
+  return mode === "agentic" && childSessionId(result) ? "expected-available" : "unknown";
 }
 
 function toolSignalKey(event: { toolName: string; input: Record<string, unknown> }): string {
@@ -749,6 +762,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       const task = input.tasks?.[index]?.task ?? input.task ?? result.task;
       const dimensions = modelDimensions(input, result, index, ctx);
       const contract = outputContract(input, index);
+      const mode = effectiveMode(result);
       try {
         await (await getObserve())("subagent-result", {
           input: evaluationContext(task, result, contract),
@@ -758,6 +772,8 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
             index,
             ...dimensions,
             executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+            effectiveMode: mode,
+            childTraceAvailability: childTraceAvailability(result, mode),
             outputContract: contract,
             ...artifactMetadata(result),
             exitCode: result.exitCode ?? 1,

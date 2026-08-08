@@ -17,17 +17,17 @@
 - `missing`: successful agentic projection with a child ID but no root under complete discovery.
 - `ambiguous`: multiple discovered child roots.
 - `incomplete`: discovered child roots exist but none is completed.
-- `unknown`: malformed/missing mode or child ID, failed non-one-shot child without a root, or incomplete discovery.
+- `unknown`: malformed/missing mode or child ID, failed non-one-shot child without a root, out-of-window child start, or incomplete discovery.
 
 **Acceptance Criteria:**
-- [ ] Parent `subagent-result` metadata exposes validated `effectiveMode` and declared `childTraceAvailability`.
-- [ ] One-shot isolation and Archimedes execution remain unchanged.
-- [ ] Scanner uses only already-discovered traces and reports count-only per-session/cohort availability states.
-- [ ] Successful agentic missing roots become explicit gaps only under complete discovery.
-- [ ] One-shot missing roots become `expected-unavailable`, while a deliberately available completed root becomes `available`.
-- [ ] Ambiguous, incomplete, malformed, missing-key, failed, and incomplete-discovery cases remain truthful.
-- [ ] Existing schema-1 and schema-2 consumers remain compatible; no raw child IDs enter cohort summaries.
-- [ ] Deterministic, full-project, and bounded live regressions pass.
+- [x] Parent `subagent-result` metadata exposes validated `effectiveMode` and declared `childTraceAvailability`.
+- [x] One-shot isolation and Archimedes execution remain unchanged.
+- [x] Scanner uses only already-discovered traces and reports count-only per-session/cohort availability states.
+- [x] Successful agentic missing roots become explicit gaps only under complete in-window discovery.
+- [x] One-shot missing roots become `expected-unavailable`, while a deliberately available completed root becomes `available`.
+- [x] Ambiguous, incomplete, malformed, missing-key, failed, out-of-window, and incomplete-discovery cases remain truthful.
+- [x] Existing schema-1 and schema-2 consumers remain compatible; no raw child IDs enter cohort summaries.
+- [ ] Deterministic, full-project, and bounded live regressions pass. Deterministic/full gates pass; live proof awaits deployment approval.
 
 **Verification Commands:**
 ```bash
@@ -87,7 +87,11 @@ git diff --check
 3. Commit one clean signed candidate.
 4. Request separate approval for local-main integration, deployment, bounded live agentic/one-shot proof, Bead closeout, and worktree cleanup.
 
+## Candidate Result
+
+TDD RED covered missing projection semantics, every bounded join state, capture gaps, malformed root metadata, and pre/post-window or malformed child IDs. Candidate verification passed 149 focused tests and 639 full project tests plus Ruff, config, shell, routing/role evals, and diff checks. Terra's two valid window/ID findings were fixed test-first; its follow-up claim that a completed one-shot root contradicts the expectation was refuted because safely loaded telemetry must resolve `available`. Deployment/live proof remains separately gated.
+
 ## Execution Handoff
 
 Plan saved to: `.pi/plans/2026-08-08-one-shot-trace-semantics-design-plan.md`.
-Recommended next skill: `test-driven-development`; use `verification-before-completion` before completion claims.
+Recommended next skill: `verification-before-completion` before completion claims.
