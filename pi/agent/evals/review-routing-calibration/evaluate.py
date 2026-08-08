@@ -67,6 +67,9 @@ def validate_manifest(spec: dict[str, Any], base_dir: Path = HERE) -> dict[str, 
             raise ValueError("packet IDs must be unique strings")
         if packet.get("kind") not in {"seeded", "clean"} or packet.get("scope") not in {"behavioral", "boundary"}:
             raise ValueError(f"invalid packet kind/scope: {packet.get('id')}")
+        if packet.get("taskPrefix") is not None and not re.fullmatch(
+                r"review-calibration:v[1-9][0-9]*", str(packet["taskPrefix"])):
+            raise ValueError(f"invalid packet task prefix: {packet.get('id')}")
         anchors = packet.get("anchors")
         expected = packet.get("expectedFindings")
         if not isinstance(anchors, list) or len(anchors) != len(set(anchors)) or not all(isinstance(item, str) for item in anchors):
@@ -115,12 +118,16 @@ def validate_manifest(spec: dict[str, Any], base_dir: Path = HERE) -> dict[str, 
     return spec
 
 
-def parse_task_header(task: Any, prefix: str) -> tuple[str, int] | None:
+def parse_task_header(task: Any, spec: dict[str, Any]) -> tuple[str, int] | None:
     if not isinstance(task, str):
         return None
     first_line = task.splitlines()[0] if task.splitlines() else ""
     match = TASK_RE.fullmatch(first_line)
-    return (match.group(2), int(match.group(3))) if match and match.group(1) == prefix else None
+    if not match:
+        return None
+    packet = next((item for item in spec["packets"] if item["id"] == match.group(2)), None)
+    expected_prefix = packet.get("taskPrefix", spec["taskPrefix"]) if packet else None
+    return (match.group(2), int(match.group(3))) if match.group(1) == expected_prefix else None
 
 
 def expected_task_text(spec: dict[str, Any], packet_id: str, repetition: int) -> str | None:
@@ -128,7 +135,8 @@ def expected_task_text(spec: dict[str, Any], packet_id: str, repetition: int) ->
     if packet is None:
         return None
     prompt = (HERE / packet["prompt"]).read_text(encoding="utf-8").strip()
-    return f"{spec['taskPrefix']} packet={packet_id} repetition={repetition}\n\n{prompt}"
+    prefix = packet.get("taskPrefix", spec["taskPrefix"])
+    return f"{prefix} packet={packet_id} repetition={repetition}\n\n{prompt}"
 
 
 def session_messages(path: Path) -> list[dict[str, Any]]:
@@ -213,7 +221,7 @@ def collect_records(session_path: Path, spec: dict[str, Any]) -> list[dict[str, 
                 arguments = block.get("arguments") if isinstance(block.get("arguments"), dict) else {}
                 tasks = arguments.get("tasks") if isinstance(arguments.get("tasks"), list) else []
                 selected = [task for task in tasks if isinstance(task, dict)
-                            and parse_task_header(task.get("task"), spec["taskPrefix"])]
+                            and parse_task_header(task.get("task"), spec)]
                 if selected:
                     calls[str(block.get("id"))] = selected
         elif message.get("role") == "toolResult" and message.get("toolName") == "subagent":
@@ -225,7 +233,7 @@ def collect_records(session_path: Path, spec: dict[str, Any]) -> list[dict[str, 
     for tool_call_id, tasks in calls.items():
         unmatched_results = list(results.get(tool_call_id, []))
         for index, task in enumerate(tasks):
-            header = parse_task_header(task.get("task"), spec["taskPrefix"])
+            header = parse_task_header(task.get("task"), spec)
             if not header:
                 continue
             packet_id, repetition = header

@@ -19,10 +19,10 @@ Packet anchors are candidate locations, not defect disclosures. Ground truth sta
 
 ## Run protocol
 
-For each packet and repetition, send one `subagent` tool call containing two tasks in manifest model order. Build each task as:
+For each packet and repetition, send one `subagent` tool call containing two tasks in manifest model order. Use the packet-scoped `taskPrefix` when present (currently `case-02b` uses `v4` after its control contract changed); otherwise use the top-level prefix. Build each task as:
 
 ```text
-review-calibration:v3 packet=<packet-id> repetition=<1..3>
+<effective-task-prefix> packet=<packet-id> repetition=<1..3>
 
 <exact packet file contents>
 ```

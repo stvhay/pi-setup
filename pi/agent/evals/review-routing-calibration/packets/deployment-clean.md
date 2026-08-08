@@ -5,7 +5,8 @@ Review only this packet. Anchors B1–B3 are candidate review locations; an anch
 ## Contract
 
 - Existing package files must remain recoverable until install, patch, and validation all succeed.
-- Any failure restores the complete previous package.
+- Any install, patch, or validation helper failure restores the complete previous package; pre-commit package moves/removals succeed in this fixture.
+- Post-commit backup cleanup may fail, but must not invalidate the new package; a leftover backup blocks the next deployment for operator cleanup.
 - Exact clean and fully patched bases are accepted.
 - Interrupted or mixed patch states are rejected and reinstalled; marker presence alone is not proof of completeness.
 - In this minimal fixture, a complete package contains both `package.json` and `runtime.py`.

@@ -64,9 +64,11 @@ def output(packet: dict, finding_ids: list[str], *, semantic: bool = True) -> st
 
 
 def task(packet_id: str, repetition: int) -> str:
-    packet = next(item for item in manifest()["packets"] if item["id"] == packet_id)
+    spec = manifest()
+    packet = next(item for item in spec["packets"] if item["id"] == packet_id)
     prompt = (EVAL_DIR / packet["prompt"]).read_text(encoding="utf-8").strip()
-    return f"review-calibration:v3 packet={packet_id} repetition={repetition}\n\n{prompt}"
+    prefix = packet.get("taskPrefix", spec["taskPrefix"])
+    return f"{prefix} packet={packet_id} repetition={repetition}\n\n{prompt}"
 
 
 def session_entry(message: dict) -> str:
@@ -90,6 +92,7 @@ def test_real_manifest_and_packets_validate():
     assert checked["id"] == "review-routing-calibration"
     assert checked["taskPrefix"] == "review-calibration:v3"
     assert len(checked["packets"]) == 4
+    assert next(packet for packet in checked["packets"] if packet["id"] == "case-02b")["taskPrefix"] == "review-calibration:v4"
     assert {packet["kind"] for packet in checked["packets"]} == {"seeded", "clean"}
     assert checked["execution"]["repetitions"] == 3
     assert checked["thresholds"]["minLatencyAdjustedYieldRatio"] == 1.25
@@ -234,8 +237,12 @@ def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monk
     assert (restored / "runtime.py").read_text(encoding="utf-8") == "OLD\n"
 
 
-@pytest.mark.parametrize("stale_prefix", ["review-calibration:v1", "review-calibration:v2"])
-def test_collect_ignores_stale_trial_prefixes(tmp_path, stale_prefix):
+@pytest.mark.parametrize(("stale_prefix", "packet_id"), [
+    ("review-calibration:v1", "case-01a"),
+    ("review-calibration:v2", "case-01a"),
+    ("review-calibration:v3", "case-02b"),
+])
+def test_collect_ignores_stale_trial_prefixes(tmp_path, stale_prefix, packet_id):
     module = load_module()
     session = tmp_path / "session.jsonl"
     session.write_text(session_entry({
@@ -244,7 +251,7 @@ def test_collect_ignores_stale_trial_prefixes(tmp_path, stale_prefix):
             "type": "toolCall",
             "id": "stale-call",
             "name": "subagent",
-            "arguments": {"tasks": [{"task": f"{stale_prefix} packet=case-01a repetition=1"}]},
+            "arguments": {"tasks": [{"task": f"{stale_prefix} packet={packet_id} repetition=1"}]},
         }],
     }), encoding="utf-8")
 
