@@ -24,7 +24,11 @@ APPLIED_RUNTIME = "CONTEXT\nCURRENT_PATCH_MARKER\nTAIL\n"
 
 def patch_state(package: Path, _patch_file: Path):
     # ANCHOR B2
-    runtime = (package / "runtime.py").read_text()
+    manifest = package / "package.json"
+    runtime_path = package / "runtime.py"
+    if not manifest.is_file() or not runtime_path.is_file():
+        return "invalid"
+    runtime = runtime_path.read_text()
     if runtime == APPLIED_RUNTIME:
         return "applied"
     if runtime == CLEAN_RUNTIME:
@@ -58,6 +62,8 @@ def validate(package: Path):
     required = (package / "package.json", package / "runtime.py")
     if not all(path.is_file() for path in required):
         raise RuntimeError("incomplete package")
+    if (package / "runtime.py").read_text() != APPLIED_RUNTIME:
+        raise RuntimeError("runtime is not fully patched")
 ```
 
 ## Existing tests

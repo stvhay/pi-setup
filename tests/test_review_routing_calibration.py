@@ -92,7 +92,8 @@ def test_real_manifest_and_packets_validate():
     assert checked["id"] == "review-routing-calibration"
     assert checked["taskPrefix"] == "review-calibration:v3"
     assert len(checked["packets"]) == 4
-    assert next(packet for packet in checked["packets"] if packet["id"] == "case-02b")["taskPrefix"] == "review-calibration:v5"
+    deployment = {packet["id"]: packet["taskPrefix"] for packet in checked["packets"] if packet["scope"] == "boundary"}
+    assert deployment == {"case-02a": "review-calibration:v6", "case-02b": "review-calibration:v6"}
     assert {packet["kind"] for packet in checked["packets"]} == {"seeded", "clean"}
     assert checked["execution"]["repetitions"] == 3
     assert checked["thresholds"]["minLatencyAdjustedYieldRatio"] == 1.25
@@ -152,8 +153,7 @@ def test_ingestion_packets_have_only_the_declared_seeded_defects():
 def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monkeypatch):
     seeded_text = (EVAL_DIR / "packets/deployment-seeded.md").read_text(encoding="utf-8")
     clean_text = (EVAL_DIR / "packets/deployment-clean.md").read_text(encoding="utf-8")
-    assert seeded_text.count("CURRENT_PATCH_MARKER") == 1
-    assert seeded_text.count('"--fuzz=0"') == 1
+    assert seeded_text.count("runtime.find(\"CURRENT_PATCH_MARKER\")") == 1
     assert "runtime == APPLIED_RUNTIME" in clean_text
     assert "runtime == CLEAN_RUNTIME" in clean_text
     seeded = packet_namespace("deployment-seeded.md")
@@ -175,17 +175,19 @@ def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monk
     (clean_package / "runtime.py").write_text("MIXED CURRENT_PATCH_MARKER\n", encoding="utf-8")
     assert clean["patch_state"](clean_package, patch_file) == "invalid"
     assert seeded["patch_state"](clean_package, patch_file) == "applied"
-    fuzzy = tmp_path / "fuzzy"
-    fuzzy.mkdir()
-    (fuzzy / "runtime.py").write_text("DRIFT\nOLD\nTAIL\n", encoding="utf-8")
-    assert subprocess.run(["patch", "--force", "--dry-run", "-p1"], cwd=fuzzy,
-                          input=patch_file.read_bytes(), capture_output=True).returncode == 0
-    assert seeded["patch_state"](fuzzy, patch_file) == "invalid"
     incomplete = tmp_path / "incomplete"
     incomplete.mkdir()
     (incomplete / "package.json").write_text("{}\n", encoding="utf-8")
+    assert clean["patch_state"](incomplete, patch_file) == "invalid"
+    assert seeded["patch_state"](incomplete, patch_file) == "invalid"
     with pytest.raises(RuntimeError, match="incomplete package"):
         clean["validate"](incomplete)
+    invalid_runtime = tmp_path / "invalid-runtime"
+    invalid_runtime.mkdir()
+    (invalid_runtime / "package.json").write_text("{}\n", encoding="utf-8")
+    (invalid_runtime / "runtime.py").write_text(clean["CLEAN_RUNTIME"], encoding="utf-8")
+    with pytest.raises(RuntimeError, match="runtime is not fully patched"):
+        clean["validate"](invalid_runtime)
 
     cleanup_root = tmp_path / "cleanup"
     cleanup_package = cleanup_root / "package"
@@ -207,12 +209,15 @@ def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monk
             raise OSError("partial backup cleanup")
         return original_rmtree(path, *args, **kwargs)
 
+    def apply_exact(path):
+        (path / "runtime.py").write_text(clean["APPLIED_RUNTIME"], encoding="utf-8")
+
     monkeypatch.setattr(clean["shutil"], "rmtree", partial_cleanup)
-    clean["deploy"](cleanup_package, cleanup_backup, install_new, lambda _path: None, clean["validate"])
-    assert (cleanup_package / "runtime.py").read_text(encoding="utf-8") == "NEW\n"
+    clean["deploy"](cleanup_package, cleanup_backup, install_new, apply_exact, clean["validate"])
+    assert (cleanup_package / "runtime.py").read_text(encoding="utf-8") == clean["APPLIED_RUNTIME"]
     with pytest.raises(RuntimeError, match="stale backup"):
         clean["deploy"](cleanup_package, cleanup_backup, install_new, lambda _path: None, clean["validate"])
-    assert (cleanup_package / "runtime.py").read_text(encoding="utf-8") == "NEW\n"
+    assert (cleanup_package / "runtime.py").read_text(encoding="utf-8") == clean["APPLIED_RUNTIME"]
 
     def exercise_deploy(namespace, root):
         package = root / "package"
@@ -241,8 +246,10 @@ def test_deployment_packets_have_only_the_declared_seeded_defects(tmp_path, monk
 @pytest.mark.parametrize(("stale_prefix", "packet_id"), [
     ("review-calibration:v1", "case-01a"),
     ("review-calibration:v2", "case-01a"),
+    ("review-calibration:v3", "case-02a"),
     ("review-calibration:v3", "case-02b"),
     ("review-calibration:v4", "case-02b"),
+    ("review-calibration:v5", "case-02b"),
 ])
 def test_collect_ignores_stale_trial_prefixes(tmp_path, stale_prefix, packet_id):
     module = load_module()

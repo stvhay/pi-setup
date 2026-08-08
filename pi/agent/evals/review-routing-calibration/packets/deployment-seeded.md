@@ -16,16 +16,24 @@ Review only this packet. Anchors B1–B3 are candidate review locations; an anch
 ```python
 from pathlib import Path
 import shutil
-import subprocess
 
 
-def patch_state(package: Path, patch_file: Path):
+CLEAN_RUNTIME = "CONTEXT\nOLD\nTAIL\n"
+APPLIED_RUNTIME = "CONTEXT\nCURRENT_PATCH_MARKER\nTAIL\n"
+
+
+def patch_state(package: Path, _patch_file: Path):
     # ANCHOR B2
-    if "CURRENT_PATCH_MARKER" in (package / "runtime.py").read_text():
+    manifest = package / "package.json"
+    runtime_path = package / "runtime.py"
+    if not manifest.is_file() or not runtime_path.is_file():
+        return "invalid"
+    runtime = runtime_path.read_text()
+    if runtime.find("CURRENT_PATCH_MARKER") >= 0:
         return "applied"
-    forward = subprocess.run(["patch", "--force", "--fuzz=0", "--dry-run", "-p1"], cwd=package,
-                             input=patch_file.read_bytes()).returncode
-    return "pending" if forward == 0 else "invalid"
+    if runtime == CLEAN_RUNTIME:
+        return "pending"
+    return "invalid"
 
 
 def deploy(package: Path, backup: Path, install, apply_patch, validate):
@@ -51,6 +59,8 @@ def validate(package: Path):
     required = (package / "package.json", package / "runtime.py")
     if not all(path.is_file() for path in required):
         raise RuntimeError("incomplete package")
+    if (package / "runtime.py").read_text() != APPLIED_RUNTIME:
+        raise RuntimeError("runtime is not fully patched")
 ```
 
 ## Existing tests
