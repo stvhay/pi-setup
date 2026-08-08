@@ -999,6 +999,13 @@ def test_scan_classifies_child_traces_from_bounded_discovery_without_extra_api_c
         0,
     ),
     (
+        _child_projection("agentic", "cancelled-child", outcome="failed"),
+        {"cancelled-child": [{"metadata": {"completed": False, "cancelled": True}}]},
+        True,
+        "available",
+        0,
+    ),
+    (
         _child_projection("agentic", "malformed-root-child"),
         {"malformed-root-child": [{"metadata": "private malformed metadata"}]},
         True,

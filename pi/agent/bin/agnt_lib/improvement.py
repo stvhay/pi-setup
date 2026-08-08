@@ -412,7 +412,9 @@ def _child_trace_health(
         )
         if len(roots) > 1:
             availability["ambiguous"] += 1
-        elif roots and isinstance(root_metadata, dict) and root_metadata.get("completed") is True:
+        elif roots and isinstance(root_metadata, dict) and (
+            root_metadata.get("completed") is True or root_metadata.get("cancelled") is True
+        ):
             availability["available"] += 1
         elif roots:
             availability["incomplete"] += 1

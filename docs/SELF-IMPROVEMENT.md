@@ -184,8 +184,9 @@ counts. Error class/source/blocking totals sum the existing per-session taxonomy
 and capture-gap totals use the existing fixed gap categories. Additive
 `childTraces` totals classify parent projections by effective mode and by actual
 bounded-discovery state: `available`, `expected-unavailable`, `missing`,
-`ambiguous`, `incomplete`, or `unknown`. Exactly one completed discovered root is
-available. No discovered root is expected for an isolated one-shot child; it is a
+`ambiguous`, `incomplete`, or `unknown`. Exactly one completed or finalized
+cancelled discovered root is available; a root with neither marker remains
+incomplete. No discovered root is expected for an isolated one-shot child; it is a
 missing gap only for a successful agentic child under complete discovery.
 Malformed declarations, missing foreign keys, failed children without roots,
 out-of-window child starts, and incomplete discovery remain unknown rather than
