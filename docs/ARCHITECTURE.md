@@ -24,12 +24,16 @@ pi-setup/ (this repo, source of truth)
   `trust.json`, `~/.pi/metrics/`, caches) are rsync-excluded and survive deploys.
   Missing, mismatched, or stale-patch exact package bases are installed before
   tracked patches run; current exact installs stay untouched to avoid broad npm reification.
+  Patch-base entries remain exact in the runtime npm manifest so installing one
+  cannot upgrade another through npm's default caret ranges.
 - Edits go in this repo, then deploy. The live `~/.pi` is never the place to
   change config; `rsync --delete` will overwrite it.
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches
   from `patches/pi-packages/`. Normal deployment invokes it automatically after
   exact base reconciliation. It is idempotent and fails closed on version or
-  source-context mismatch.
+  source-context mismatch. The Langfuse projection keeps ordinary strings finite,
+  permits valid media only on the transient OTel extraction path, and stores bounded
+  omission markers in REST fallback instead of raw media.
 - Two instruction levels share one filename: the repo root `AGENTS.md` is
   *project* instructions for working on pi-setup itself; `pi/agent/AGENTS.md`
   is the *global* instruction file every Pi session loads after deploy.

@@ -12,7 +12,7 @@ PATCHES = ROOT / "patches" / "pi-packages"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
 ARCHIMEDES_VENDOR_HEAD = "13c50cca1ebca78d3433c9b2494741e69548f990"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
-LANGFUSE_VENDOR_HEAD = "f1568028debf9af89f64a648f7559b49b7793743"
+LANGFUSE_VENDOR_HEAD = "7f6e9eca4689b5ba6612cff687c6cabbb4e71142"
 
 
 def _package(root: Path, relative: str, name: str, version: str, source: str) -> Path:
@@ -32,7 +32,12 @@ def _package(root: Path, relative: str, name: str, version: str, source: str) ->
             "export const filler3 = true;\n"
             "export const filler4 = true;\n"
             "export const scores = [];\n"
+            "score.id ??= randomUUID();\n"
             "export const flush = true;\n",
+            encoding="utf-8",
+        )
+        (package / "src/redaction.ts").write_text(
+            "export const redaction = true;\n",
             encoding="utf-8",
         )
     return target
@@ -52,20 +57,20 @@ def _archimedes_meta(root: Path) -> Path:
 
 def _fixture_patches(root: Path) -> Path:
     root.mkdir()
-    (root / "pi-langfuse-1.5.9.patch").write_text(
-        """diff --git a/index.ts b/index.ts
---- a/index.ts
-+++ b/index.ts
-@@ -1 +1 @@
--export const session = \"file\";
-+export const session = ctx?.sessionManager?.getSessionId?.();
-diff --git a/src/langfuse.ts b/src/langfuse.ts
+    (root / "pi-langfuse-1.5.10.patch").write_text(
+        """diff --git a/src/langfuse.ts b/src/langfuse.ts
 --- a/src/langfuse.ts
 +++ b/src/langfuse.ts
-@@ -6,2 +6,3 @@
- export const scores = [];
-+export const scoreEntityId = randomUUID();
+@@ -7,2 +7,3 @@
+ score.id ??= randomUUID();
++const MAX_INGESTION_REQUEST_BYTES = 3_000_000;
  export const flush = true;
+diff --git a/src/redaction.ts b/src/redaction.ts
+--- a/src/redaction.ts
++++ b/src/redaction.ts
+@@ -1 +1,2 @@
+ export const redaction = true;
++export const MALFORMED_MEDIA_DATA_URI = \"[malformed media data URI]\";
 """,
         encoding="utf-8",
     )
@@ -108,7 +113,7 @@ def _run(package_root: Path, patch_root: Path, *args: str) -> subprocess.Complet
 
 def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.9", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.10", "export const nativeSession = true;\n")
     archimedes = _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -122,11 +127,13 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
     checked = _run(package_root, patch_root, "--check")
     assert checked.returncode == 0, checked.stderr
     assert "pending" in checked.stdout
-    assert 'session = "file"' in langfuse.read_text(encoding="utf-8")
+    assert "nativeSession" in langfuse.read_text(encoding="utf-8")
 
     applied = _run(package_root, patch_root)
     assert applied.returncode == 0, applied.stderr
-    assert "getSessionId?.()" in langfuse.read_text(encoding="utf-8")
+    assert "nativeSession" in langfuse.read_text(encoding="utf-8")
+    assert "MAX_INGESTION_REQUEST_BYTES" in (langfuse.parent / "src/langfuse.ts").read_text(encoding="utf-8")
+    assert "MALFORMED_MEDIA_DATA_URI" in (langfuse.parent / "src/redaction.ts").read_text(encoding="utf-8")
     assert "childSessionId" in archimedes.read_text(encoding="utf-8")
     assert "maxProviderRequests" in archimedes.read_text(encoding="utf-8")
     assert "subagentMaxProviderRequests" in meta.read_text(encoding="utf-8")
@@ -139,7 +146,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
     package_json.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.8"}), encoding="utf-8")
     rejected = _run(package_root, patch_root, "--check")
     assert rejected.returncode != 0
-    assert "expected pi-langfuse 1.5.9" in rejected.stderr
+    assert "expected pi-langfuse 1.5.10" in rejected.stderr
 
 
 def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
@@ -148,10 +155,16 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.9",
+        "1.5.10",
         "export const session = ctx?.sessionManager?.getSessionId?.();\n",
     )
     score_source = langfuse.parent / "src/langfuse.ts"
+    redaction_source = langfuse.parent / "src/redaction.ts"
+    redaction_source.write_text(
+        redaction_source.read_text(encoding="utf-8")
+        + 'export const MALFORMED_MEDIA_DATA_URI = "[malformed media data URI]";\n',
+        encoding="utf-8",
+    )
     _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -166,7 +179,7 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
 
     assert rejected.returncode != 0
     assert "partially patched" in rejected.stderr
-    assert "scoreEntityId" not in score_source.read_text(encoding="utf-8")
+    assert "MAX_INGESTION_REQUEST_BYTES" not in score_source.read_text(encoding="utf-8")
 
 
 def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
@@ -175,14 +188,14 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.9",
+        "1.5.10",
         'export const session = "file";\n',
     )
     score_source = langfuse.parent / "src/langfuse.ts"
     score_source.write_text(
         score_source.read_text(encoding="utf-8").replace(
             "export const flush = true;",
-            "export const scoreEntityId = randomUUID();\nexport const flush = true;",
+            "const MAX_INGESTION_REQUEST_BYTES = 3_000_000;\nexport const flush = true;",
         ),
         encoding="utf-8",
     )
@@ -204,12 +217,12 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
 
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.9", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.10", 'export const session = "file";\n')
     score_source = langfuse.parent / "src/langfuse.ts"
     score_source.write_text(
         score_source.read_text(encoding="utf-8").replace(
-            'import { randomUUID } from "node:crypto";',
-            'import { randomUuid } from "node:crypto";',
+            "score.id ??= randomUUID();",
+            "score.id = randomUUID();",
         ),
         encoding="utf-8",
     )
@@ -231,7 +244,7 @@ def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
 
 def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.9", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.10", 'export const session = "file";\n')
     _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -273,13 +286,14 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
 
     assert head.returncode == 0, head.stderr
     assert head.stdout.strip() == LANGFUSE_VENDOR_HEAD
-    assert subprocess.run(
-        ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", "3243208", "HEAD"],
-    ).returncode == 0
+    for ancestor in ("f156802", "cebf7c6"):
+        assert subprocess.run(
+            ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", ancestor, "HEAD"],
+        ).returncode == 0
 
 
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
-    langfuse = (PATCHES / "pi-langfuse-1.5.9.patch").read_text(encoding="utf-8")
+    langfuse = (PATCHES / "pi-langfuse-1.5.10.patch").read_text(encoding="utf-8")
     archimedes = (PATCHES / "pi-archimedes-subagent-1.8.3.patch").read_text(encoding="utf-8")
     meta = (PATCHES / "pi-archimedes-meta-1.8.3.patch").read_text(encoding="utf-8")
     added = "\n".join(
@@ -287,15 +301,23 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
         if line.startswith("+") and not line.startswith("+++")
     )
 
-    assert "ExtensionContext" in langfuse
-    assert "getSessionId" in langfuse
-    assert "getSessionFile" in langfuse
-    assert 'basename(sessionFile, ".jsonl")' in langfuse
-    assert "score.id ??= randomUUID()" in langfuse
-    assert "id?: string;" in langfuse
+    assert "ExtensionContext" not in langfuse
+    assert "getSessionId" not in langfuse
+    assert "getSessionFile" not in langfuse
+    assert 'basename(sessionFile, ".jsonl")' not in langfuse
+    assert "score.id ??= randomUUID()" not in langfuse
+    assert "id?: string;" not in langfuse
+    assert "diff --git a/index.ts" not in langfuse
+    assert "diff --git a/src/types.ts" not in langfuse
     assert "MAX_INGESTION_REQUEST_BYTES" in langfuse
     assert "scoreEventIds" in langfuse
     assert "AbortSignal.any" in langfuse
+    assert "MALFORMED_MEDIA_DATA_URI" in langfuse
+    assert "OMITTED_MEDIA_DATA_URI" in langfuse
+    assert "isLangfuseMediaDataUri" in langfuse
+    assert "preserveMedia" in langfuse
+    assert "observation.model = prepareRestFallbackValue" in langfuse
+    assert "uploadMedia" not in langfuse
     assert "childSessionId" in archimedes
     assert "ResolvedChildExecution" in archimedes
     assert "maxProviderRequests" in archimedes
@@ -320,7 +342,7 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
 
 
 def test_langfuse_runtime_patch_uses_zero_context_without_losing_source_removals():
-    patch = (PATCHES / "pi-langfuse-1.5.9.patch").read_text(encoding="utf-8")
+    patch = (PATCHES / "pi-langfuse-1.5.10.patch").read_text(encoding="utf-8")
     hunks: list[list[str]] = []
     current: list[str] | None = None
     for line in patch.splitlines():

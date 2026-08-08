@@ -89,9 +89,9 @@ apply_preflighted_patch() {
   echo "$label: applied"
 }
 
-LANGFUSE_LABEL="pi-langfuse 1.5.9"
+LANGFUSE_LABEL="pi-langfuse 1.5.10"
 LANGFUSE_DIR="$PACKAGE_ROOT/pi-langfuse"
-LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.5.9.patch"
+LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.5.10.patch"
 ARCHIMEDES_META_LABEL="pi-archimedes 1.8.3"
 ARCHIMEDES_META_DIR="$PACKAGE_ROOT/pi-archimedes"
 ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-1.8.3.patch"
@@ -100,8 +100,8 @@ ARCHIMEDES_SUBAGENT_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
 ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-1.8.3.patch"
 
 # Validate every package and patch before mutating any installed source tree.
-LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.9" "$LANGFUSE_PATCH" \
-  "index.ts" "getSessionId?.()" "src/langfuse.ts" 'import { randomUUID } from "node:crypto";')
+LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.10" "$LANGFUSE_PATCH" \
+  "src/redaction.ts" "MALFORMED_MEDIA_DATA_URI" "src/langfuse.ts" "score.id ??= randomUUID()")
 ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "1.8.3" \
   "$ARCHIMEDES_META_PATCH" "src/settings.ts" "subagentMaxProviderRequests")
 ARCHIMEDES_SUBAGENT_STATE=$(patch_state "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDES_SUBAGENT_DIR" \

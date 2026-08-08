@@ -62,6 +62,45 @@ raise SystemExit(0 if (package.get("name"), package.get("version")) == tuple(sys
 PY
 }
 
+pin_patch_base_dependency() {
+  local relative=$1 name=$2 version=$3
+  local manifest="$DEST/agent/npm/package.json"
+  local package_json="$DEST/agent/npm/node_modules/$relative/package.json"
+  package_is_exact "$package_json" "$name" "$version" || return 0
+  if [ "$MODE" = dry-run ]; then
+    echo "DRY-RUN: pin installed $name dependency to $version in $manifest"
+    return
+  fi
+  [ -f "$manifest" ] || return 0
+  python3 - "$manifest" "$name" "$version" <<'PY'
+import json
+import os
+import pathlib
+import sys
+import tempfile
+
+path = pathlib.Path(sys.argv[1])
+name, version = sys.argv[2:]
+data = json.loads(path.read_text(encoding="utf-8"))
+dependencies = data.get("dependencies")
+if not isinstance(dependencies, dict) or name not in dependencies or dependencies[name] == version:
+    raise SystemExit(0)
+dependencies[name] = version
+with tempfile.NamedTemporaryFile(
+    mode="w",
+    encoding="utf-8",
+    dir=path.parent,
+    prefix=f".{path.name}.",
+    delete=False,
+) as output:
+    json.dump(data, output, indent=2)
+    output.write("\n")
+    temporary_path = pathlib.Path(output.name)
+temporary_path.chmod(path.stat().st_mode)
+os.replace(temporary_path, path)
+PY
+}
+
 install_patch_base() {
   local source=$1 relative=$2 expected_name=$3 expected_version=$4
   local package_json="$DEST/agent/npm/node_modules/$relative/package.json"
@@ -102,7 +141,7 @@ reinstall_langfuse_patch_base() {
   local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
   if [ "$MODE" = dry-run ]; then
     run rm -rf "$package_dir"
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.9
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.10
     return
   fi
 
@@ -110,8 +149,8 @@ reinstall_langfuse_patch_base() {
   backup=$(mktemp -d "$DEST/agent/npm/.langfuse-reinstall.XXXXXX")
   LANGFUSE_REINSTALL_BACKUP=$backup
   mv "$package_dir" "$backup/pi-langfuse"
-  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.9 \
-    && package_is_exact "$package_dir/package.json" pi-langfuse 1.5.9; then
+  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.10 \
+    && package_is_exact "$package_dir/package.json" pi-langfuse 1.5.10; then
     return
   fi
 
@@ -123,18 +162,18 @@ reinstall_langfuse_patch_base() {
 install_langfuse_patch_base() {
   local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
   local package_json="$package_dir/package.json"
-  local patch_file="$PACKAGE_PATCH_DIR/pi-langfuse-1.5.9.patch"
-  if package_is_exact "$package_json" pi-langfuse 1.5.9; then
+  local patch_file="$PACKAGE_PATCH_DIR/pi-langfuse-1.5.10.patch"
+  if package_is_exact "$package_json" pi-langfuse 1.5.10; then
     if patch --force --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" \
       < "$patch_file" >/dev/null 2>&1 \
       || patch --force --silent --fuzz=0 --dry-run -p1 -d "$package_dir" \
         < "$patch_file" >/dev/null 2>&1; then
-      echo "pi-langfuse 1.5.9: already installed"
+      echo "pi-langfuse 1.5.10: already installed"
     else
       reinstall_langfuse_patch_base
     fi
   else
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.9
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.10
   fi
 }
 
@@ -371,9 +410,14 @@ elif [ "$MODE" = dry-run ] && [ -f "$DEST/agent/settings.json" ]; then
 fi
 
 # Reconcile only missing, mismatched, or stale version-locked patch bases.
-# Current installations stay untouched so unrelated npm ranges are never reified.
+# Keep their npm manifest entries exact before and after each install so npm cannot
+# reify a newly released version of one patch base while installing the other.
+pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "1.8.3"
+pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.5.10"
 install_archimedes_patch_base
+pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "1.8.3"
 install_langfuse_patch_base
+pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.5.10"
 if [ "$MODE" = dry-run ]; then
   run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
 elif env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"; then

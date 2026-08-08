@@ -59,7 +59,7 @@ def test_langfuse_skill_is_pinned_and_reuses_extension_config(tmp_path):
     run_extension_script(script, home=tmp_path)
 
 
-def test_langfuse_image_payloads_are_not_truncated():
+def test_langfuse_uses_package_default_string_bound():
     script = f"""
       import assert from "node:assert/strict";
       import install from {EXTENSION.as_uri()!r};
@@ -67,7 +67,21 @@ def test_langfuse_image_payloads_are_not_truncated():
       delete process.env.PI_LANGFUSE_MAX_STRING_LENGTH;
       install();
 
-      assert.equal(process.env.PI_LANGFUSE_MAX_STRING_LENGTH, "off");
+      assert.equal(process.env.PI_LANGFUSE_MAX_STRING_LENGTH, undefined);
+    """
+    run_extension_script(script)
+
+
+def test_langfuse_preserves_explicit_string_bound_overrides():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      for (const value of ["off", "4096"]) {{
+        process.env.PI_LANGFUSE_MAX_STRING_LENGTH = value;
+        install();
+        assert.equal(process.env.PI_LANGFUSE_MAX_STRING_LENGTH, value);
+      }}
     """
     run_extension_script(script)
 
