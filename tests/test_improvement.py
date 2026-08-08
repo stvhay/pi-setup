@@ -572,6 +572,7 @@ class FakeScanClient:
         self.trace_limits = []
         self.trace_maxima = []
         self.score_sessions = []
+        self.score_limits = []
         self.observation_traces = []
 
     def list_traces(self, **kwargs):
@@ -590,6 +591,7 @@ class FakeScanClient:
         }
 
     def list_scores(self, **kwargs):
+        self.score_limits.append(kwargs["limit"])
         if kwargs.get("trace_id"):
             return self.trace_scores.get(kwargs["trace_id"], [])
         session_id = kwargs["session_id"]
@@ -649,6 +651,297 @@ def _private_observations():
             "metadata": {"isError": True, "inputBytes": 25, "outputBytes": 40},
         },
     ]
+
+
+def _cohort_session(
+    *,
+    providers=(),
+    models=(),
+    outcome="unknown",
+    evaluator_outcomes=(),
+    evaluator_timeouts=0,
+    taxonomy=None,
+    capture_gaps=(),
+):
+    return {
+        "features": {
+            "providers": list(providers),
+            "models": list(models),
+            "finalOutcome": outcome,
+            "evaluatorOutcomes": list(evaluator_outcomes),
+            "evaluatorTimeouts": evaluator_timeouts,
+            "errorTaxonomy": taxonomy or improvement._error_taxonomy([]),
+            "captureGaps": list(capture_gaps),
+        },
+    }
+
+
+def test_features_collect_normalized_provider_and_observation_model_dimensions():
+    traces = [{"metadata": {"provider": "vendor-provider", "model": "vendor-model"}}]
+    observations = [
+        {
+            "type": "GENERATION",
+            "provider": "generation-provider",
+            "model": "generation-model",
+            "metadata": {},
+        },
+        {
+            "type": "AGENT",
+            "name": "subagent-result",
+            "metadata": {"provider": "openai-codex", "model": "gpt-5.6-terra"},
+        },
+        {
+            "type": "AGENT",
+            "metadata": {"provider": "https://private.example", "model": "/secret/model"},
+        },
+        {
+            "type": "AGENT",
+            "metadata": {"provider": "C:/private/provider", "model": "/private/model"},
+        },
+    ]
+
+    features = improvement._features(traces, observations, [])
+
+    assert features["providers"] == ["generation-provider", "openai-codex", "vendor-provider"]
+    assert features["models"] == ["generation-model", "gpt-5.6-terra", "vendor-model"]
+    assert "missing-provider" not in features["captureGaps"]
+    assert "missing-model" not in features["captureGaps"]
+    assert "invalid-provider" in features["captureGaps"]
+    assert "invalid-model" in features["captureGaps"]
+    assert "missing-provider" in improvement._features([], [], [])["captureGaps"]
+
+
+def test_cohort_dimension_allowlist_uses_tracked_models_and_rejects_credentials(tmp_path):
+    settings = tmp_path / "pi" / "agent" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({
+        "enabledModels": [
+            "openai-codex/gpt-5.6-terra",
+            "ghp_abcdefghijklmnopqrstuvwxyz1234567890/model",
+            "openrouter/github_pat_abcdefghijklmnopqrstuvwxyz",
+        ],
+    }), encoding="utf-8")
+
+    providers, models = improvement._cohort_dimension_allowlists(tmp_path)
+
+    assert providers == {"openai-codex"}
+    assert models == {"gpt-5.6-terra", "openai-codex/gpt-5.6-terra"}
+
+
+def test_cohort_health_filters_unsafe_dimensions_without_changing_private_models():
+    features = improvement._features([{"metadata": {"model": "legacy private model"}}], [], [])
+
+    health = improvement._cohort_health(
+        [{"features": features}],
+        trace_discovery={"maxTraces": 1, "complete": True, "continuation": {"hasMore": False}},
+        scan_limit=1,
+        eligible_session_count=1,
+        allowed_providers=set(),
+        allowed_models=set(),
+    )
+
+    assert features["models"] == ["legacy private model"]
+    assert health["modelOutcomes"] == []
+    assert health["unknownModelSessions"] == 1
+    assert "legacy private model" not in json.dumps(health)
+
+
+def test_cohort_health_aggregates_memberships_unknowns_errors_and_limits():
+    first_taxonomy = improvement._error_taxonomy([{
+        "type": "AGENT",
+        "name": "subagent-result",
+        "level": "ERROR",
+        "metadata": {
+            "failureClass": "provider",
+            "providerFailureClass": "quota",
+            "outcomeBlocking": True,
+        },
+    }])
+    second_taxonomy = improvement._error_taxonomy([{
+        "type": "TOOL",
+        "level": "ERROR",
+        "metadata": {"errorClass": "recovered", "errorSource": "tool", "outcomeBlocking": False},
+    }])
+    sessions = [
+        _cohort_session(
+            providers=["openai-codex", "https://private.example"],
+            models=["gpt-5.6-terra", "/secret/model"],
+            outcome="success",
+            evaluator_outcomes=[{"name": "outcome", "value": "success"}],
+            taxonomy=first_taxonomy,
+        ),
+        _cohort_session(
+            providers=["openai-codex"],
+            models=["gpt-5.6-luna"],
+            outcome="failure",
+            evaluator_timeouts=1,
+            taxonomy=second_taxonomy,
+            capture_gaps=["missing-usage", "trace-limit"],
+        ),
+        _cohort_session(
+            providers=["https://private.example", "ghp_abcdefghijklmnopqrstuvwxyz1234567890"],
+            models=["/secret/model", "github_pat_abcdefghijklmnopqrstuvwxyz"],
+            capture_gaps=["missing-provider", "missing-model", "observation-limit"],
+        ),
+    ]
+    discovery = {
+        "maxTraces": 9,
+        "complete": False,
+        "continuation": {"hasMore": True, "reason": "max-traces"},
+    }
+
+    health = improvement._cohort_health(
+        sessions,
+        trace_discovery=discovery,
+        scan_limit=3,
+        eligible_session_count=4,
+        allowed_providers={"openai-codex"},
+        allowed_models={"gpt-5.6-luna", "gpt-5.6-terra"},
+    )
+
+    assert health["schemaVersion"] == 1
+    assert health["observedSessions"] == 3
+    assert health["outcomes"] == {"success": 1, "partial": 0, "failure": 1, "unclear": 0, "unknown": 1}
+    assert health["providerOutcomes"] == [{
+        "provider": "openai-codex",
+        "sessions": 2,
+        "outcomes": {"success": 1, "partial": 0, "failure": 1, "unclear": 0, "unknown": 0},
+    }]
+    assert health["unknownProviderSessions"] == 2
+    assert [item["model"] for item in health["modelOutcomes"]] == ["gpt-5.6-luna", "gpt-5.6-terra"]
+    assert health["unknownModelSessions"] == 2
+    assert health["evaluatorCoverage"] == {
+        "sessionsWithOutcomes": 1,
+        "sessionsWithoutOutcomes": 2,
+        "outcomeRecords": 1,
+        "sessionsWithTimeouts": 1,
+        "timeouts": 1,
+    }
+    assert health["errors"]["byClass"]["provider"] == 1
+    assert health["errors"]["byClass"]["recovered"] == 1
+    assert health["errors"]["bySource"]["provider"] == 1
+    assert health["errors"]["bySource"]["tool"] == 1
+    assert health["errors"]["outcomeBlocking"] == {"true": 1, "false": 1, "unknown": 0}
+    assert health["captureGaps"]["missing-usage"] == 1
+    assert health["captureGaps"]["trace-limit"] == 1
+    assert health["captureGaps"]["observation-limit"] == 1
+    assert health["completeness"] == {
+        "eligibleSessionsAvailable": 4,
+        "traceDiscoveryComplete": False,
+        "traceDiscoveryHasMore": True,
+        "sessionLimitReached": True,
+        "lowerBound": True,
+    }
+    assert health["limits"] == {
+        "scanSessions": 3,
+        "discoveryTraces": 9,
+        "discoveryPageSize": 100,
+        "tracesPerSession": 20,
+        "observationsPerTrace": 500,
+        "scoresPerQuery": 100,
+    }
+    assert "private.example" not in json.dumps(health)
+    assert "/secret" not in json.dumps(health)
+    assert "ghp_" not in json.dumps(health)
+    assert "github_pat_" not in json.dumps(health)
+
+
+def test_scan_emits_identical_cohort_health_without_extra_api_calls(tmp_path):
+    first = _private_trace("session-one", "trace-one")
+    first["metadata"]["provider"] = "openai-codex"
+    second = _private_trace("session-two", "trace-two")
+    client = FakeScanClient(
+        [first, second],
+        {
+            "trace-one": [
+                *_private_observations(),
+                {
+                    "type": "AGENT",
+                    "name": "interactive-result",
+                    "metadata": {"provider": "openai-codex", "model": "gpt-5.6-terra", "executionOutcome": "succeeded"},
+                },
+            ],
+            "trace-two": [],
+        },
+        trace_scores={
+            "trace-one": [{"name": "Apparent task outcome", "value": "success", "source": "EVAL"}],
+        },
+    )
+    repository_root = tmp_path / "repo"
+    settings = repository_root / "pi" / "agent" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"enabledModels": ["openai-codex/gpt-5.6-terra"]}), encoding="utf-8")
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        max_traces=7,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=repository_root,
+        dry_run=True,
+    )
+
+    assert summary["schemaVersion"] == 1
+    assert packet["schemaVersion"] == 2
+    assert packet["scan"]["cohortHealth"] == summary["cohortHealth"]
+    assert summary["cohortHealth"]["observedSessions"] == 1
+    assert summary["cohortHealth"]["completeness"]["sessionLimitReached"] is True
+    assert summary["cohortHealth"]["limits"]["discoveryTraces"] == 7
+    assert summary["cohortHealth"]["providerOutcomes"][0]["provider"] == "openai-codex"
+    assert "session-one" not in json.dumps(summary)
+    assert "trace-one" not in json.dumps(summary)
+    assert client.observation_traces == ["trace-one"]
+
+
+def test_scan_marks_score_capture_limit_as_lower_bound(tmp_path):
+    trace = _private_trace("score-limited-session", "score-limited-trace")
+    scores = [
+        {"name": f"quality-{index}", "value": 1, "source": "EVAL"}
+        for index in range(improvement.SCORES_PER_QUERY + 1)
+    ]
+    client = FakeScanClient(
+        [trace],
+        {"score-limited-trace": _private_observations()},
+        trace_scores={"score-limited-trace": scores},
+    )
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    features = packet["sessions"][0]["features"]
+    assert len(features["evaluatorOutcomes"]) == improvement.SCORES_PER_QUERY
+    assert "score-limit" in features["captureGaps"]
+    assert summary["cohortHealth"]["captureGaps"]["score-limit"] == 1
+    assert summary["cohortHealth"]["completeness"]["lowerBound"] is True
+    assert set(client.score_limits) == {improvement.SCORES_PER_QUERY + 1}
+
+
+def test_cohort_health_handles_zero_sessions():
+    health = improvement._cohort_health(
+        [],
+        trace_discovery={"maxTraces": 500, "complete": True, "continuation": {"hasMore": False}},
+        scan_limit=5,
+        eligible_session_count=0,
+        allowed_providers=set(),
+        allowed_models=set(),
+    )
+
+    assert health["observedSessions"] == 0
+    assert health["unknownProviderSessions"] == 0
+    assert health["unknownModelSessions"] == 0
+    assert health["evaluatorCoverage"]["sessionsWithoutOutcomes"] == 0
+    assert health["completeness"]["lowerBound"] is False
 
 
 def _tool_observation(*, input_marker=..., output_marker=..., metadata=None):
@@ -1283,7 +1576,7 @@ def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
         dry_run=True,
     )
 
-    assert summary == {
+    expected_summary = {
         "schemaVersion": 1,
         "status": "ok",
         "scannedTraces": 2,
@@ -1303,6 +1596,8 @@ def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
         "reportWritten": False,
         "reportPath": None,
     }
+    assert {key: summary[key] for key in expected_summary} == expected_summary
+    assert summary["cohortHealth"] == packet["scan"]["cohortHealth"]
     assert [item["sessionId"] for item in packet["sessions"]] == ["eligible-session"]
     assert client.observation_traces == ["eligible-trace"]
     assert not output_dir.exists()
@@ -1387,7 +1682,7 @@ def test_scan_checks_multiple_review_markers_for_current_policy(tmp_path):
         dry_run=True,
     )
 
-    assert client.marker_limit == 100
+    assert client.marker_limit == improvement.SCORES_PER_QUERY + 1
     assert summary["reviewedSessionsSkipped"] == 1
     assert packet["sessions"] == []
 

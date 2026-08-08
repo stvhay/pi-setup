@@ -166,6 +166,33 @@ unknown. Expected/recovered signals never increase actionable count; unknown is
 retained rather than inferred. Raw observation counts and classified-signal
 counts use separate denominators to avoid relabeling every error observation as
 a mistake.
+
+Each scan also emits the same nested schema-1 `cohortHealth` aggregate in the
+safe schema-1 summary and private schema-2 packet. It covers only selected,
+eligible sessions whose observations and scores were fetched; it does not add
+Langfuse calls. Provider and model rows are session memberships, so a session
+with multiple dimensions contributes once to each row and row totals may exceed
+the observed-session count. Rows include final-outcome counts; missing or unsafe
+dimensions stay in explicit unknown-session counts instead of being inferred or
+copied. A session with both safe and unsafe dimension values contributes to its
+safe membership row and its unknown count; `invalid-provider` and
+`invalid-model` preserve that gap. Evaluator coverage reports sessions
+with/without evaluator outcomes, outcome-record counts, and evaluator timeout
+counts. Error class/source/blocking totals sum the existing per-session taxonomy,
+and capture-gap totals use the existing fixed gap categories.
+
+`cohortHealth.completeness.lowerBound` is true when trace discovery is
+incomplete, the session selection cap is reached, or any selected session hits
+the trace, observation, or score cap. Score queries read one sentinel row beyond
+the retained cap, retain only the configured rows, and add `score-limit` on
+truncation. The aggregate reports eligible sessions available
+within discovered traces plus every active cap: scan sessions, discovery traces,
+discovery page size, traces per session, observations per trace, and score rows
+per query. Aggregate provider/model rows are restricted to the tracked
+`enabledModels` allowlist after bounded identifier and credential-prefix checks;
+unconfigured, malformed, URL/path/hash/secret-shaped, and raw-ID labels count
+only as unknown and never enter the safe summary. Existing private per-session
+model evidence remains unchanged.
 Scans skip sessions already reviewed under the current policy.
 `review --apply` writes idempotent private Langfuse markers. `promote`
 accepts only allowlisted, generalized text and requires durable approval of the

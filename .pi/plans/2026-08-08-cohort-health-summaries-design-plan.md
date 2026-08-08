@@ -12,12 +12,12 @@
 **Non-goals:** No separate command, additional trace/observation/score fetches, rates over unobserved sessions, raw IDs/payloads, model-to-provider inference, top-level schema bump, review-policy change, or historical packet migration.
 
 **Acceptance Criteria:**
-- [ ] Existing selected-session scan reports stable provider/model membership outcomes plus explicit unknown-session counts.
-- [ ] Final outcomes, evaluator coverage/timeouts, error classes/sources/blocking state, and capture gaps aggregate from existing normalized features only.
-- [ ] Aggregate exposes scan session, discovery trace/page, traces/session, observations/trace, and scores/query caps plus truthful discovery/session-limit state.
-- [ ] Summary remains schema 1, private packet remains schema 2, review policy remains v1, and historical schema-1 packets remain reviewable.
-- [ ] Safe summary contains no session/trace/observation IDs, payloads, URLs, secrets, hashes, absolute paths, or malformed dimension labels.
-- [ ] Focused and full project verification pass.
+- [x] Existing selected-session scan reports stable provider/model membership outcomes plus explicit unknown-session counts.
+- [x] Final outcomes, evaluator coverage/timeouts, error classes/sources/blocking state, and capture gaps aggregate from existing normalized features only.
+- [x] Aggregate exposes scan session, discovery trace/page, traces/session, observations/trace, and scores/query caps plus truthful discovery/session-limit state.
+- [x] Summary remains schema 1, private packet remains schema 2, review policy remains v1, and historical schema-1 packets remain reviewable.
+- [x] Safe summary contains no session/trace/observation IDs, payloads, URLs, secrets, hashes, absolute paths, or malformed dimension labels.
+- [x] Focused and full project verification pass.
 
 **Verification Commands:**
 ```bash
@@ -73,6 +73,10 @@ git diff --check
 4. Commit one task-owned atomic implementation candidate.
 
 **Expected result:** Reviewed, reproducible candidate ready for separately approved main integration/deployment.
+
+## Result
+
+Implemented additive cohort health with tracked-model allowlists, explicit mixed-invalid unknowns, sentinel score-limit detection, and no additional logical API queries. TDD RED covered missing aggregation, mixed invalid memberships, score truncation, and legacy per-session model compatibility. Final evidence: 105 focused improvement tests, Ruff, 616 full tests, Pi config, shell syntax, routing/role smokes, diff checks, and independent Terra follow-up PASS. The initial full gate's two vendor-pin failures were traced to uninitialized submodules; initializing recorded gitlinks made the exact failed tests and full gate pass without source changes. A later documentation-only rerun inherited global commit signing in temporary test repositories after the signing agent expired; the final matrix therefore disables `commit.gpgsign` ephemerally for test subprocesses without changing repository or user configuration.
 
 ## Execution Handoff
 

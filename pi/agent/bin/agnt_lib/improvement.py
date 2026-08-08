@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .langfuse import DEFAULT_MAX_TRACES, LangfuseError, _client_from_env
+from .langfuse import DEFAULT_MAX_TRACES, MAX_PAGE_SIZE, LangfuseError, _client_from_env
 from .metrics import git_root
 from .runs import default_runs_dir
 
@@ -30,6 +30,22 @@ REVIEW_POLICY_VERSION = "v1"
 TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
+SCORES_PER_QUERY = 100
+COHORT_OUTCOMES = ("success", "partial", "failure", "unclear", "unknown")
+COHORT_CAPTURE_GAPS = (
+    "no-generations",
+    "missing-usage",
+    "missing-provider",
+    "invalid-provider",
+    "missing-model",
+    "invalid-model",
+    "missing-outcome",
+    "inferred-tool-payload-bytes",
+    "missing-tool-payload-bytes",
+    "trace-limit",
+    "observation-limit",
+    "score-limit",
+)
 SESSION_DECISIONS = {"no-action", "actions-created", "needs-human", "excluded"}
 FINDING_CATEGORIES = {
     "coordination-error",
@@ -72,6 +88,8 @@ PUBLIC_FIELDS = {
 FINDING_ID = re.compile(r"finding-[a-f0-9]{12}\Z")
 BEAD_ID = re.compile(r"[a-z][a-z0-9]*-[A-Za-z0-9._-]+\Z")
 PROMOTION_STATE_FIELDS = {"schemaVersion", "findingId", "beadId", "creationPending", "linkRepairNeeded"}
+COHORT_DIMENSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}\Z")
+COHORT_CREDENTIAL_PREFIX = re.compile(r"(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|npm_|pypi-)", re.IGNORECASE)
 PRIVATE_PUBLIC_TEXT = re.compile(
     r"\b[A-Za-z][A-Za-z0-9+.-]*://|www\.|\b(?:langfuse|session(?:id)?|trace(?:id)?|observation(?:id)?)\b|"
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|"
@@ -110,6 +128,40 @@ def _number(value: Any) -> float:
 
 def _int(value: Any) -> int:
     return int(_number(value))
+
+
+def _cohort_dimension(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = unicodedata.normalize("NFKC", value).strip()
+    if (
+        not COHORT_DIMENSION.fullmatch(text)
+        or COHORT_CREDENTIAL_PREFIX.search(text)
+        or PRIVATE_PUBLIC_TEXT.search(text)
+    ):
+        return None
+    return text
+
+
+def _cohort_dimension_allowlists(repository_root: Path) -> tuple[set[str], set[str]]:
+    try:
+        settings = json.loads((repository_root / "pi" / "agent" / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set(), set()
+    targets = settings.get("enabledModels") if isinstance(settings, dict) else None
+    if not isinstance(targets, list):
+        return set(), set()
+    providers: set[str] = set()
+    models: set[str] = set()
+    for raw_target in targets:
+        target = _cohort_dimension(raw_target)
+        if target is None or "/" not in target:
+            continue
+        provider, model = target.split("/", 1)
+        if _cohort_dimension(provider) and _cohort_dimension(model):
+            providers.add(provider)
+            models.update((model, target))
+    return providers, models
 
 
 def _sum_trace_metadata(traces: list[dict[str, Any]], key: str) -> tuple[int, bool]:
@@ -326,8 +378,32 @@ def _features(
     cost = 0.0
     instruction_bytes = tool_bytes = input_bytes = 0
     prompt_parts = []
+    providers = set()
     models = set()
     missing_usage = False
+    invalid_provider = False
+    invalid_model = False
+
+    def add_provider(raw: Any) -> None:
+        nonlocal invalid_provider
+        if raw is None or raw == "":
+            return
+        if provider := _cohort_dimension(raw):
+            providers.add(provider)
+        else:
+            invalid_provider = True
+
+    def add_model(raw: Any, *, preserve: bool = False) -> None:
+        nonlocal invalid_model
+        if raw is None or raw == "":
+            return
+        if preserve:
+            models.add(str(raw))
+        if model := _cohort_dimension(raw):
+            models.add(model)
+        else:
+            invalid_model = True
+
     for generation in generations:
         usage = generation.get("usageDetails") or generation.get("usage") or {}
         input_tokens = _int(usage.get("input"))
@@ -337,8 +413,11 @@ def _features(
         output += _int(usage.get("output"))
         missing_usage = missing_usage or not bool(usage)
         cost += _number(generation.get("calculatedTotalCost") or generation.get("totalPrice"))
-        if generation.get("model"):
-            models.add(str(generation["model"]))
+        metadata = generation.get("metadata") if isinstance(generation.get("metadata"), dict) else {}
+        for raw_provider in (generation.get("provider"), metadata.get("provider")):
+            add_provider(raw_provider)
+        add_model(generation.get("model"), preserve=True)
+        add_model(metadata.get("model"))
         request = generation.get("input")
         if isinstance(request, dict):
             instructions = request.get("instructions")
@@ -352,9 +431,13 @@ def _features(
             input_bytes += _bytes(request)
 
     for trace in traces:
-        metadata = trace.get("metadata") or {}
-        if isinstance(metadata, dict) and metadata.get("model"):
-            models.add(str(metadata["model"]))
+        metadata = trace.get("metadata") if isinstance(trace.get("metadata"), dict) else {}
+        add_provider(metadata.get("provider"))
+        add_model(metadata.get("model"), preserve=True)
+    for observation in observations:
+        metadata = observation.get("metadata") if isinstance(observation.get("metadata"), dict) else {}
+        add_provider(metadata.get("provider"))
+        add_model(metadata.get("model"))
 
     tool_input_bytes, tool_output_bytes, tool_payload_metadata, tool_payload_gap = _tool_payload_bytes(tools)
     signatures = Counter()
@@ -425,8 +508,14 @@ def _features(
         capture_gaps.append("no-generations")
     if missing_usage:
         capture_gaps.append("missing-usage")
+    if not providers:
+        capture_gaps.append("missing-provider")
+    if invalid_provider:
+        capture_gaps.append("invalid-provider")
     if not models:
         capture_gaps.append("missing-model")
+    if invalid_model:
+        capture_gaps.append("invalid-model")
     if final_outcome == "unknown":
         capture_gaps.append("missing-outcome")
     if tool_payload_gap:
@@ -451,6 +540,7 @@ def _features(
             "toolOutput": tool_output_bytes,
         },
         "payloadByteMetadata": {"toolIo": tool_payload_metadata},
+        "providers": sorted(providers),
         "models": sorted(models),
         "promptHash": _hash(prompt_parts),
         "evaluatorOutcomes": evaluator_outcomes,
@@ -459,6 +549,158 @@ def _features(
         "toolErrorSignals": _tool_error_signals(observations),
         "errorTaxonomy": _error_taxonomy(observations),
         "captureGaps": capture_gaps,
+    }
+
+
+def _cohort_health(
+    sessions: list[dict[str, Any]],
+    *,
+    trace_discovery: dict[str, Any],
+    scan_limit: int,
+    eligible_session_count: int,
+    allowed_providers: set[str],
+    allowed_models: set[str],
+) -> dict[str, Any]:
+    features = [item.get("features") if isinstance(item.get("features"), dict) else {} for item in sessions]
+    outcomes = Counter({key: 0 for key in COHORT_OUTCOMES})
+
+    def outcome(feature: dict[str, Any]) -> str:
+        value = feature.get("finalOutcome")
+        return value if value in COHORT_OUTCOMES else "unknown"
+
+    def dimension_outcomes(
+        field: str,
+        label_field: str,
+        invalid_gap: str,
+        allowlist: set[str],
+    ) -> tuple[list[dict[str, Any]], int]:
+        rows: dict[str, Counter[str]] = {}
+        unknown = 0
+        for feature in features:
+            raw_values = feature.get(field)
+            values = raw_values if isinstance(raw_values, list) else []
+            labels = sorted({
+                label
+                for value in values
+                if (label := _cohort_dimension(value)) and label in allowlist
+            })
+            gaps = feature.get("captureGaps") if isinstance(feature.get("captureGaps"), list) else []
+            invalid = any(
+                value not in (None, "")
+                and ((label := _cohort_dimension(value)) is None or label not in allowlist)
+                for value in values
+            )
+            if not labels or invalid or invalid_gap in gaps:
+                unknown += 1
+            for label in labels:
+                counts = rows.setdefault(label, Counter({key: 0 for key in COHORT_OUTCOMES}))
+                counts[outcome(feature)] += 1
+        return [
+            {
+                label_field: label,
+                "sessions": sum(rows[label].values()),
+                "outcomes": {key: rows[label][key] for key in COHORT_OUTCOMES},
+            }
+            for label in sorted(rows)
+        ], unknown
+
+    for feature in features:
+        outcomes[outcome(feature)] += 1
+    provider_outcomes, unknown_provider_sessions = dimension_outcomes(
+        "providers", "provider", "invalid-provider", allowed_providers
+    )
+    model_outcomes, unknown_model_sessions = dimension_outcomes(
+        "models", "model", "invalid-model", allowed_models
+    )
+
+    evaluator_records = 0
+    evaluator_timeouts = 0
+    sessions_with_outcomes = 0
+    sessions_with_timeouts = 0
+    error_scalars = (
+        "rawErrorObservationCount",
+        "unclassifiedRawErrorObservationCount",
+        "classifiedSignals",
+        "actionableSignals",
+        "nonActionableSignals",
+        "unknownSignals",
+    )
+    errors: dict[str, Any] = {key: 0 for key in error_scalars}
+    errors["byClass"] = {key: 0 for key in ERROR_CLASSES}
+    errors["bySource"] = {key: 0 for key in ERROR_SOURCES}
+    errors["outcomeBlocking"] = {key: 0 for key in ("true", "false", "unknown")}
+    capture_gaps = {key: 0 for key in COHORT_CAPTURE_GAPS}
+
+    for feature in features:
+        raw_outcomes = feature.get("evaluatorOutcomes")
+        records = raw_outcomes if isinstance(raw_outcomes, list) else []
+        evaluator_records += len(records)
+        sessions_with_outcomes += int(bool(records))
+        timeouts = max(0, _int(feature.get("evaluatorTimeouts")))
+        evaluator_timeouts += timeouts
+        sessions_with_timeouts += int(timeouts > 0)
+
+        taxonomy = feature.get("errorTaxonomy") if isinstance(feature.get("errorTaxonomy"), dict) else {}
+        for key in error_scalars:
+            errors[key] += max(0, _int(taxonomy.get(key)))
+        for group, keys in (
+            ("byClass", ERROR_CLASSES),
+            ("bySource", ERROR_SOURCES),
+            ("outcomeBlocking", ("true", "false", "unknown")),
+        ):
+            values = taxonomy.get(group) if isinstance(taxonomy.get(group), dict) else {}
+            for key in keys:
+                errors[group][key] += max(0, _int(values.get(key)))
+
+        gaps = feature.get("captureGaps") if isinstance(feature.get("captureGaps"), list) else []
+        for gap in set(gaps):
+            if gap in capture_gaps:
+                capture_gaps[gap] += 1
+
+    continuation = trace_discovery.get("continuation") if isinstance(trace_discovery.get("continuation"), dict) else {}
+    discovery_complete = trace_discovery.get("complete") is True
+    discovery_has_more = continuation.get("hasMore") is True
+    eligible_available = max(len(sessions), _int(eligible_session_count))
+    session_limit_reached = eligible_available > len(sessions)
+    lower_bound = (
+        not discovery_complete
+        or session_limit_reached
+        or capture_gaps["trace-limit"] > 0
+        or capture_gaps["observation-limit"] > 0
+        or capture_gaps["score-limit"] > 0
+    )
+    return {
+        "schemaVersion": 1,
+        "observedSessions": len(sessions),
+        "outcomes": {key: outcomes[key] for key in COHORT_OUTCOMES},
+        "providerOutcomes": provider_outcomes,
+        "unknownProviderSessions": unknown_provider_sessions,
+        "modelOutcomes": model_outcomes,
+        "unknownModelSessions": unknown_model_sessions,
+        "evaluatorCoverage": {
+            "sessionsWithOutcomes": sessions_with_outcomes,
+            "sessionsWithoutOutcomes": len(sessions) - sessions_with_outcomes,
+            "outcomeRecords": evaluator_records,
+            "sessionsWithTimeouts": sessions_with_timeouts,
+            "timeouts": evaluator_timeouts,
+        },
+        "errors": errors,
+        "captureGaps": capture_gaps,
+        "completeness": {
+            "eligibleSessionsAvailable": eligible_available,
+            "traceDiscoveryComplete": discovery_complete,
+            "traceDiscoveryHasMore": discovery_has_more,
+            "sessionLimitReached": session_limit_reached,
+            "lowerBound": lower_bound,
+        },
+        "limits": {
+            "scanSessions": scan_limit,
+            "discoveryTraces": max(0, _int(trace_discovery.get("maxTraces"))),
+            "discoveryPageSize": MAX_PAGE_SIZE,
+            "tracesPerSession": MAX_TRACES_PER_SESSION,
+            "observationsPerTrace": OBSERVATIONS_PER_TRACE,
+            "scoresPerQuery": SCORES_PER_QUERY,
+        },
     }
 
 
@@ -1104,15 +1346,17 @@ def scan_sessions(
         "continuation": discovery["continuation"],
     }
     review_cache: dict[str, bool] = {}
+    review_scores_truncated: dict[str, bool] = {}
     for session_id in groups:
         scores = [] if recheck else client.list_scores(
             from_timestamp=_session_score_since(session_id, since),
             to_timestamp=until,
             session_id=session_id,
             name=REVIEW_SCORE,
-            limit=100,
+            limit=SCORES_PER_QUERY + 1,
         )
-        review_cache[session_id] = _is_current_review(scores)
+        review_scores_truncated[session_id] = len(scores) > SCORES_PER_QUERY
+        review_cache[session_id] = _is_current_review(scores[:SCORES_PER_QUERY])
     eligible_groups = [(session_id, items) for session_id, items in groups.items() if not review_cache[session_id]]
 
     sessions = []
@@ -1121,6 +1365,7 @@ def scan_sessions(
         observations = []
         trace_scores = []
         observations_truncated = False
+        scores_truncated = review_scores_truncated[session_id]
         for trace in selected_traces:
             rows = client.list_observations(
                 from_start_time=since,
@@ -1130,33 +1375,42 @@ def scan_sessions(
             )
             observations_truncated = observations_truncated or len(rows) > OBSERVATIONS_PER_TRACE
             observations.extend(rows[:OBSERVATIONS_PER_TRACE])
-            trace_scores.extend(client.list_scores(
+            rows = client.list_scores(
                 from_timestamp=since,
                 to_timestamp=until,
                 trace_id=str(trace["id"]),
-                limit=100,
-            ))
+                limit=SCORES_PER_QUERY + 1,
+            )
+            scores_truncated = scores_truncated or len(rows) > SCORES_PER_QUERY
+            trace_scores.extend(rows[:SCORES_PER_QUERY])
         score_since = _session_score_since(session_id, since)
-        link_scores = client.list_scores(
+        link_score_rows = client.list_scores(
             from_timestamp=score_since,
             to_timestamp=until,
             session_id=session_id,
             name=WORK_LINK_SCORE,
-            limit=100,
+            limit=SCORES_PER_QUERY + 1,
         )
-        outcome_scores = client.list_scores(
+        outcome_score_rows = client.list_scores(
             from_timestamp=score_since,
             to_timestamp=until,
             session_id=session_id,
             name=OUTCOME_SCORE,
-            limit=100,
+            limit=SCORES_PER_QUERY + 1,
         )
+        scores_truncated = scores_truncated or any(
+            len(rows) > SCORES_PER_QUERY for rows in (link_score_rows, outcome_score_rows)
+        )
+        link_scores = link_score_rows[:SCORES_PER_QUERY]
+        outcome_scores = outcome_score_rows[:SCORES_PER_QUERY]
         correlation = _correlate(session_id, runs_dir, link_scores)
         features = _features(selected_traces, observations, [*trace_scores, *outcome_scores])
         if len(session_traces) > len(selected_traces):
             features["captureGaps"].append("trace-limit")
         if observations_truncated:
             features["captureGaps"].append("observation-limit")
+        if scores_truncated:
+            features["captureGaps"].append("score-limit")
         sessions.append({
             "sessionId": session_id,
             "traceIds": [str(trace["id"]) for trace in selected_traces],
@@ -1164,6 +1418,15 @@ def scan_sessions(
             "features": features,
         })
 
+    allowed_providers, allowed_models = _cohort_dimension_allowlists(repository_root)
+    cohort_health = _cohort_health(
+        sessions,
+        trace_discovery=trace_discovery,
+        scan_limit=limit,
+        eligible_session_count=len(eligible_groups),
+        allowed_providers=allowed_providers,
+        allowed_models=allowed_models,
+    )
     report_id = _hash({"since": since, "until": until, "sessions": [item["sessionId"] for item in sessions]})[:16]
     packet = {
         "schemaVersion": 2,
@@ -1176,6 +1439,7 @@ def scan_sessions(
             "recheck": recheck,
             "reviewPolicyVersion": REVIEW_POLICY_VERSION,
             "traceDiscovery": trace_discovery,
+            "cohortHealth": cohort_health,
         },
         "sessions": sessions,
     }
@@ -1184,6 +1448,7 @@ def scan_sessions(
         "status": "ok",
         "scannedTraces": len(traces),
         "traceDiscovery": trace_discovery,
+        "cohortHealth": cohort_health,
         "candidateSessions": len(groups),
         "eligibleSessions": len(sessions),
         "reviewedSessionsSkipped": sum(review_cache.get(session_id, False) for session_id in groups),
