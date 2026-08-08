@@ -752,6 +752,223 @@ def test_cohort_dimension_allowlist_uses_tracked_models_and_rejects_credentials(
     assert models == {"gpt-5.6-terra", "openai-codex/gpt-5.6-terra"}
 
 
+def test_cohort_billing_classes_use_only_enabled_unambiguous_catalog_targets(tmp_path):
+    agent_dir = tmp_path / "pi" / "agent"
+    agent_dir.mkdir(parents=True)
+    agent_dir.joinpath("settings.json").write_text(json.dumps({
+        "enabledModels": [
+            "openai-codex/gpt-5.6-terra",
+            "openrouter/minimax/minimax-m3",
+            "ghp_abcdefghijklmnopqrstuvwxyz1234567890/private-model",
+        ],
+    }), encoding="utf-8")
+    agent_dir.joinpath("catalog.json").write_text(json.dumps({
+        "schemaVersion": 1,
+        "families": {
+            "terra": {"venues": [{
+                "target": "openai-codex/gpt-5.6-terra",
+                "billingClass": "subscription",
+            }]},
+            "m3": {"venues": [{
+                "target": "openrouter/minimax/minimax-m3",
+                "billingClass": "metered",
+            }]},
+            "disabled": {"venues": [{
+                "target": "openrouter/disabled/model",
+                "billingClass": "metered",
+            }]},
+            "ambiguous": {"venues": [{
+                "target": "openrouter/minimax/minimax-m3",
+                "billingClass": "subscription",
+            }]},
+        },
+    }), encoding="utf-8")
+
+    assert improvement._cohort_billing_classes(tmp_path) == {
+        "openai-codex/gpt-5.6-terra": "subscription",
+    }
+    assert improvement._cohort_billing_classes(tmp_path / "missing") == {}
+
+    invalid_catalog = {
+        "families": {"terra": {"venues": [{
+            "target": "openai-codex/gpt-5.6-terra",
+            "billingClass": "subscription",
+        }]}},
+    }
+    for schema_version in (None, 2):
+        value = dict(invalid_catalog)
+        if schema_version is not None:
+            value["schemaVersion"] = schema_version
+        agent_dir.joinpath("catalog.json").write_text(json.dumps(value), encoding="utf-8")
+        assert improvement._cohort_billing_classes(tmp_path) == {}
+
+
+def test_scan_separates_nominal_and_catalog_derived_marginal_cost(tmp_path):
+    def generation(provider, model, calculated_cost, total_price=0):
+        return {
+            "type": "GENERATION",
+            "name": "llm-generation",
+            "model": model,
+            "calculatedTotalCost": calculated_cost,
+            "totalPrice": total_price,
+            "usageDetails": {"input": 10, "output": 1},
+            "metadata": {"provider": provider},
+        }
+
+    traces = [
+        _private_trace("subscription-session", "subscription-trace"),
+        _private_trace("metered-session", "metered-trace"),
+        _private_trace("unknown-session", "unknown-trace"),
+        _private_trace("mixed-session", "mixed-trace"),
+        _private_trace("conflict-session", "conflict-trace"),
+        _private_trace("missing-price-session", "missing-price-trace"),
+        _private_trace("malformed-price-session", "malformed-price-trace"),
+    ]
+    client = FakeScanClient(traces, {
+        "subscription-trace": [
+            generation("openai-codex", "gpt-5.6-terra", 0.13),
+            generation("openai-codex", "gpt-5.6-terra-subscription", 0),
+        ],
+        "metered-trace": [generation("openrouter", "minimax/minimax-m3", 0, total_price=0.02)],
+        "unknown-trace": [generation("private-provider", "private-model", 0.04)],
+        "mixed-trace": [
+            generation("openai-codex", "gpt-5.6-terra", 0.1),
+            generation("openrouter", "minimax/minimax-m3", 0.2),
+        ],
+        "conflict-trace": [{
+            **generation("openai-codex", "gpt-5.6-terra", 0.05),
+            "provider": "openai-codex",
+            "metadata": {"provider": "openrouter", "model": "minimax/minimax-m3"},
+        }],
+        "missing-price-trace": [{
+            "type": "GENERATION",
+            "name": "llm-generation",
+            "model": "minimax/minimax-m3",
+            "calculatedTotalCost": 0,
+            "totalPrice": 0,
+            "usageDetails": {"input": 10, "output": 1},
+            "metadata": {"provider": "openrouter"},
+        }],
+        "malformed-price-trace": [generation("openrouter", "minimax/minimax-m3", "private-cost")],
+    })
+    repository_root = tmp_path / "repo"
+    agent_dir = repository_root / "pi" / "agent"
+    agent_dir.mkdir(parents=True)
+    agent_dir.joinpath("settings.json").write_text(json.dumps({
+        "enabledModels": [
+            "openai-codex/gpt-5.6-terra",
+            "openrouter/minimax/minimax-m3",
+        ],
+    }), encoding="utf-8")
+    agent_dir.joinpath("catalog.json").write_text(json.dumps({
+        "schemaVersion": 1,
+        "families": {
+            "terra": {"venues": [{
+                "target": "openai-codex/gpt-5.6-terra",
+                "billingClass": "subscription",
+            }]},
+            "m3": {"venues": [{
+                "target": "openrouter/minimax/minimax-m3",
+                "billingClass": "metered",
+            }]},
+        },
+    }), encoding="utf-8")
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=10,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=repository_root,
+        dry_run=True,
+    )
+
+    features = {item["sessionId"]: item["features"] for item in packet["sessions"]}
+    assert features["subscription-session"]["cost"] == pytest.approx(0.13)
+    assert features["subscription-session"]["costAccounting"] == {
+        "schemaVersion": 1,
+        "nominalUsd": pytest.approx(0.13),
+        "marginalUsd": 0,
+        "observedGenerations": 2,
+        "unknownGenerations": 0,
+        "byBillingClass": {"subscription": 2, "metered": 0, "unknown": 0},
+    }
+    assert features["metered-session"]["costAccounting"]["marginalUsd"] == pytest.approx(0.02)
+    assert features["unknown-session"]["costAccounting"]["marginalUsd"] is None
+    assert features["unknown-session"]["costAccounting"]["unknownGenerations"] == 1
+    assert features["mixed-session"]["costAccounting"] == {
+        "schemaVersion": 1,
+        "nominalUsd": pytest.approx(0.3),
+        "marginalUsd": pytest.approx(0.2),
+        "observedGenerations": 2,
+        "unknownGenerations": 0,
+        "byBillingClass": {"subscription": 1, "metered": 1, "unknown": 0},
+    }
+    for session_id in ("conflict-session", "missing-price-session", "malformed-price-session"):
+        assert features[session_id]["costAccounting"]["marginalUsd"] is None
+        assert features[session_id]["costAccounting"]["unknownGenerations"] == 1
+    assert summary["cohortHealth"]["costs"] == {
+        "schemaVersion": 1,
+        "nominalUsd": pytest.approx(0.54),
+        "marginalUsd": pytest.approx(0.22),
+        "marginalLowerBound": True,
+        "knownMarginalSessions": 3,
+        "unknownMarginalSessions": 4,
+        "nonzeroMarginalSessions": 2,
+        "observedGenerations": 9,
+        "byBillingClass": {"subscription": 3, "metered": 4, "unknown": 2},
+    }
+    assert packet["schemaVersion"] == 2
+    assert summary["schemaVersion"] == 1
+    assert client.observation_traces == [
+        "subscription-trace",
+        "metered-trace",
+        "unknown-trace",
+        "mixed-trace",
+        "conflict-trace",
+        "missing-price-trace",
+        "malformed-price-trace",
+    ]
+    safe_costs = json.dumps(summary["cohortHealth"]["costs"])
+    assert "subscription-session" not in safe_costs
+    assert "gpt-5.6-terra" not in safe_costs
+    assert "private-provider" not in safe_costs
+
+
+def test_cohort_marginal_cost_inherits_scan_lower_bound():
+    session = _cohort_session()
+    session["features"].update({
+        "cost": 0.1,
+        "costAccounting": {
+            "schemaVersion": 1,
+            "nominalUsd": 0.1,
+            "marginalUsd": 0.1,
+            "observedGenerations": 1,
+            "unknownGenerations": 0,
+            "byBillingClass": {"subscription": 0, "metered": 1, "unknown": 0},
+        },
+    })
+
+    health = improvement._cohort_health(
+        [session],
+        trace_discovery={
+            "maxTraces": 1,
+            "complete": False,
+            "continuation": {"hasMore": True},
+        },
+        scan_limit=1,
+        eligible_session_count=1,
+        allowed_providers=set(),
+        allowed_models=set(),
+    )
+
+    assert health["costs"]["knownMarginalSessions"] == 1
+    assert health["costs"]["unknownMarginalSessions"] == 0
+    assert health["costs"]["marginalLowerBound"] is True
+
+
 def test_cohort_health_filters_unsafe_dimensions_without_changing_private_models():
     features = improvement._features([{"metadata": {"model": "legacy private model"}}], [], [])
 

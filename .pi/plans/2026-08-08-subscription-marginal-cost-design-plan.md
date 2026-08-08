@@ -12,14 +12,14 @@
 **Non-goals:** Do not change raw Langfuse records, subscription aliasing, model routing, paid-review metrics, top-level packet/summary schema versions, evaluator configuration, package code, or API call counts.
 
 **Acceptance Criteria:**
-- [ ] Existing per-session `cost` remains the same nominal Langfuse value.
-- [ ] A raw-model OpenAI/Codex subscription generation with positive `calculatedTotalCost` retains positive nominal USD and reports zero marginal USD.
-- [ ] An enabled metered/OpenRouter generation retains nonzero nominal and marginal USD.
-- [ ] Unknown or disabled billing targets report `marginalUsd: null`; cohort marginal sum is explicitly a lower bound and never treats unknown as zero.
-- [ ] Mixed known subscription/metered sessions sum only metered nominal cost into marginal USD and remain complete.
-- [ ] Safe cohort output contains only counts/amounts/classes, never provider/model/session/trace identifiers or payloads in cost accounting.
-- [ ] Scanner makes no additional Langfuse calls and keeps top-level schema-1/schema-2 compatibility.
-- [ ] Focused/full tests, Ruff, config, shell, eval, diff, and bounded private read-only recheck pass.
+- [x] Existing per-session `cost` remains the same nominal Langfuse value.
+- [x] A raw-model OpenAI/Codex subscription generation with positive `calculatedTotalCost` retains positive nominal USD and reports zero marginal USD.
+- [x] An enabled metered/OpenRouter generation retains nonzero nominal and marginal USD.
+- [x] Unknown or disabled billing targets report `marginalUsd: null`; cohort marginal sum is explicitly a lower bound and never treats unknown as zero.
+- [x] Mixed known subscription/metered sessions sum only metered nominal cost into marginal USD and remain complete.
+- [x] Safe cohort output contains only counts/amounts/classes, never provider/model/session/trace identifiers or payloads in cost accounting.
+- [x] Scanner makes no additional Langfuse calls and keeps top-level schema-1/schema-2 compatibility.
+- [x] Focused/full tests, Ruff, config, shell, eval, diff, and bounded private read-only recheck pass.
 
 **Verification Commands:**
 ```bash
@@ -97,6 +97,16 @@ git diff --check
 ```
 
 **Expected result:** Clean local candidate passes deterministic and bounded private evidence gates without production mutation.
+
+## Results
+
+- Initial RED fixtures failed because catalog billing and additive cost fields were absent; GREEN preserves legacy nominal cost while classifying subscription, metered, mixed, and unknown marginal cost.
+- A second RED proved cost-level lower-bound reporting ignored incomplete cohort discovery; the aggregate now inherits both source and cohort completeness.
+- Subscription Terra raw-model inference retains positive nominal evidence and contributes zero marginal spend; direct positive OpenRouter `totalPrice` remains nonzero marginal; missing, malformed, contradictory, or positive-usage zero metered prices remain unknown.
+- Catalog loading requires schema version 1, enabled safe targets, and one unambiguous billing class; unsupported/missing schemas fail closed.
+- Subscription-backed Terra boundary review found three Important defects: conflicting telemetry precedence, unknown metered prices coerced to zero, and missing catalog schema validation. All three were reproduced and fixed test-first; structured findings validate with confirmed status. A fresh agentic verifier hit its two-request limit before verdict, so deterministic focused tests supplied final verification; no retry or metered reviewer was used.
+- Candidate read-only recheck scanned 230 traces and 46 sessions with complete discovery and no report write. The reproduced session retained 134450 nominal micro-USD and zero marginal; cohort accounting reported 1471 subscription, 3 metered, and 0 unknown generations across known sessions, plus one explicitly unknown session, with truthful lower-bound status. Evidence remains private at 0700/0600.
+- Focused verification passed 157 improvement/context tests, Ruff, and diff checks before the final project gate.
 
 ## File Conflicts
 

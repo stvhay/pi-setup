@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -157,25 +158,63 @@ def _cohort_dimension(value: Any) -> str | None:
     return text
 
 
-def _cohort_dimension_allowlists(repository_root: Path) -> tuple[set[str], set[str]]:
+def _enabled_model_targets(repository_root: Path) -> set[str]:
     try:
         settings = json.loads((repository_root / "pi" / "agent" / "settings.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return set(), set()
-    targets = settings.get("enabledModels") if isinstance(settings, dict) else None
-    if not isinstance(targets, list):
-        return set(), set()
-    providers: set[str] = set()
-    models: set[str] = set()
-    for raw_target in targets:
-        target = _cohort_dimension(raw_target)
+        return set()
+    values = settings.get("enabledModels") if isinstance(settings, dict) else None
+    if not isinstance(values, list):
+        return set()
+    targets = set()
+    for value in values:
+        target = _cohort_dimension(value)
         if target is None or "/" not in target:
             continue
         provider, model = target.split("/", 1)
         if _cohort_dimension(provider) and _cohort_dimension(model):
-            providers.add(provider)
-            models.update((model, target))
+            targets.add(target)
+    return targets
+
+
+def _cohort_dimension_allowlists(repository_root: Path) -> tuple[set[str], set[str]]:
+    providers: set[str] = set()
+    models: set[str] = set()
+    for target in _enabled_model_targets(repository_root):
+        provider, model = target.split("/", 1)
+        providers.add(provider)
+        models.update((model, target))
     return providers, models
+
+
+def _cohort_billing_classes(repository_root: Path) -> dict[str, str]:
+    enabled = _enabled_model_targets(repository_root)
+    try:
+        catalog = json.loads((repository_root / "pi" / "agent" / "catalog.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(catalog, dict) or catalog.get("schemaVersion") != 1:
+        return {}
+    families = catalog.get("families")
+    if not isinstance(families, dict):
+        return {}
+    candidates: dict[str, set[str]] = {}
+    for family in families.values():
+        venues = family.get("venues") if isinstance(family, dict) else None
+        if not isinstance(venues, list):
+            continue
+        for venue in venues:
+            if not isinstance(venue, dict):
+                continue
+            target = _cohort_dimension(venue.get("target"))
+            billing_class = venue.get("billingClass")
+            if target in enabled and billing_class in {"subscription", "metered"}:
+                candidates.setdefault(target, set()).add(billing_class)
+    return {
+        target: next(iter(values))
+        for target, values in candidates.items()
+        if len(values) == 1
+    }
 
 
 def _sum_trace_metadata(traces: list[dict[str, Any]], key: str) -> tuple[int, bool]:
@@ -438,6 +477,52 @@ def _child_trace_health(
     }
 
 
+def _generation_billing_class(generation: dict[str, Any], billing_classes: dict[str, str]) -> str:
+    metadata = generation.get("metadata") if isinstance(generation.get("metadata"), dict) else {}
+
+    def dimensions(*values: Any, subscription_suffix: bool = False) -> set[str] | None:
+        normalized = set()
+        for raw in values:
+            if raw in (None, ""):
+                continue
+            value = _cohort_dimension(raw)
+            if value is None:
+                return None
+            normalized.add(value.removesuffix("-subscription") if subscription_suffix else value)
+        return normalized
+
+    providers = dimensions(generation.get("provider"), metadata.get("provider"))
+    models = dimensions(generation.get("model"), metadata.get("model"), subscription_suffix=True)
+    if providers is None or models is None or len(providers) != 1 or len(models) != 1:
+        return "unknown"
+    provider = next(iter(providers))
+    model = next(iter(models))
+    target = model if model.startswith(f"{provider}/") else f"{provider}/{model}"
+    return billing_classes.get(target, "unknown")
+
+
+def _generation_price_known(generation: dict[str, Any], billing_class: str) -> bool:
+    if billing_class == "subscription":
+        return True
+    values = []
+    for key in ("calculatedTotalCost", "totalPrice"):
+        if key not in generation or generation[key] is None:
+            continue
+        value = generation[key]
+        if type(value) not in {int, float} or not math.isfinite(value) or value < 0:
+            return False
+        values.append(value)
+    if not values:
+        return False
+    if any(values):
+        return True
+    usage = generation.get("usageDetails") or generation.get("usage")
+    if not isinstance(usage, dict) or not usage:
+        return False
+    counts = [usage.get(key) for key in ("input", "cacheRead", "cacheWrite", "output", "total") if key in usage]
+    return bool(counts) and all(type(value) in {int, float} and math.isfinite(value) and value == 0 for value in counts)
+
+
 def _features(
     traces: list[dict[str, Any]],
     observations: list[dict[str, Any]],
@@ -447,6 +532,7 @@ def _features(
     trace_discovery_complete: bool = False,
     trace_discovery_since: str | None = None,
     trace_discovery_until: str | None = None,
+    billing_classes: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     generations = [item for item in observations if item.get("type") == "GENERATION"]
     tools = [item for item in observations if item.get("type") == "TOOL"]
@@ -464,7 +550,9 @@ def _features(
         turns = sum(item.get("name") == "turn" for item in observations)
 
     fresh_input = cache_read = output = 0
-    cost = 0.0
+    cost = marginal_cost = 0.0
+    billing_counts = Counter({key: 0 for key in ("subscription", "metered", "unknown")})
+    unknown_cost_generations = 0
     instruction_bytes = tool_bytes = input_bytes = 0
     prompt_parts = []
     providers = set()
@@ -501,7 +589,14 @@ def _features(
         cache_read += cached
         output += _int(usage.get("output"))
         missing_usage = missing_usage or not bool(usage)
-        cost += _number(generation.get("calculatedTotalCost") or generation.get("totalPrice"))
+        nominal = _number(generation.get("calculatedTotalCost") or generation.get("totalPrice"))
+        cost += nominal
+        billing_class = _generation_billing_class(generation, billing_classes or {})
+        billing_counts[billing_class] += 1
+        if billing_class == "unknown" or not _generation_price_known(generation, billing_class):
+            unknown_cost_generations += 1
+        elif billing_class == "metered":
+            marginal_cost += nominal
         metadata = generation.get("metadata") if isinstance(generation.get("metadata"), dict) else {}
         for raw_provider in (generation.get("provider"), metadata.get("provider")):
             add_provider(raw_provider)
@@ -638,6 +733,15 @@ def _features(
         "latencySeconds": sum(_number(trace.get("latency")) for trace in traces),
         "tokens": {"freshInput": fresh_input, "cacheRead": cache_read, "output": output},
         "cost": round(cost, 10),
+        "costAccounting": {
+            "schemaVersion": 1,
+            "nominalUsd": round(cost, 10),
+            "marginalUsd": round(marginal_cost, 10)
+            if generations and unknown_cost_generations == 0 else None,
+            "observedGenerations": len(generations),
+            "unknownGenerations": unknown_cost_generations,
+            "byBillingClass": {key: billing_counts[key] for key in ("subscription", "metered", "unknown")},
+        },
         "payloadBytes": {
             "instructions": instruction_bytes,
             "tools": tool_bytes,
@@ -656,6 +760,53 @@ def _features(
         "errorTaxonomy": _error_taxonomy(observations),
         "childTraceHealth": child_trace_health,
         "captureGaps": capture_gaps,
+    }
+
+
+def _cohort_costs(features: list[dict[str, Any]], *, cohort_lower_bound: bool) -> dict[str, Any]:
+    nominal = marginal = 0.0
+    known_sessions = unknown_sessions = nonzero_sessions = observed_generations = 0
+    billing_counts = Counter({key: 0 for key in ("subscription", "metered", "unknown")})
+    for feature in features:
+        accounting = feature.get("costAccounting") if isinstance(feature.get("costAccounting"), dict) else {}
+        raw_nominal = accounting.get("nominalUsd", feature.get("cost"))
+        if type(raw_nominal) in {int, float} and raw_nominal >= 0:
+            nominal += float(raw_nominal)
+        observed = accounting.get("observedGenerations")
+        unknown = accounting.get("unknownGenerations")
+        marginal_value = accounting.get("marginalUsd")
+        complete = (
+            accounting.get("schemaVersion") == 1
+            and type(observed) is int
+            and observed > 0
+            and type(unknown) is int
+            and unknown == 0
+            and type(marginal_value) in {int, float}
+            and marginal_value >= 0
+        )
+        if complete:
+            known_sessions += 1
+            marginal += float(marginal_value)
+            nonzero_sessions += int(marginal_value > 0)
+        else:
+            unknown_sessions += 1
+        if type(observed) is int and observed >= 0:
+            observed_generations += observed
+        values = accounting.get("byBillingClass") if isinstance(accounting.get("byBillingClass"), dict) else {}
+        for key in billing_counts:
+            value = values.get(key)
+            if type(value) is int and value >= 0:
+                billing_counts[key] += value
+    return {
+        "schemaVersion": 1,
+        "nominalUsd": round(nominal, 10),
+        "marginalUsd": round(marginal, 10),
+        "marginalLowerBound": cohort_lower_bound or unknown_sessions > 0,
+        "knownMarginalSessions": known_sessions,
+        "unknownMarginalSessions": unknown_sessions,
+        "nonzeroMarginalSessions": nonzero_sessions,
+        "observedGenerations": observed_generations,
+        "byBillingClass": {key: billing_counts[key] for key in ("subscription", "metered", "unknown")},
     }
 
 
@@ -799,6 +950,7 @@ def _cohort_health(
         "unknownProviderSessions": unknown_provider_sessions,
         "modelOutcomes": model_outcomes,
         "unknownModelSessions": unknown_model_sessions,
+        "costs": _cohort_costs(features, cohort_lower_bound=lower_bound),
         "evaluatorCoverage": {
             "sessionsWithOutcomes": sessions_with_outcomes,
             "sessionsWithoutOutcomes": len(sessions) - sessions_with_outcomes,
@@ -1521,6 +1673,7 @@ def scan_sessions(
         review_scores_truncated[session_id] = len(scores) > SCORES_PER_QUERY
         review_cache[session_id] = _is_current_review(scores[:SCORES_PER_QUERY])
     eligible_groups = [(session_id, items) for session_id, items in groups.items() if not review_cache[session_id]]
+    billing_classes = _cohort_billing_classes(repository_root)
 
     sessions = []
     for session_id, session_traces in eligible_groups[:limit]:
@@ -1575,6 +1728,7 @@ def scan_sessions(
             trace_discovery_complete=trace_discovery["complete"] is True,
             trace_discovery_since=since,
             trace_discovery_until=until,
+            billing_classes=billing_classes,
         )
         if len(session_traces) > len(selected_traces):
             features["captureGaps"].append("trace-limit")

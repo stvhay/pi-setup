@@ -194,6 +194,16 @@ guessed. The same count-only
 health appears per private session; safe cohort summaries never include child
 session IDs and scanning adds no per-child Langfuse calls.
 
+Per-session `cost` remains the historical Langfuse nominal USD value. Additive
+schema-1 `costAccounting` classifies each observed generation from enabled
+tracked catalog targets: subscription generations contribute zero marginal USD,
+metered generations contribute nominal USD, and missing or ambiguous billing
+metadata leaves the session marginal value null. The count-only cohort `costs`
+aggregate retains nominal USD, sums known marginal USD, counts billing classes
+and unknown sessions, and marks marginal totals as lower bounds whenever any
+session is unknown or cohort discovery/selection is incomplete. It never emits
+provider, model, session, or trace identifiers.
+
 `cohortHealth.completeness.lowerBound` is true when trace discovery is
 incomplete, the session selection cap is reached, or any selected session hits
 the trace, observation, or score cap. Score queries read one sentinel row beyond
