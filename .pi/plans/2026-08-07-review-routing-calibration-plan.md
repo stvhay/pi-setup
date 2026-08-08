@@ -10,12 +10,12 @@
 **Architecture:** Keep execution interactive and native to the patched `subagent` tool rather than adding another `agnt invoke` path. Track synthetic packets, ground truth, bounds, and thresholds under one eval directory. A small additive Archimedes result envelope exposes observed provider plus the effective resolved profile/limits. A stdlib collector/scorer correlates parent-session subagent call arguments with results by task/model, validates requested and observed dimensions, scores opaque anchored findings against private semantic rubrics, and emits a reproducible aggregate report; raw session/run artifacts remain private.
 
 **Acceptance Criteria:**
-- [ ] Two seeded packets and matched clean controls cover behavioral and deployment-boundary defects.
-- [ ] Terra and Luna each run every packet three times in paired waves with `mode=one-shot`, `thinking=high`, one provider request, 180-second deadline, at most two findings, and 6,000 response characters.
-- [ ] Collector validates model, mode, thinking, limits, output contract, observed model, provider-request count, duration, termination, and response size from session call/result records.
-- [ ] Scorer reports completion/timeout, median/p95 latency, confirmed unique seed IDs, verified opportunities, false positives, verification checks/time, precision, recall, and verified hits per wall minute.
-- [ ] Luna is eligible only at recall >=75%, precision >=90%, clean-run false-positive rate <=10%, timeout <=10%, recall deficit <=5 points, and latency-adjusted yield >=1.25x Terra.
-- [ ] High-risk routing and escalation remain unchanged.
+- [x] Two seeded packets and matched clean controls cover behavioral and deployment-boundary defects.
+- [x] Terra and Luna each run every packet three times in paired waves with `mode=one-shot`, `thinking=high`, one provider request, 180-second deadline, at most two findings, and 6,000 response characters.
+- [x] Collector validates exact packet payload, model, mode, thinking, limits, output contract, observed model/provider, provider-request count, duration, termination, and response size from session call/result records.
+- [x] Scorer reports completion/timeout, median/p95 latency, confirmed unique seed IDs, verified opportunities, false positives, verification checks/time, precision, recall, and verified hits per wall minute.
+- [x] Luna is eligible only at recall >=75%, precision >=90%, clean-run false-positive rate <=10%, timeout <=10%, recall deficit <=5 points, and latency-adjusted yield >=1.25x Terra.
+- [x] High-risk routing and escalation remain unchanged.
 
 **Verification Command(s):**
 ```bash
@@ -66,7 +66,7 @@
 ### Task 3: Apply evidence threshold [Depends on: Task 2]
 
 **Files:**
-- Create: `pi/agent/evals/review-routing-calibration/results-2026-08-07.md`
+- Create: `pi/agent/evals/review-routing-calibration/results-2026-08-08.md`
 - Modify only if threshold passes: `pi/agent/tasks/review.md`
 - Modify only if threshold passes: routing tests/docs tied to low/medium bounded review
 
@@ -77,6 +77,10 @@
 4. Run full deterministic project gates and independent review.
 
 **Expected result:** Routing decision is mechanically traceable to predeclared criteria.
+
+## Result
+
+Completed with 24 exact-payload, dimension-valid records. Both models reached 100% recall/precision, zero clean false positives/timeouts, and 100% valid outputs. Terra delivered 5.122 verified opportunities/minute versus Luna's 3.347; Luna/Terra ratio `0.653` failed the predeclared `1.25` promotion gate. Terra and high-risk escalation remain unchanged. Aggregate evidence: `pi/agent/evals/review-routing-calibration/results-2026-08-08.md`.
 
 ## Execution Handoff
 

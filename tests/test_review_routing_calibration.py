@@ -267,6 +267,31 @@ def test_collect_ignores_stale_trial_prefixes(tmp_path, stale_prefix, packet_id)
     assert module.collect_records(session, manifest()) == []
 
 
+def test_collect_ignores_orphan_assistant_intent_without_tool_result(tmp_path):
+    module = load_module()
+    spec = manifest()
+    packet = spec["packets"][0]
+    session = tmp_path / "session.jsonl"
+    session.write_text(session_entry({
+        "role": "assistant",
+        "content": [{
+            "type": "toolCall",
+            "id": "orphan-call",
+            "name": "subagent",
+            "arguments": {"tasks": [{
+                "task": task(packet["id"], 1),
+                "model": spec["models"][0]["target"],
+                "mode": "one-shot",
+                "thinking": "high",
+                "limits": {"maxProviderRequests": 1, "maxDurationMs": 180_000},
+                "outputContract": "inline",
+            }]},
+        }],
+    }), encoding="utf-8")
+
+    assert module.collect_records(session, spec) == []
+
+
 def test_collect_correlates_subagent_call_and_result_dimensions(tmp_path):
     module = load_module()
     spec = manifest()

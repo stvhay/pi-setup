@@ -231,7 +231,9 @@ def collect_records(session_path: Path, spec: dict[str, Any]) -> list[dict[str, 
 
     records = []
     for tool_call_id, tasks in calls.items():
-        unmatched_results = list(results.get(tool_call_id, []))
+        if tool_call_id not in results:
+            continue
+        unmatched_results = list(results[tool_call_id])
         for index, task in enumerate(tasks):
             header = parse_task_header(task.get("task"), spec)
             if not header:

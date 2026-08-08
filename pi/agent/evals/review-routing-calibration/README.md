@@ -54,3 +54,5 @@ python pi/agent/evals/review-routing-calibration/evaluate.py score \
 ## Decision rule
 
 Luna may replace Terra only for bounded low/medium first-pass review when every manifest quality floor passes, Luna recall trails Terra by no more than five percentage points, and Luna's verified finding opportunities per wall minute are at least 1.25 times Terra's. High-risk Terra review and escalation policy never change through this eval.
+
+Latest aggregate result: [`results-2026-08-08.md`](results-2026-08-08.md). Luna failed the yield gate; Terra remains primary.
