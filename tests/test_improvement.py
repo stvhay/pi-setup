@@ -1626,7 +1626,21 @@ def test_scan_rechecks_stale_review_policy_markers(tmp_path):
     assert packet["sessions"][0]["sessionId"] == "stale-session"
 
 
-def test_scan_score_markers_are_bounded_from_pi_session_start(tmp_path):
+@pytest.mark.parametrize(("session_id", "since", "until", "expected"), [
+    (
+        "2026-07-26T12-00-00-000Z_private-session",
+        "2026-07-27T00:00:00Z",
+        "2026-07-28T00:00:00Z",
+        "2026-07-26T12:00:00Z",
+    ),
+    (
+        "018cc251-f400-7000-8000-000000000000",
+        "2024-01-02T00:00:00Z",
+        "2024-01-03T00:00:00Z",
+        "2024-01-01T00:00:00Z",
+    ),
+])
+def test_scan_score_markers_are_bounded_from_session_start(tmp_path, session_id, since, until, expected):
     class QueryClient(FakeScanClient):
         def __init__(self, traces, observations):
             super().__init__(traces, observations)
@@ -1636,7 +1650,6 @@ def test_scan_score_markers_are_bounded_from_pi_session_start(tmp_path):
             self.score_queries.append(kwargs)
             return super().list_scores(**kwargs)
 
-    session_id = "2026-07-26T12-00-00-000Z_private-session"
     client = QueryClient(
         [_private_trace(session_id, "private-trace")],
         {"private-trace": _private_observations()},
@@ -1644,8 +1657,8 @@ def test_scan_score_markers_are_bounded_from_pi_session_start(tmp_path):
 
     improvement.scan_sessions(
         client,
-        since="2026-07-27T00:00:00Z",
-        until="2026-07-28T00:00:00Z",
+        since=since,
+        until=until,
         limit=1,
         output_dir=tmp_path / "private",
         runs_dir=tmp_path / "runs",
@@ -1655,7 +1668,18 @@ def test_scan_score_markers_are_bounded_from_pi_session_start(tmp_path):
 
     session_queries = [query for query in client.score_queries if query.get("session_id") == session_id]
     assert len(session_queries) == 3
-    assert {query["from_timestamp"] for query in session_queries} == {"2026-07-26T12:00:00Z"}
+    assert {query["from_timestamp"] for query in session_queries} == {expected}
+
+
+@pytest.mark.parametrize(("session_id", "fallback", "expected"), [
+    ("018cc251-f400-7000-8000-000000000000", "2023-12-31T00:00:00Z", "2023-12-31T00:00:00Z"),
+    ("018cc251-f5f4-7000-8000-000000000000", "2024-01-01T00:00:00.250000Z", "2024-01-01T00:00:00.250000Z"),
+    ("550e8400-e29b-41d4-a716-446655440000", "2024-01-02T00:00:00Z", "2024-01-02T00:00:00Z"),
+    ("ffffffff-ffff-7fff-bfff-ffffffffffff", "2024-01-02T00:00:00Z", "2024-01-02T00:00:00Z"),
+    ("not-a-session", "2024-01-02T00:00:00Z", "2024-01-02T00:00:00Z"),
+])
+def test_session_score_since_validates_uuidv7_and_uses_safe_fallback(session_id, fallback, expected):
+    assert improvement._session_score_since(session_id, fallback) == expected
 
 
 def test_scan_checks_multiple_review_markers_for_current_policy(tmp_path):
@@ -2494,6 +2518,7 @@ def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, t
     client = FakeReviewClient()
     monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
     monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.delenv("PI_SESSION_ID", raising=False)
     monkeypatch.setenv("PI_SESSION_FILE", str(tmp_path / "2026-07-28T00-00-00Z_private-session.jsonl"))
 
     result = improvement.cmd_improve(["link", "pi-work.1", "--json"])
@@ -2508,6 +2533,19 @@ def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, t
     assert client.calls[0]["session_id"] == "2026-07-28T00-00-00Z_private-session"
     assert client.calls[0]["name"] == improvement.WORK_LINK_SCORE
     assert client.calls[0]["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
+
+
+def test_improve_link_cli_prefers_canonical_pi_session_id(monkeypatch, tmp_path, capsys):
+    client = FakeReviewClient()
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setenv("PI_SESSION_FILE", str(tmp_path / "2026-07-28T00-00-00Z_legacy-session.jsonl"))
+    monkeypatch.setenv("PI_SESSION_ID", "018cc251-f400-7000-8000-000000000000")
+
+    assert improvement.cmd_improve(["link", "pi-work.1", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["status"] == "linked"
+    assert client.calls[0]["session_id"] == "018cc251-f400-7000-8000-000000000000"
 
 
 def test_improve_link_cli_uses_pi_session_id_fallback_idempotently(monkeypatch, capsys):
@@ -2537,6 +2575,7 @@ def test_improve_outcome_cli_links_bead_and_writes_idempotent_final_outcome(monk
     client = FakeReviewClient()
     monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
     monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.delenv("PI_SESSION_ID", raising=False)
     monkeypatch.setenv("PI_SESSION_FILE", str(tmp_path / "2026-07-28T00-00-00Z_private-session.jsonl"))
 
     result = improvement.cmd_improve(["outcome", "pi-work.1", "success", "--json"])
@@ -2556,6 +2595,19 @@ def test_improve_outcome_cli_links_bead_and_writes_idempotent_final_outcome(monk
     assert outcome["session_id"] == "2026-07-28T00-00-00Z_private-session"
     assert outcome["value"] == "success"
     assert outcome["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
+
+
+def test_improve_outcome_cli_prefers_canonical_pi_session_id(monkeypatch, tmp_path, capsys):
+    client = FakeReviewClient()
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setenv("PI_SESSION_FILE", str(tmp_path / "2026-07-28T00-00-00Z_legacy-session.jsonl"))
+    monkeypatch.setenv("PI_SESSION_ID", "018cc251-f400-7000-8000-000000000000")
+
+    assert improvement.cmd_improve(["outcome", "pi-work.1", "success", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["status"] == "recorded"
+    assert {call["session_id"] for call in client.calls} == {"018cc251-f400-7000-8000-000000000000"}
 
 
 def test_improve_scan_cli_emits_safe_json_only(monkeypatch, tmp_path, capsys):

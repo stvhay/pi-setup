@@ -224,7 +224,7 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 ## Private improvement review
 
 - `agnt improve link BEAD [--json]`
-  - Idempotently links the current private Pi session to an exact public work-item ID, using `PI_SESSION_FILE` or the exact `PI_SESSION_ID` fallback. `agnt work direct-start` normally handles this for interactive work; runner sessions link automatically.
+  - Idempotently links the current private Pi session to an exact public work-item ID, preferring canonical `PI_SESSION_ID` and falling back to the `PI_SESSION_FILE` stem. `agnt work direct-start` normally handles this for interactive work; runner sessions link automatically.
 - `agnt improve outcome BEAD success|partial|failure|unclear [--json]`
   - Idempotently backfills the work-item link and records an explicit human final session outcome; run at interactive closeout. Scans keep objective execution and sampled apparent judgment separate, prefer explicit human outcome, and otherwise prevent failed or unavailable execution from being promoted by a positive apparent score.
 - `agnt improve scan [--since ISO] [--limit N] [--max-traces N] [--recheck] [--dry-run] [--json]`

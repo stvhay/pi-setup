@@ -1284,12 +1284,23 @@ def promote_finding(
 
 
 def _session_score_since(session_id: str, fallback: str) -> str:
-    prefix = session_id.split("_", 1)[0]
     try:
-        started = datetime.strptime(prefix, "%Y-%m-%dT%H-%M-%S-%fZ").replace(tzinfo=timezone.utc)
         fallback_time = datetime.fromisoformat(fallback.replace("Z", "+00:00"))
     except ValueError:
         return fallback
+    try:
+        started = datetime.strptime(session_id.split("_", 1)[0], "%Y-%m-%dT%H-%M-%S-%fZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        try:
+            session_uuid = uuid.UUID(session_id)
+            if session_uuid.version != 7:
+                return fallback
+            milliseconds = session_uuid.int >> 80
+            started = datetime.fromtimestamp(milliseconds // 1000, tz=timezone.utc).replace(
+                microsecond=(milliseconds % 1000) * 1000
+            )
+        except (ValueError, OverflowError, OSError):
+            return fallback
     if started >= fallback_time:
         return fallback
     return started.replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -1479,11 +1490,13 @@ def _beads(args: list[str]) -> tuple[int, Any, str]:
 
 
 def current_session_id() -> str:
+    session_id = os.environ.get("PI_SESSION_ID")
+    if session_id:
+        return session_id
     session_file = os.environ.get("PI_SESSION_FILE")
-    session_id = Path(session_file).stem if session_file else os.environ.get("PI_SESSION_ID")
-    if not session_id:
+    if not session_file:
         raise ValueError("current Pi session is unavailable")
-    return session_id
+    return Path(session_file).stem
 
 
 def link_current_session(bead_id: str) -> dict[str, Any]:
@@ -1560,12 +1573,9 @@ def cmd_improve(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.action == "outcome":
         try:
-            session_file = os.environ.get("PI_SESSION_FILE")
-            if not session_file:
-                raise ValueError("current Pi session is unavailable")
             summary = record_session_outcome(
                 _client_from_env(),
-                session_id=Path(session_file).stem,
+                session_id=current_session_id(),
                 bead_id=args.bead,
                 outcome=args.outcome,
                 beads_runner=_beads,
