@@ -10,12 +10,12 @@
 **Architecture:** Keep deterministic session score IDs and existing Langfuse score APIs. Before writing either canonical work-link or outcome score, read the session-scoped canonical ownership scores within bounded time/result limits and fail closed when valid ownership differs or cannot be validated. During scans, trust an explicit outcome only when its public Bead metadata matches the session correlation; otherwise omit it and add one payload-free capture-gap class.
 
 **Acceptance Criteria:**
-- [ ] Same-session, same-Bead link/outcome operations remain idempotent.
-- [ ] Existing work-link or outcome ownership for Bead A rejects link/outcome for Bead B before either score is overwritten.
-- [ ] Direct-start reports non-retryable-in-place recovery using `/clone` or `/new` without exposing session IDs or prior Bead IDs.
-- [ ] `agnt improve link` and `outcome` expose the same public-safe recovery.
-- [ ] Historical link-B/outcome-A scan data cannot produce an explicit outcome for B and records a countable payload-free ownership-mismatch gap.
-- [ ] UUIDv7 and legacy session identities, bounded score reads, historical packet compatibility, and existing privacy rules remain intact.
+- [x] Same-session, same-Bead link/outcome operations remain idempotent.
+- [x] Existing work-link or outcome ownership for Bead A rejects link/outcome for Bead B before either score is overwritten.
+- [x] Direct-start reports non-retryable-in-place recovery using `/clone` or `/new` without exposing session IDs or prior Bead IDs.
+- [x] `agnt improve link` and `outcome` expose the same public-safe recovery.
+- [x] Historical link-B/outcome-A scan data cannot produce an explicit outcome for B and records a countable payload-free ownership-mismatch gap.
+- [x] UUIDv7 and legacy session identities, bounded score reads, historical packet compatibility, and existing privacy rules remain intact.
 
 **Verification Commands:**
 ```bash

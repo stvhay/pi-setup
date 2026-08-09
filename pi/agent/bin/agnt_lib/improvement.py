@@ -50,6 +50,7 @@ COHORT_CAPTURE_GAPS = (
     "missing-model",
     "invalid-model",
     "missing-outcome",
+    "mismatched-work-item-outcome",
     "inferred-tool-payload-bytes",
     "missing-tool-payload-bytes",
     "trace-limit",
@@ -1001,12 +1002,39 @@ def _correlate(session_id: str, runs_dir: Path, scores: list[dict[str, Any]] | N
                     "beadId": invocation.get("bead"),
                     "bundle": str(bundle),
                 }
-    for score in scores or []:
+    canonical_scores = _canonical_score_rows(scores or [], _work_link_score_id(session_id))
+    owners = set()
+    for score in canonical_scores:
         metadata = score.get("metadata")
         bead_id = metadata.get("beadId") if isinstance(metadata, dict) else None
-        if score.get("value") == "linked" and isinstance(bead_id, str) and BEAD_ID.fullmatch(bead_id):
-            return {"status": "linked", "beadId": bead_id}
+        if score.get("value") != "linked" or not isinstance(bead_id, str) or not BEAD_ID.fullmatch(bead_id):
+            return {"status": "unlinked"}
+        owners.add(bead_id)
+    if len(owners) == 1:
+        return {"status": "linked", "beadId": next(iter(owners))}
     return {"status": "unlinked"}
+
+
+def _correlated_outcome_scores(
+    session_id: str,
+    correlation: dict[str, Any],
+    scores: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    expected = correlation.get("beadId") if correlation.get("status") == "linked" else None
+    accepted = []
+    mismatched = False
+    for score in _canonical_score_rows(scores, _outcome_score_id(session_id)):
+        metadata = score.get("metadata")
+        owner = metadata.get("beadId") if isinstance(metadata, dict) else None
+        if not isinstance(expected, str) or owner != expected:
+            mismatched = True
+            continue
+        accepted.append(score if score.get("name") else {**score, "name": OUTCOME_SCORE})
+    return accepted, mismatched
+
+
+class SessionWorkItemConflict(ValueError):
+    pass
 
 
 def _work_link_score_id(session_id: str) -> str:
@@ -1017,6 +1045,46 @@ def _outcome_score_id(session_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"urn:agnt:improvement-task-outcome:{session_id}"))
 
 
+def _canonical_score_rows(rows: list[dict[str, Any]], score_id: str) -> list[dict[str, Any]]:
+    identified = [row for row in rows if isinstance(row.get("id"), str)]
+    return [row for row in identified if row["id"] == score_id] if identified else rows
+
+
+def _session_ownership_scores(client: Any, session_id: str) -> list[dict[str, Any]]:
+    started = _session_start(session_id) or datetime(1970, 1, 1, tzinfo=timezone.utc)
+    until = max(datetime.now(timezone.utc), started) + timedelta(minutes=5)
+    bounds = {
+        "from_timestamp": started.isoformat().replace("+00:00", "Z"),
+        "to_timestamp": until.isoformat().replace("+00:00", "Z"),
+        "session_id": session_id,
+        "limit": SCORES_PER_QUERY + 1,
+    }
+    rows = []
+    for name, score_id in (
+        (WORK_LINK_SCORE, _work_link_score_id(session_id)),
+        (OUTCOME_SCORE, _outcome_score_id(session_id)),
+    ):
+        found = client.list_scores(name=name, **bounds)
+        if len(found) > SCORES_PER_QUERY:
+            raise SessionWorkItemConflict(
+                "current Pi session ownership is incomplete; "
+                "start a fresh logical session with /clone or /new and retry"
+            )
+        rows.extend(_canonical_score_rows(found, score_id))
+    return rows
+
+
+def _assert_session_work_item(client: Any, session_id: str, bead_id: str) -> None:
+    for score in _session_ownership_scores(client, session_id):
+        metadata = score.get("metadata")
+        owner = metadata.get("beadId") if isinstance(metadata, dict) else None
+        if not isinstance(owner, str) or not BEAD_ID.fullmatch(owner) or owner != bead_id:
+            raise SessionWorkItemConflict(
+                "current Pi session belongs to another work item; "
+                "start a fresh logical session with /clone or /new and retry"
+            )
+
+
 def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: Any) -> dict[str, Any]:
     if not session_id or len(session_id) > 200:
         raise ValueError("current Pi session is unavailable")
@@ -1025,6 +1093,7 @@ def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: An
     code, _data, _error = beads_runner(["show", bead_id])
     if code != 0:
         raise ValueError("could not load work item")
+    _assert_session_work_item(client, session_id, bead_id)
     client.put_session_score(
         score_id=_work_link_score_id(session_id),
         session_id=session_id,
@@ -1720,16 +1789,24 @@ def scan_sessions(
         link_scores = link_score_rows[:SCORES_PER_QUERY]
         outcome_scores = outcome_score_rows[:SCORES_PER_QUERY]
         correlation = _correlate(session_id, runs_dir, link_scores)
+        correlated_outcomes, outcome_mismatch = _correlated_outcome_scores(
+            session_id, correlation, outcome_scores
+        )
         features = _features(
             selected_traces,
             observations,
-            [*trace_scores, *outcome_scores],
+            [
+                *(score for score in trace_scores if score.get("name") != OUTCOME_SCORE),
+                *correlated_outcomes,
+            ],
             child_trace_roots=child_trace_roots,
             trace_discovery_complete=trace_discovery["complete"] is True,
             trace_discovery_since=since,
             trace_discovery_until=until,
             billing_classes=billing_classes,
         )
+        if outcome_mismatch:
+            features["captureGaps"].append("mismatched-work-item-outcome")
         if len(session_traces) > len(selected_traces):
             features["captureGaps"].append("trace-limit")
         if observations_truncated:
@@ -1855,6 +1932,26 @@ def _max_traces(value: str) -> int:
     return limit
 
 
+def _report_session_work_item_conflict(*, json_output: bool) -> int:
+    if json_output:
+        print(json.dumps({
+            "schemaVersion": 1,
+            "status": "error",
+            "error": "session belongs to another work item",
+            "recovery": {
+                "action": "start-fresh-session",
+                "sessionCommands": ["/clone", "/new"],
+            },
+        }))
+    else:
+        print(
+            "Current Pi session belongs to another work item. "
+            "Run /clone or /new, then retry.",
+            file=sys.stderr,
+        )
+    return 2
+
+
 def cmd_improve(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt improve", description="Review private Langfuse telemetry safely.")
     sub = parser.add_subparsers(dest="action")
@@ -1894,6 +1991,8 @@ def cmd_improve(argv: list[str]) -> int:
                 outcome=args.outcome,
                 beads_runner=_beads,
             )
+        except SessionWorkItemConflict:
+            return _report_session_work_item_conflict(json_output=args.json)
         except (LangfuseError, OSError, ValueError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement outcome failed"}))
@@ -1908,6 +2007,8 @@ def cmd_improve(argv: list[str]) -> int:
     if args.action == "link":
         try:
             summary = link_current_session(args.bead)
+        except SessionWorkItemConflict:
+            return _report_session_work_item_conflict(json_output=args.json)
         except (LangfuseError, OSError, ValueError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement link failed"}))

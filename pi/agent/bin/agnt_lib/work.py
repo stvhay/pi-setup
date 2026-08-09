@@ -15,7 +15,7 @@ from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
-from .improvement import BEAD_ID, link_current_session
+from .improvement import BEAD_ID, SessionWorkItemConflict, link_current_session
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .runner_client import (
     RunnerClientError,
@@ -790,6 +790,21 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
 
     try:
         link_current_session(bead_id)
+    except SessionWorkItemConflict:
+        stages["link"] = {"status": "failed", "error": "session belongs to another work item"}
+        return {
+            "schemaVersion": 1,
+            "status": "partial",
+            "bead": bead,
+            "stages": stages,
+            "repair": {
+                "failedStage": "link",
+                "requiredAction": "start-fresh-session",
+                "retryCommand": retry_command,
+                "safeToRetry": False,
+                "sessionCommands": ["/clone", "/new"],
+            },
+        }
     except (OSError, RuntimeError, ValueError):
         stages["link"] = {"status": "failed", "error": "session link failed"}
         return {

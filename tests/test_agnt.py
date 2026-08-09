@@ -1115,6 +1115,38 @@ def test_direct_start_reports_retryable_partial_link_failure(agnt, capsys):
     assert "private failure detail" not in json.dumps(result)
 
 
+def test_direct_start_requires_fresh_session_after_work_item_conflict(agnt, capsys):
+    cmd_work = getattr(agnt, "cmd_work", None)
+    assert cmd_work is not None, "agnt work command is missing"
+    bead = {"id": "pi-test.second", "title": "Second task", "status": "in_progress"}
+
+    conflict = agnt.cmd_improve.__globals__["SessionWorkItemConflict"]
+
+    def fail_link(_bead_id):
+        raise conflict("current Pi session belongs to another work item; prior pi-private.1")
+
+    with patch.dict(cmd_work.__globals__, {
+        "run_beads_json": lambda _args: (0, [bead], ""),
+        "link_current_session": fail_link,
+    }):
+        assert agnt.main(["work", "direct-start", "pi-test.second", "--claim"]) == 3
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "partial"
+    assert result["stages"]["link"] == {
+        "error": "session belongs to another work item",
+        "status": "failed",
+    }
+    assert result["repair"] == {
+        "failedStage": "link",
+        "requiredAction": "start-fresh-session",
+        "retryCommand": "agnt work direct-start pi-test.second --claim",
+        "safeToRetry": False,
+        "sessionCommands": ["/clone", "/new"],
+    }
+    assert "pi-private.1" not in json.dumps(result)
+
+
 def test_direct_start_reports_retryable_partial_claim_failure(agnt):
     direct_start = getattr(agnt, "direct_start", None)
     assert direct_start is not None, "direct_start is missing"

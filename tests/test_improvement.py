@@ -1991,6 +1991,100 @@ def test_scan_prefers_explicit_linked_outcome_over_sampled_evaluator(tmp_path):
     assert "missing-outcome" not in features["captureGaps"]
 
 
+def test_scan_rejects_explicit_outcome_owned_by_different_work_item(tmp_path):
+    class MismatchedOutcomeClient(FakeScanClient):
+        def list_scores(self, **kwargs):
+            if kwargs.get("name") == improvement.WORK_LINK_SCORE:
+                return [{
+                    "id": improvement._work_link_score_id(kwargs["session_id"]),
+                    "name": improvement.WORK_LINK_SCORE,
+                    "value": "linked",
+                    "metadata": {"schemaVersion": 1, "beadId": "pi-second.1"},
+                    "subject": {"kind": "session", "id": kwargs["session_id"]},
+                }]
+            if kwargs.get("name") == improvement.OUTCOME_SCORE:
+                return [{
+                    "id": improvement._outcome_score_id(kwargs["session_id"]),
+                    "name": improvement.OUTCOME_SCORE,
+                    "value": "success",
+                    "source": "API",
+                    "metadata": {"schemaVersion": 1, "beadId": "pi-first.1"},
+                    "subject": {"kind": "session", "id": kwargs["session_id"]},
+                }]
+            return super().list_scores(**kwargs)
+
+    client = MismatchedOutcomeClient(
+        [_private_trace("interactive-session", "private-trace")],
+        {"private-trace": _private_observations()},
+    )
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    session = packet["sessions"][0]
+    assert session["correlation"] == {"status": "linked", "beadId": "pi-second.1"}
+    assert session["features"]["finalOutcome"] == "unknown"
+    assert session["features"]["finalOutcomeSource"] == "unknown"
+    assert "mismatched-work-item-outcome" in session["features"]["captureGaps"]
+    assert summary["cohortHealth"]["captureGaps"]["mismatched-work-item-outcome"] == 1
+    assert "pi-first.1" not in json.dumps(session["features"])
+
+
+def test_scan_rejects_explicit_outcome_with_ambiguous_idless_links(tmp_path):
+    class AmbiguousLinkClient(FakeScanClient):
+        def list_scores(self, **kwargs):
+            if kwargs.get("name") == improvement.WORK_LINK_SCORE:
+                return [
+                    {
+                        "name": improvement.WORK_LINK_SCORE,
+                        "value": "linked",
+                        "metadata": {"schemaVersion": 1, "beadId": bead_id},
+                        "subject": {"kind": "session", "id": kwargs["session_id"]},
+                    }
+                    for bead_id in ("pi-second.1", "pi-first.1")
+                ]
+            if kwargs.get("name") == improvement.OUTCOME_SCORE:
+                return [{
+                    "name": improvement.OUTCOME_SCORE,
+                    "value": "success",
+                    "source": "API",
+                    "metadata": {"schemaVersion": 1, "beadId": "pi-second.1"},
+                    "subject": {"kind": "session", "id": kwargs["session_id"]},
+                }]
+            return super().list_scores(**kwargs)
+
+    client = AmbiguousLinkClient(
+        [_private_trace("interactive-session", "private-trace")],
+        {"private-trace": _private_observations()},
+    )
+
+    summary, packet = improvement.scan_sessions(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        limit=1,
+        output_dir=tmp_path / "private",
+        runs_dir=tmp_path / "runs",
+        repository_root=tmp_path / "repo",
+        dry_run=True,
+    )
+
+    session = packet["sessions"][0]
+    assert session["correlation"] == {"status": "unlinked"}
+    assert session["features"]["finalOutcome"] == "unknown"
+    assert session["features"]["finalOutcomeSource"] == "unknown"
+    assert "mismatched-work-item-outcome" in session["features"]["captureGaps"]
+    assert summary["cohortHealth"]["captureGaps"]["mismatched-work-item-outcome"] == 1
+
+
 def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
     reviewed = _private_trace("reviewed-session", "reviewed-trace")
     eligible = _private_trace("eligible-session", "eligible-trace")
@@ -2405,6 +2499,9 @@ class FakeReviewClient:
     def __init__(self, fail_once=False):
         self.calls = []
         self.fail_once = fail_once
+
+    def list_scores(self, **_kwargs):
+        return []
 
     def put_session_score(self, **kwargs):
         self.calls.append(kwargs)
@@ -2948,6 +3045,150 @@ def test_improve_promote_cli_previews_without_remote_clients(monkeypatch, tmp_pa
     assert json.loads(output)["status"] == "preview"
     for private in ("private-session", "private-trace", "finding-0123456789ab", "private-model"):
         assert private not in output
+
+
+class FakeSessionOwnershipClient:
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+        self.score_queries = []
+        self.put_calls = []
+
+    def list_scores(self, **kwargs):
+        self.score_queries.append(kwargs)
+        return [
+            row
+            for row in self.rows
+            if row.get("name") == kwargs["name"]
+            and (row.get("subject") or {}).get("id") == kwargs["session_id"]
+        ][: kwargs["limit"]]
+
+    def put_session_score(self, **kwargs):
+        self.put_calls.append(kwargs)
+        return {"id": kwargs["score_id"]}
+
+
+def _ownership_score(session_id, name, bead_id):
+    score_id = (
+        improvement._work_link_score_id(session_id)
+        if name == improvement.WORK_LINK_SCORE
+        else improvement._outcome_score_id(session_id)
+    )
+    return {
+        "id": score_id,
+        "name": name,
+        "value": "linked" if name == improvement.WORK_LINK_SCORE else "success",
+        "source": "API",
+        "metadata": {"schemaVersion": 1, "beadId": bead_id},
+        "subject": {"kind": "session", "id": session_id},
+    }
+
+
+@pytest.mark.parametrize("existing_name", [improvement.WORK_LINK_SCORE, improvement.OUTCOME_SCORE])
+def test_link_session_rejects_conflicting_canonical_owner_before_write(existing_name):
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    client = FakeSessionOwnershipClient([
+        _ownership_score(session_id, existing_name, "pi-first.1"),
+    ])
+
+    with pytest.raises(ValueError, match="fresh logical session") as caught:
+        improvement.link_session(
+            client,
+            session_id=session_id,
+            bead_id="pi-second.1",
+            beads_runner=lambda args: (0, {"id": args[1]}, ""),
+        )
+
+    assert client.put_calls == []
+    assert "pi-first.1" not in str(caught.value)
+
+
+def test_link_session_fails_closed_on_malformed_canonical_owner():
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    malformed = _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-first.1")
+    malformed["metadata"] = {"schemaVersion": 1}
+    client = FakeSessionOwnershipClient([malformed])
+
+    with pytest.raises(ValueError, match="fresh logical session"):
+        improvement.link_session(
+            client,
+            session_id=session_id,
+            bead_id="pi-second.1",
+            beads_runner=lambda args: (0, {"id": args[1]}, ""),
+        )
+
+    assert client.put_calls == []
+
+
+def test_link_session_fails_closed_when_ownership_read_hits_cap():
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    rows = []
+    for index in range(improvement.SCORES_PER_QUERY + 1):
+        row = _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-second.1")
+        row["id"] = f"noncanonical-{index}"
+        rows.append(row)
+    client = FakeSessionOwnershipClient(rows)
+
+    with pytest.raises(ValueError, match="fresh logical session"):
+        improvement.link_session(
+            client,
+            session_id=session_id,
+            bead_id="pi-second.1",
+            beads_runner=lambda args: (0, {"id": args[1]}, ""),
+        )
+
+    assert client.put_calls == []
+
+
+def test_link_session_allows_same_owner_with_bounded_canonical_reads():
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    client = FakeSessionOwnershipClient([
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-work.1"),
+        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-work.1"),
+    ])
+
+    result = improvement.link_session(
+        client,
+        session_id=session_id,
+        bead_id="pi-work.1",
+        beads_runner=lambda args: (0, {"id": args[1]}, ""),
+    )
+
+    assert result == {"schemaVersion": 1, "status": "linked", "beadId": "pi-work.1"}
+    assert [query["name"] for query in client.score_queries] == [
+        improvement.WORK_LINK_SCORE,
+        improvement.OUTCOME_SCORE,
+    ]
+    assert all(query["session_id"] == session_id for query in client.score_queries)
+    assert all(query["from_timestamp"] < query["to_timestamp"] for query in client.score_queries)
+    assert all(1 <= query["limit"] <= improvement.SCORES_PER_QUERY + 1 for query in client.score_queries)
+    assert [call["name"] for call in client.put_calls] == [improvement.WORK_LINK_SCORE]
+
+
+@pytest.mark.parametrize("action", ["link", "outcome"])
+def test_improve_cli_requires_fresh_session_after_work_item_conflict(action, monkeypatch, capsys):
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    client = FakeSessionOwnershipClient([
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-first.1"),
+    ])
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setenv("PI_SESSION_ID", session_id)
+    argv = [action, "pi-second.1", "--json"]
+    if action == "outcome":
+        argv.insert(2, "success")
+
+    assert improvement.cmd_improve(argv) == 2
+
+    assert json.loads(capsys.readouterr().out) == {
+        "schemaVersion": 1,
+        "status": "error",
+        "error": "session belongs to another work item",
+        "recovery": {
+            "action": "start-fresh-session",
+            "sessionCommands": ["/clone", "/new"],
+        },
+    }
+    assert client.put_calls == []
 
 
 def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, tmp_path, capsys):

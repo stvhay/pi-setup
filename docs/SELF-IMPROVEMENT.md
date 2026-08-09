@@ -57,9 +57,13 @@ join the root agent trace without heuristic matching. `agnt improve` reads
 bounded cohorts and writes private packets under `~/.pi/improvement/`.
 Runner sessions correlate from run bundles; interactive work must call
 `agnt improve link <bead>` after claim and `agnt improve outcome <bead> <outcome>`
-at closeout. The outcome command idempotently backfills the link and records an
-explicit final outcome, which overrides sampled evaluator guesses. Private
-evidence stays outside git and committed Beads.
+at closeout. One logical Pi session belongs to one Bead; use `/clone` or `/new`
+before starting different work because quitting and resuming may retain the same
+session. Link and outcome commands fail closed rather than overwrite conflicting
+canonical ownership. The outcome command idempotently backfills the same-Bead
+link and records an explicit final outcome, which overrides sampled evaluator
+guesses only when its Bead metadata matches correlation. Private evidence stays
+outside git and committed Beads.
 
 ### 2. Annotate (the human/orchestrator signal)
 
@@ -130,11 +134,16 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 ```
 
 `link` writes an idempotent private session score containing only the public
-work-item ID. `outcome` rewrites that same link and adds one idempotent categorical
-session score. Scans keep objective `executionOutcome`, sampled `apparentOutcome`,
-and explicit human outcome distinct. Explicit human outcome is authoritative;
-otherwise deterministic failure maps final outcome to `failure` and unavailable
-execution maps it to `unclear` before sampled apparent judgment is considered.
+work-item ID after bounded reads prove existing canonical link/outcome ownership
+is absent or belongs to the same Bead. `outcome` refreshes that same-Bead link and
+adds one idempotent categorical session score. Conflicts expose only fresh-session
+recovery (`/clone` or `/new`), not prior owner or session IDs. Scans keep objective
+`executionOutcome`, sampled `apparentOutcome`, and explicit human outcome distinct.
+An explicit human outcome is authoritative only when its Bead metadata matches the
+session correlation; historical mismatches are ignored as outcomes and counted as
+`mismatched-work-item-outcome` capture gaps. Otherwise deterministic failure maps
+final outcome to `failure` and unavailable execution maps it to `unclear` before
+sampled apparent judgment is considered.
 Useful partial output remains visible as apparent quality, but cannot turn failed
 execution into successful final outcome. `scan` traverses pages
 in its bounded time window up to the operator trace cap (default 500) and reports that
