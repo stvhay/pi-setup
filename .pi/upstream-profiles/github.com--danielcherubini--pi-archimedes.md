@@ -1,9 +1,9 @@
 ---
 profile_version: 1
 repository: https://github.com/danielcherubini/pi-archimedes
-last_checked_utc: 2026-08-06T00:59:20Z
-target_ref: v1.8.3
-source_commit: 801397c052ea064fc237ff4e035c2a0910d391c8
+last_checked_utc: 2026-08-09T22:09:49Z
+target_ref: v2.0.1
+source_commit: bdfeea3ed77392a2d02617fa1e0d4aa5fd8317e3
 status: current-for-target-ref
 recheck_every_use:
   - permissions
@@ -13,70 +13,93 @@ recheck_every_use:
   - issue-requirements
 source_files:
   - path: README.md
-    sha256: c2fb4e255bf7dd6b7804a81fc96df8e3e7e367be53d1544980759ec3ad6912fe
+    sha256: f9d2101c4bc2962f5e227fb35272b82203af33aa44b793ee4665aef23c1bae07
   - path: AGENTS.md
     sha256: 2baf700cba85a48c252316c7cdea9b96339240b853997e2d22e7529359317a73
+  - path: LICENSE
+    sha256: 4a69dc29421e26d9c8e50a823a1255c64441020942d4d5d0ecbc2fec8ca0b823
   - path: docs/plans/README.md
-    sha256: b219dbfb0aa7a7778d0fb69bc3d28ad2401bddf5d307978adf213a2ae9eb39e3
+    sha256: f7a465e02831bd08d8e98d5082b3026a92eeb160f8b5ef2ef08a88d9c3ba019c
   - path: package.json
     sha256: ce5f54ed0dd8894a8c858a0c9714cbb4251900e33526cff7376900c6342988fd
   - path: pnpm-workspace.yaml
     sha256: 1b6fb329ddb565dfe223fbe6e95e879ccae7b59ff22d9b826c1260096760abfc
   - path: packages/subagent/package.json
-    sha256: 7f122c81fea5666d6e313abad0ad34505e51f772d5c60b790d503564544f1836
+    sha256: aedd14a7e71ead7da47ff7ce23364c53d85e38295f9969e793f5199b3ee67cd9
   - path: packages/subagent/README.md
-    sha256: cb307c5fab87316bb22c9a144486b37c98c6c7215ea38e34eb3776115db2c832
+    sha256: 4594861f0c78f4588946387aae5ecad6b936cefddae4f3e74dcd0e39002c90b4
   - path: .github/workflows/ci.yml
     sha256: c602b2e35ededfd4c934b2509eb5786755cca6be7e3c419b3f3e0909e11583e2
   - path: .github/workflows/release.yml
     sha256: 37f0eed57655922f66c5f75c1ee0d7f5402881ddfffe3326bad8d02543d388ec
+  - path: packages/subagent/src/compact.ts
+    sha256: b691f6834ad3d541d83c28204bbb839351bcf572ac3eb320eab921fc9b743810
+  - path: packages/subagent/src/expanded.ts
+    sha256: f328a87bcf873c0be6905ad9422b2385f554532d29386c5c239e4593ebbc94f7
+  - path: packages/subagent/src/handlers.ts
+    sha256: 4a9ad5a5ab8733d85ea024868582778766374b5b487295b4f576c0d73f9d0f8e
+  - path: packages/subagent/src/index.ts
+    sha256: c630e5c5e31062a0ef0c377f1f292c434c809cefcb997830397397537f8efcaa
   - path: packages/subagent/src/spawn.ts
     sha256: ec5492e224f5b90e88588745ec012368672c762ccc78ef2d524d02a30a323b59
   - path: packages/subagent/src/stream.ts
-    sha256: 4a77b199a498a39385f64003a2fc6cff2c88f86a366ab7fadb74d8c7b1b392ff
+    sha256: 578cefc6958cb38bd6516966dfe36cec97fea1b822796b1d1a0c3c19f08068ed
   - path: packages/subagent/src/types.ts
-    sha256: 63983d29f0a792cb13aaffefd353227bd2f62612eddb3fa3ac5fe2c34330a530
+    sha256: 1a3bbc9079aa1f1e6b9a57ed14ffc7c252f9769de339b9c63e230cb5fc90d01e
   - path: packages/subagent/src/execute.ts
     sha256: fb171ae4c86600976f4f4bbe5bac12aec82453a3fda080e1f3519c6e64cdb816
-  - path: packages/subagent/src/handlers.test.ts
-    sha256: 5ee597b74c1a2c5e20b72f7996786bb9dc91770b44ab52475c73d4052b9cdb06
+  - path: packages/subagent/src/stream.test.ts
+    sha256: 1873f6dd78ffb8abf950c34bda0835c5e79e17f67a76bc33c541e212748bc913
 ---
 
 # danielcherubini/pi-archimedes upstream profile
 
 ## Contribution workflow
 
-- Default branch observed: `main`; target tag matched `origin/main` when checked.
-- pnpm workspace; install with frozen lockfile and use package/workspace scripts.
-- Non-trivial work requires a committed dated plan under `docs/plans/`, plan index updates, reviewer dispatch, and completion/move to `docs/plans/done/`.
-- Commits should be logical and use repository conventional style.
-- Required candidate checks: subagent/package TypeScript checks, all workspace typechecks, focused Vitest, full repository tests, and diff checks.
-- No PR template or repository AI-contribution policy observed in checked sources.
-- User permission observed 2026-08-06: pull-only upstream; fork required. The user-owned fork grants admin access. Recheck every use.
-- No PR/issue template or visible branch-protection configuration was found. Fork PR CI requires maintainer approval; PR #25 run `31061385312` at clean head `c27561d` is `action_required`, not a test result.
+- Default branch: `main`; latest stable release `v2.0.1` resolves to `bdfeea3ed77392a2d02617fa1e0d4aa5fd8317e3`. The branch had advanced to `ee0ce51223a36b186143c780d8ce741188ac8038` only to archive plan 020 when checked.
+- `v2.0.1` is published, non-draft, non-prerelease, and marked latest.
+- pnpm 10 workspace; install with `corepack pnpm install --frozen-lockfile` and use package/workspace scripts.
+- Non-trivial work requires a committed dated plan under `docs/plans/`, plan-index maintenance, reviewer dispatch, and completion under `docs/plans/done/`.
+- Commits are logical and use repository conventional style.
+- Required candidate checks: subagent/package TypeScript, all workspace typechecks, focused Vitest, full repository tests, and diff checks.
+- No PR template, CONTRIBUTING file, CLA/DCO requirement, issue-first rule, or repository AI-contribution policy was observed at the target.
+- User permission checked 2026-08-09: upstream repository is read-only; existing user fork `stvhay/pi-archimedes` grants ADMIN and still has main at v1.8.3. Recheck before remote actions.
+- Upstream `main` was unprotected and had zero open issues when checked. Fork draft CI remains a staging signal, not proof of upstream acceptance.
 - Release/publish workflow is tag-driven and publishes packages in dependency order; PR approval does not authorize release or publication.
 
 ## Policy findings
 
-- License: no root/subagent package license field or root license file was observed at the target ref; open upstream issue #22 tracks the missing LICENSE despite the README's MIT badge.
-- CLA/DCO, contributor eligibility, commit signoff/signing, branch naming, and issue-first requirements: none observed in checked sources. Recheck repository settings and current GitHub metadata every use.
-- Documentation: package API changes should update the relevant package README; non-trivial work must also maintain the plan index/status.
-- Generated artifacts: `pnpm-lock.yaml` is tracked. No generated-source update rule was observed.
+- License: MIT `LICENSE` now exists at v2.0.1, resolving the old profile gap.
+- Branch naming, commit signing, signoff, and contributor eligibility rules remain unspecified.
+- Package interface changes should update `packages/subagent/README.md`; repository-level user-visible changes should align root `README.md`.
+- `pnpm-lock.yaml` is tracked. No generated-source update rule was observed.
+- README says Node.js >=24 while CI uses Node 22; verify both project-prescribed CI shape and the local Node 24 supported environment rather than silently rewriting guidance.
 
 ## Coding style
 
 **Confidence:** high
+**Evidence checked:** v2.0.1 source files listed above, current release metadata, CI/release workflows, and clean subagent baseline.
 
-- TypeScript workspace with explicit exported result/config types and additive optional compatibility fields.
-- Existing architecture treats each worker as a fresh process and intentionally retains `pi --mode json --no-session -p`.
-- Preserve process arguments, environment inheritance, Windows `process.execPath`/`windowsHide`, abort behavior, socket cleanup, progress shape, parallel result ordering, and cost/usage reporting.
-- Tests use Vitest, focused synthetic process streams, and package-level typechecks.
-- Plan and code commits are separate logical units when repository workflow requires it.
+- TypeScript ESM with explicit exported result/config types and additive optional compatibility fields.
+- Existing architecture runs each worker as a fresh `pi --mode json --no-session -p` child process.
+- Preserve process arguments, environment inheritance, Windows `process.execPath`/`windowsHide`, abort behavior, socket cleanup, progress shape, parallel result ordering, model labels, child session correlation, and cost/usage reporting.
+- Compact and expanded renderers both show `progress.model ?? result.model`; upstream already satisfies the model-label requirement for agentic execution and supplies the seam one-shot should reuse.
+- Tests use Vitest, focused synthetic child streams, and package-level typechecks.
+- Plan and implementation/documentation commits remain separate logical units when repository workflow requires them.
+
+## Current baseline evidence
+
+At exact v2.0.1 on 2026-08-09:
+
+- `corepack pnpm install --frozen-lockfile` — PASS
+- `corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit` — PASS
+- `corepack pnpm --filter @pi-archimedes/subagent exec vitest run` — PASS, 54 tests
+- Clean worktree after checks — PASS
 
 ## PR implications
 
-- Plan before implementation and keep plan index/status current.
-- Public API additions should be minimal, additive, and documented.
-- Test absence/invalid inputs, Windows spawn behavior, parallel ordering, abort/cleanup, and unchanged progress contracts.
-- Use repository pnpm commands rather than generic npm invocations.
-- Keep PR body focused on user-visible contract and verification; omit pi-setup local patch mechanics.
+- Existing fork drafts based on v1.8.3 are not upstream-ready. Rebuild by behavior on v2.0.1; do not replay commits blindly.
+- Public additions must remain minimal, additive, documented, and tested for invalid inputs, Windows spawn, ordering, abort/cleanup, model rendering, output/usage preservation, and progress compatibility.
+- Upstream v2.0.1 already includes child session IDs and model labels; omit duplicate candidate code.
+- Use repository pnpm commands and keep reviewer-facing PR prose free of pi-setup projection mechanics.
+- Refresh this profile before any actual upstream draft creation because upstream `main` is ahead of v2.0.1.
