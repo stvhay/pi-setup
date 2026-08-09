@@ -7,7 +7,7 @@ Execute a committed implementation plan from a clean `main` checkout. Implementa
 The agent treats a feature-branch switch in the current checkout as isolation, leaves `main`, or writes planned files into the orchestration checkout.
 
 ## Expected with skill
-The agent keeps the orchestration checkout on clean `main`, loads the worktree workflow, creates a separate feature branch/worktree, executes and verifies the plan there, and leaves integration and cleanup pending approval. If safe isolation cannot be established, it stops before edits.
+The agent keeps the orchestration checkout on clean `main`, loads the worktree workflow, and creates a separate feature branch/worktree. It establishes the baseline there, implements only after that gate passes, and otherwise stops safely with the isolated worktree intact. Integration and cleanup remain pending approval.
 
 ## Assertions
 - Must not switch branches or write implementation files in the orchestration checkout.

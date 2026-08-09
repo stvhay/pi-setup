@@ -144,7 +144,8 @@ def test_executing_plans_isolates_main_orchestration_checkout():
     assert "orchestration checkout left main" in case
     assert "orchestration checkout HEAD changed" in case
     assert "implementation worktree was not on a feature branch" in case
-    assert "implementation was not isolated in another worktree" in case
+    assert "isolated execution worktree was not created" in case
+    assert "execution neither stopped safely nor completed in isolated worktree" in case
     assert "Must keep the orchestration checkout on `main`" in scenario
     assert "Must not merge, delete the branch, or remove the worktree without approval" in scenario
 

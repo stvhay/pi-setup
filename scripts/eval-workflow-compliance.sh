@@ -328,9 +328,10 @@ test -f MARKER.txt
 EOF
     git add .gitignore .pi/plans/2026-05-30-create-marker-plan.md && git commit -q -m plan
 
-    local orchestration_root orchestration_head isolated_worktrees worktree worktree_branch
+    local orchestration_root orchestration_head secondary_worktrees isolated_worktrees worktree worktree_branch
     orchestration_root=$(pwd -P)
     orchestration_head=$(git rev-parse HEAD)
+    secondary_worktrees=0
     isolated_worktrees=0
     worktree=""
     worktree_branch=""
@@ -356,14 +357,17 @@ EOF
         "worktree "*) worktree=${line#worktree }; worktree_branch="" ;;
         "branch "*) worktree_branch=${line#branch } ;;
         "")
-          if [ -n "$worktree" ] && [ "$worktree" != "$orchestration_root" ] && [ -f "$worktree/MARKER.txt" ]; then
+          if [ -n "$worktree" ] && [ "$worktree" != "$orchestration_root" ]; then
+            secondary_worktrees=$((secondary_worktrees + 1))
             case "$worktree_branch" in
               refs/heads/main|"") fail "$name" "implementation worktree was not on a feature branch" ;;
               refs/heads/*) ;;
               *) fail "$name" "implementation worktree was not on a feature branch" ;;
             esac
-            [ "$(cat "$worktree/MARKER.txt")" = done ] || fail "$name" "isolated MARKER.txt content was incorrect"
-            isolated_worktrees=$((isolated_worktrees + 1))
+            if [ -f "$worktree/MARKER.txt" ]; then
+              [ "$(cat "$worktree/MARKER.txt")" = done ] || fail "$name" "isolated MARKER.txt content was incorrect"
+              isolated_worktrees=$((isolated_worktrees + 1))
+            fi
           fi
           worktree=""
           worktree_branch=""
@@ -371,8 +375,11 @@ EOF
       esac
     done < "$RUN_DIR/$name.worktrees"
 
-    if [ "$isolated_worktrees" -lt 1 ]; then
-      fail "$name" "implementation was not isolated in another worktree"
+    if [ "$secondary_worktrees" -lt 1 ]; then
+      fail "$name" "isolated execution worktree was not created"
+    fi
+    if [ "$isolated_worktrees" -lt 1 ] && ! grep -Eiq 'STOPPED|BLOCKED' "$RUN_DIR/$name.out"; then
+      fail "$name" "execution neither stopped safely nor completed in isolated worktree"
     fi
   )
   pass "$name"
