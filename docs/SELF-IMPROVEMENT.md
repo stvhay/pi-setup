@@ -277,8 +277,10 @@ When a model family shows a repeatable behavioral failure:
    ```bash
    pi/agent/bin/agnt eval run role-context-smoke
    .venv/bin/python -m pytest tests/
-   # behavioral, costs model calls — for the affected workflow only:
-   ./scripts/eval-workflow-compliance.sh --case <case>
+   # behavioral, costs model calls — tracked candidate before deployment:
+   ./scripts/eval-workflow-compliance.sh --skill-mode candidate --case <case>
+   # post-deployment smoke uses live skills explicitly:
+   ./scripts/eval-workflow-compliance.sh --skill-mode deployed --case <case>
    ```
 
 4. Commit overlay + eval together, citing the observed failure.

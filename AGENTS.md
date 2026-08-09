@@ -47,8 +47,8 @@ bash -n scripts/*.sh
 pi/agent/bin/agnt eval run routing-smoke
 pi/agent/bin/agnt eval run role-context-smoke
 
-# workflow compliance checks (runs real models)
-./scripts/eval-workflow-compliance.sh
+# workflow compliance against tracked candidate skills (runs real models)
+./scripts/eval-workflow-compliance.sh --skill-mode candidate
 ```
 
 ## Environment

@@ -125,6 +125,20 @@ def test_project_init_eval_excludes_opt_in_github_templates():
     assert "created opt-in GitHub template without request" in case
 
 
+def test_workflow_eval_requires_explicit_skill_provenance():
+    workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
+
+    assert "--skill-mode" in workflow_eval
+    assert "candidate|deployed" in workflow_eval
+    assert "--no-skills" in workflow_eval
+    assert '"--skill" "$SKILL_ROOT"' in workflow_eval
+    assert "--no-extensions" in workflow_eval
+    assert "--no-context-files" in workflow_eval
+    assert "--no-prompt-templates" in workflow_eval
+    assert "--no-tools" not in workflow_eval
+    assert "provenance.txt" in workflow_eval
+
+
 def test_executing_plans_isolates_main_orchestration_checkout():
     skill = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
     scenario = (ROOT / ".pi" / "skill-evals" / "executing-plans" / "scenarios" / "isolated-main-orchestration.md").read_text(encoding="utf-8")

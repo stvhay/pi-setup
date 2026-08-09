@@ -125,6 +125,13 @@ Pattern scans remain a backstop, not a semantic proof that guidance is safe.
 The workflow-gate smoke eval now checks independent docs-neutral low-risk and
 user-visible risky closeout scenarios, including negative skips, mandatory
 verification, and remote-action boundaries without stacking closeout skills.
+Workflow compliance runs explicitly select tracked `candidate` or live
+`deployed` skill mode. Candidate mode disables ambient skill, extension, context,
+and prompt-template discovery while retaining built-in tools and force-loading
+the unchanged `/skill:<name>` scenario prompt. Each atomically unique run records
+mode and physical skill root in `provenance.txt`; deployed mode rejects missing
+roots. This prevents output collisions or deployed behavior from counting as
+candidate evidence.
 
 ### 5. Role validation is improving but not complete
 

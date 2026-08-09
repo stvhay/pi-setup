@@ -10,13 +10,13 @@
 **Architecture:** Add one required `--skill-mode candidate|deployed` option to the existing shell harness. Candidate mode invokes Pi with ambient skill/extension/context/prompt-template discovery disabled and one explicit recursive tracked skill root; `/skill:<name>` in each existing prompt still force-loads the requested body, while built-in tools remain enabled. Deployed mode preserves the existing ambient Pi invocation for post-deployment smoke checks. Each run writes a small payload-free provenance file and prints the same mode/root.
 
 **Acceptance Criteria:**
-- [ ] Eval execution without an explicit skill mode fails before repository or model work; `--list` remains read-only and mode-free.
-- [ ] Candidate mode passes `--no-skills --skill <tracked-root> --no-extensions --no-context-files --no-prompt-templates` and does not disable tools.
-- [ ] Candidate mode preserves the exact original case prompt, including `/skill:<name>` force loading.
-- [ ] Deployed mode preserves ambient skill/context/extension behavior but is explicitly selected.
-- [ ] Run provenance records schema, mode, resolved skill root, and ambient-discovery state without prompts, model output, credentials, or unrelated environment.
-- [ ] A fake-Pi behavior difference fails in deployed mode and passes in candidate mode.
-- [ ] Existing case names, provider/model controls, parallel behavior, filesystem assertions, and real tool-enabled scenarios remain unchanged.
+- [x] Eval execution without an explicit skill mode fails before repository or model work; `--list` remains read-only and mode-free.
+- [x] Candidate mode passes `--no-skills --skill <tracked-root> --no-extensions --no-context-files --no-prompt-templates` and does not disable tools.
+- [x] Candidate mode preserves the exact original case prompt, including `/skill:<name>` force loading.
+- [x] Deployed mode preserves ambient skill/context/extension behavior but is explicitly selected.
+- [x] Run provenance records schema, mode, resolved skill root, and ambient-discovery state without prompts, model output, credentials, or unrelated environment.
+- [x] A fake-Pi behavior difference fails in deployed mode and passes in candidate mode.
+- [x] Existing case names, provider/model controls, parallel behavior, filesystem assertions, and real tool-enabled scenarios remain unchanged.
 
 **Verification Commands:**
 ```bash

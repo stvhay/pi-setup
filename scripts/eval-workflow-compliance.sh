@@ -5,14 +5,20 @@ set -euo pipefail
 # These are behavioral checks, not unit tests: model outputs vary, so assertions
 # focus on observable filesystem effects and key evidence strings.
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
+PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 MODEL_PROVIDER=${MODEL_PROVIDER:-openai-codex}
 MODEL=${MODEL:-gpt-5.6-luna}
 OUT_ROOT=${OUT_ROOT:-/tmp/pi-workflow-evals}
-RUN_ID=$(date +%Y%m%d-%H%M%S)
-RUN_DIR="$OUT_ROOT/$RUN_ID"
+RUN_STAMP=$(date +%Y%m%d-%H%M%S)
+RUN_ID=""
+RUN_DIR=""
 MODE=smoke
 PARALLEL=1
 SELECTED_CASES=""
+SKILL_MODE=""
+SKILL_ROOT=""
+AMBIENT_DISCOVERY=""
 
 ALL_CASES='brainstorming_no_write writing_plans_creates_plan verification_reports_missing requesting_review_contract_change documentation_detects_public_doc_gap finishing_blocks_doc_gap_no_artifacts executing_plans_stops_on_main subagent_driven_rejects_shared_file_parallelism dispatching_parallel_agents_readonly_contract project_init_clean_scaffold implementation_commits_task_owned_changes implementation_honors_no_commit agent_instructions_context_generation'
 SMOKE_CASES='brainstorming_no_write writing_plans_creates_plan executing_plans_stops_on_main project_init_clean_scaffold'
@@ -27,6 +33,7 @@ Options:
   --case NAME      Run one case. May be repeated.
   --list           List available cases and exit.
   --parallel N     Run up to N cases concurrently. Default: 1.
+  --skill-mode M   Required for execution: candidate|deployed.
   -h, --help       Show this help.
 
 Environment:
@@ -67,13 +74,38 @@ while [ $# -gt 0 ]; do
       PARALLEL=$2
       shift
       ;;
+    --skill-mode)
+      [ $# -ge 2 ] || { echo "--skill-mode requires candidate|deployed" >&2; exit 2; }
+      [ -z "$SKILL_MODE" ] || { echo "--skill-mode may be specified once" >&2; exit 2; }
+      case "$2" in
+        candidate|deployed) SKILL_MODE=$2 ;;
+        *) echo "--skill-mode requires candidate|deployed" >&2; exit 2 ;;
+      esac
+      shift
+      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
   shift
 done
 
-mkdir -p "$RUN_DIR"
+[ -n "$SKILL_MODE" ] || { echo "--skill-mode is required: candidate|deployed" >&2; exit 2; }
+if [ "$SKILL_MODE" = candidate ]; then
+  SKILL_ROOT="$PROJECT_ROOT/pi/agent/skills"
+  AMBIENT_DISCOVERY=false
+  [ -d "$SKILL_ROOT" ] || { echo "candidate skill root is missing" >&2; exit 2; }
+else
+  SKILL_ROOT="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills"
+  AMBIENT_DISCOVERY=true
+  [ -d "$SKILL_ROOT" ] || { echo "deployed skill root is missing" >&2; exit 2; }
+  SKILL_ROOT=$(cd "$SKILL_ROOT" && pwd -P)
+fi
+
+mkdir -p "$OUT_ROOT"
+RUN_DIR=$(mktemp -d "$OUT_ROOT/$RUN_STAMP.XXXXXX")
+RUN_ID=${RUN_DIR##*/}
+printf 'schemaVersion=1\nskillMode=%s\nskillRoot=%s\nambientDiscovery=%s\n' \
+  "$SKILL_MODE" "$SKILL_ROOT" "$AMBIENT_DISCOVERY" > "$RUN_DIR/provenance.txt"
 
 pass() { printf 'PASS %s\n' "$1"; }
 fail() { printf 'FAIL %s: %s\n' "$1" "$2" >&2; return 1; }
@@ -102,7 +134,12 @@ EOF
 
 run_pi() {
   local prompt=$1
-  pi --print --no-session --provider "$MODEL_PROVIDER" --model "$MODEL" "$prompt"
+  local -a args
+  args=(--print --no-session --provider "$MODEL_PROVIDER" --model "$MODEL")
+  if [ "$SKILL_MODE" = candidate ]; then
+    args+=(--no-skills "--skill" "$SKILL_ROOT" --no-extensions --no-context-files --no-prompt-templates)
+  fi
+  pi "${args[@]}" "$prompt"
 }
 
 case_brainstorming_no_write() {
@@ -672,7 +709,8 @@ main() {
   local cases
   cases=$(cases_for_mode)
 
-  printf 'Workflow eval run: %s\nProvider/model: %s/%s\nMode: %s\nParallel: %s\nOutput: %s\n\n' "$RUN_ID" "$MODEL_PROVIDER" "$MODEL" "$MODE" "$PARALLEL" "$RUN_DIR"
+  printf 'Workflow eval run: %s\nProvider/model: %s/%s\nMode: %s\nSkill mode: %s\nSkill root: %s\nParallel: %s\nOutput: %s\n\n' \
+    "$RUN_ID" "$MODEL_PROVIDER" "$MODEL" "$MODE" "$SKILL_MODE" "$SKILL_ROOT" "$PARALLEL" "$RUN_DIR"
   printf 'Cases:\n'
   printf '  %s\n' $cases
   printf '\n'
