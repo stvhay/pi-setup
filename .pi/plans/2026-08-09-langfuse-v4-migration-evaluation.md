@@ -8,6 +8,8 @@
 
 **Decision:** **No-go for remote migration now.** Keep self-hosted Langfuse 3.225.1 unchanged. Prepare application and infrastructure follow-ups, then request separate approvals for the v4 server upgrade, dual-write validation, and final `events_only` cutover.
 
+**Operator update (2026-08-09):** Support v3 only until Langfuse v4 is considered stable enough to revisit. Do not build a dormant v2 adapter now. When v4 is stable, run one deliberate migration using then-current documentation; keep dual-version behavior only for the migration's bounded rollback window, not as permanent architecture. Follow-ups `pi-4tg9.43`, `pi-4tg9.44`, and `pi-4tg9.45` are deferred and may be re-scoped or replaced when that migration begins.
+
 ## Acceptance Criteria
 
 - [x] Current server, SDK, ingestion, read, evaluator, and score compatibility are inventoried.
@@ -111,6 +113,8 @@ Do not open either approval until `pi-4tg9.43` and `pi-4tg9.44` close and `pi-4t
 
 ## Planned Follow-ups
 
+All three follow-ups are deferred by the operator's v3-only decision.
+
 ### Follow-up A — `pi-4tg9.43` Version-aware v2 improvement reads
 
 **Scope:** `pi/agent/bin/agnt_lib/langfuse.py`, `pi/agent/bin/agnt_lib/improvement.py`, deterministic tests, and scanner docs.
@@ -158,4 +162,4 @@ Every URL above returned HTTP 200 and was checked against the cited claim on 202
 
 ## Execution Handoff
 
-Evaluation saved here. File the three atomic follow-ups, verify this document against Beads and source, then close pi-4tg9.16 as a no-go decision. Do not perform remote migration under this issue.
+Evaluation closed as a no-go decision. Current v3 reads remain verified. Do not execute the deferred follow-ups or perform remote migration until an explicit Langfuse v4 stability decision reopens the work.
