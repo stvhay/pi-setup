@@ -20,7 +20,7 @@ The update helper preserves runtime secrets/state and installs helper commands i
 agnt --help
 ```
 
-Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes exact pins for `pi-langfuse@1.5.10`, `pi-archimedes@1.8.3`, and the `@mariozechner/clipboard` native addon. Langfuse 1.5.10 natively includes logical session correlation and score entity IDs. Until upstream releases also include byte-bounded ingestion and media-safe payload bounds, run `scripts/apply-pi-package-patches.sh --check` and then the apply command after package installation. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`.
+Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes exact pins for `pi-langfuse@1.5.10`, `pi-archimedes@2.0.1`, and the `@mariozechner/clipboard` native addon. Langfuse 1.5.10 natively includes logical session correlation and score entity IDs. Until upstream releases also include byte-bounded ingestion and media-safe payload bounds, run `scripts/apply-pi-package-patches.sh --check` and then the apply command after package installation. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`.
 
 ### Observational memory
 
@@ -47,6 +47,10 @@ Supplying `agent` selects a named definition; it is not a task label or an alias
 The current Archimedes package documentation incorrectly says generic calls default to a named `general` agent and places user definitions under `~/.pi/agents/`. In practice, explicit `"agent": "general"` requires a definition named `general`; only omission selects generic mode.
 
 `agent/extensions/subagent-error-workaround.ts` normalizes Archimedes results for local telemetry: failed child exits are marked as errors, validation failures retain their original message, and each available `childSessionId` is copied into the parent projection, metric, and private result artifact as the exact child-trace foreign key. Parent projections also declare the resolved effective mode and whether child telemetry is expected; isolated one-shot children are expected unavailable unless an already-discovered completed root proves otherwise.
+
+The v2.0.1 runtime projection preserves native child-session/model behavior and adds per-child request, tool, token, cost, duration, and fanout controls; bounded Pi 0.84 stream reconstruction; adaptive turn-token progress; bounded parallel outputs; and privacy-bounded repeated-error termination. One-shot mode permits one provider request, disables tools and ambient project resources, keeps explicit prompt-template macros available, and has no implicit wall deadline. `maxOutputTokens` is applied best-effort through supported provider payloads and reports `applied` or `unsupported` evidence without dropping output or usage.
+
+The tracked Archimedes wrapper reads `agent/catalog.json` rather than inferring billing from provider names. Metered one-shot children receive a 16,384-token default provider output cap; subscription-backed and agentic children receive no automatic token or cost cap. An explicit tighter call cap wins. Set `PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS` to a positive integer, `0`, or `off` to tighten or disable the local default.
 
 Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, verify them, then deploy.
 

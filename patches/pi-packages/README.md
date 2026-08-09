@@ -1,14 +1,14 @@
 # Temporary Pi package patches
 
-These version-locked runtime patches project reviewed fork changes onto exact installed npm releases until upstream releases contain them. Reviewed sources are pinned as submodules under `forks/pi-langfuse` and `forks/pi-archimedes`; patches contain only installed production/package files. Each fork's `vendor/pi-setup` branch combines reviewed work without rewriting or merging its draft PR branches.
+These version-locked runtime patches project reviewed fork changes onto exact installed npm releases until upstream releases contain them. Reviewed sources are pinned as submodules under `forks/pi-langfuse` and `forks/pi-archimedes`; patches contain only installed production/package files. Each fork's vendor branch combines reviewed work without rewriting or merging its draft PR branches.
 
-Pi's git package installer cannot consume the Archimedes source monorepo directly: it runs npm while that repository requires pnpm and uses npm-unsupported `workspace:*` dependency specs. Keep `npm:pi-archimedes@1.8.3` as the installable base, then apply the exact production projection pinned by `forks/pi-archimedes`.
+Pi's git package installer cannot consume the Archimedes source monorepo directly: it runs npm while that repository requires pnpm and uses npm-unsupported `workspace:*` dependency specs. Keep `npm:pi-archimedes@2.0.1` as the installable base, then apply the exact production projection pinned by `forks/pi-archimedes`.
 
 | Package | Base | Patch |
 |---|---:|---|
 | `pi-langfuse` | 1.5.10 | Split legacy REST ingestion under a 3,000,000-byte request ceiling with dedupe-safe envelope retries, and keep finite ordinary-string bounds while preserving valid media only on the transient OTel extraction path. Logical session IDs and score entity IDs are native in the 1.5.10 base. |
-| `pi-archimedes` | 1.8.3 | Add `/archimedes` operator controls for bounded subagent defaults. |
-| `@pi-archimedes/subagent` | 1.8.3 | Preserve child session correlation; add bounded agentic and isolated one-shot execution; stop three identical failed tool results; expose globally bounded parallel child outputs and adaptive current-turn/cumulative token progress; assemble Pi 0.84 delta-only child output under a 12,000-character live-preview ceiling while retaining legacy cumulative-snapshot support; expose observed provider plus effective child profile/limits for evaluation evidence from fork branch [`vendor/pi-setup`](https://github.com/stvhay/pi-archimedes/tree/vendor/pi-setup). |
+| `pi-archimedes` | 2.0.1 | Add `/archimedes` operator controls for bounded subagent defaults. |
+| `@pi-archimedes/subagent` | 2.0.1 | Add bounded agentic execution, isolated one-shot execution with best-effort provider-native output caps, privacy-bounded repeated-error termination, bounded parallel outputs, adaptive turn-token progress, and dual legacy/Pi 0.84 stream parsing. Native v2.0.1 child session/model behavior is preserved; effective provider/profile/limits and output-cap enforcement remain available as result evidence from fork branch [`vendor/pi-setup-v2`](https://github.com/stvhay/pi-archimedes/tree/vendor/pi-setup-v2). |
 
 Normal deployment pins these patch-base dependencies exactly in the runtime npm manifest, installs missing, mismatched, or stale-patch exact bases, and applies patches automatically:
 
@@ -22,4 +22,4 @@ Run `scripts/apply-pi-package-patches.sh` directly only when repairing an alread
 
 `--check` is read-only. Apply is idempotent and rejects version, source-context, or incomplete-patch mismatches. Apply is not filesystem-transactional: after an interrupted write or permission failure, reinstall the exact pinned packages before checking and applying again. Remove each patch and its package pin after a verified upstream release includes the corresponding change. Reinstall the exact npm base before moving between materially different patch revisions; partial states fail closed.
 
-The Archimedes projection retains `--no-session`, does not persist child transcripts, and adds no invocation/trace transport. One-shot disables tools, discovered extensions, skills, context files, and persistence; explicit prompt-template macros remain available.
+The Archimedes projection retains `--no-session`, does not persist child transcripts, and adds no invocation/trace transport. One-shot disables tools, discovered extensions, skills, context files, and persistence; explicit prompt-template macros remain available. The tracked wrapper reads `catalog.json` billing classes and injects a 16,384-token default only for metered one-shot children. Set `PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS` to a positive integer, `0`, or `off` to tighten or disable that local default; explicit tighter call limits win.

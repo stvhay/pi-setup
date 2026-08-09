@@ -33,7 +33,10 @@ pi-setup/ (this repo, source of truth)
   exact base reconciliation. It is idempotent and fails closed on version or
   source-context mismatch. The Langfuse projection keeps ordinary strings finite,
   permits valid media only on the transient OTel extraction path, and stores bounded
-  omission markers in REST fallback instead of raw media.
+  omission markers in REST fallback instead of raw media. The Archimedes 2.0.1
+  projection adds bounded agentic/one-shot execution, dual legacy/Pi 0.84 child-stream
+  parsing, bounded parent-visible outputs, adaptive token progress, and repeated-error
+  termination while preserving native v2 child session/model behavior.
 - Two instruction levels share one filename: the repo root `AGENTS.md` is
   *project* instructions for working on pi-setup itself; `pi/agent/AGENTS.md`
   is the *global* instruction file every Pi session loads after deploy.
@@ -69,8 +72,11 @@ single source for routing facts: cost class, billing class, modalities, context
 window, reasoning capability, and rates. `agnt` and `agent-instructions` read it
 via shared `bin/_agnt_common.py`; no model facts live in code.
 Every metered OpenRouter model runs only in a fresh subagent or `agnt invoke`
-worker, never as a continuation model for a long root conversation. See the
-approved [Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).
+worker, never as a continuation model for a long root conversation. The tracked
+Archimedes wrapper uses this catalog's `billingClass`—not provider-name inference—to
+inject a configurable 16,384-token provider output cap only for metered one-shot
+children. Explicit tighter caps win; subscription and agentic children receive no
+automatic token or cost cap. See the approved [Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).
 
 ### Work, tasks, prompts, skills, roles, and tools
 

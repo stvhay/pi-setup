@@ -207,11 +207,29 @@ def test_archimedes_custom_input_wrapper_preserves_public_components_and_one_por
     agent_dir = tmp_path / "agent"
     package_dir = agent_dir / "npm" / "node_modules" / "pi-archimedes"
     bus_dir = agent_dir / "npm" / "node_modules" / "@pi-archimedes" / "core"
+    subagent_dir = agent_dir / "npm" / "node_modules" / "@pi-archimedes" / "subagent"
     package_dir.mkdir(parents=True)
     bus_dir.mkdir(parents=True)
+    subagent_dir.mkdir(parents=True)
     (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
     (package_dir / "package.json").write_text(
-        json.dumps({"name": "pi-archimedes", "version": "1.8.3", "type": "module", "main": "./index.js"}),
+        json.dumps({"name": "pi-archimedes", "version": "2.0.1", "type": "module", "main": "./index.js"}),
+        encoding="utf-8",
+    )
+    (agent_dir / "catalog.json").write_text(
+        json.dumps({
+            "schemaVersion": 1,
+            "families": {
+                "metered": {"venues": [{
+                    "target": "openrouter/anthropic/claude-opus-5",
+                    "billingClass": "metered",
+                }]},
+                "subscription": {"venues": [{
+                    "target": "openai-codex/gpt-5.6-terra",
+                    "billingClass": "subscription",
+                }]},
+            },
+        }),
         encoding="utf-8",
     )
     (package_dir / "index.js").write_text(
@@ -228,10 +246,19 @@ export default function registerArchimedes(pi) {
     parameters: {
       type: "object",
       properties: {
+        agent: { type: "string" },
         task: { type: "string" },
+        model: { type: "string" },
+        mode: { type: "string", enum: ["agentic", "one-shot"] },
+        limits: { type: "object", properties: { maxOutputTokens: { type: "integer" } } },
         async: { type: "boolean" },
         cwd: { type: "string" },
-        tasks: { type: "array", items: { type: "object", properties: { task: { type: "string" }, cwd: { type: "string" } }, required: ["task"] } },
+        tasks: { type: "array", items: { type: "object", properties: {
+          agent: { type: "string" }, task: { type: "string" }, model: { type: "string" },
+          mode: { type: "string", enum: ["agentic", "one-shot"] },
+          limits: { type: "object", properties: { maxOutputTokens: { type: "integer" } } },
+          cwd: { type: "string" },
+        }, required: ["task"] } },
       },
     },
     prepareArguments(args) { return args; },
@@ -280,13 +307,38 @@ export default function registerArchimedes(pi) {
         'export const Events = { ASK_REQUEST: "ask" }; export const getBus = () => ({ emit() {} });',
         encoding="utf-8",
     )
+    (subagent_dir / "package.json").write_text(
+        json.dumps({
+            "name": "@pi-archimedes/subagent",
+            "version": "2.0.1",
+            "type": "module",
+            "main": "./index.js",
+        }),
+        encoding="utf-8",
+    )
+    (subagent_dir / "index.js").write_text("export default () => {};\n", encoding="utf-8")
+    (subagent_dir / "agents.js").write_text(
+        """
+export function discoverAgents() {
+  return [
+    { name: "metered-agent", model: "openrouter/anthropic/claude-opus-5" },
+    { name: "subscription-agent", model: "openai-codex/gpt-5.6-terra" },
+  ];
+}
+export function findAgent(agents, name) { return agents.find((agent) => agent.name === name); }
+""",
+        encoding="utf-8",
+    )
     script = f"""
       import assert from "node:assert/strict";
       import archimedes from {ARCHIMEDES_WRAPPER.as_uri()!r};
 
       globalThis.__upstreamAskCalls = [];
       globalThis.__upstreamSubagentCalls = [];
-      for (const mode of ["tui", "rpc"]) {{
+      for (const [mode, configuredCap] of [["tui", undefined], ["rpc", "12000"]]) {{
+        if (configuredCap === undefined) delete process.env.PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS;
+        else process.env.PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS = configuredCap;
+        const expectedCap = configuredCap === undefined ? 16384 : Number(configuredCap);
         const tools = [];
         const commands = [];
         const events = [];
@@ -387,6 +439,101 @@ export default function registerArchimedes(pi) {
           model: "openrouter/anthropic/claude-opus-5",
         }}, undefined, undefined, {{ mode }});
         assert.equal(allowedMeteredNonReview.details.upstream, true);
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          task: "Map auth callers",
+          model: "openrouter/anthropic/claude-opus-5",
+        }});
+
+        await subagent.execute("metered-one-shot", {{
+          task: "Map auth callers",
+          mode: "one-shot",
+          model: "openrouter/anthropic/claude-opus-5",
+          outputContract: "inline",
+        }}, undefined, undefined, {{ mode }});
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          task: "Map auth callers",
+          mode: "one-shot",
+          model: "openrouter/anthropic/claude-opus-5",
+          limits: {{ maxOutputTokens: expectedCap }},
+        }});
+
+        await subagent.execute("metered-tighter", {{
+          task: "Map auth callers",
+          mode: "one-shot",
+          model: "openrouter/anthropic/claude-opus-5",
+          limits: {{ maxOutputTokens: 8192 }},
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, 8192);
+
+        await subagent.execute("metered-wider", {{
+          task: "Map auth callers",
+          mode: "one-shot",
+          model: "openrouter/anthropic/claude-opus-5",
+          limits: {{ maxOutputTokens: 32768 }},
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, expectedCap);
+
+        await subagent.execute("subscription-one-shot", {{
+          task: "Map auth callers",
+          mode: "one-shot",
+          model: "openai-codex/gpt-5.6-terra",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal("limits" in globalThis.__upstreamSubagentCalls.at(-1), false);
+
+        await subagent.execute("inherited-metered-one-shot", {{
+          task: "Map auth callers",
+          mode: "one-shot",
+        }}, undefined, undefined, {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }});
+        assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, expectedCap);
+
+        await subagent.execute("registry-alias-metered-one-shot", {{
+          task: "Map auth callers",
+          mode: "one-shot",
+          model: "anthropic/claude-opus-5",
+        }}, undefined, undefined, {{ mode, modelRegistry: {{ getAll: () => [
+          {{ provider: "openrouter", id: "anthropic/claude-opus-5" }},
+        ] }} }});
+        assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, expectedCap);
+
+        await subagent.execute("unknown-one-shot", {{
+          task: "Map auth callers",
+          mode: "one-shot",
+          model: "openrouter/unknown/model",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal("limits" in globalThis.__upstreamSubagentCalls.at(-1), false);
+
+        await subagent.execute("named-metered-one-shot", {{
+          agent: "metered-agent",
+          task: "Map auth callers",
+          mode: "one-shot",
+        }}, undefined, undefined, {{ mode, model: {{ provider: "openai-codex", id: "gpt-5.6-terra" }} }});
+        assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, expectedCap);
+
+        await subagent.execute("named-subscription-one-shot", {{
+          agent: "subscription-agent",
+          task: "Map auth callers",
+          mode: "one-shot",
+        }}, undefined, undefined, {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }});
+        assert.equal("limits" in globalThis.__upstreamSubagentCalls.at(-1), false);
+
+        await subagent.execute("mixed-parallel-one-shot", {{
+          mode: "one-shot",
+          tasks: [
+            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5", outputContract: "inline" }},
+            {{ task: "Subscription", model: "openai-codex/gpt-5.6-terra", outputContract: "artifact" }},
+            {{ task: "Agentic metered", mode: "agentic", model: "openrouter/anthropic/claude-opus-5" }},
+            {{ task: "Named metered", agent: "metered-agent" }},
+          ],
+        }}, undefined, undefined, {{ mode }});
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          mode: "one-shot",
+          tasks: [
+            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5", limits: {{ maxOutputTokens: expectedCap }} }},
+            {{ task: "Subscription", model: "openai-codex/gpt-5.6-terra" }},
+            {{ task: "Agentic metered", mode: "agentic", model: "openrouter/anthropic/claude-opus-5" }},
+            {{ task: "Named metered", agent: "metered-agent", limits: {{ maxOutputTokens: expectedCap }} }},
+          ],
+        }});
 
         const allowedSubscriptionReview = await subagent.execute("subscription-review", {{
           task: "Review auth",
@@ -497,6 +644,25 @@ export default function registerArchimedes(pi) {
         assert.equal(headlessCall.params.questions[0].multi, true);
         assert.equal("selectionMode" in headlessCall.params.questions[0], false);
       }}
+
+      process.env.PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS = "off";
+      const offTools = [];
+      const offEvents = [];
+      await archimedes({{
+        on(name, handler) {{ offEvents.push({{ name, handler }}); }},
+        registerTool(tool) {{ offTools.push(tool); }},
+        registerCommand() {{}},
+      }});
+      for (const event of offEvents) await event.handler({{}}, {{}});
+      await offTools.find((tool) => tool.name === "subagent").execute("off", {{
+        task: "Map auth callers",
+        mode: "one-shot",
+        model: "openrouter/anthropic/claude-opus-5",
+      }}, undefined, undefined, {{}});
+      assert.equal("limits" in globalThis.__upstreamSubagentCalls.at(-1), false);
+
+      process.env.PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS = "-1";
+      await assert.rejects(() => archimedes({{}}), /must be a positive integer, 0, or off/);
     """
     run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
 

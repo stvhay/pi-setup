@@ -48,7 +48,7 @@ expected = {
     'submodule "forks/pi-archimedes"': {
         "path": "forks/pi-archimedes",
         "url": "https://github.com/stvhay/pi-archimedes.git",
-        "branch": "vendor/pi-setup",
+        "branch": "vendor/pi-setup-v2",
     },
 }
 actual = {section: dict(config[section]) for section in config.sections()}

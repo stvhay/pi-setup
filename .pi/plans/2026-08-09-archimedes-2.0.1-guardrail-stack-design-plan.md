@@ -92,14 +92,14 @@ Existing remote draft heads remain untouched until final verification and explic
 
 ## Acceptance criteria
 
-- [ ] Every old PR/vendor behavior is classified and only still-needed behavior appears in rebuilt diffs.
-- [ ] PR 1 preserves native v2.0.1 child IDs/model management and passes agentic limit, output, usage, Pi 0.84, model-label, Windows, cancellation, malformed-stream, ordering, and compatibility tests.
-- [ ] PR 2 enforces one provider request, best-effort `maxOutputTokens`, applied/unsupported evidence, mode-correct cumulative-limit behavior, one-shot isolation, thinking precedence, output preservation, and model labels.
-- [ ] PR 3 stops only the offending agentic child after three identical failed tools with bounded privacy-safe state and preserved partial evidence.
-- [ ] pi-setup uses exact pi-archimedes 2.0.1 package bases and applies no automatic token/cost limit to subscription children.
-- [ ] Metered one-shot default is 16,384 and explicit tighter limits win.
-- [ ] Existing local output contracts, artifact persistence, child trace semantics, Langfuse projection, and package repair remain compatible.
-- [ ] No remote draft/vendor update occurs before final gates and required history-rewrite approval.
+- [x] Every old PR/vendor behavior is classified and only still-needed behavior appears in rebuilt diffs.
+- [x] PR 1 preserves native v2.0.1 child IDs/model management and passes agentic limit, output, usage, Pi 0.84, model-label, Windows, cancellation, malformed-stream, ordering, and compatibility tests.
+- [x] PR 2 enforces one provider request, best-effort `maxOutputTokens`, applied/unsupported evidence, mode-correct cumulative-limit behavior, one-shot isolation, thinking precedence, output preservation, and model labels.
+- [x] PR 3 stops only the offending agentic child after three identical failed tools with bounded privacy-safe state and preserved partial evidence.
+- [x] pi-setup uses exact pi-archimedes 2.0.1 package bases and applies no automatic token/cost limit to subscription children.
+- [x] Metered one-shot default is 16,384 and explicit tighter limits win.
+- [x] Existing local output contracts, artifact persistence, child trace semantics, Langfuse projection, and package repair remain compatible.
+- [x] No remote draft/vendor update occurred before final local gates; history replacement remains approval-gated.
 
 ---
 
@@ -113,7 +113,7 @@ Existing remote draft heads remain untouched until final verification and explic
 - Frozen install, package TypeScript, and 54 baseline tests passed.
 - Disposable old-PR cherry-pick exposed conflicts rather than being treated as a rebuild strategy.
 
-### Task 2: Rebuild bounded execution PR 1 [Depends on Task 1]
+### Task 2: Rebuild bounded execution PR 1 [Completed]
 
 **Context:** Start from v2.0.1 and port behavior through current interfaces. Preserve top-level `execute` import, current TypeBox package, model validation, agent manager, native child IDs, and current model renderer structure.
 
@@ -135,7 +135,7 @@ corepack pnpm --filter @pi-archimedes/subagent exec vitest run
 corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit
 ```
 
-### Task 3: Rebuild one-shot/output-cap PR 2 [Depends on Task 2]
+### Task 3: Rebuild one-shot/output-cap PR 2 [Completed]
 
 **Files:**
 - Create/modify: `packages/subagent/src/execution-profile.ts`, output-cap payload/control helper if needed, `child-guard.ts`, `limits.ts`, `execute.ts`, `index.ts`, `spawn.ts`, `stream.ts`, `types.ts`, focused tests.
@@ -151,7 +151,7 @@ corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit
 6. Implement through existing resolved execution, child guard, spawn environment, stream, and render seams.
 7. Run focused/full subagent checks and commit one implementation/documentation change.
 
-### Task 4: Rebuild repeated-error PR 3 [Depends on Task 2]
+### Task 4: Rebuild repeated-error PR 3 [Completed]
 
 **Files:**
 - Modify: `packages/subagent/src/stream.ts`, `types.ts`, `stream.test.ts`, package README, plan index.
@@ -164,7 +164,7 @@ corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit
 4. Keep one-shot unaffected because it has no tools.
 5. Run focused/full subagent checks and commit implementation/documentation.
 
-### Task 5: Assemble fast-forwardable vendor v2 runtime [Depends on Tasks 2–4]
+### Task 5: Assemble fast-forwardable vendor v2 runtime [Completed]
 
 **Context:** Preserve remote vendor ancestry without carrying obsolete production code into the v2 tree.
 
@@ -175,7 +175,7 @@ corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit
 4. Confirm native v2 child ID/model features are not duplicated.
 5. Run package/workspace TypeScript, subagent/full tests, and clean diff checks.
 
-### Task 6: Migrate pi-setup package projection [Depends on Task 5]
+### Task 6: Migrate pi-setup package projection [Completed]
 
 **Files:**
 - Modify exact pins and projection patches under `patches/pi-packages/`.
@@ -188,7 +188,7 @@ corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit
 4. Update revision detection so stale exact v2.0.1 and old 1.8.3 projections repair atomically.
 5. Verify isolated migration, rollback, repeat idempotence, package patch exactness, and local wrapper output contracts.
 
-### Task 7: Review, verify, and stage [Depends on Tasks 2–6]
+### Task 7: Review, verify, and stage [In progress]
 
 **Upstream gates:**
 ```bash

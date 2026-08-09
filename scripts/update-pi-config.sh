@@ -62,6 +62,30 @@ raise SystemExit(0 if (package.get("name"), package.get("version")) == tuple(sys
 PY
 }
 
+patch_dry_run_is_exact() {
+  local direction=$1 package_dir=$2 patch_file=$3 output status=1
+  output=$(mktemp)
+  if [ "$direction" = reverse ]; then
+    if patch --force --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" \
+      < "$patch_file" >"$output" 2>&1 \
+      && ! grep -Eiq 'offset|fuzz' "$output"; then
+      status=0
+    fi
+  elif patch --force --fuzz=0 --dry-run -p1 -d "$package_dir" \
+    < "$patch_file" >"$output" 2>&1 \
+    && ! grep -Eiq 'offset|fuzz' "$output"; then
+    status=0
+  fi
+  rm -f "$output"
+  return "$status"
+}
+
+package_patch_is_clean_or_applied() {
+  local package_dir=$1 patch_file=$2
+  patch_dry_run_is_exact reverse "$package_dir" "$patch_file" \
+    || patch_dry_run_is_exact forward "$package_dir" "$patch_file"
+}
+
 pin_patch_base_dependency() {
   local relative=$1 name=$2 version=$3
   local manifest="$DEST/agent/npm/package.json"
@@ -164,10 +188,7 @@ install_langfuse_patch_base() {
   local package_json="$package_dir/package.json"
   local patch_file="$PACKAGE_PATCH_DIR/pi-langfuse-1.5.10.patch"
   if package_is_exact "$package_json" pi-langfuse 1.5.10; then
-    if patch --force --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" \
-      < "$patch_file" >/dev/null 2>&1 \
-      || patch --force --silent --fuzz=0 --dry-run -p1 -d "$package_dir" \
-        < "$patch_file" >/dev/null 2>&1; then
+    if package_patch_is_clean_or_applied "$package_dir" "$patch_file"; then
       echo "pi-langfuse 1.5.10: already installed"
     else
       reinstall_langfuse_patch_base
@@ -182,7 +203,7 @@ reinstall_archimedes_patch_base() {
   local meta_dir="$modules/pi-archimedes" subagent_dir="$modules/@pi-archimedes/subagent"
   if [ "$MODE" = dry-run ]; then
     run rm -rf "$meta_dir" "$subagent_dir"
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@1.8.3
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.0.1
     return
   fi
 
@@ -192,9 +213,9 @@ reinstall_archimedes_patch_base() {
   mkdir -p "$backup/@pi-archimedes"
   mv "$meta_dir" "$backup/pi-archimedes"
   mv "$subagent_dir" "$backup/@pi-archimedes/subagent"
-  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@1.8.3 \
-    && package_is_exact "$meta_dir/package.json" pi-archimedes 1.8.3 \
-    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 1.8.3; then
+  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.0.1 \
+    && package_is_exact "$meta_dir/package.json" pi-archimedes 2.0.1 \
+    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 2.0.1; then
     return
   fi
 
@@ -204,28 +225,22 @@ reinstall_archimedes_patch_base() {
 }
 
 install_archimedes_patch_base() {
-  local meta="$DEST/agent/npm/node_modules/pi-archimedes/package.json"
-  local subagent="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/package.json"
-  local patch_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/index.ts"
-  local progress_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/types.ts"
-  local preview_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/handlers.ts"
-  local evidence_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/execute.ts"
-  local breaker_marker="$DEST/agent/npm/node_modules/@pi-archimedes/subagent/src/stream.ts"
-  if package_is_exact "$meta" pi-archimedes 1.8.3 \
-    && package_is_exact "$subagent" @pi-archimedes/subagent 1.8.3; then
-    if grep -Fq "PARALLEL_OUTPUT_MAX_CHARS" "$patch_marker" \
-      && grep -Fq "turnTokens" "$progress_marker" \
-      && grep -Fq "streamingParts" "$progress_marker" \
-      && grep -Fq "STREAMING_OUTPUT_MAX_CHARS" "$preview_marker" \
-      && grep -Fq "executionEvidence" "$evidence_marker" \
-      && grep -Fq 'reason: "repeated-error"' "$breaker_marker"; then
-      echo "pi-archimedes 1.8.3: already installed"
-      echo "@pi-archimedes/subagent 1.8.3: already installed"
+  local modules="$DEST/agent/npm/node_modules"
+  local meta_dir="$modules/pi-archimedes" subagent_dir="$modules/@pi-archimedes/subagent"
+  local meta="$meta_dir/package.json" subagent="$subagent_dir/package.json"
+  local meta_patch="$PACKAGE_PATCH_DIR/pi-archimedes-meta-2.0.1.patch"
+  local subagent_patch="$PACKAGE_PATCH_DIR/pi-archimedes-subagent-2.0.1.patch"
+  if package_is_exact "$meta" pi-archimedes 2.0.1 \
+    && package_is_exact "$subagent" @pi-archimedes/subagent 2.0.1; then
+    if package_patch_is_clean_or_applied "$meta_dir" "$meta_patch" \
+      && package_patch_is_clean_or_applied "$subagent_dir" "$subagent_patch"; then
+      echo "pi-archimedes 2.0.1: already installed"
+      echo "@pi-archimedes/subagent 2.0.1: already installed"
     else
       reinstall_archimedes_patch_base
     fi
   else
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@1.8.3
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.0.1
   fi
 }
 
@@ -412,10 +427,10 @@ fi
 # Reconcile only missing, mismatched, or stale version-locked patch bases.
 # Keep their npm manifest entries exact before and after each install so npm cannot
 # reify a newly released version of one patch base while installing the other.
-pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "1.8.3"
+pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.0.1"
 pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.5.10"
 install_archimedes_patch_base
-pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "1.8.3"
+pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.0.1"
 install_langfuse_patch_base
 pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.5.10"
 if [ "$MODE" = dry-run ]; then

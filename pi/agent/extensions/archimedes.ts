@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -34,6 +35,11 @@ type ToolDefinition = {
 };
 type ArchimedesFactory = (pi: ExtensionAPI) => void | Promise<void>;
 type AskEmitter = (questions: Question[]) => void;
+type AgentModelResolver = (name: string, cwd: string) => string | undefined;
+type BillingClass = "metered" | "subscription";
+
+const METERED_ONE_SHOT_CAP_ENV = "PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS";
+const DEFAULT_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS = 16_384;
 
 const outputContracts = ["inline", "artifact", "status-only", "pass-no-findings"] as const;
 const outputContractParameter = {
@@ -209,6 +215,106 @@ function upstreamSubagentArguments(params: any): any {
   };
 }
 
+function meteredOneShotMaxOutputTokens(): number | undefined {
+  const raw = process.env[METERED_ONE_SHOT_CAP_ENV]?.trim();
+  if (!raw) return DEFAULT_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS;
+  if (raw === "0" || raw.toLowerCase() === "off") return undefined;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${METERED_ONE_SHOT_CAP_ENV} must be a positive integer, 0, or off`);
+  }
+  return value;
+}
+
+function normalizeModelRef(model: string | undefined): string | undefined {
+  const ref = model?.trim().replace(/:(?:off|minimal|low|medium|high|xhigh|max)$/i, "").toLowerCase();
+  return ref || undefined;
+}
+
+function loadBillingClasses(): Map<string, BillingClass> {
+  const path = join(getAgentDir(), "catalog.json");
+  let parsed: any;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`Cannot load model billing catalog ${path}: ${error instanceof Error ? error.message : error}`);
+  }
+  if (!parsed?.families || typeof parsed.families !== "object" || Array.isArray(parsed.families)) {
+    throw new Error(`Invalid model billing catalog ${path}: families must be an object`);
+  }
+
+  const classes = new Map<string, BillingClass>();
+  for (const family of Object.values(parsed.families) as any[]) {
+    if (!Array.isArray(family?.venues)) continue;
+    for (const venue of family.venues) {
+      const target = normalizeModelRef(venue?.target);
+      const billingClass = venue?.billingClass;
+      if (!target || (billingClass !== "metered" && billingClass !== "subscription")) {
+        throw new Error(`Invalid model billing catalog ${path}: every venue needs target and billingClass`);
+      }
+      const previous = classes.get(target);
+      if (previous && previous !== billingClass) {
+        throw new Error(`Invalid model billing catalog ${path}: conflicting billingClass for ${target}`);
+      }
+      classes.set(target, billingClass);
+    }
+  }
+  return classes;
+}
+
+function modelBillingClass(
+  model: string | undefined,
+  ctx: any,
+  classes: ReadonlyMap<string, BillingClass>,
+): BillingClass | undefined {
+  const ref = normalizeModelRef(model);
+  if (!ref) return undefined;
+  const direct = classes.get(ref);
+  if (direct) return direct;
+  const matches = (ctx?.modelRegistry?.getAll?.() ?? []).filter((candidate: any) =>
+    normalizeModelRef(candidate?.id) === ref ||
+    normalizeModelRef(`${candidate?.provider}/${candidate?.id}`) === ref
+  );
+  if (matches.length !== 1) return undefined;
+  return classes.get(normalizeModelRef(`${matches[0].provider}/${matches[0].id}`)!);
+}
+
+function positiveOutputLimit(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function withMeteredOneShotCaps(
+  params: any,
+  ctx: any,
+  classes: ReadonlyMap<string, BillingClass>,
+  resolveAgentModel: AgentModelResolver,
+  defaultCap: number | undefined,
+): any {
+  if (!defaultCap || !params || typeof params !== "object") return params;
+  const inheritedModel = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+  const cwd = ctx?.cwd ?? process.cwd();
+  const apply = (task: any, topLevel: any): any => {
+    const mode = task.mode ?? topLevel.mode ?? "agentic";
+    const agentModel = typeof task.agent === "string" ? resolveAgentModel(task.agent, cwd) : undefined;
+    const model = agentModel ?? task.model ?? inheritedModel;
+    if (mode !== "one-shot" || modelBillingClass(model, ctx, classes) !== "metered") return task;
+    const caps = [
+      defaultCap,
+      positiveOutputLimit(topLevel.limits?.maxOutputTokens),
+      positiveOutputLimit(task.limits?.maxOutputTokens),
+    ].filter((value): value is number => value !== undefined);
+    return {
+      ...task,
+      limits: { ...(task.limits ?? {}), maxOutputTokens: Math.min(...caps) },
+    };
+  };
+
+  if (Array.isArray(params.tasks)) {
+    return { ...params, tasks: params.tasks.map((task: any) => apply(task, params)) };
+  }
+  return apply(params, {});
+}
+
 function isOpenRouterModel(model: string | undefined, ctx: any): boolean {
   const ref = model?.trim().replace(/:(?:off|minimal|low|medium|high|xhigh|max)$/i, "").toLowerCase();
   if (!ref) return false;
@@ -229,7 +335,13 @@ function isMeteredReviewSubagent(params: any, ctx: any): boolean {
   );
 }
 
-function registerContractAwareSubagent(pi: ExtensionAPI, upstreamSubagent?: ToolDefinition): void {
+function registerContractAwareSubagent(
+  pi: ExtensionAPI,
+  upstreamSubagent: ToolDefinition | undefined,
+  classes: ReadonlyMap<string, BillingClass>,
+  resolveAgentModel: AgentModelResolver,
+  defaultCap: number | undefined,
+): void {
   if (!upstreamSubagent?.execute || !upstreamSubagent.parameters) {
     throw new Error("Archimedes subagent tool is unavailable");
   }
@@ -251,7 +363,8 @@ function registerContractAwareSubagent(pi: ExtensionAPI, upstreamSubagent?: Tool
           isError: true,
         };
       }
-      return upstreamSubagent.execute!(toolCallId, upstreamSubagentArguments(params), signal, onUpdate, ctx);
+      const bounded = withMeteredOneShotCaps(params, ctx, classes, resolveAgentModel, defaultCap);
+      return upstreamSubagent.execute!(toolCallId, upstreamSubagentArguments(bounded), signal, onUpdate, ctx);
     },
   } as any);
 }
@@ -309,18 +422,31 @@ function registerPortableAsk(pi: ExtensionAPI, upstreamAsk?: ToolDefinition, emi
 export default async function archimedes(pi: ExtensionAPI): Promise<void> {
   const require = createRequire(join(getAgentDir(), "npm", "package.json"));
   const archimedesEntry = require.resolve("pi-archimedes");
-  const busEntry = createRequire(archimedesEntry).resolve("@pi-archimedes/core/bus");
-  const [{ default: registerArchimedes }, busModule] = await Promise.all([
+  const packageRequire = createRequire(archimedesEntry);
+  const busEntry = packageRequire.resolve("@pi-archimedes/core/bus");
+  const subagentEntry = packageRequire.resolve("@pi-archimedes/subagent");
+  const agentsEntry = join(dirname(subagentEntry), `agents${extname(subagentEntry)}`);
+  const [{ default: registerArchimedes }, busModule, agentsModule] = await Promise.all([
     import(pathToFileURL(archimedesEntry).href) as Promise<{ default: ArchimedesFactory }>,
     import(pathToFileURL(busEntry).href) as Promise<{ getBus: () => { emit: (event: string, payload: unknown) => void }; Events: { ASK_REQUEST: string } }>,
+    import(pathToFileURL(agentsEntry).href) as Promise<{
+      discoverAgents: (cwd: string) => any[];
+      findAgent: (agents: any[], name: string) => { model?: string } | undefined;
+    }>,
   ]);
+  const defaultCap = meteredOneShotMaxOutputTokens();
+  const billingClasses = defaultCap ? loadBillingClasses() : new Map<string, BillingClass>();
+  const resolveAgentModel: AgentModelResolver = (name, cwd) =>
+    agentsModule.findAgent(agentsModule.discoverAgents(cwd), name)?.model;
   let upstreamAsk: ToolDefinition | undefined;
   const components = new Proxy(pi, {
     get(target, property, receiver) {
       if (property === "registerTool") {
         return (tool: ToolDefinition) => {
           if (tool.name === "ask") upstreamAsk = tool;
-          else if (tool.name === "subagent") registerContractAwareSubagent(target, tool);
+          else if (tool.name === "subagent") {
+            registerContractAwareSubagent(target, tool, billingClasses, resolveAgentModel, defaultCap);
+          }
           else target.registerTool(tool as any);
         };
       }

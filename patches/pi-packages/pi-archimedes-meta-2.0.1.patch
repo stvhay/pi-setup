@@ -24,12 +24,9 @@ index af85d2e..646af3d 100644
 @@ -82,0 +100 @@ export function loadAllConfig(): {
 +    subagent: loadSubagentConfigOrDefault(),
 diff --git a/src/settings.ts b/src/settings.ts
-index 5dedf69..4f2f8a7 100644
+index 5dedf69..c555968 100644
 --- a/src/settings.ts
 +++ b/src/settings.ts
-@@ -4 +4 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
--import { SettingsList, type SettingItem, TUI } from "@earendil-works/pi-tui";
-+import { SettingsList, type SettingItem, type TUI } from "@earendil-works/pi-tui";
 @@ -9,0 +10 @@ import { getNotifySettingsItems } from "@pi-archimedes/notify";
 +import { getSubagentSettingsItems } from "@pi-archimedes/subagent/config";
 @@ -15,0 +17 @@ import {

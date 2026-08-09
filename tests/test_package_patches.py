@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
-ARCHIMEDES_VENDOR_HEAD = "13c50cca1ebca78d3433c9b2494741e69548f990"
+ARCHIMEDES_VENDOR_HEAD = "56c2a997e716f2ff24d37987c0d3d0cbf6b9d40d"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "7f6e9eca4689b5ba6612cff687c6cabbb4e71142"
 
@@ -19,7 +19,7 @@ def _package(root: Path, relative: str, name: str, version: str, source: str) ->
     package = root / relative
     package.mkdir(parents=True)
     (package / "package.json").write_text(json.dumps({"name": name, "version": version}), encoding="utf-8")
-    target = package / ("index.ts" if name == "pi-langfuse" else "src/stream.ts")
+    target = package / ("index.ts" if name == "pi-langfuse" else "src/types.ts")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(source, encoding="utf-8")
     if name == "pi-langfuse":
@@ -48,7 +48,7 @@ def _archimedes_meta(root: Path) -> Path:
     target = package / "src/settings.ts"
     target.parent.mkdir(parents=True)
     (package / "package.json").write_text(
-        json.dumps({"name": "pi-archimedes", "version": "1.8.3"}),
+        json.dumps({"name": "pi-archimedes", "version": "2.0.1"}),
         encoding="utf-8",
     )
     target.write_text("export const settings = {};\n", encoding="utf-8")
@@ -74,17 +74,17 @@ diff --git a/src/redaction.ts b/src/redaction.ts
 """,
         encoding="utf-8",
     )
-    (root / "pi-archimedes-subagent-1.8.3.patch").write_text(
-        """diff --git a/src/stream.ts b/src/stream.ts
---- a/src/stream.ts
-+++ b/src/stream.ts
+    (root / "pi-archimedes-subagent-2.0.1.patch").write_text(
+        """diff --git a/src/types.ts b/src/types.ts
+--- a/src/types.ts
++++ b/src/types.ts
 @@ -1 +1 @@
 -export const result = {};
-+export const result = { childSessionId: \"child\", maxProviderRequests: 1 };
++export const result = { maxOutputTokens: 16384, maxProviderRequests: 1 };
 """,
         encoding="utf-8",
     )
-    (root / "pi-archimedes-meta-1.8.3.patch").write_text(
+    (root / "pi-archimedes-meta-2.0.1.patch").write_text(
         """diff --git a/src/settings.ts b/src/settings.ts
 --- a/src/settings.ts
 +++ b/src/settings.ts
@@ -118,7 +118,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "1.8.3",
+        "2.0.1",
         "export const result = {};\n",
     )
     meta = _archimedes_meta(package_root)
@@ -134,7 +134,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
     assert "nativeSession" in langfuse.read_text(encoding="utf-8")
     assert "MAX_INGESTION_REQUEST_BYTES" in (langfuse.parent / "src/langfuse.ts").read_text(encoding="utf-8")
     assert "MALFORMED_MEDIA_DATA_URI" in (langfuse.parent / "src/redaction.ts").read_text(encoding="utf-8")
-    assert "childSessionId" in archimedes.read_text(encoding="utf-8")
+    assert "maxOutputTokens" in archimedes.read_text(encoding="utf-8")
     assert "maxProviderRequests" in archimedes.read_text(encoding="utf-8")
     assert "subagentMaxProviderRequests" in meta.read_text(encoding="utf-8")
 
@@ -169,7 +169,7 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "1.8.3",
+        "2.0.1",
         "export const result = {};\n",
     )
     _archimedes_meta(package_root)
@@ -203,7 +203,7 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "1.8.3",
+        "2.0.1",
         "export const result = {};\n",
     )
     _archimedes_meta(package_root)
@@ -213,6 +213,32 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
 
     assert rejected.returncode != 0
     assert "patch does not match installed source" in rejected.stderr
+
+
+def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
+    package_root = tmp_path / "node_modules"
+    _package(
+        package_root,
+        "pi-langfuse",
+        "pi-langfuse",
+        "1.5.10",
+        'export const session = "file";\n',
+    )
+    archimedes = _package(
+        package_root,
+        "@pi-archimedes/subagent",
+        "@pi-archimedes/subagent",
+        "2.0.1",
+        "unexpected-prefix\nexport const result = {};\n",
+    )
+    _archimedes_meta(package_root)
+    patch_root = _fixture_patches(tmp_path / "patches")
+
+    rejected = _run(package_root, patch_root, "--check")
+
+    assert rejected.returncode != 0
+    assert "patch does not match installed source" in rejected.stderr
+    assert "maxOutputTokens" not in archimedes.read_text(encoding="utf-8")
 
 
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
@@ -230,7 +256,7 @@ def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "1.8.3",
+        "2.0.1",
         "export const result = {};\n",
     )
     _archimedes_meta(package_root)
@@ -249,7 +275,7 @@ def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path)
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "1.8.2",
+        "2.0.0",
         "export const result = {};\n",
     )
     meta = _archimedes_meta(package_root)
@@ -258,7 +284,7 @@ def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path)
     rejected = _run(package_root, patch_root)
 
     assert rejected.returncode != 0
-    assert "expected @pi-archimedes/subagent 1.8.3" in rejected.stderr
+    assert "expected @pi-archimedes/subagent 2.0.1" in rejected.stderr
     assert 'session = "file"' in langfuse.read_text(encoding="utf-8")
     assert "subagentMaxProviderRequests" not in meta.read_text(encoding="utf-8")
 
@@ -272,9 +298,14 @@ def test_archimedes_vendor_submodule_pins_combined_runtime_head():
 
     assert head.returncode == 0, head.stderr
     assert head.stdout.strip() == ARCHIMEDES_VENDOR_HEAD
-    assert subprocess.run(
-        ["git", "-C", str(ARCHIMEDES_VENDOR), "merge-base", "--is-ancestor", "c27561d", "HEAD"],
-    ).returncode == 0
+    for ancestor in (
+        "bdfeea3ed77392a2d02617fa1e0d4aa5fd8317e3",
+        "4365aba67c5f77590c9d4310275ea7488832b6a3",
+        "7d27342100e691e59f22b5cbfa8a0922b70d8495",
+    ):
+        assert subprocess.run(
+            ["git", "-C", str(ARCHIMEDES_VENDOR), "merge-base", "--is-ancestor", ancestor, "HEAD"],
+        ).returncode == 0
 
 
 def test_langfuse_vendor_submodule_pins_combined_runtime_head():
@@ -294,8 +325,8 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
 
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
     langfuse = (PATCHES / "pi-langfuse-1.5.10.patch").read_text(encoding="utf-8")
-    archimedes = (PATCHES / "pi-archimedes-subagent-1.8.3.patch").read_text(encoding="utf-8")
-    meta = (PATCHES / "pi-archimedes-meta-1.8.3.patch").read_text(encoding="utf-8")
+    archimedes = (PATCHES / "pi-archimedes-subagent-2.0.1.patch").read_text(encoding="utf-8")
+    meta = (PATCHES / "pi-archimedes-meta-2.0.1.patch").read_text(encoding="utf-8")
     added = "\n".join(
         line[1:] for line in (langfuse + archimedes + meta).splitlines()
         if line.startswith("+") and not line.startswith("+++")
@@ -318,9 +349,11 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "preserveMedia" in langfuse
     assert "observation.model = prepareRestFallbackValue" in langfuse
     assert "uploadMedia" not in langfuse
-    assert "childSessionId" in archimedes
     assert "ResolvedChildExecution" in archimedes
     assert "maxProviderRequests" in archimedes
+    assert "maxOutputTokens" in archimedes
+    assert "PI_ARCHIMEDES_OUTPUT_LIMIT" in archimedes
+    assert "workspace:*" not in archimedes
     assert "PARALLEL_OUTPUT_MAX_CHARS" in archimedes
     assert "turnTokens" in archimedes
     assert "turnCount" in archimedes
@@ -332,6 +365,10 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert 'reason: "repeated-error"' in archimedes
     assert "MAX_TRACKED_TOOL_CALL_IDS" in archimedes
     assert "MAX_FINGERPRINT_DEPTH" in archimedes
+    assert "MAX_FINGERPRINT_CHARS" in archimedes
+    assert "json.length > MAX_FINGERPRINT_CHARS" in archimedes
+    assert '"--no-tools", "--no-extensions", "--no-skills", "--no-context-files"' in archimedes
+    assert '"./config": "./src/config.ts"' in archimedes
     assert "subagentMaxProviderRequests" in meta
     assert "DEVELOPMENT.md" not in langfuse
     assert "diff --git a/test/" not in langfuse

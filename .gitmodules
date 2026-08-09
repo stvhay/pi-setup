@@ -5,4 +5,4 @@
 [submodule "forks/pi-archimedes"]
 	path = forks/pi-archimedes
 	url = https://github.com/stvhay/pi-archimedes.git
-	branch = vendor/pi-setup
+	branch = vendor/pi-setup-v2

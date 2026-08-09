@@ -63,15 +63,17 @@ patch_state() {
   fi
   if grep -Fq "$marker" "$package_dir/$marker_file"; then
     local reverse_output
-    if reverse_output=$(patch --force --silent --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
-      && [ -z "$reverse_output" ]; then
+    if reverse_output=$(patch --force --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
+      && ! grep -Eiq 'offset|fuzz' <<<"$reverse_output"; then
       echo applied
       return
     fi
     echo "$label: installed source is only partially patched" >&2
     return 1
   fi
-  if patch --force --silent --fuzz=0 --dry-run -p1 -d "$package_dir" < "$patch_file" >/dev/null 2>&1; then
+  local forward_output
+  if forward_output=$(patch --force --fuzz=0 --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
+    && ! grep -Eiq 'offset|fuzz' <<<"$forward_output"; then
     echo pending
     return
   fi
@@ -92,20 +94,20 @@ apply_preflighted_patch() {
 LANGFUSE_LABEL="pi-langfuse 1.5.10"
 LANGFUSE_DIR="$PACKAGE_ROOT/pi-langfuse"
 LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.5.10.patch"
-ARCHIMEDES_META_LABEL="pi-archimedes 1.8.3"
+ARCHIMEDES_META_LABEL="pi-archimedes 2.0.1"
 ARCHIMEDES_META_DIR="$PACKAGE_ROOT/pi-archimedes"
-ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-1.8.3.patch"
-ARCHIMEDES_SUBAGENT_LABEL="@pi-archimedes/subagent 1.8.3"
+ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-2.0.1.patch"
+ARCHIMEDES_SUBAGENT_LABEL="@pi-archimedes/subagent 2.0.1"
 ARCHIMEDES_SUBAGENT_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
-ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-1.8.3.patch"
+ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-2.0.1.patch"
 
 # Validate every package and patch before mutating any installed source tree.
 LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.10" "$LANGFUSE_PATCH" \
   "src/redaction.ts" "MALFORMED_MEDIA_DATA_URI" "src/langfuse.ts" "score.id ??= randomUUID()")
-ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "1.8.3" \
+ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "2.0.1" \
   "$ARCHIMEDES_META_PATCH" "src/settings.ts" "subagentMaxProviderRequests")
 ARCHIMEDES_SUBAGENT_STATE=$(patch_state "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDES_SUBAGENT_DIR" \
-  "@pi-archimedes/subagent" "1.8.3" "$ARCHIMEDES_SUBAGENT_PATCH" "src/stream.ts" "childSessionId")
+  "@pi-archimedes/subagent" "2.0.1" "$ARCHIMEDES_SUBAGENT_PATCH" "src/types.ts" "maxOutputTokens")
 
 if [ "$MODE" = check ]; then
   echo "$LANGFUSE_LABEL: $LANGFUSE_STATE"

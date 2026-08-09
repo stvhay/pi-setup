@@ -35,6 +35,26 @@ def run_update(
 def langfuse_patch_dir(tmp_path: Path) -> Path:
     patches = tmp_path / "patches"
     patches.mkdir()
+    (patches / "pi-archimedes-meta-2.0.1.patch").write_text(
+        """diff --git a/src/config.ts b/src/config.ts
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -1 +1 @@
+-old-meta
++new-meta
+""",
+        encoding="utf-8",
+    )
+    (patches / "pi-archimedes-subagent-2.0.1.patch").write_text(
+        """diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1 +1 @@
+-old-subagent
++new-subagent
+""",
+        encoding="utf-8",
+    )
     (patches / "pi-langfuse-1.5.10.patch").write_text(
         """diff --git a/index.ts b/index.ts
 --- a/index.ts
@@ -66,6 +86,13 @@ def write_clean_langfuse(package: Path) -> None:
     (package / "src").mkdir()
     (package / "src/langfuse.ts").write_text("old-runtime\n", encoding="utf-8")
     (package / "src/types.ts").write_text("old-type\n", encoding="utf-8")
+
+
+def write_applied_archimedes(meta: Path, subagent: Path) -> None:
+    (meta / "src").mkdir(exist_ok=True)
+    (subagent / "src").mkdir(exist_ok=True)
+    (meta / "src/config.ts").write_text("new-meta\n", encoding="utf-8")
+    (subagent / "src/index.ts").write_text("new-subagent\n", encoding="utf-8")
 
 
 def test_update_refuses_home_destination_without_mutating(tmp_path):
@@ -258,7 +285,7 @@ def test_update_installs_exact_patch_bases_before_applying_patches(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert log.read_text(encoding="utf-8").splitlines() == [
-        f"pi|{dest / 'agent'}|install npm:pi-archimedes@1.8.3",
+        f"pi|{dest / 'agent'}|install npm:pi-archimedes@2.0.1",
         f"pi|{dest / 'agent'}|install npm:pi-langfuse@1.5.10",
         f"patch|{dest}|",
     ]
@@ -272,8 +299,8 @@ def test_update_pins_patch_base_dependencies_during_langfuse_upgrade(tmp_path, u
     subagent = modules / "@pi-archimedes" / "subagent"
     langfuse = modules / "pi-langfuse"
     for package, name, version in (
-        (meta, "pi-archimedes", "1.8.3"),
-        (subagent, "@pi-archimedes/subagent", "1.8.3"),
+        (meta, "pi-archimedes", "2.0.1"),
+        (subagent, "@pi-archimedes/subagent", "2.0.1"),
         (langfuse, "pi-langfuse", "1.5.9"),
     ):
         package.mkdir(parents=True)
@@ -281,18 +308,13 @@ def test_update_pins_patch_base_dependencies_during_langfuse_upgrade(tmp_path, u
             json.dumps({"name": name, "version": version}),
             encoding="utf-8",
         )
-    (subagent / "src").mkdir()
-    (subagent / "src/index.ts").write_text("PARALLEL_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "src/types.ts").write_text("turnTokens streamingParts\n", encoding="utf-8")
-    (subagent / "src/handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "src/execute.ts").write_text("executionEvidence\n", encoding="utf-8")
-    (subagent / "src/stream.ts").write_text('reason: "repeated-error"\n', encoding="utf-8")
+    write_applied_archimedes(meta, subagent)
     manifest = dest / "agent" / "npm" / "package.json"
     manifest.write_text(
         json.dumps({
             "private": True,
             "dependencies": {
-                "pi-archimedes": "^1.8.3",
+                "pi-archimedes": "^2.0.1",
                 "pi-langfuse": "^1.5.9",
             },
         }),
@@ -306,7 +328,7 @@ import json, pathlib, sys
 agent = pathlib.Path(sys.argv[1])
 manifest = agent / "npm/package.json"
 data = json.loads(manifest.read_text())
-assert data["dependencies"]["pi-archimedes"] == "1.8.3"
+assert data["dependencies"]["pi-archimedes"] == "2.0.1"
 if __import__("os").environ.get("FAIL_LANGFUSE_INSTALL") == "1":
     raise SystemExit(7)
 package = agent / "npm/node_modules/pi-langfuse/package.json"
@@ -323,7 +345,7 @@ PY
 python3 - "$PI_CONFIG_DEST/agent/npm/package.json" <<'PY'
 import json, pathlib, sys
 deps = json.loads(pathlib.Path(sys.argv[1]).read_text())["dependencies"]
-assert deps["pi-archimedes"] == "1.8.3"
+assert deps["pi-archimedes"] == "2.0.1"
 assert deps["pi-langfuse"] == "1.5.10"
 PY
 """,
@@ -337,6 +359,7 @@ PY
         env_overrides={
             "PI_COMMAND": str(fake_pi),
             "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
+            "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path)),
             "FAIL_LANGFUSE_INSTALL": "1" if upgrade_fails else "0",
         },
     )
@@ -345,14 +368,14 @@ PY
     if upgrade_fails:
         assert proc.returncode != 0
         assert dependencies == {
-            "pi-archimedes": "1.8.3",
+            "pi-archimedes": "2.0.1",
             "pi-langfuse": "^1.5.9",
         }
         assert json.loads((langfuse / "package.json").read_text(encoding="utf-8"))["version"] == "1.5.9"
     else:
         assert proc.returncode == 0, proc.stderr
         assert dependencies == {
-            "pi-archimedes": "1.8.3",
+            "pi-archimedes": "2.0.1",
             "pi-langfuse": "1.5.10",
         }
 
@@ -361,7 +384,7 @@ def test_update_repairs_missing_archimedes_subagent_before_patching(tmp_path):
     dest = tmp_path / ".pi"
     log = tmp_path / "package-sync.log"
     for relative, name, version in (
-        ("pi-archimedes", "pi-archimedes", "1.8.3"),
+        ("pi-archimedes", "pi-archimedes", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.10"),
     ):
         package = dest / "agent" / "npm" / "node_modules" / relative
@@ -397,7 +420,7 @@ def test_update_repairs_missing_archimedes_subagent_before_patching(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert log.read_text(encoding="utf-8").splitlines() == [
-        "pi|install npm:pi-archimedes@1.8.3",
+        "pi|install npm:pi-archimedes@2.0.1",
         f"patch|{dest}",
     ]
 
@@ -406,8 +429,8 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     dest = tmp_path / ".pi"
     log = tmp_path / "package-sync.log"
     for relative, name, version in (
-        ("pi-archimedes", "pi-archimedes", "1.8.3"),
-        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "1.8.3"),
+        ("pi-archimedes", "pi-archimedes", "2.0.1"),
+        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.10"),
     ):
         package = dest / "agent" / "npm" / "node_modules" / relative
@@ -416,19 +439,12 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
             json.dumps({"name": name, "version": version}),
             encoding="utf-8",
         )
-    marker = dest / "agent" / "npm" / "node_modules" / "@pi-archimedes/subagent/src/index.ts"
-    marker.parent.mkdir(parents=True)
-    marker.write_text("const PARALLEL_OUTPUT_MAX_CHARS = 12_000;\n", encoding="utf-8")
-    progress_marker = marker.parent / "types.ts"
-    progress_marker.write_text(
-        "interface Progress { turnTokens?: number; streamingParts?: Map<number, unknown> }\n",
-        encoding="utf-8",
+    modules = dest / "agent" / "npm" / "node_modules"
+    write_applied_archimedes(
+        modules / "pi-archimedes",
+        modules / "@pi-archimedes/subagent",
     )
-    (marker.parent / "handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (marker.parent / "execute.ts").write_text("executionEvidence\n", encoding="utf-8")
-    breaker_marker = marker.parent / "stream.ts"
-    breaker_marker.write_text('const stop = { reason: "repeated-error" };\n', encoding="utf-8")
-    langfuse = dest / "agent" / "npm" / "node_modules" / "pi-langfuse"
+    langfuse = modules / "pi-langfuse"
     (langfuse / "index.ts").write_text("getSessionId?.();\n", encoding="utf-8")
     (langfuse / "src").mkdir()
     (langfuse / "src/langfuse.ts").write_text(
@@ -461,8 +477,8 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert log.read_text(encoding="utf-8").splitlines() == [f"patch|{dest}"]
-    assert "pi-archimedes 1.8.3: already installed" in proc.stdout
-    assert "@pi-archimedes/subagent 1.8.3: already installed" in proc.stdout
+    assert "pi-archimedes 2.0.1: already installed" in proc.stdout
+    assert "@pi-archimedes/subagent 2.0.1: already installed" in proc.stdout
     assert "pi-langfuse 1.5.10: already installed" in proc.stdout
 
 
@@ -470,8 +486,8 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
     dest = tmp_path / ".pi"
     log = tmp_path / "package-sync.log"
     for relative, name, version in (
-        ("pi-archimedes", "pi-archimedes", "1.8.3"),
-        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "1.8.3"),
+        ("pi-archimedes", "pi-archimedes", "2.0.1"),
+        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.10"),
     ):
         package = dest / "agent" / "npm" / "node_modules" / relative
@@ -482,26 +498,20 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
         )
         if name == "pi-langfuse":
             write_clean_langfuse(package)
-    stale = dest / "agent" / "npm" / "node_modules" / "@pi-archimedes/subagent/src/index.ts"
+    modules = dest / "agent" / "npm" / "node_modules"
+    (modules / "pi-archimedes/src").mkdir()
+    (modules / "pi-archimedes/src/config.ts").write_text("new-meta\n", encoding="utf-8")
+    stale = modules / "@pi-archimedes/subagent/src/index.ts"
     stale.parent.mkdir(parents=True)
-    stale.write_text("const PARALLEL_OUTPUT_MAX_CHARS = 12_000;\n", encoding="utf-8")
-    (stale.parent / "types.ts").write_text(
-        "interface Progress { turnTokens?: number; streamingParts?: Map<number, unknown> }\n",
-        encoding="utf-8",
-    )
-    (stale.parent / "handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (stale.parent / "stream.ts").write_text(
-        'const stop = { reason: "repeated-error" };\n',
-        encoding="utf-8",
-    )
+    stale.write_text("unexpected-prefix\nnew-subagent\n", encoding="utf-8")
     fake_pi = tmp_path / "pi"
     fake_patch = tmp_path / "apply-patches"
     fake_pi.write_text(
         '#!/bin/sh\n'
         'root="$PI_CODING_AGENT_DIR/npm/node_modules"\n'
         'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent"\n'
-        'printf \'{"name":"pi-archimedes","version":"1.8.3"}\\n\' >"$root/pi-archimedes/package.json"\n'
-        'printf \'{"name":"@pi-archimedes/subagent","version":"1.8.3"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
+        'printf \'{"name":"pi-archimedes","version":"2.0.1"}\\n\' >"$root/pi-archimedes/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/subagent","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
         'printf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
         encoding="utf-8",
     )
@@ -524,7 +534,7 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
 
     assert proc.returncode == 0, proc.stderr
     assert log.read_text(encoding="utf-8").splitlines() == [
-        "pi|install npm:pi-archimedes@1.8.3",
+        "pi|install npm:pi-archimedes@2.0.1",
         f"patch|{dest}",
     ]
 
@@ -534,8 +544,8 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
     dest = tmp_path / ".pi"
     log = tmp_path / "package-sync.log"
     for relative, name, version in (
-        ("pi-archimedes", "pi-archimedes", "1.8.3"),
-        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "1.8.3"),
+        ("pi-archimedes", "pi-archimedes", "2.0.1"),
+        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.10"),
     ):
         package = dest / "agent" / "npm" / "node_modules" / relative
@@ -544,14 +554,12 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
             json.dumps({"name": name, "version": version}),
             encoding="utf-8",
         )
-    subagent = dest / "agent" / "npm" / "node_modules" / "@pi-archimedes/subagent/src"
-    subagent.mkdir(parents=True)
-    (subagent / "index.ts").write_text("PARALLEL_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "types.ts").write_text("turnTokens\nstreamingParts\n", encoding="utf-8")
-    (subagent / "handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "execute.ts").write_text("executionEvidence\n", encoding="utf-8")
-    (subagent / "stream.ts").write_text('reason: "repeated-error"\n', encoding="utf-8")
-    langfuse = dest / "agent" / "npm" / "node_modules" / "pi-langfuse"
+    modules = dest / "agent" / "npm" / "node_modules"
+    write_applied_archimedes(
+        modules / "pi-archimedes",
+        modules / "@pi-archimedes/subagent",
+    )
+    langfuse = modules / "pi-langfuse"
     (langfuse / "src").mkdir()
     if partial_state == "marked":
         (langfuse / "index.ts").write_text("getSessionId?.();\n", encoding="utf-8")
@@ -604,8 +612,8 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
     dest = tmp_path / ".pi"
     modules = dest / "agent" / "npm" / "node_modules"
     for relative, name, version in (
-        ("pi-archimedes", "pi-archimedes", "1.8.3"),
-        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "1.8.3"),
+        ("pi-archimedes", "pi-archimedes", "2.0.1"),
+        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.10"),
     ):
         package = modules / relative
@@ -614,13 +622,10 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
             json.dumps({"name": name, "version": version}),
             encoding="utf-8",
         )
-    subagent = modules / "@pi-archimedes/subagent/src"
-    subagent.mkdir(parents=True)
-    (subagent / "index.ts").write_text("PARALLEL_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "types.ts").write_text("turnTokens\nstreamingParts\n", encoding="utf-8")
-    (subagent / "handlers.ts").write_text("STREAMING_OUTPUT_MAX_CHARS\n", encoding="utf-8")
-    (subagent / "execute.ts").write_text("executionEvidence\n", encoding="utf-8")
-    (subagent / "stream.ts").write_text('reason: "repeated-error"\n', encoding="utf-8")
+    write_applied_archimedes(
+        modules / "pi-archimedes",
+        modules / "@pi-archimedes/subagent",
+    )
     langfuse = modules / "pi-langfuse"
     (langfuse / "index.ts").write_text("getSessionId?.();\n", encoding="utf-8")
     (langfuse / "src").mkdir()
@@ -684,8 +689,8 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
     subagent = modules / "@pi-archimedes/subagent"
     langfuse = modules / "pi-langfuse"
     for package, name, version in (
-        (meta, "pi-archimedes", "1.8.3"),
-        (subagent, "@pi-archimedes/subagent", "1.8.3"),
+        (meta, "pi-archimedes", "2.0.1"),
+        (subagent, "@pi-archimedes/subagent", "2.0.1"),
         (langfuse, "pi-langfuse", "1.5.8" if failure == "langfuse-install" else "1.5.10"),
     ):
         package.mkdir(parents=True)
@@ -705,8 +710,8 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
         '#!/bin/sh\n'
         'root="$PI_CODING_AGENT_DIR/npm/node_modules"\n'
         'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent"\n'
-        'printf \'{"name":"pi-archimedes","version":"1.8.3"}\\n\' >"$root/pi-archimedes/package.json"\n'
-        'printf \'{"name":"@pi-archimedes/subagent","version":"1.8.3"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
+        'printf \'{"name":"pi-archimedes","version":"2.0.1"}\\n\' >"$root/pi-archimedes/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/subagent","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
         + ('case "$*" in *pi-langfuse*) exit 7;; esac\n' if failure == "langfuse-install" else ""),
         encoding="utf-8",
     )
@@ -771,8 +776,8 @@ def test_update_dry_run_reports_package_sync_without_executing_it(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert f"PI_CODING_AGENT_DIR={dest / 'agent'}" in proc.stdout
-    assert "install npm:pi-archimedes@1.8.3" in proc.stdout
-    assert "install npm:@pi-archimedes/subagent@1.8.3" not in proc.stdout
+    assert "install npm:pi-archimedes@2.0.1" in proc.stdout
+    assert "install npm:@pi-archimedes/subagent@2.0.1" not in proc.stdout
     assert "install npm:pi-langfuse@1.5.10" in proc.stdout
     assert f"PI_CONFIG_DEST={dest}" in proc.stdout
 

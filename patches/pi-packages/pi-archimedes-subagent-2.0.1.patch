@@ -1,19 +1,15 @@
 diff --git a/package.json b/package.json
-index 01577e9..f3df37b 100644
+index a40edfc..c590f3b 100644
 --- a/package.json
 +++ b/package.json
-@@ -12,0 +13,4 @@
+@@ -18 +18 @@
+-    "@earendil-works/pi-coding-agent": ">=0.1.0",
++    "@earendil-works/pi-coding-agent": ">=0.74.0",
+@@ -31,0 +32,4 @@
++  },
 +  "exports": {
 +    ".": "./src/index.ts",
 +    "./config": "./src/config.ts"
-+  },
-@@ -18 +22 @@
--    "@earendil-works/pi-coding-agent": ">=0.1.0",
-+    "@earendil-works/pi-coding-agent": ">=0.74.0",
-@@ -33 +37 @@
--}
-\ No newline at end of file
-+}
 diff --git a/src/child-guard.ts b/src/child-guard.ts
 new file mode 100644
 index 0000000..2e71a2d
@@ -33,37 +29,50 @@ index 0000000..2e71a2d
 +  registerChildLimitGuard(pi, decodeLimitsEnvironment(encodedLimits));
 +}
 diff --git a/src/compact.ts b/src/compact.ts
-index 4f78467..5e19c28 100644
+index 47a5ca5..0ecf027 100644
 --- a/src/compact.ts
 +++ b/src/compact.ts
-@@ -112,0 +113 @@ export function renderCompactSingle(
+@@ -124,0 +125 @@ export function renderCompactSingle(
 +    turnTokens: progress?.turnTokens,
-@@ -175,0 +177 @@ export function renderCompactParallel(
+@@ -187,0 +189 @@ export function renderCompactParallel(
 +      turnTokens: progress?.turnTokens,
-@@ -235 +237 @@ export function renderCompactProgress(
+@@ -191,0 +194,2 @@ export function renderCompactParallel(
++    const modelName = progress?.model ?? result.model;
++    const modelPart = modelName ? `  ${theme.fg("accent", modelName)}` : "";
+@@ -206 +210 @@ export function renderCompactParallel(
+-    let line = `${glyphColored} ${buildAgentLabel(agentName, result.task, theme)}${statsPart}`;
++    let line = `${glyphColored} ${buildAgentLabel(agentName, result.task, theme)}${modelPart}${statsPart}`;
+@@ -247 +251 @@ export function renderCompactProgress(
 -    turns: 0,
 +    turns: progress.turnCount ?? 0,
-@@ -236,0 +239 @@ export function renderCompactProgress(
+@@ -248,0 +253 @@ export function renderCompactProgress(
 +    turnTokens: progress.turnTokens,
-@@ -288 +291 @@ export function renderCompactParallelProgress(
+@@ -300 +305 @@ export function renderCompactParallelProgress(
 -      turns: 0,
 +      turns: progress.turnCount ?? 0,
-@@ -289,0 +293 @@ export function renderCompactParallelProgress(
+@@ -301,0 +307 @@ export function renderCompactParallelProgress(
 +      turnTokens: progress.turnTokens,
+@@ -305,0 +312 @@ export function renderCompactParallelProgress(
++    const modelPart = progress.model ? `  ${theme.fg("accent", progress.model)}` : "";
+@@ -320 +327 @@ export function renderCompactParallelProgress(
+-    let line = `${glyphColored} ${buildAgentLabel(agentName, progress.task, theme)}${statsPart}`;
++    let line = `${glyphColored} ${buildAgentLabel(agentName, progress.task, theme)}${modelPart}${statsPart}`;
 diff --git a/src/config.ts b/src/config.ts
 new file mode 100644
-index 0000000..e334533
+index 0000000..7bfa7df
 --- /dev/null
 +++ b/src/config.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,79 @@
 +import type { SettingItem } from "@earendil-works/pi-tui";
 +import { loadConfig, saveConfig } from "@pi-archimedes/core/settings-io";
 +import { normalizeLimits } from "./limits.js";
 +import type { SubagentLimits } from "./types.js";
 +
++type OperatorSubagentLimits = Omit<SubagentLimits, "maxOutputTokens">;
++
 +export interface SubagentConfig {
 +  maxParallel: number;
-+  defaultLimits: Required<SubagentLimits>;
++  defaultLimits: Required<OperatorSubagentLimits>;
 +}
 +
 +export const DEFAULT_SUBAGENT_CONFIG: SubagentConfig = {
@@ -164,9 +173,12 @@ index 0000000..8e1ce98
 +  }
 +}
 diff --git a/src/execute.ts b/src/execute.ts
-index f41835a..58c7499 100644
+index f41835a..d86ffd2 100644
 --- a/src/execute.ts
 +++ b/src/execute.ts
+@@ -1 +1 @@
+-import { spawnSubagent } from "./spawn.js";
++import { resolveEffectiveModel, spawnSubagent } from "./spawn.js";
 @@ -3,0 +4,2 @@ import { emitCostUpdate } from "./cost.js";
 +import { addUsage, fromSubagentUsage } from "./usage.js";
 +import type { Usage } from "@earendil-works/pi-ai";
@@ -195,18 +207,22 @@ index f41835a..58c7499 100644
 +export function aggregateUsage(results: SubagentResult[]): Usage {
 +  return addUsage(...results.map((result) => fromSubagentUsage(result.usage)));
 +}
-@@ -15,0 +40,57 @@ export interface ExecuteOptions {
+@@ -15,0 +40,61 @@ export interface ExecuteOptions {
 +  execution: ResolvedChildExecution;
 +}
 +
-+export type ParallelTask = Omit<ExecuteOptions, "signal" | "onUpdate">;
-+
-+function executionEvidence(execution: ResolvedChildExecution): ResolvedChildExecution {
++function executionEvidence(
++  execution: ResolvedChildExecution,
++  outputLimit?: ResolvedChildExecution["outputLimit"],
++): ResolvedChildExecution {
 +  return {
 +    profile: { ...execution.profile },
 +    limits: execution.limits ? { ...execution.limits } : undefined,
++    ...(outputLimit ? { outputLimit: { ...outputLimit } } : {}),
 +  };
 +}
++
++export type ParallelTask = Omit<ExecuteOptions, "signal" | "onUpdate">;
 +
 +export interface ParallelExecuteOptions {
 +  tasks: ParallelTask[];
@@ -253,52 +269,54 @@ index f41835a..58c7499 100644
 +    };
 +  }
 +  return result;
-@@ -23,0 +105 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -23,0 +109 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +  const control = createExecutionControl(options.signal, options.execution.limits?.maxDurationMs);
-@@ -27,0 +110,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -27,0 +114,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +  let lastEmittedCacheRead = 0;
 +  let lastEmittedCacheWrite = 0;
-@@ -36 +120 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -36 +124 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -      signal: options.signal,
 +      signal: control.signal,
-@@ -37,0 +122 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -37,0 +126 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      execution: options.execution,
-@@ -46,0 +132,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -42,0 +132 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      execution: options.execution,
+@@ -46,0 +137,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +        const cacheReadTokens = progress.cacheReadTokens ?? 0;
 +        const cacheWriteTokens = progress.cacheWriteTokens ?? 0;
 +        const deltaCacheRead = cacheReadTokens - lastEmittedCacheRead;
 +        const deltaCacheWrite = cacheWriteTokens - lastEmittedCacheWrite;
-@@ -48 +137 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -48 +142 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -        if (deltaInput > 0 || deltaOutput > 0 || deltaCost > 0) {
 +        if (deltaInput > 0 || deltaOutput > 0 || deltaCacheRead > 0 || deltaCacheWrite > 0 || deltaCost > 0) {
-@@ -51,0 +141,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -51,0 +146,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +            cacheReadTokens: deltaCacheRead,
 +            cacheWriteTokens: deltaCacheWrite,
-@@ -55,0 +147,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -55,0 +152,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +          lastEmittedCacheRead = cacheReadTokens;
 +          lastEmittedCacheWrite = cacheWriteTokens;
-@@ -64 +157 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -64 +162 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    return {
 +    return applyControlTermination({
-@@ -67,0 +161 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+      execution: executionEvidence(options.execution),
-@@ -81,0 +176,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -67,0 +166 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      execution: executionEvidence(options.execution, result.execution?.outputLimit),
+@@ -81,0 +181,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +            cacheReadTokens: 0,
 +            cacheWriteTokens: 0,
-@@ -94 +190 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -94 +195 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    };
 +    }, options, control, durationMs);
-@@ -110,0 +207 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -110,0 +212 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      execution: executionEvidence(options.execution),
-@@ -112,0 +210 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -112,0 +215 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      termination: { reason: "process-error", usageState: "unknown" },
-@@ -126,0 +225,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -126,0 +230,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +        cacheReadTokens: 0,
 +        cacheWriteTokens: 0,
-@@ -141 +241 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -141 +246 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    return result;
 +    return applyControlTermination(result, options, control, durationMs);
-@@ -148,5 +248,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -148,5 +253,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -export async function executeParallel(options: {
 -  tasks: Array<{ agent: string | undefined; agentConfig: AgentConfig | undefined; task: string; model: string | undefined; activeModel: string | undefined; cwd: string | undefined }>;
 -  signal: AbortSignal | undefined;
@@ -308,18 +326,25 @@ index f41835a..58c7499 100644
 +  options: ParallelExecuteOptions,
 +  runner: (options: ExecuteOptions) => Promise<SubagentResult> = executeSubagent,
 +): Promise<SubagentResult[]> {
-@@ -165,0 +265,2 @@ export async function executeParallel(options: {
+@@ -165,0 +270,2 @@ export async function executeParallel(options: {
 +    cacheReadTokens: 0,
 +    cacheWriteTokens: 0,
-@@ -180 +281 @@ export async function executeParallel(options: {
+@@ -175 +281,5 @@ export async function executeParallel(options: {
+-    model: taskDef.model,
++    model: resolveEffectiveModel({
++      agent: taskDef.agentConfig,
++      model: taskDef.model,
++      activeModel: taskDef.activeModel,
++    }),
+@@ -180 +290 @@ export async function executeParallel(options: {
 -      executeSubagent({
 +      runner({
 diff --git a/src/execution-profile.ts b/src/execution-profile.ts
 new file mode 100644
-index 0000000..75d91b7
+index 0000000..74bac9e
 --- /dev/null
 +++ b/src/execution-profile.ts
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,57 @@
 +import { resolveLimits } from "./limits.js";
 +import type {
 +  ResolvedChildExecution,
@@ -359,29 +384,39 @@ index 0000000..75d91b7
 +  operatorLimits?: SubagentLimits | undefined;
 +}): ResolvedChildExecution {
 +  const profile = resolveExecutionProfile(options);
-+  const limits = resolveLimits(
-+    options.operatorLimits,
-+    options.topLevel?.limits,
-+    options.task?.limits,
-+    profile.mode === "one-shot" ? ONE_SHOT_LIMITS : undefined,
-+  );
-+  return { profile, limits };
++  const sources = [options.operatorLimits, options.topLevel?.limits, options.task?.limits];
++  const requested = resolveLimits(...sources);
++
++  if (profile.mode === "one-shot") {
++    const incompatible = ["maxTotalTokens", "maxCostUsd"] as const;
++    for (const key of incompatible) {
++      if (requested?.[key] !== undefined) {
++        throw new Error(`${key} cannot enforce spend on a one-shot provider request; use maxOutputTokens`);
++      }
++    }
++    return { profile, limits: resolveLimits(requested, ONE_SHOT_LIMITS) };
++  }
++
++  if (requested?.maxOutputTokens !== undefined) {
++    throw new Error("maxOutputTokens is supported only for one-shot children");
++  }
++  return { profile, limits: requested };
 +}
 diff --git a/src/expanded.ts b/src/expanded.ts
-index aa3252c..0afbc73 100644
+index 6c30ce7..d851c66 100644
 --- a/src/expanded.ts
 +++ b/src/expanded.ts
-@@ -24,0 +25 @@ export function buildExpandedText(
+@@ -40,0 +41 @@ export function buildExpandedText(
 +    turnTokens: progress?.turnTokens,
-@@ -97 +98 @@ export function renderProgressExpanded(
+@@ -113 +114 @@ export function renderProgressExpanded(
 -    turns: undefined,
 +    turns: progress.turnCount,
-@@ -98,0 +100 @@ export function renderProgressExpanded(
+@@ -114,0 +116 @@ export function renderProgressExpanded(
 +    turnTokens: progress.turnTokens,
-@@ -173 +175 @@ export function buildProgressExpandedText(
+@@ -189 +191 @@ export function buildProgressExpandedText(
 -    turns: undefined,
 +    turns: progress.turnCount,
-@@ -174,0 +177 @@ export function buildProgressExpandedText(
+@@ -190,0 +193 @@ export function buildProgressExpandedText(
 +    turnTokens: progress.turnTokens,
 diff --git a/src/format.ts b/src/format.ts
 index 0f9dfed..7828cff 100644
@@ -397,12 +432,12 @@ index 0f9dfed..7828cff 100644
 +      : formatTokens(tokens) + " tok");
 +  }
 diff --git a/src/handlers.ts b/src/handlers.ts
-index f0fb6f5..45de31c 100644
+index 07868e1..36e3c2e 100644
 --- a/src/handlers.ts
 +++ b/src/handlers.ts
 @@ -0,0 +1 @@
 +import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
-@@ -1,0 +3,14 @@ import type { StreamState } from "./types.js";
+@@ -1,0 +3,17 @@ import type { StreamState } from "./types.js";
 +import { addUsage, isUsage, readUsage } from "./usage.js";
 +
 +export type MessageUpdateEvent = {
@@ -410,14 +445,17 @@ index f0fb6f5..45de31c 100644
 +  message?: unknown;
 +  assistantMessageEvent?: unknown;
 +};
-+export type JsonEvent = Exclude<ExtensionEvent, { type: "message_update" }> | MessageUpdateEvent;
++export type JsonEvent =
++  | Exclude<ExtensionEvent, { type: "message_update" }>
++  | MessageUpdateEvent
++  | { type: "session"; id?: unknown };
 +type ToolStartEvent = Extract<ExtensionEvent, { type: "tool_execution_start" }>;
 +type ToolEndEvent = Extract<ExtensionEvent, { type: "tool_execution_end" }>;
 +type MessageStartEvent = Extract<ExtensionEvent, { type: "message_start" }>;
 +type MessageEndEvent = Extract<ExtensionEvent, { type: "message_end" }>;
 +type AgentEndEvent = Extract<ExtensionEvent, { type: "agent_end" }>;
 +type AssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
-@@ -7,5 +22,2 @@ const RECENT_OUTPUT_MAX = 50;
+@@ -7,5 +25,2 @@ const RECENT_OUTPUT_MAX = 50;
 -
 -export interface JsonEvent {
 -  type: string;
@@ -425,19 +463,20 @@ index f0fb6f5..45de31c 100644
 -}
 +const STREAMING_PARTS_MAX = 50;
 +const STREAMING_OUTPUT_MAX_CHARS = 12_000;
-@@ -50 +62 @@ export function extractArgsPreview(args: unknown): string {
+@@ -50 +65 @@ export function extractArgsPreview(args: unknown): string {
 -export function handleToolStart(state: StreamState, event: JsonEvent): void {
 +export function handleToolStart(state: StreamState, event: ToolStartEvent): void {
-@@ -52 +64 @@ export function handleToolStart(state: StreamState, event: JsonEvent): void {
+@@ -52,2 +67 @@ export function handleToolStart(state: StreamState, event: JsonEvent): void {
 -  state.currentTool = event.toolName as string;
+-  // Use extractArgsPreview instead of JSON.stringify for readable display
 +  state.currentTool = event.toolName;
-@@ -76 +88 @@ export function handleToolEnd(state: StreamState): void {
+@@ -81 +95 @@ export function handleToolEnd(state: StreamState): void {
 -export function handleToolResult(state: StreamState, event: JsonEvent): void {
 +export function handleToolResult(state: StreamState, event: ToolEndEvent): void {
-@@ -80 +92 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -93 +107 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 -  const toolName = (event.toolName as string) ?? "tool";
 +  const toolName = event.toolName;
-@@ -103,0 +116,128 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -116,0 +131,127 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 +function objectItems<T>(value: unknown): T[] {
 +  if (!Array.isArray(value)) return [];
 +  return value.filter((item) => item !== null && typeof item === "object") as T[];
@@ -520,7 +559,6 @@ index f0fb6f5..45de31c 100644
 +  return true;
 +}
 +
-+/** Reset replaceable assistant state when a new assistant message starts. */
 +export function handleMessageStart(state: StreamState, event: MessageStartEvent): void {
 +  if (event.message?.role !== "assistant") return;
 +  clearStreamingMessage(state);
@@ -528,7 +566,7 @@ index f0fb6f5..45de31c 100644
 +  if (!state.model && event.message.model) state.model = event.message.model;
 +}
 +
-+/** Handle the latest in-flight assistant message as replaceable partial state. */
++/** Handle legacy cumulative messages or Pi 0.84 indexed deltas as replaceable partial state. */
 +export function handleMessageUpdate(state: StreamState, event: MessageUpdateEvent): boolean {
 +  const message = event.message;
 +  if (message && typeof message === "object" && (message as { role?: unknown }).role === "assistant") {
@@ -566,7 +604,7 @@ index f0fb6f5..45de31c 100644
 +  return false;
 +}
 +
-@@ -107,3 +247,12 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -120,3 +261,8 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 -export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const message = event.message as Record<string, unknown> | undefined;
 -  if (!message || message.role !== "assistant") return;
@@ -578,18 +616,18 @@ index f0fb6f5..45de31c 100644
 +    message.role !== "assistant" ||
 +    !hasAssistantStreamData(message)
 +  ) return;
-+
+@@ -124,4 +270,6 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-  // Capture model name
+-  if (!state.model && message.model) {
+-    state.model = message.model as string;
+-  }
 +  // Finalized data replaces the latest partial message.
 +  clearStreamingMessage(state);
 +  clearPartialUsage(state);
-@@ -111 +260,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
--  // Capture model name
-+  // Capture provider/model identity
++
 +  if (!state.provider && message.provider) state.provider = message.provider;
-@@ -113 +263 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
--    state.model = message.model as string;
-+    state.model = message.model;
-@@ -117,18 +267,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
++  if (!state.model && message.model) state.model = message.model;
+@@ -130,18 +278,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const content = message.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
 -    state.accumulatedOutput.push(content);
@@ -621,7 +659,7 @@ index f0fb6f5..45de31c 100644
 +      state.accumulatedOutput.push(`[thinking] ${part.thinking.trim()}`);
 +      const lines = part.thinking.split("\n").filter((line: string) => line.trim());
 +      state.recentOutput.push(...lines.slice(-5).map((line: string) => `[thinking] ${line}`));
-@@ -144,9 +289,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -157,9 +300,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  if (message.usage) {
 -    const usage = message.usage as Record<string, unknown>;
 -    state.totalInput += (usage.input as number) || 0;
@@ -633,18 +671,18 @@ index f0fb6f5..45de31c 100644
 -  }
 +  state.turnUsage = readUsage(message.usage);
 +  state.usage = addUsage(state.usage, state.turnUsage);
-@@ -158,3 +296,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -171,3 +307,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const messages = event.messages as Array<Record<string, unknown>> | undefined;
 -  if (!messages || messages.length === 0) return;
 +export function handleAgentEnd(state: StreamState, event: AgentEndEvent): void {
 +  const messages = objectItems<AgentEndEvent["messages"][number]>(event.messages);
 +  if (messages.length === 0) return;
-@@ -163 +301,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -176 +312,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 +  const lastAssistant = [...messages].reverse().find((message): message is AssistantMessage =>
 +    message.role === "assistant");
-@@ -166,14 +305 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -179,14 +316 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const allText: string[] = [];
 -  const content = lastAssistant.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
@@ -661,31 +699,37 @@ index f0fb6f5..45de31c 100644
 -  state.finalOutput = allText.length > 0 ? allText.join("\n\n") : undefined;
 +  state.finalOutput = assistantText(lastAssistant);
 diff --git a/src/index.ts b/src/index.ts
-index d79c663..10d5550 100644
+index 964ea7f..bb41624 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -1,3 +1,4 @@
+@@ -1 +1 @@
 -import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
--import { Text, TUI } from "@earendil-works/pi-tui";
--import { Type } from "typebox";
 +import { SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
-+import { Text, type TUI } from "@earendil-works/pi-tui";
+@@ -3,3 +3,6 @@ import { Text, TUI } from "@earendil-works/pi-tui";
+-import { Type } from "typebox";
+-import { executeSubagent, executeParallel } from "./execute.js";
+-// agent-manager.js lazy-loaded below to keep subagent tool registration fast
 +import { StringEnum } from "@earendil-works/pi-ai";
 +import { Type, type Static } from "typebox";
-@@ -7,0 +9,5 @@ import { validateModel, firstError } from "./model-validation.js";
++import { loadSubagentConfig } from "./config.js";
++import { resolveConfiguredLimits, validateDispatchPolicy } from "./dispatch-policy.js";
++import { executeSubagent, executeParallel, aggregateUsage } from "./execute.js";
++import { resolveChildExecution } from "./execution-profile.js";
+@@ -8,0 +12,5 @@ import { validateModel, firstError } from "./model-validation.js";
 +import {
 +  MAX_SUBAGENT_DURATION_MS,
 +  SUBAGENT_EXECUTION_MODES,
 +  SUBAGENT_THINKING_LEVELS,
 +} from "./types.js";
-@@ -14,0 +21,2 @@ import type {
+@@ -15,0 +24,2 @@ import type {
 +const PARALLEL_OUTPUT_MAX_CHARS = 12_000;
 +
-@@ -16,0 +25,15 @@ import type {
+@@ -17,0 +28,16 @@ import type {
 +const SubagentLimitsSchema = Type.Object({
 +  maxProviderRequests: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum provider requests for this child" })),
 +  maxToolCalls: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum tool calls for this child" })),
 +  maxTotalTokens: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum input, output, and cache tokens for this child" })),
++  maxOutputTokens: Type.Optional(Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Best-effort provider-native output cap for one-shot children" })),
 +  maxCostUsd: Type.Optional(Type.Number({ exclusiveMinimum: 0, description: "Observed cost ceiling in USD; may overshoot by one response" })),
 +  maxDurationMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SUBAGENT_DURATION_MS, description: "Maximum wall time in milliseconds for this child" })),
 +});
@@ -697,24 +741,24 @@ index d79c663..10d5550 100644
 +  description: "Child thinking level. Agent frontmatter wins, then task-level, then top-level thinking.",
 +});
 +
-@@ -23,0 +47,3 @@ const TaskItem = Type.Object({
+@@ -24,0 +51,3 @@ const TaskItem = Type.Object({
 +  limits: Type.Optional(SubagentLimitsSchema),
 +  mode: Type.Optional(ExecutionModeSchema),
 +  thinking: Type.Optional(ThinkingLevelSchema),
-@@ -44,0 +71,3 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
+@@ -45,0 +75,3 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
 +  limits: Type.Optional(SubagentLimitsSchema),
 +  mode: Type.Optional(ExecutionModeSchema),
 +  thinking: Type.Optional(ThinkingLevelSchema),
-@@ -46,0 +76,2 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
+@@ -47,0 +80,2 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
 +type SubagentParams = Static<typeof SUBAGENT_PARAMS_SCHEMA>;
 +
-@@ -56,0 +88,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -57,0 +92,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +  if (process.env.PI_SUBAGENT_SOCKET) return;
 +
-@@ -61 +94 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -62 +98 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Model override is rarely needed; the agent config or parent model is used by default.",
 +      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Use mode 'one-shot' for one isolated response from a complete packet. Model override is rarely needed; the agent config or parent model is used by default.",
-@@ -66,8 +99 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -67,8 +103 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -      params: {
 -        agent?: string;
 -        task?: string;
@@ -724,16 +768,7 @@ index d79c663..10d5550 100644
 -        async?: boolean;
 -      },
 +      params: SubagentParams,
-@@ -79 +105,7 @@ export function registerSubagent(pi: ExtensionAPI): void {
--      const { executeSubagent, executeParallel } = await import("./execute.js");
-+      const { executeSubagent, executeParallel, aggregateUsage } = await import("./execute.js");
-+      const { loadSubagentConfig } = await import("./config.js");
-+      const {
-+        resolveConfiguredLimits,
-+        validateDispatchPolicy,
-+      } = await import("./dispatch-policy.js");
-+      const { resolveChildExecution } = await import("./execution-profile.js");
-@@ -80,0 +113,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -79,0 +109,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +      let config;
 +      let configuredLimits;
 +      try {
@@ -742,21 +777,22 @@ index d79c663..10d5550 100644
 +      } catch (error) {
 +        return policyError(params.tasks?.length ? "parallel" : "single", error);
 +      }
-@@ -83,0 +124,23 @@ export function registerSubagent(pi: ExtensionAPI): void {
-+        const taskPlans = params.tasks.map((task) => {
-+          const agentConfig = task.agent ? findAgent(agents, task.agent) : undefined;
-+          return {
-+            task,
-+            agentConfig,
-+            execution: resolveChildExecution({
-+              operatorLimits: configuredLimits,
-+              topLevel: params,
-+              task,
-+              agentThinking: agentConfig?.thinking,
-+            }),
-+          };
-+        });
+@@ -82,0 +120,24 @@ export function registerSubagent(pi: ExtensionAPI): void {
++        let taskPlans;
 +        try {
++          taskPlans = params.tasks.map((task) => {
++            const agentConfig = task.agent ? findAgent(agents, task.agent) : undefined;
++            return {
++              task,
++              agentConfig,
++              execution: resolveChildExecution({
++                operatorLimits: configuredLimits,
++                topLevel: params,
++                task,
++                agentThinking: agentConfig?.thinking,
++              }),
++            };
++          });
 +          validateDispatchPolicy(config, taskPlans.map(({ task, execution }) => ({
 +            limits: execution.limits,
 +            providerMaxRetries: SettingsManager.create(task.cwd ?? process.cwd())
@@ -766,22 +802,22 @@ index d79c663..10d5550 100644
 +          return policyError("parallel", error);
 +        }
 +
-@@ -88,3 +151,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -87,3 +148,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -        const unknownAgents = params.tasks
 -          .filter((t) => t.agent && !findAgent(agents, t.agent!))
 -          .map((t) => `"${t.agent}"`);
 +        const unknownAgents = taskPlans
 +          .filter(({ task, agentConfig }) => task.agent && !agentConfig)
 +          .map(({ task }) => `"${task.agent}"`);
-@@ -95,2 +158 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -94,2 +155 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -        const unknownAgentSet = new Set(unknownAgents.map((n) => n.replace(/"/g, '')));
 -        for (const t of params.tasks) {
 +        for (const { task, agentConfig } of taskPlans) {
-@@ -98,2 +160 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -97,2 +157 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          if (t.agent && unknownAgentSet.has(t.agent)) continue;
 -          const taskAgentConfig = t.agent ? findAgent(agents, t.agent) : undefined;
 +          if (task.agent && !agentConfig) continue;
-@@ -101,4 +162,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -100,4 +159,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -            validateModel(t.model, ctx.modelRegistry, { agentName: t.agent }),
 -            validateModel(taskAgentConfig?.model, ctx.modelRegistry, {
 -              agentName: t.agent,
@@ -790,7 +826,7 @@ index d79c663..10d5550 100644
 +            validateModel(agentConfig?.model, ctx.modelRegistry, {
 +              agentName: task.agent,
 +              agentFilePath: agentConfig?.filePath,
-@@ -121,5 +182,5 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -120,5 +179,5 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          tasks: params.tasks.map((t) => ({
 -            agent: t.agent ?? undefined,
 -            agentConfig: t.agent ? findAgent(agents, t.agent) : undefined,
@@ -801,42 +837,40 @@ index d79c663..10d5550 100644
 +            agentConfig,
 +            task: task.task,
 +            model: task.model,
-@@ -127 +188,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -126 +185,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -            cwd: t.cwd ?? undefined,
 +            cwd: task.cwd ?? undefined,
 +            execution,
-@@ -143 +205,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -142 +202,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          content: [{ type: "text", text: formatResultsSummary(results) }],
 +          content: [
 +            { type: "text", text: formatResultsSummary(results) },
 +            ...formatParallelOutputs(results),
 +          ],
-@@ -152,0 +218 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -151,0 +215 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +          usage: aggregateUsage(results),
-@@ -186,0 +253,15 @@ export function registerSubagent(pi: ExtensionAPI): void {
-+        const execution = resolveChildExecution({
-+          operatorLimits: configuredLimits,
-+          topLevel: params,
-+          agentThinking: agentConfig?.thinking,
-+        });
+@@ -185,0 +250,13 @@ export function registerSubagent(pi: ExtensionAPI): void {
++        let execution;
 +        try {
++          execution = resolveChildExecution({
++            operatorLimits: configuredLimits,
++            topLevel: params,
++            agentThinking: agentConfig?.thinking,
++          });
 +          const retries = SettingsManager.create(params.cwd ?? process.cwd())
 +            .getProviderRetrySettings().maxRetries ?? 0;
-+          validateDispatchPolicy(config, [{
-+            limits: execution.limits,
-+            providerMaxRetries: retries,
-+          }]);
++          validateDispatchPolicy(config, [{ limits: execution.limits, providerMaxRetries: retries }]);
 +        } catch (error) {
 +          return policyError("single", error);
 +        }
-@@ -194,0 +276 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -193,0 +271 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +          execution,
-@@ -208 +290 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -207 +285 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          content: [{ type: "text", text: result.finalOutput ?? result.error ?? "completed" }],
 +          content: [{ type: "text", text: resultOutput(result) }],
-@@ -214,0 +297 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -213,0 +292 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +          usage: aggregateUsage([result]),
-@@ -283,0 +367,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -282,0 +362,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +function policyError(mode: "single" | "parallel", error: unknown): SubagentToolResult {
 +  return {
 +    content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
@@ -845,12 +879,12 @@ index d79c663..10d5550 100644
 +  };
 +}
 +
-@@ -313,0 +405,4 @@ function formatProgressSummary(progress: SubagentProgress[]): string {
+@@ -312,0 +400,4 @@ function formatProgressSummary(progress: SubagentProgress[]): string {
 +function resultOutput(result: SubagentResult): string {
 +  return result.finalOutput ?? result.error ?? "completed";
 +}
 +
-@@ -324,0 +420,29 @@ function formatResultsSummary(results: SubagentResult[]): string {
+@@ -323,0 +415,29 @@ function formatResultsSummary(results: SubagentResult[]): string {
 +function formatParallelOutputs(results: SubagentResult[]): Array<{ type: "text"; text: string }> {
 +  const messageMaxChars = Math.floor(PARALLEL_OUTPUT_MAX_CHARS / Math.max(1, results.length));
 +  const suffix = "\n[delegated output truncated]";
@@ -882,22 +916,27 @@ index d79c663..10d5550 100644
 +
 diff --git a/src/limits.ts b/src/limits.ts
 new file mode 100644
-index 0000000..eb00b6a
+index 0000000..9989c73
 --- /dev/null
 +++ b/src/limits.ts
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,296 @@
 +import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 +import {
 +  MAX_SUBAGENT_DURATION_MS,
 +  SUBAGENT_TERMINATION_REASONS,
 +  SUBAGENT_USAGE_STATES,
 +} from "./types.js";
++import {
++  applyProviderOutputLimit,
++  encodeOutputLimitEvidence,
++} from "./output-limit.js";
 +import type { SubagentLimits, SubagentTermination, SubagentTerminationReason } from "./types.js";
 +
 +const LIMIT_KEYS = [
 +  "maxProviderRequests",
 +  "maxToolCalls",
 +  "maxTotalTokens",
++  "maxOutputTokens",
 +  "maxCostUsd",
 +  "maxDurationMs",
 +] as const satisfies readonly (keyof SubagentLimits)[];
@@ -906,6 +945,7 @@ index 0000000..eb00b6a
 +  "maxProviderRequests",
 +  "maxToolCalls",
 +  "maxTotalTokens",
++  "maxOutputTokens",
 +  "maxDurationMs",
 +]);
 +
@@ -929,6 +969,9 @@ index 0000000..eb00b6a
 +    }
 +    if (INTEGER_KEYS.has(key) && !Number.isInteger(raw)) {
 +      throw new Error(`${key} must be an integer`);
++    }
++    if (key === "maxOutputTokens" && !Number.isSafeInteger(raw)) {
++      throw new Error(`${key} must be a safe integer`);
 +    }
 +    if (key === "maxDurationMs" && raw > MAX_SUBAGENT_DURATION_MS) {
 +      throw new Error(`${key} must not exceed ${MAX_SUBAGENT_DURATION_MS}`);
@@ -963,13 +1006,13 @@ index 0000000..eb00b6a
 +  private toolCalls = 0;
 +  private totalTokens = 0;
 +  private totalCost = 0;
-+  private readonly onStop: (termination: SubagentTermination) => void;
++  private readonly onStop: (termination: SubagentTermination, abort: boolean) => void;
 +
 +  termination: SubagentTermination | undefined;
 +
 +  constructor(
 +    readonly limits: SubagentLimits,
-+    onStop: (termination: SubagentTermination) => void,
++    onStop: (termination: SubagentTermination, abort: boolean) => void,
 +  ) {
 +    this.onStop = onStop;
 +  }
@@ -999,6 +1042,24 @@ index 0000000..eb00b6a
 +    }
 +    this.toolCalls++;
 +    return true;
++  }
++
++  observeOutputLimit(stopReason: unknown, observed: unknown, applied: boolean): void {
++    if (
++      this.termination ||
++      !applied ||
++      stopReason !== "length" ||
++      this.limits.maxOutputTokens === undefined
++    ) {
++      return;
++    }
++    this.stop(
++      "output-limit",
++      this.limits.maxOutputTokens,
++      isNonNegativeFiniteNumber(observed) ? observed : undefined,
++      isNonNegativeFiniteNumber(observed) ? "complete" : "unknown",
++      false,
++    );
 +  }
 +
 +  observeAssistantUsage(value: AssistantUsage | undefined): void {
@@ -1040,6 +1101,7 @@ index 0000000..eb00b6a
 +    limit: number | undefined,
 +    observed: number | undefined,
 +    usageState: SubagentTermination["usageState"] = "complete",
++    abort = true,
 +  ): false {
 +    if (!this.termination) {
 +      this.termination = {
@@ -1048,7 +1110,7 @@ index 0000000..eb00b6a
 +        ...(observed !== undefined ? { observed } : {}),
 +        usageState,
 +      };
-+      this.onStop(this.termination);
++      this.onStop(this.termination, abort);
 +    }
 +    return false;
 +  }
@@ -1085,14 +1147,33 @@ index 0000000..eb00b6a
 +  writeStop: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
 +): BudgetTracker {
 +  let activeContext: ExtensionContext | undefined;
-+  const tracker = new BudgetTracker(limits, (termination) => {
++  let outputLimitApplied = false;
++  const tracker = new BudgetTracker(limits, (termination, abort) => {
 +    writeStop(encodeLimitStop(termination));
-+    activeContext?.abort();
++    if (abort) activeContext?.abort();
 +  });
 +
-+  pi.on("before_provider_request", (_event, ctx) => {
++  pi.on("before_provider_request", (event, ctx) => {
 +    activeContext = ctx;
-+    tracker.admitProviderRequest();
++    const alreadyTerminated = Boolean(tracker.termination);
++    if (!tracker.admitProviderRequest()) {
++      if (alreadyTerminated) ctx.abort();
++      return undefined;
++    }
++    if (limits.maxOutputTokens === undefined) return undefined;
++    try {
++      const result = applyProviderOutputLimit(event.payload, limits.maxOutputTokens);
++      outputLimitApplied = result.evidence.enforcement === "applied";
++      writeStop(encodeOutputLimitEvidence(result.evidence));
++      return outputLimitApplied ? result.payload : undefined;
++    } catch {
++      outputLimitApplied = false;
++      writeStop(encodeOutputLimitEvidence({
++        requested: limits.maxOutputTokens,
++        enforcement: "unsupported",
++      }));
++      return undefined;
++    }
 +  });
 +  pi.on("tool_call", (_event, ctx) => {
 +    activeContext = ctx;
@@ -1105,6 +1186,7 @@ index 0000000..eb00b6a
 +    if (event.message.role !== "assistant") return;
 +    activeContext = ctx;
 +    tracker.observeAssistantUsage(event.message.usage);
++    tracker.observeOutputLimit(event.message.stopReason, event.message.usage?.output, outputLimitApplied);
 +  });
 +  pi.on("session_before_compact", () => ({ cancel: true }));
 +
@@ -1134,8 +1216,92 @@ index 0000000..eb00b6a
 +    return undefined;
 +  }
 +}
+diff --git a/src/output-limit.ts b/src/output-limit.ts
+new file mode 100644
+index 0000000..fbb8956
+--- /dev/null
++++ b/src/output-limit.ts
+@@ -0,0 +1,78 @@
++import type { OutputLimitEvidence } from "./types.js";
++
++const ROOT_OUTPUT_LIMIT_KEYS = [
++  "max_output_tokens",
++  "max_completion_tokens",
++  "max_tokens",
++  "maxOutputTokens",
++] as const;
++const NESTED_OUTPUT_LIMIT_KEYS = ["config", "generationConfig"] as const;
++const OUTPUT_LIMIT_PREFIX = "PI_ARCHIMEDES_OUTPUT_LIMIT ";
++
++export function applyProviderOutputLimit(
++  payload: unknown,
++  requested: number,
++): { payload: unknown; evidence: OutputLimitEvidence } {
++  const evidence: OutputLimitEvidence = { requested, enforcement: "unsupported" };
++  if (!isRecord(payload)) return { payload, evidence };
++
++  let rewritten: Record<string, unknown> | undefined;
++  const output = () => rewritten ??= { ...payload };
++
++  for (const key of ROOT_OUTPUT_LIMIT_KEYS) {
++    if (!(key in payload)) continue;
++    output()[key] = clamped(payload[key], requested);
++    evidence.enforcement = "applied";
++  }
++
++  if (evidence.enforcement === "unsupported" && Array.isArray(payload.input)) {
++    output().max_output_tokens = requested;
++    evidence.enforcement = "applied";
++  }
++
++  if (Array.isArray(payload.contents)) {
++    for (const key of NESTED_OUTPUT_LIMIT_KEYS) {
++      const nested = payload[key];
++      if (!isRecord(nested)) continue;
++      output()[key] = {
++        ...nested,
++        maxOutputTokens: clamped(nested.maxOutputTokens, requested),
++      };
++      evidence.enforcement = "applied";
++    }
++  }
++
++  return { payload: rewritten ?? payload, evidence };
++}
++
++function clamped(value: unknown, requested: number): number {
++  return typeof value === "number" && Number.isFinite(value) && value > 0
++    ? Math.min(value, requested)
++    : requested;
++}
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return !!value && typeof value === "object" && !Array.isArray(value);
++}
++
++export function encodeOutputLimitEvidence(evidence: OutputLimitEvidence): string {
++  return OUTPUT_LIMIT_PREFIX + JSON.stringify(evidence);
++}
++
++export function decodeOutputLimitEvidence(line: string): OutputLimitEvidence | undefined {
++  if (!line.startsWith(OUTPUT_LIMIT_PREFIX)) return undefined;
++  try {
++    const value = JSON.parse(line.slice(OUTPUT_LIMIT_PREFIX.length)) as Partial<OutputLimitEvidence>;
++    if (
++      typeof value.requested !== "number" ||
++      !Number.isSafeInteger(value.requested) ||
++      value.requested <= 0 ||
++      (value.enforcement !== "applied" && value.enforcement !== "unsupported")
++    ) {
++      return undefined;
++    }
++    return { requested: value.requested, enforcement: value.enforcement };
++  } catch {
++    return undefined;
++  }
++}
 diff --git a/src/spawn.ts b/src/spawn.ts
-index d64d741..683dc22 100644
+index d64d741..0c8f2f5 100644
 --- a/src/spawn.ts
 +++ b/src/spawn.ts
 @@ -5,0 +6 @@ import * as path from "node:path";
@@ -1144,27 +1310,28 @@ index d64d741..683dc22 100644
 +import { ONE_SHOT_SYSTEM_PROMPT } from "./execution-profile.js";
 +import { encodeLimitsEnvironment, SUBAGENT_LIMITS_ENV } from "./limits.js";
 +import type { ResolvedChildExecution, SubagentLimits } from "./types.js";
-@@ -16,0 +21 @@ export interface SpawnOptions {
+@@ -16,0 +21,7 @@ export interface SpawnOptions {
 +  execution: ResolvedChildExecution;
-@@ -166,0 +172,72 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
++}
++
++export function resolveEffectiveModel(
++  options: Pick<SpawnOptions, "agent" | "model" | "activeModel">,
++): string | undefined {
++  return options.agent?.model ?? options.model ?? options.activeModel;
+@@ -166,0 +178,67 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
 +export function buildSubagentArgs(
 +  options: SpawnOptions,
 +  childGuardPath = fileURLToPath(new URL("./child-guard.ts", import.meta.url)),
 +): string[] {
 +  const args: string[] = ["--mode", "json", "--no-session", "-p"];
-+  const model = options.agent?.model ?? options.model ?? options.activeModel;
++  const model = resolveEffectiveModel(options);
 +  if (model) args.push("--model", model);
 +  const thinking = options.execution.profile.thinking;
 +  if (thinking) args.push("--thinking", thinking);
 +
 +  const mode = options.execution.profile.mode;
 +  if (mode === "one-shot") {
-+    args.push(
-+      "--no-tools",
-+      "--no-extensions",
-+      "--no-skills",
-+      "--no-context-files",
-+    );
++    args.push("--no-tools", "--no-extensions", "--no-skills", "--no-context-files");
 +  } else if (options.agent?.tools && options.agent.tools.length > 0) {
 +    args.push("--tools", options.agent.tools.join(","));
 +  }
@@ -1219,12 +1386,12 @@ index d64d741..683dc22 100644
 +  child.once("exit", () => clearTimeout(timer));
 +}
 +
-@@ -176,2 +252,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+@@ -176,2 +253,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
 -
 -  // Start ask bridge socket before spawning so the env var is ready
-@@ -178,0 +254 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+@@ -178,0 +255 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
 +  const invocation = buildSpawnInvocation(piBinary, buildSubagentArgs(options));
-@@ -180,30 +256,6 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+@@ -180,30 +257,6 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
 -  // Build CLI args
 -  const args: string[] = ["--mode", "json", "--no-session", "-p"];
 -
@@ -1261,7 +1428,7 @@ index d64d741..683dc22 100644
 +    stdio: ["ignore", "pipe", "pipe"],
 +    windowsHide: true,
 +  });
-@@ -211,23 +262,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+@@ -211,23 +263,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
 -  // On Windows, spawn `node <resolved-js-path>` instead of the raw binary.
 -  // The resolved path is a .js file which cannot be spawned directly on Windows.
 -  // Using process.execPath avoids shell: true (no escaping risks, kill() works).
@@ -1285,9 +1452,9 @@ index d64d741..683dc22 100644
 -  );
 -
 -  // Clean up socket server when child exits
-@@ -237 +265,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+@@ -237 +266,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
 -  // Handle abort signal
-@@ -239,10 +267,3 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+@@ -239,10 +268,3 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
 -    const abortHandler = () => {
 -      if (child.pid && !child.killed) {
 -        child.kill("SIGTERM");
@@ -1302,36 +1469,46 @@ index d64d741..683dc22 100644
 +    if (options.signal.aborted) abortHandler();
 +    else options.signal.addEventListener("abort", abortHandler, { once: true });
 diff --git a/src/stream.ts b/src/stream.ts
-index f1fd14a..8e350e2 100644
+index d3a2524..dd67633 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
 @@ -0,0 +1 @@
 +import { createHash } from "node:crypto";
-@@ -4,0 +6,3 @@ import { getBus, Events } from "@pi-archimedes/core/bus";
+@@ -3 +4 @@ import type { ChildProcess } from "node:child_process";
+-import type { StreamState, SubagentProgress, SubagentResult } from "./types.js";
++import type { ResolvedChildExecution, StreamState, SubagentProgress, SubagentResult } from "./types.js";
+@@ -4,0 +6,4 @@ import { getBus, Events } from "@pi-archimedes/core/bus";
 +import { decodeLimitStop } from "./limits.js";
++import { decodeOutputLimitEvidence } from "./output-limit.js";
 +import { scheduleTerminateChild } from "./spawn.js";
 +import { addUsage, readUsage, toSubagentUsage } from "./usage.js";
-@@ -9,0 +14,2 @@ import {
+@@ -9,0 +15,2 @@ import {
 +  handleMessageStart,
 +  handleMessageUpdate,
-@@ -19,0 +26,43 @@ export interface StreamCallbacks {
-+type ChildJsonEvent = JsonEvent | { type: "session"; id?: unknown };
-+
+@@ -16,0 +24 @@ export interface StreamCallbacks {
++  execution?: ResolvedChildExecution;
+@@ -19,0 +28,49 @@ export interface StreamCallbacks {
 +const REPEATED_ERROR_LIMIT = 3;
 +const MAX_FINGERPRINT_DEPTH = 64;
 +const MAX_FINGERPRINT_NODES = 10_000;
++const MAX_FINGERPRINT_CHARS = 256_000;
 +// ponytail: cap malformed-stream state; use a bounded LRU if legitimate children exceed 1,000 tools.
 +const MAX_TRACKED_TOOL_CALL_IDS = 1_000;
 +
 +function canonicalJsonValue(
 +  value: unknown,
 +  depth = 0,
-+  budget = { remaining: MAX_FINGERPRINT_NODES },
++  budget = { nodes: MAX_FINGERPRINT_NODES, chars: MAX_FINGERPRINT_CHARS },
 +): unknown {
 +  if (depth > MAX_FINGERPRINT_DEPTH) throw new RangeError("fingerprint input is too deep");
-+  if (--budget.remaining < 0) throw new RangeError("fingerprint input is too large");
++  if (--budget.nodes < 0) throw new RangeError("fingerprint input is too large");
++  if (typeof value === "string") {
++    budget.chars -= value.length;
++    if (budget.chars < 0) throw new RangeError("fingerprint input is too large");
++    return value;
++  }
 +  if (Array.isArray(value)) {
-+    if (value.length > budget.remaining) throw new RangeError("fingerprint input is too large");
++    if (value.length > budget.nodes) throw new RangeError("fingerprint input is too large");
 +    return value.map((item) => canonicalJsonValue(item, depth + 1, budget));
 +  }
 +  if (!value || typeof value !== "object") return value;
@@ -1339,7 +1516,9 @@ index f1fd14a..8e350e2 100644
 +  const keys: string[] = [];
 +  for (const key in record) {
 +    if (!Object.hasOwn(record, key)) continue;
-+    if (keys.length >= budget.remaining) throw new RangeError("fingerprint input is too large");
++    if (keys.length >= budget.nodes) throw new RangeError("fingerprint input is too large");
++    budget.chars -= key.length;
++    if (budget.chars < 0) throw new RangeError("fingerprint input is too large");
 +    keys.push(key);
 +  }
 +  keys.sort();
@@ -1351,14 +1530,14 @@ index f1fd14a..8e350e2 100644
 +function fingerprint(value: unknown): string | undefined {
 +  try {
 +    const json = JSON.stringify(canonicalJsonValue(value));
-+    if (typeof json !== "string") return undefined;
++    if (typeof json !== "string" || json.length > MAX_FINGERPRINT_CHARS) return undefined;
 +    return createHash("sha256").update(json).digest("hex");
 +  } catch {
 +    return undefined;
 +  }
 +}
 +
-@@ -55,5 +104,3 @@ export function streamEvents(
+@@ -55,5 +112,3 @@ export function streamEvents(
 -      totalInput: 0,
 -      totalOutput: 0,
 -      totalCacheRead: 0,
@@ -1367,18 +1546,19 @@ index f1fd14a..8e350e2 100644
 +      usage: readUsage(undefined),
 +      turnUsage: readUsage(undefined),
 +      partialUsage: readUsage(undefined),
-@@ -62,0 +110 @@ export function streamEvents(
+@@ -62,0 +118 @@ export function streamEvents(
 +      provider: undefined,
-@@ -64,0 +113,2 @@ export function streamEvents(
+@@ -64,0 +121,3 @@ export function streamEvents(
 +      streamingOutput: undefined,
 +      streamingParts: new Map(),
-@@ -70,4 +120 @@ export function streamEvents(
++      outputLimit: undefined,
+@@ -70,4 +129 @@ export function streamEvents(
 -    // Collect stderr for error reporting
 -    const stderrChunks: Buffer[] = [];
 -    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 -
 +    const stderrLines: string[] = [];
-@@ -74,0 +122,9 @@ export function streamEvents(
+@@ -74,0 +131,9 @@ export function streamEvents(
 +    let termination = undefined as SubagentResult["termination"];
 +    const toolFingerprints = new Map<
 +      string,
@@ -1388,7 +1568,7 @@ index f1fd14a..8e350e2 100644
 +    let repeatedErrorTracking = true;
 +    let lastErrorFingerprint: string | undefined;
 +    let repeatedErrorCount = 0;
-@@ -76,22 +132,93 @@ export function streamEvents(
+@@ -76,22 +141,98 @@ export function streamEvents(
 -    const buildProgress = (): SubagentProgress => ({
 -      agent: callbacks.agent ?? "subagent",
 -      status: "running",
@@ -1456,11 +1636,16 @@ index f1fd14a..8e350e2 100644
 +    if (child.stderr) {
 +      const stderrReader = createInterface({ input: child.stderr, crlfDelay: Infinity });
 +      stderrReader.on("line", (line) => {
++        const outputLimit = decodeOutputLimitEvidence(line);
++        if (outputLimit) {
++          state.outputLimit = outputLimit;
++          return;
++        }
 +        const stop = decodeLimitStop(line);
 +        if (stop && !termination) {
 +          termination = stop;
 +          error = `Subagent stopped: ${stop.reason}`;
-+          scheduleTerminateChild(child);
++          if (stop.reason !== "output-limit") scheduleTerminateChild(child);
 +        } else if (!stop) {
 +          stderrLines.push(line);
 +        }
@@ -1504,18 +1689,7 @@ index f1fd14a..8e350e2 100644
 +        model: state.model,
 +      };
 +    };
-@@ -118 +245 @@ export function streamEvents(
--      let event: JsonEvent;
-+      let event: ChildJsonEvent;
-@@ -120 +247 @@ export function streamEvents(
--        event = JSON.parse(trimmed) as JsonEvent;
-+        event = JSON.parse(trimmed) as ChildJsonEvent;
-@@ -129,0 +257,4 @@ export function streamEvents(
-+        case "session": {
-+          if (typeof event.id === "string" && event.id) state.childSessionId = event.id;
-+          break;
-+        }
-@@ -130,0 +262,25 @@ export function streamEvents(
+@@ -136,0 +278,25 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1541,7 +1715,7 @@ index f1fd14a..8e350e2 100644
 +              }
 +            }
 +          }
-@@ -146,0 +303,22 @@ export function streamEvents(
+@@ -152,0 +319,22 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1564,7 +1738,7 @@ index f1fd14a..8e350e2 100644
 +            if (pending.call) observeToolResult(pending.call, event.result, event.isError);
 +            else resetRepeatedErrorStreak();
 +          }
-@@ -154,0 +333,11 @@ export function streamEvents(
+@@ -160,0 +349,11 @@ export function streamEvents(
 +          state.turnUsage = readUsage(undefined);
 +          state.partialUsage = readUsage(undefined);
 +          break;
@@ -1576,30 +1750,28 @@ index f1fd14a..8e350e2 100644
 +        }
 +        case "message_update": {
 +          if (handleMessageUpdate(state, event)) emitProgress();
-@@ -166 +355 @@ export function streamEvents(
--        // Ignore: session, agent_start, message_start, message_update, turn_end, tool_execution_update
+@@ -172 +371 @@ export function streamEvents(
+-        // Ignore: agent_start, message_start, message_update, turn_end, tool_execution_update
 +        // Ignore: agent_start, turn_end, tool_execution_update
-@@ -175 +364,2 @@ export function streamEvents(
+@@ -181 +380,2 @@ export function streamEvents(
 -      const exitCode = code ?? 1;
 +      const exitCode = termination ? 2 : (code ?? 1);
 +      const usage = observedUsage();
-@@ -177 +366,0 @@ export function streamEvents(
+@@ -183 +382,0 @@ export function streamEvents(
 -      // Surface stderr as error if the process failed and we have no other error
-@@ -179 +368 @@ export function streamEvents(
+@@ -185 +384 @@ export function streamEvents(
 -        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
 +        const stderr = stderrLines.join("\n").trim();
-@@ -181,0 +371,6 @@ export function streamEvents(
+@@ -187,0 +387,6 @@ export function streamEvents(
 +      termination ??= exitCode === 0
 +        ? { reason: "completed", usageState: "complete" }
 +        : {
 +          reason: "process-error",
 +          usageState: state.streamingOutput ? "partial" : "unknown",
 +        };
-@@ -185,0 +381 @@ export function streamEvents(
-+        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
-@@ -186,0 +383 @@ export function streamEvents(
+@@ -193,0 +399 @@ export function streamEvents(
 +        provider: state.provider,
-@@ -188,9 +385,2 @@ export function streamEvents(
+@@ -195,9 +401,9 @@ export function streamEvents(
 -        usage: {
 -          input: state.totalInput,
 -          output: state.totalOutput,
@@ -1609,18 +1781,25 @@ index f1fd14a..8e350e2 100644
 -          turns: state.turnCount,
 -        },
 -        finalOutput: state.finalOutput,
++        ...(callbacks.execution ? {
++          execution: {
++            profile: { ...callbacks.execution.profile },
++            limits: callbacks.execution.limits ? { ...callbacks.execution.limits } : undefined,
++            ...(state.outputLimit ? { outputLimit: { ...state.outputLimit } } : {}),
++          },
++        } : {}),
 +        usage: toSubagentUsage(usage, state.turnCount),
 +        finalOutput: state.finalOutput ?? observedOutput(),
-@@ -197,0 +388 @@ export function streamEvents(
+@@ -204,0 +411 @@ export function streamEvents(
 +        termination,
-@@ -205 +396 @@ export function streamEvents(
+@@ -212 +419 @@ export function streamEvents(
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index b90f829..f1f2562 100644
+index 0217f26..2d3330f 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,68 @@
 +import type { Usage } from "@earendil-works/pi-ai";
 +
 +export const MAX_SUBAGENT_DURATION_MS = 2_147_483_647;
@@ -1638,22 +1817,30 @@ index b90f829..f1f2562 100644
 +] as const;
 +export type SubagentThinkingLevel = (typeof SUBAGENT_THINKING_LEVELS)[number];
 +
++export interface SubagentLimits {
++  maxProviderRequests?: number;
++  maxToolCalls?: number;
++  maxTotalTokens?: number;
++  /** Provider-native output cap accepted only for one-shot children. */
++  maxOutputTokens?: number;
++  maxCostUsd?: number;
++  maxDurationMs?: number;
++}
++
 +export interface SubagentExecutionProfile {
 +  mode: SubagentExecutionMode;
 +  thinking: string | undefined;
 +}
 +
++export interface OutputLimitEvidence {
++  requested: number;
++  enforcement: "applied" | "unsupported";
++}
++
 +export interface ResolvedChildExecution {
 +  profile: SubagentExecutionProfile;
 +  limits: SubagentLimits | undefined;
-+}
-+
-+export interface SubagentLimits {
-+  maxProviderRequests?: number;
-+  maxToolCalls?: number;
-+  maxTotalTokens?: number;
-+  maxCostUsd?: number;
-+  maxDurationMs?: number;
++  outputLimit?: OutputLimitEvidence;
 +}
 +
 +export const SUBAGENT_TERMINATION_REASONS = [
@@ -1662,6 +1849,7 @@ index b90f829..f1f2562 100644
 +  "request-limit",
 +  "tool-limit",
 +  "token-limit",
++  "output-limit",
 +  "cost-limit",
 +  "time-limit",
 +  "usage-unknown",
@@ -1680,32 +1868,27 @@ index b90f829..f1f2562 100644
 +  usageState: SubagentUsageState;
 +}
 +
-@@ -6,0 +66 @@ export interface SubagentUsage {
+@@ -6,0 +75 @@ export interface SubagentUsage {
 +  costBreakdown?: Usage["cost"];
-@@ -17,0 +78,4 @@ export interface SubagentProgress {
+@@ -23,0 +93,4 @@ export interface SubagentProgress {
 +  /** Current provider turn number. Optional for external progress producers. */
 +  turnCount?: number;
 +  /** Tokens observed in the current provider turn. */
 +  turnTokens?: number;
-@@ -19,0 +84,2 @@ export interface SubagentProgress {
+@@ -25,0 +99,2 @@ export interface SubagentProgress {
 +  cacheReadTokens?: number;
 +  cacheWriteTokens?: number;
-@@ -36,0 +103,2 @@ export interface SubagentResult {
-+  /** Logical Pi session UUID for this spawned subagent process. */
-+  childSessionId?: string;
-@@ -38,0 +107 @@ export interface SubagentResult {
+@@ -46,0 +122 @@ export interface SubagentResult {
 +  provider?: string | undefined;
-@@ -39,0 +109,2 @@ export interface SubagentResult {
-+  /** Effective child profile and limits after operator/call resolution. */
+@@ -47,0 +124,2 @@ export interface SubagentResult {
++  /** Effective child profile, limits, and output-limit enforcement evidence. */
 +  execution?: ResolvedChildExecution;
-@@ -41,0 +113 @@ export interface SubagentResult {
+@@ -49,0 +128 @@ export interface SubagentResult {
 +  termination?: SubagentTermination;
-@@ -49,0 +122,2 @@ export interface SubagentToolResult {
+@@ -57,0 +137,2 @@ export interface SubagentToolResult {
 +  /** Nested child-model usage for Pi versions that support tool-result accounting. */
 +  usage?: Usage;
-@@ -59,0 +134 @@ export interface StreamState {
-+  childSessionId?: string;
-@@ -62,5 +137,3 @@ export interface StreamState {
+@@ -71,5 +152,3 @@ export interface StreamState {
 -  totalInput: number;
 -  totalOutput: number;
 -  totalCacheRead: number;
@@ -1714,11 +1897,12 @@ index b90f829..f1f2562 100644
 +  usage: Usage;
 +  turnUsage: Usage;
 +  partialUsage: Usage;
-@@ -69,0 +143 @@ export interface StreamState {
+@@ -78,0 +158 @@ export interface StreamState {
 +  provider: string | undefined;
-@@ -71,0 +146,2 @@ export interface StreamState {
+@@ -80,0 +161,3 @@ export interface StreamState {
 +  streamingOutput: string | undefined;
 +  streamingParts: Map<number, { type: "text" | "thinking"; content: string }>;
++  outputLimit: OutputLimitEvidence | undefined;
 diff --git a/src/usage.ts b/src/usage.ts
 new file mode 100644
 index 0000000..884279c
