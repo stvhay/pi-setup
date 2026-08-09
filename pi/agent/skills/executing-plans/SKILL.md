@@ -21,7 +21,7 @@ Confirm all before editing:
 
 - plan path resolved and read from project filesystem
 - current branch and repository root checked
-- same-branch authority established when on `main` or `master`
+- execution checkout established: a non-main branch/worktree or explicit same-checkout authority for `main`/`master`
 - working tree checked; unrelated changes understood through human decision
 - relevant baseline established once or explicitly inherited, with failures classified
 - first risk-sized batch and its verification selected
@@ -31,7 +31,17 @@ Stop before edits if any item is unresolved.
 
 ## Branch and dirty-tree policy
 
-Prefer a feature branch or worktree, but same-branch execution is allowed when project instructions authorize routine local work or the current user explicitly approves it. Record that authority; it does not authorize remote, destructive, or unrelated-work operations.
+When starting from `main` or `master`:
+
+1. Treat the current checkout as the orchestration checkout.
+2. Never switch the orchestration checkout to a feature branch or write implementation files there unless same-checkout execution is explicitly authorized.
+3. Require authority that specifically permits editing the shared checkout; generic implementation or commit authority is not same-checkout authority.
+4. Load `using-git-worktrees` when isolated local implementation is authorized; create a separate feature branch/worktree and run every edit and verification command there.
+5. Recheck that the orchestration checkout remains on `main`/`master` and clean at each checkpoint.
+
+A branch switch in the same checkout is not isolation because untracked and ignored filesystem state stays shared. If neither a safe execution worktree nor explicit same-checkout authority is available, stop before edits.
+
+Same-checkout execution remains allowed when project instructions or the current user specifically authorize it. Record that authority; it does not authorize remote, destructive, or unrelated-work operations. Prune the worktree only after integration is verified and applicable cleanup authority explicitly permits removal; otherwise leave it intact.
 
 When unrelated changes exist:
 

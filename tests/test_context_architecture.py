@@ -125,6 +125,30 @@ def test_project_init_eval_excludes_opt_in_github_templates():
     assert "created opt-in GitHub template without request" in case
 
 
+def test_executing_plans_isolates_main_orchestration_checkout():
+    skill = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
+    scenario = (ROOT / ".pi" / "skill-evals" / "executing-plans" / "scenarios" / "isolated-main-orchestration.md").read_text(encoding="utf-8")
+    workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
+    case = workflow_eval.split("case_executing_plans_stops_on_main()", 1)[1].split("case_subagent_driven_rejects_shared_file_parallelism()", 1)[0]
+
+    assert "Treat the current checkout as the orchestration checkout" in skill
+    assert "Never switch the orchestration checkout to a feature branch" in skill
+    assert "generic implementation or commit authority is not same-checkout authority" in skill
+    assert "Load `using-git-worktrees`" in skill
+    assert "Prune the worktree only after integration" in skill
+    assert "git branch -M main" in case
+    assert ".worktrees/" in case
+    assert "git branch --show-current" in case
+    assert "git status --porcelain" in case
+    assert "git worktree list --porcelain" in case
+    assert "orchestration checkout left main" in case
+    assert "orchestration checkout HEAD changed" in case
+    assert "implementation worktree was not on a feature branch" in case
+    assert "implementation was not isolated in another worktree" in case
+    assert "Must keep the orchestration checkout on `main`" in scenario
+    assert "Must not merge, delete the branch, or remove the worktree without approval" in scenario
+
+
 def test_approved_implementation_defaults_through_local_commit():
     global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")

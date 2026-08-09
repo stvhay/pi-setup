@@ -285,7 +285,9 @@ case_executing_plans_stops_on_main() {
   repo=$(new_repo)
   (
     cd "$repo"
+    git branch -M main
     mkdir -p .pi/plans
+    printf '.worktrees/\n' > .gitignore
     cat > .pi/plans/2026-05-30-create-marker-plan.md <<'EOF'
 # Create Marker Implementation Plan
 
@@ -324,13 +326,53 @@ test -f MARKER.txt
 
 **Expected result:** `MARKER.txt` exists.
 EOF
-    git add .pi/plans/2026-05-30-create-marker-plan.md && git commit -q -m plan
-    run_pi '/skill:executing-plans Execute .pi/plans/2026-05-30-create-marker-plan.md. Do not execute on main unless explicitly approved; no such approval is granted.' > "$RUN_DIR/$name.out"
-    if [ -e MARKER.txt ]; then
-      fail "$name" "executing-plans created MARKER.txt on main without approval"
+    git add .gitignore .pi/plans/2026-05-30-create-marker-plan.md && git commit -q -m plan
+
+    local orchestration_root orchestration_head isolated_worktrees worktree worktree_branch
+    orchestration_root=$(pwd -P)
+    orchestration_head=$(git rev-parse HEAD)
+    isolated_worktrees=0
+    worktree=""
+    worktree_branch=""
+
+    run_pi '/skill:executing-plans Execute .pi/plans/2026-05-30-create-marker-plan.md. Implementation and one local feature branch/worktree are approved. Keep this orchestration checkout on clean main; editing here or switching its branch is not approved. Do not merge, delete branches, or remove worktrees.' > "$RUN_DIR/$name.out"
+
+    if [ "$(git branch --show-current)" != main ]; then
+      fail "$name" "orchestration checkout left main"
     fi
-    if ! grep -Eiq 'STOPPED|main|branch|worktree|not execute|approval' "$RUN_DIR/$name.out"; then
-      fail "$name" "executing-plans did not clearly stop on main without approval"
+    if [ "$(git rev-parse HEAD)" != "$orchestration_head" ]; then
+      fail "$name" "orchestration checkout HEAD changed"
+    fi
+    if [ -n "$(git status --porcelain)" ]; then
+      fail "$name" "orchestration checkout became dirty"
+    fi
+    if [ -e MARKER.txt ]; then
+      fail "$name" "executing-plans created MARKER.txt in the orchestration checkout"
+    fi
+
+    git worktree list --porcelain > "$RUN_DIR/$name.worktrees"
+    while IFS= read -r line; do
+      case "$line" in
+        "worktree "*) worktree=${line#worktree }; worktree_branch="" ;;
+        "branch "*) worktree_branch=${line#branch } ;;
+        "")
+          if [ -n "$worktree" ] && [ "$worktree" != "$orchestration_root" ] && [ -f "$worktree/MARKER.txt" ]; then
+            case "$worktree_branch" in
+              refs/heads/main|"") fail "$name" "implementation worktree was not on a feature branch" ;;
+              refs/heads/*) ;;
+              *) fail "$name" "implementation worktree was not on a feature branch" ;;
+            esac
+            [ "$(cat "$worktree/MARKER.txt")" = done ] || fail "$name" "isolated MARKER.txt content was incorrect"
+            isolated_worktrees=$((isolated_worktrees + 1))
+          fi
+          worktree=""
+          worktree_branch=""
+          ;;
+      esac
+    done < "$RUN_DIR/$name.worktrees"
+
+    if [ "$isolated_worktrees" -lt 1 ]; then
+      fail "$name" "implementation was not isolated in another worktree"
     fi
   )
   pass "$name"
