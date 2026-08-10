@@ -14,18 +14,8 @@ const OperationEnum = StringEnum([
 	"show",
 	"tree",
 	"create_draft",
-	"request_approval",
-	"resolve_blocker",
 	"runner_status",
 ] as const);
-
-const PreviewSchema = Type.Object({
-	action: Type.String(),
-	scope: Type.String(),
-	consequences: Type.String(),
-	reversibility: Type.String(),
-	closeoutPath: Type.String(),
-});
 
 const GatewayParamsSchema = Type.Object({
 	operation: OperationEnum,
@@ -43,17 +33,6 @@ const GatewayParamsSchema = Type.Object({
 	metadata: Type.Optional(Type.Any()),
 	parent: Type.Optional(Type.String()),
 	acceptance: Type.Optional(Type.String()),
-	targetBead: Type.Optional(Type.String()),
-	question: Type.Optional(Type.String()),
-	context: Type.Optional(Type.String()),
-	options: Type.Optional(Type.Array(Type.String())),
-	default: Type.Optional(Type.String()),
-	requestingRun: Type.Optional(Type.String()),
-	preview: Type.Optional(PreviewSchema),
-	runBundle: Type.Optional(Type.String()),
-	decisionBead: Type.Optional(Type.String()),
-	outcome: Type.Optional(StringEnum(["approved", "answered", "rejected", "cancelled", "timed-out"] as const)),
-	answer: Type.Optional(Type.String()),
 }, { additionalProperties: false });
 
 type GatewayParams = Record<string, unknown> & { operation: string };
@@ -121,44 +100,16 @@ export default function ticketGateway(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "ticket_gateway",
 		label: "Ticket Gateway",
-		description: "Optional structured Beads ticket gateway. Supports list, show, tree, create_draft, request_approval, resolve_blocker, and runner_status.",
+		description: "Optional structured Beads ticket gateway. Supports list, show, tree, create_draft, and runner_status.",
 		promptSnippet: "Use ticket_gateway when the structured orchestration workflow is explicitly selected; direct Pi coding remains the default.",
 		promptGuidelines: [
 			"For direct coding, confirm a Bead exists before code edits; use normal workspace tools for inspection, editing, and verification.",
-			"Use ticket_gateway for structured work listing, ticket details, tree views, draft creation, approval requests, blocker resolution, and runner status when orchestration is selected.",
+			"Use ticket_gateway for structured work listing, ticket details, tree views, draft creation, and runner status when orchestration is selected.",
 			"Do not send shell commands or raw Beads commands to ticket_gateway; choose one enum operation and structured fields only.",
 		],
 		parameters: GatewayParamsSchema,
 		async execute(_toolCallId, params: GatewayParams, signal, _onUpdate, ctx) {
 			const result = await runGateway(params, ctx.cwd, signal);
-			if (params.operation === "request_approval" && ctx.hasUI) {
-				const approval = asRecord(result.approval);
-				const decisionBead = String(approval.decisionBead ?? "");
-				if (!decisionBead) throw new Error("approval request did not return a decision bead");
-				const approved = await ctx.ui.confirm("Approval requested", [
-					String(params.question ?? "Approve this action?"),
-					"",
-					`Decision bead: ${decisionBead}`,
-					`Target bead: ${String(params.targetBead ?? "")}`,
-					"",
-					`Action: ${String(asRecord(params.preview).action ?? "")}`,
-					`Scope: ${String(asRecord(params.preview).scope ?? "")}`,
-					`Consequences: ${String(asRecord(params.preview).consequences ?? "")}`,
-					`Reversibility: ${String(asRecord(params.preview).reversibility ?? "")}`,
-					`Closeout path: ${String(asRecord(params.preview).closeoutPath ?? "")}`,
-				].join("\n"));
-				const outcome = approved ? "approved" : "rejected";
-				const resolveArgs = ["approvals", "resolve", decisionBead, "--outcome", outcome,
-					"--answer", approved ? "Approved in Pi UI" : "Rejected in Pi UI",
-					"--resolver-kind", "human-ui", "--resolver-session", ctx.sessionManager.getSessionId(), "--json"];
-				const runBundle = typeof params.runBundle === "string" ? params.runBundle : "";
-				if (runBundle) resolveArgs.push("--run-bundle", runBundle);
-				const resolution = await runAgntJson(resolveArgs, ctx.cwd, signal);
-				return {
-					content: [{ type: "text", text: `Approval ${decisionBead} ${outcome}.` }],
-					details: { request: result, resolution },
-				};
-			}
 			return {
 				content: [{ type: "text", text: summarize(result) }],
 				details: result,

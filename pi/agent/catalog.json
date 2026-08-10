@@ -17,8 +17,7 @@
             "xhigh": "extra high"
           },
           "input": ["text", "image", "audio"],
-          "contextWindow": 272000,
-          "maxTokens": 128000
+          "contextWindow": 272000
         }
       ]
     },
@@ -37,8 +36,7 @@
             "xhigh": "extra high"
           },
           "input": ["text", "image", "audio"],
-          "contextWindow": 272000,
-          "maxTokens": 128000
+          "contextWindow": 272000
         }
       ]
     },
@@ -61,8 +59,7 @@
             "xhigh": "extra high"
           },
           "input": ["text", "image", "audio"],
-          "contextWindow": 272000,
-          "maxTokens": 128000
+          "contextWindow": 272000
         }
       ]
     },
@@ -84,8 +81,7 @@
             "max": "max"
           },
           "input": ["text", "image"],
-          "contextWindow": 1000000,
-          "maxTokens": 16384
+          "contextWindow": 1000000
         }
       ]
     },
@@ -102,8 +98,7 @@
           "billingClass": "metered",
           "reasoning": true,
           "input": ["text", "image"],
-          "contextWindow": 524288,
-          "maxTokens": 16384
+          "contextWindow": 524288
         }
       ]
     },
@@ -123,8 +118,7 @@
             "off": null
           },
           "input": ["text", "image"],
-          "contextWindow": 262144,
-          "maxTokens": 16384
+          "contextWindow": 262144
         }
       ]
     },
@@ -150,8 +144,7 @@
             "max": "max"
           },
           "input": ["text", "image"],
-          "contextWindow": 1048576,
-          "maxTokens": 16384
+          "contextWindow": 1048576
         }
       ]
     }

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 from pathlib import Path
+
+from conftest import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,16 +11,6 @@ EXTENSION = ROOT / "pi" / "agent" / "extensions" / "agent-os-compat.ts"
 ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
 MATRIX = ROOT / "docs" / "extension-web-compatibility.md"
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
-
-
-def run_node(script: str, env: dict[str, str] | None = None):
-    subprocess.run(
-        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, **(env or {})},
-    )
 
 
 def package_fixture(tmp_path: Path, global_packages: list[str] | None = None):
@@ -430,9 +420,22 @@ export function findAgent(agents, name) { return agents.find((agent) => agent.na
           const callsBeforeRejection = globalThis.__upstreamSubagentCalls.length;
           const rejected = await subagent.execute("metered-review", params, undefined, undefined, context);
           assert.equal(rejected.isError, true);
-          assert.match(rejected.content[0].text, /agnt invoke --one-shot --task review/);
+          assert.match(rejected.content[0].text, /require subagent mode one-shot/);
           assert.equal(globalThis.__upstreamSubagentCalls.length, callsBeforeRejection);
         }}
+
+        const allowedMeteredReview = await subagent.execute("metered-review-one-shot", {{
+          task: "Review auth",
+          model: "openrouter/anthropic/claude-opus-5",
+          mode: "one-shot",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(allowedMeteredReview.details.upstream, true);
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          task: "Review auth",
+          model: "openrouter/anthropic/claude-opus-5",
+          mode: "one-shot",
+          limits: {{ maxOutputTokens: expectedCap }},
+        }});
 
         const allowedMeteredNonReview = await subagent.execute("metered-research", {{
           task: "Map auth callers",

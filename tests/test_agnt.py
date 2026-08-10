@@ -176,19 +176,13 @@ def test_cmd_graphify_falls_back_to_uv_tool_runner(agnt, monkeypatch):
     assert calls == [["uv", "tool", "run", "--from", "graphifyy", "graphify", "--help"]]
 
 
-def test_cmd_graphify_hooks_install_writes_marked_blocks(agnt, tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def test_cmd_graphify_passes_native_hook_commands_through(agnt, monkeypatch):
+    calls = []
+    monkeypatch.setattr(agnt.shutil, "which", lambda name: "/tmp/graphify" if name == "graphify" else None)
+    monkeypatch.setattr(agnt, "run", lambda argv: calls.append(argv) or 0)
 
-    assert agnt.cmd_graphify(["hooks", "install", "--repo", str(tmp_path)]) == 0
-
-    for hook_name in ["post-commit", "post-merge", "post-checkout"]:
-        hook = tmp_path / ".git" / "hooks" / hook_name
-        text = hook.read_text(encoding="utf-8")
-        assert "# BEGIN agnt graphify hook" in text
-        assert "agnt graphify update ." in text
-        assert os.access(hook, os.X_OK)
-
-    assert agnt.cmd_graphify(["hooks", "status", "--repo", str(tmp_path)]) == 0
+    assert agnt.cmd_graphify(["hook", "status"]) == 0
+    assert calls == [["/tmp/graphify", "hook", "status"]]
 
 
 def test_cmd_graphify_does_not_auto_install_missing_hooks(agnt, monkeypatch, tmp_path, capsys):
@@ -218,7 +212,6 @@ def test_documented_common_agnt_entry_points_still_parse(agnt, monkeypatch, tmp_
     expected = [
         "agnt tasks --models",
         "agnt route --task TASK --risk medium --budget balanced",
-        "agnt invoke --one-shot --task TASK provider/model packet.md",
         "agnt eval list",
         "agnt context-health",
         "agnt doctor --json",
@@ -226,15 +219,9 @@ def test_documented_common_agnt_entry_points_still_parse(agnt, monkeypatch, tmp_
     ]
     assert all(line in agents for line in expected)
 
-    from agnt_lib import invoke
-
-    packet = tmp_path / "packet.md"
-    packet.write_text("smoke", encoding="utf-8")
-    monkeypatch.setattr(invoke, "invoke_one", lambda *_args, **_kwargs: (0, "ok", "", None))
     commands = [
         ["tasks", "--models"],
         ["route", "--task", "review", "--risk", "medium", "--budget", "balanced"],
-        ["invoke", "--one-shot", "--no-metrics", "--task", "review", "provider/model", str(packet)],
         ["eval", "list"],
         ["context-health"],
         ["doctor", "--json"],
@@ -243,6 +230,11 @@ def test_documented_common_agnt_entry_points_still_parse(agnt, monkeypatch, tmp_
     for command in commands:
         assert agnt.main(command) == 0, command
         capsys.readouterr()
+
+    assert agnt.main(["--help"]) == 0
+    help_text = capsys.readouterr().out
+    assert "invoke" not in help_text
+    assert "soul" not in help_text
 
 
 def test_cmd_plans_dir_uses_override(agnt, monkeypatch, tmp_path, capsys):
@@ -845,7 +837,12 @@ def test_select_model_returns_approved_high_risk_review_fanout(agnt):
     assert "openrouter/moonshotai/kimi-k3" not in result["candidateOrder"]
     assert [item["target"] for item in result["fanout"]] == result["reviewPolicyTargets"]
     assert result["fanout"][1]["contextPolicy"] == "fresh"
-    assert "--one-shot" in result["invokeExample"]
+    assert result["subagentExample"] == {
+        "task": "<review-task>",
+        "model": "openai-codex/gpt-5.6-terra",
+        "mode": "one-shot",
+        "thinking": "xhigh",
+    }
 
 
 def test_select_model_can_ignore_history_for_deterministic_evals(agnt):
@@ -2085,169 +2082,6 @@ def test_parse_pi_json_output_counts_provider_requests(agnt):
     assert source == "message_end"
     assert error == ""
     assert usage["providerRequests"] == 2
-
-
-def test_cmd_invoke_one_shot_forwards_mode(agnt, monkeypatch, capsys):
-    calls = []
-
-    def fake_invoke_one(target, prompt, **kwargs):
-        calls.append((target, prompt, kwargs))
-        return 0, "ok", "", None
-
-    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
-
-    assert agnt.cmd_invoke([
-        "--one-shot",
-        "--no-metrics",
-        "openrouter/moonshotai/kimi-k2.7-code",
-        "review packet",
-    ]) == 0
-
-    assert calls[0][2]["one_shot"] is True
-    assert calls[0][2]["timeout_seconds"] == 180.0
-    assert capsys.readouterr().out == "ok"
-
-
-def test_cmd_invoke_one_shot_accepts_explicit_timeout(agnt, monkeypatch, capsys):
-    calls = []
-
-    def fake_invoke_one(target, prompt, **kwargs):
-        calls.append((target, prompt, kwargs))
-        return 0, "ok", "", None
-
-    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
-
-    assert agnt.cmd_invoke([
-        "--one-shot",
-        "--timeout-seconds",
-        "45",
-        "--no-metrics",
-        "openrouter/moonshotai/kimi-k2.7-code",
-        "review packet",
-    ]) == 0
-
-    assert calls[0][2]["timeout_seconds"] == 45.0
-    assert capsys.readouterr().out == "ok"
-
-
-def test_cmd_invoke_duplicate_fanout_targets_keep_each_local_metric(agnt, monkeypatch, tmp_path):
-    target = "openai-codex/gpt-5.6-luna"
-    prompts = []
-    for name in ("first", "second"):
-        path = tmp_path / f"{name}.md"
-        path.write_text(name, encoding="utf-8")
-        prompts.append(path)
-
-    invocation_ids = iter(("id-first", "id-second"))
-    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "new_invocation_id", lambda: next(invocation_ids))
-
-    def fake_invoke_one(target, prompt, **kwargs):
-        return 0, prompt, "", {
-            "schemaVersion": 2,
-            "invocationId": kwargs["invocation_id"],
-            "recordId": f"record-{prompt}",
-            "target": target,
-            "elapsedMs": 1,
-            "usage": None,
-        }
-
-    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
-    out_dir = tmp_path / "out"
-
-    assert agnt.cmd_invoke([
-        "--fanout",
-        "--output",
-        str(out_dir),
-        "--metrics-dir",
-        str(tmp_path / "central"),
-        target,
-        str(prompts[0]),
-        target,
-        str(prompts[1]),
-    ]) == 0
-
-    paths = [path for path in out_dir.glob("*.metrics.json") if path.name != "metrics.summary.json"]
-    records = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
-    assert {record["invocationId"] for record in records} == {"id-first", "id-second"}
-    central = {
-        json.loads(path.read_text(encoding="utf-8"))["invocationId"]: path.name
-        for path in (tmp_path / "central").glob("*.metrics.json")
-    }
-    assert set(central) == {"id-first", "id-second"}
-    assert all(invocation_id in filename for invocation_id, filename in central.items())
-
-
-def test_cmd_invoke_duplicate_fanout_targets_keep_each_output(agnt, monkeypatch, tmp_path):
-    target = "openai-codex/gpt-5.6-luna"
-    prompts = []
-    for name in ("first", "second"):
-        path = tmp_path / f"{name}.md"
-        path.write_text(name, encoding="utf-8")
-        prompts.append(path)
-
-    invocation_ids = iter(("id-first", "id-second"))
-    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "new_invocation_id", lambda: next(invocation_ids))
-
-    def fake_invoke_one(target, prompt, **kwargs):
-        invocation_id = kwargs.get("invocation_id", f"id-{prompt}")
-        return 0, f"out-{prompt}", f"err-{prompt}", {
-            "schemaVersion": 2,
-            "invocationId": invocation_id,
-            "recordId": f"record-{prompt}",
-            "target": target,
-            "elapsedMs": 1,
-            "usage": None,
-        }
-
-    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
-    out_dir = tmp_path / "out"
-
-    assert agnt.cmd_invoke([
-        "--fanout",
-        "--output",
-        str(out_dir),
-        "--metrics-dir",
-        str(tmp_path / "central"),
-        target,
-        str(prompts[0]),
-        target,
-        str(prompts[1]),
-    ]) == 0
-
-    safe = agnt.safe_target_name(target)
-    outputs = {path.name: path.read_text(encoding="utf-8") for path in out_dir.glob("*.md")}
-    errors = {path.name: path.read_text(encoding="utf-8") for path in out_dir.glob("*.err")}
-    assert outputs == {
-        f"{safe}-id-first.md": "out-first",
-        f"{safe}-id-second.md": "out-second",
-    }
-    assert errors == {
-        f"{safe}-id-first.err": "err-first",
-        f"{safe}-id-second.err": "err-second",
-    }
-
-
-def test_cmd_invoke_single_fanout_target_keeps_simple_output_names(agnt, monkeypatch, tmp_path):
-    target = "openai-codex/gpt-5.6-luna"
-
-    def fake_invoke_one(target, prompt, **kwargs):
-        return 0, "only-output", "only-error", None
-
-    monkeypatch.setitem(agnt.cmd_invoke.__globals__, "invoke_one", fake_invoke_one)
-    out_dir = tmp_path / "out"
-
-    assert agnt.cmd_invoke([
-        "--fanout",
-        "--no-metrics",
-        "--output",
-        str(out_dir),
-        target,
-        "only prompt",
-    ]) == 0
-
-    safe = agnt.safe_target_name(target)
-    assert (out_dir / f"{safe}.md").read_text(encoding="utf-8") == "only-output"
-    assert (out_dir / f"{safe}.err").read_text(encoding="utf-8") == "only-error"
 
 
 def test_metrics_record_includes_family_and_invocation_shape(agnt):

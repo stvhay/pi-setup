@@ -107,14 +107,14 @@ After a full rebuild, verify diagnostics, path-qualified IDs, manifest/root meta
 Manage per-project hooks explicitly when needed:
 
 ```bash
-agnt graphify hooks status
-agnt graphify hooks install
-agnt graphify hooks uninstall
+agnt graphify hook status
+agnt graphify hook install
+agnt graphify hook uninstall
 ```
 
 Hook installation changes repository behavior and requires explicit user approval in the current conversation. Checking hook status is allowed; installing, enabling, or uninstalling hooks is not allowed without approval.
 
-The hooks are best-effort `post-commit`, `post-merge`, and `post-checkout` hooks that run `agnt graphify update .` in the background. They are installed in the current Git repo's hooks directory, respect `core.hooksPath`, and use a marked block so existing hook content is preserved. They should not block commits or make generated `graphify-out/` tracked.
+Graphify owns hook installation, status, and removal; `agnt` only passes these commands through.
 
 ## Backend and environment notes
 

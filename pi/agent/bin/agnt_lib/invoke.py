@@ -1,21 +1,14 @@
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
-import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-
-from .core import VALID_OUTCOMES, die, split_target
-from .doctor import doctor_report
+from .core import split_target
 from .provider_circuits import classify_provider_failure, close_provider_circuit, open_provider_circuit
-from .tasks import list_models, preferred_models
-from .metrics import add_usage, default_metrics_dir, empty_usage, metrics_record, new_invocation_id, utc_now, write_json
+from .metrics import add_usage, empty_usage, metrics_record, new_invocation_id, utc_now
 
 ONE_SHOT_SYSTEM_PROMPT = (
     "You are a read-only reviewer. Analyze only the complete packet in the user message. "
@@ -23,20 +16,6 @@ ONE_SHOT_SYSTEM_PROMPT = (
 )
 
 
-def read_prompt(parts: List[str]) -> str:
-    if parts:
-        chunks: List[str] = []
-        for part in parts:
-            path_text = part[1:] if part.startswith("@") else part
-            path = Path(path_text).expanduser()
-            if path.is_file() and (part.startswith("@") or len(parts) == 1 or part == parts[-1]):
-                chunks.append(path.read_text(encoding="utf-8"))
-            else:
-                chunks.append(part)
-        return "\n\n".join(chunk for chunk in chunks if chunk)
-    if not sys.stdin.isatty():
-        return sys.stdin.read()
-    return ""
 def assistant_text(message: Dict[str, Any]) -> str:
     content = message.get("content")
     if isinstance(content, str):
@@ -241,157 +220,3 @@ def invoke_one(
             invocation_mode="one-shot" if one_shot else "agentic",
         )
     return code, out, err, record
-
-
-def cmd_invoke(argv: List[str]) -> int:
-    parser = argparse.ArgumentParser(prog="agnt invoke", description="Invoke Pi peer models.")
-    parser.add_argument("--task", help="task routing hint")
-    parser.add_argument("--list", nargs="?", const="", metavar="TASK", help="list models for TASK or all tasks")
-    parser.add_argument("--fanout", action="store_true", help="run one or more models in parallel")
-    parser.add_argument(
-        "--one-shot",
-        action="store_true",
-        help="run cold with no tools, skills, context files, prompt templates, or saved session",
-    )
-    parser.add_argument("--no-metrics", action="store_true", help="disable default wall-clock, token, and cost metrics capture")
-    parser.add_argument("--metrics", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--metrics-dir", help="raw metrics output directory")
-    parser.add_argument(
-        "--timeout-seconds",
-        type=float,
-        help="terminate a peer after this many seconds (one-shot default: 180)",
-    )
-    parser.add_argument("--risk-category", help="risk/category label to store in metrics")
-    parser.add_argument("--thinking-level", help="Pi thinking level to apply and store in metrics")
-    parser.add_argument("--outcome", choices=sorted(VALID_OUTCOMES), default="unknown", help="initial outcome label for metrics")
-    parser.add_argument("--human-override", action="store_true", help="mark metrics as involving a human override")
-    parser.add_argument("--fallback-used", action="store_true", help="mark metrics as involving a fallback")
-    parser.add_argument("--preflight", action="store_true", help="run agnt doctor invocation preflight before calling models")
-    parser.add_argument("-o", "--output", help="output directory for fanout")
-    parser.add_argument("items", nargs="*", help="provider/model plus prompt/file, or fanout pairs")
-    args = parser.parse_args(argv)
-
-    if args.list is not None:
-        return list_models(args.list or args.task)
-    if not args.items:
-        parser.print_help(sys.stderr)
-        return 2
-
-    use_metrics = not args.no_metrics
-    timeout_seconds = args.timeout_seconds
-    if timeout_seconds is None and args.one_shot:
-        timeout_seconds = 180.0
-
-    if args.preflight:
-        report = doctor_report(check_names=["command.pi", "provider.env", "catalog.parse"])
-        if report.get("failures"):
-            print(json.dumps(report, indent=2, sort_keys=True), file=sys.stderr)
-            return 1
-        if report.get("warnings"):
-            print("agnt invoke preflight warnings:", file=sys.stderr)
-            for warning in report.get("warnings") or []:
-                print(f"- {warning.get('id')}: {warning.get('message')}", file=sys.stderr)
-
-    if not args.fanout:
-        target = args.items[0]
-        prompt = read_prompt(args.items[1:])
-        code, out, err, record = invoke_one(
-            target,
-            prompt,
-            metrics=use_metrics,
-            task=args.task,
-            risk_category=args.risk_category,
-            thinking_level=args.thinking_level,
-            outcome=args.outcome,
-            human_override=args.human_override,
-            fallback_used=args.fallback_used,
-            one_shot=args.one_shot,
-            timeout_seconds=timeout_seconds,
-        )
-        if use_metrics and record is not None:
-            metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-            write_json(metrics_dir / f"{stamp}-{safe_target_name(target)}-{record['invocationId']}.metrics.json", record)
-        if err:
-            print(err, file=sys.stderr, end="")
-        print(out, end="")
-        return code
-
-    out_dir = Path(args.output or f".pi/peer-runs/{datetime.now().strftime('%Y%m%d-%H%M%S')}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    pairs: List[Tuple[str, str]] = []
-    items = args.items
-    if "/" not in items[0]:
-        prompt = read_prompt(items)
-        pairs = [(target, prompt) for target in preferred_models(args.task)]
-    elif len(items) == 1 or (len(items) > 1 and not Path(items[1].removeprefix("@")).expanduser().is_file() and "/" not in items[1]):
-        prompt = read_prompt(items[1:]) if len(items) > 1 else read_prompt([])
-        pairs = [(items[0], prompt)]
-    else:
-        if len(items) % 2 != 0:
-            die("fanout multi-model form requires provider/model filename pairs")
-        for i in range(0, len(items), 2):
-            target = items[i]
-            path = Path(items[i + 1].removeprefix("@")).expanduser()
-            if not path.is_file():
-                die(f"prompt file not found: {path}", 1)
-            pairs.append((target, path.read_text(encoding="utf-8")))
-
-    (out_dir / "targets.txt").write_text("\n".join(target for target, _ in pairs) + "\n", encoding="utf-8")
-    status = 0
-    records: List[Dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
-        futures = {}
-        for target, prompt in pairs:
-            invocation_id = new_invocation_id()
-            future = pool.submit(
-                invoke_one,
-                target,
-                prompt,
-                metrics=use_metrics,
-                task=args.task,
-                risk_category=args.risk_category,
-                thinking_level=args.thinking_level,
-                outcome=args.outcome,
-                human_override=args.human_override,
-                fallback_used=args.fallback_used,
-                one_shot=args.one_shot,
-                timeout_seconds=timeout_seconds,
-                invocation_id=invocation_id,
-            )
-            futures[future] = (target, invocation_id)
-        for fut in as_completed(futures):
-            target, invocation_id = futures[fut]
-            safe = safe_target_name(target)
-            artifact_stem = safe if len(pairs) == 1 else f"{safe}-{invocation_id}"
-            code, out, err, record = fut.result()
-            (out_dir / f"{artifact_stem}.md").write_text(out, encoding="utf-8")
-            (out_dir / f"{artifact_stem}.err").write_text(err, encoding="utf-8")
-            if use_metrics and record is not None:
-                records.append(record)
-                write_json(out_dir / f"{safe}-{record['invocationId']}.metrics.json", record)
-                metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
-                stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-                write_json(metrics_dir / f"{stamp}-{safe}-{invocation_id}.metrics.json", record)
-            if code != 0:
-                status = code
-    if use_metrics:
-        summary: Dict[str, Any] = {
-            "schemaVersion": 1,
-            "targets": [record["target"] for record in records],
-            "invocations": records,
-            "totalElapsedMs": sum(int(record.get("elapsedMs") or 0) for record in records),
-            "totalUsage": empty_usage(),
-        }
-        usage_seen = False
-        for record in records:
-            usage = record.get("usage")
-            if isinstance(usage, dict):
-                add_usage(summary["totalUsage"], usage)
-                usage_seen = True
-        if not usage_seen:
-            summary["totalUsage"] = None
-        write_json(out_dir / "metrics.summary.json", summary)
-    print(f"peer outputs: {out_dir}")
-    return status

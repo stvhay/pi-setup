@@ -7,7 +7,7 @@ description: Use when doing multi-source research or investigating a topic; not 
 
 Comprehensive research system using parallel Pi peer models across multiple sources.
 
-**Pi note:** Pi does not provide native web search/fetch tools by default. Use the generic local helper `~/.pi/agent/bin/agnt`. `agnt web-search` uses the SearXNG instance configured by `SEARXNG_URL` and defaults to `--category auto`, inferring `it`, `science`, `news`, or the default search category from the query. Skills should stay backend-agnostic by calling the generic helper names, not SearXNG directly.
+**Pi note:** Use the generic local helper `~/.pi/agent/bin/agnt` for shell-based research. `agnt web-search` uses the SearXNG instance configured by `SEARXNG_URL`; it uses the backend's default category unless `--category` is explicit. Skills should call the generic helper names, not SearXNG directly.
 
 ## MANDATORY: URL Verification
 

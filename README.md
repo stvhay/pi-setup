@@ -78,7 +78,7 @@ After `~/.pi/agent/bin` is on `PATH`, inspect the everyday control surface:
 agnt doctor --json
 agnt tasks
 agnt route --task review --risk medium --budget balanced
-agnt invoke --list review
+agnt tasks --models
 agnt instructions --roles
 ```
 
@@ -161,7 +161,6 @@ pi-setup/
 
 - [Model Portfolio Decision — August 2026](docs/MODEL-PORTFOLIO-2026-08.md) — approved OpenAI Pro 20× plus direct OpenRouter API policy, routing matrices, spend gates, and reevaluation criteria.
 - [GitHub Adapter Decision](docs/GITHUB-ADAPTER.md) — why Beads remains canonical and GitHub issues are a possible adapter surface.
-- [Self-Improvement Configuration Evaluation](docs/SELF-IMPROVEMENT-CONFIG-EVALUATION.md) — point-in-time audit and recommended improvements.
 
 ## Security and runtime state
 

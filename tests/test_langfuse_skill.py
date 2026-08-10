@@ -1,28 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import subprocess
 from pathlib import Path
+
+from conftest import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
 SKILL_SOURCE = "git:github.com/langfuse/skills"
-
-
-def run_extension_script(script: str, *, home: Path | None = None):
-    node = shutil.which("node")
-    assert node
-    subprocess.run(
-        [node, "--experimental-strip-types", "--input-type=module", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, **({"HOME": str(home)} if home else {})},
-    )
 
 
 def test_langfuse_skill_is_unpinned_and_reuses_extension_config(tmp_path):
@@ -60,7 +47,7 @@ def test_langfuse_skill_is_unpinned_and_reuses_extension_config(tmp_path):
       assert.equal(process.env.LANGFUSE_SECRET_KEY, "explicit-secret");
       assert.equal(process.env.LANGFUSE_BASE_URL, "https://langfuse.example.com");
     """
-    run_extension_script(script, home=tmp_path)
+    run_node(script, env={"HOME": str(tmp_path)})
 
 
 def test_langfuse_uses_package_default_string_bound():
@@ -73,7 +60,7 @@ def test_langfuse_uses_package_default_string_bound():
 
       assert.equal(process.env.PI_LANGFUSE_MAX_STRING_LENGTH, undefined);
     """
-    run_extension_script(script)
+    run_node(script)
 
 
 def test_langfuse_preserves_explicit_string_bound_overrides():
@@ -87,7 +74,7 @@ def test_langfuse_preserves_explicit_string_bound_overrides():
         assert.equal(process.env.PI_LANGFUSE_MAX_STRING_LENGTH, value);
       }}
     """
-    run_extension_script(script)
+    run_node(script)
 
 
 def fake_langfuse_agent_dir(tmp_path: Path) -> Path:
@@ -226,7 +213,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
       assert.equal(process.env.LANGFUSE_PUBLIC_KEY, "pk-explicit");
       assert.equal(process.env.LANGFUSE_SECRET_KEY, "sk-config");
     """
-    run_extension_script(script)
+    run_node(script)
 
 
 def test_emitted_generation_preserves_explicit_zero_cost_and_runtime_model_id(tmp_path):
@@ -289,7 +276,7 @@ def test_emitted_generation_preserves_explicit_zero_cost_and_runtime_model_id(tm
       assert.equal(persisted.usage.output, 3);
       assert.equal(persisted.usage.cacheRead, 5);
     """
-    run_extension_script(script)
+    run_node(script)
 
 
 def test_metered_models_are_not_changed(tmp_path):
@@ -330,4 +317,4 @@ def test_metered_models_are_not_changed(tmp_path):
       }}]);
       assert.equal(persisted, message);
     """
-    run_extension_script(script)
+    run_node(script)

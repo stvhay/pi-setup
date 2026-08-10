@@ -38,34 +38,6 @@ from agnt_lib.langfuse import *  # noqa: E402,F401,F403
 from agnt_lib.improvement import *  # noqa: E402,F401,F403
 from agnt_lib import graphify as graphify_impl  # noqa: E402
 
-def cmd_soul(argv: List[str]) -> int:
-    parser = argparse.ArgumentParser(prog="agnt soul", description="Emit or validate SOUL.md communication preferences.")
-    parser.add_argument("path", nargs="?", default=str(ROOT / "SOUL.md"))
-    parser.add_argument("--check", action="store_true", help="validate safety boundary phrases")
-    args = parser.parse_args(argv)
-    path = Path(args.path).expanduser()
-    if not path.is_file():
-        die(f"SOUL file not found: {path}", 1)
-    texts = [path.read_text(encoding="utf-8")]
-    supplements = path.parent / f"{path.stem}.d"
-    if supplements.is_dir():
-        for supplement in sorted(supplements.rglob("*.md")):
-            texts.append(supplement.read_text(encoding="utf-8"))
-    text = "\n\n".join(item.rstrip() for item in texts if item.strip()) + "\n"
-    if args.check:
-        lowered = text.lower()
-        required = ["collaborative partner", "safety boundary"]
-        missing = [phrase for phrase in required if phrase not in lowered]
-        if missing:
-            for phrase in missing:
-                print(f"FAIL missing phrase: {phrase}")
-            return 1
-        print("PASS soul check")
-        return 0
-    print(text.rstrip())
-    return 0
-
-
 def cmd_instructions(argv: List[str]) -> int:
     return run([str(BIN / "agent-instructions"), *argv])
 
@@ -78,11 +50,9 @@ def cmd_graphify(argv: List[str]) -> int:
 def main(argv: List[str]) -> int:
     commands = {
         "tasks": ("list task/model routing hints", cmd_tasks),
-        "invoke": ("invoke one or more Pi peer models", cmd_invoke),
         "web-search": ("search the web", lambda args: run([str(BIN / "web-search"), *args])),
         "web-fetch": ("fetch a URL", lambda args: run([str(BIN / "web-fetch"), *args])),
         "instructions": ("generate layered instructions", cmd_instructions),
-        "soul": ("emit or validate communication preferences", cmd_soul),
         "route": ("recommend a model for a task", cmd_route),
         "recommend": ("alias for route", cmd_route),
         "runtime-path": ("resolve a safe private runtime directory", cmd_runtime_path),
@@ -90,7 +60,7 @@ def main(argv: List[str]) -> int:
         "metrics": ("inspect and consolidate invocation metrics", cmd_metrics),
         "review": ("validate and summarize structured review findings", cmd_review),
         "eval": ("run filesystem-defined agnt evals", cmd_eval),
-        "prompt": ("inventory prompts and manage prompt pattern notes", cmd_prompt),
+        "prompt": ("inventory prompts and instructions", cmd_prompt),
         "action": ("list, validate, and render prompt/action templates", cmd_action),
         "runs": ("create and validate invocation/result run artifacts", cmd_runs),
         "work": ("inspect beads-backed ready work and dispatch/run artifacts", cmd_work),

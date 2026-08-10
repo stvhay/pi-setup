@@ -52,10 +52,10 @@ agnt route        constraint filter (enabledModels, modality, context window)
       │           + billing/risk gates + outcome-history demotion
       │           (subscription before metered; metered contextPolicy=fresh)
       │
-      ├─ Archimedes `subagent` for interactive streaming/TUI peer work
-      └─ agnt invoke for cold `--one-shot`, headless, and run-artifact workers
+      ├─ Archimedes `subagent` for interactive, one-shot, and parallel peers
+      └─ internal headless worker for evals and run artifacts
                          │
-subagent observer + invoke metrics
+subagent observer + internal worker metrics
                          │
 resolved private metrics records ──consolidate──▶ ~/.pi/metrics/
       │                                              (global store)
@@ -71,8 +71,8 @@ catalog contains only configured Codex and OpenRouter venues and remains the
 single source for routing facts: cost class, billing class, modalities, context
 window, reasoning capability, and rates. `agnt` and `agent-instructions` read it
 via shared `bin/_agnt_common.py`; no model facts live in code.
-Every metered OpenRouter model runs only in a fresh subagent or `agnt invoke`
-worker, never as a continuation model for a long root conversation. The tracked
+Every metered OpenRouter model runs only in a fresh subagent, never as a
+continuation model for a long root conversation. The tracked
 Archimedes wrapper uses this catalog's `billingClass`—not provider-name inference—to
 inject a configurable 16,384-token provider output cap only for metered one-shot
 children. Explicit tighter caps win; subscription and agentic children receive no
@@ -92,16 +92,15 @@ rationale.
   rather than a second source of truth.
 - **Invocation/result message**: structured interface between orchestration and
   workers. Answers "what should run now?" and "what happened with what
-  evidence?" Invocation v1 records ticket metadata, selected model/thinking,
-  dispatch/session/memory policy, todo seeds, and worktree snapshots. Result v1
+  evidence?" Invocation v2 records ticket metadata, selected model/thinking,
+  dispatch/session/memory policy, todo seeds, and worktree snapshots. Result v2
   records evidence, follow-ups, session/transcript/memory refs, approval/decision
   refs, health checks, and closeout checks.
 - **Task** (`pi/agent/tasks/*.md`): operational routing label (`review`,
   `orchestration`, …) with preferred/qualified/avoid target lists in
   frontmatter. Answers "which model or execution default?" A task named
   `orchestration` is a routing category, not the orchestration engine itself.
-- **Prompt / action template** (`pi/agent/actions/*.md`, with provenance notes
-  under `pi/agent/prompt-patterns/`): explicit invocation pattern. Answers
+- **Prompt / action template** (`pi/agent/actions/*.md`): explicit invocation pattern. Answers
   "what action is being started now, with which arguments?" Actions select
   tasks, skills, roles, effects, and output contracts.
 - **Skill** (`pi/agent/skills/*/SKILL.md`): reusable capability package —
@@ -133,9 +132,8 @@ for gate-weakening phrases.
 
 Front controller for: `route` (recommend model + thinking level for
 task/risk/budget, JSON with explicit reasons and rejected candidates),
-`invoke` (cold/headless or run-artifact peers, metrics on by default, with a
-no-tools `--one-shot` mode for complete packets), `review` (validate/summarize
-structured findings), `metrics` (status/annotate/consolidate), `eval`
+`review` (validate/summarize structured findings), `metrics`
+(status/annotate/consolidate), `eval`
 (filesystem-defined deterministic evals), `instructions`, `prompt`, `action`,
 `runs`, `work`, `approvals`, `gateway`, `web-search`/`web-fetch`, and
 `plans-dir`.
@@ -180,8 +178,8 @@ plan trees, daemon lifecycle, service-backed runner client operations, health
 checks, and maintenance checkpoints, `agnt approvals` for durable human
 decisions, `agnt gateway` for constrained Pi extension access and service-backed
 runner visibility, Archimedes `subagent` for interactive peer dispatch, `agnt
-invoke` / `agnt runs invoke` / `agnt work run` for cold or artifact-backed worker
-execution, `agnt context-health` for
+runs invoke` / `agnt work run` for artifact-backed headless worker execution,
+`agnt context-health` for
 context entropy checks, and `pi/agent/evals/` for gates. See the
 [Orchestration Loop Decision](ORCHESTRATION-LOOP.md) and
 [Project-Local Runner Service](RUNNER-SERVICE.md) for the explicitly selected
@@ -193,7 +191,7 @@ Raw per-invocation records land in the resolver-selected private
 `metrics/invocations` directory. The resolver uses
 `<git-root>/.pi/metrics/invocations/` only when Git proves the candidate safe;
 otherwise it uses the repository-keyed `~/.pi/runtime/<sha256>/` fallback.
-`agnt invoke` writes its own records; the tracked subagent observer converts
+Internal eval/run workers write their own records; the tracked subagent observer converts
 completed unnamed Archimedes results to the same schema using counts and
 lengths without prompt or response bodies. Before tool return, the parent writes
 full child output under the resolver-selected `delegated-results` directory and

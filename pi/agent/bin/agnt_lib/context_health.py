@@ -44,8 +44,8 @@ OVERLAP_ALLOWLIST = {
 
 STALE_TERMS = {
     "pi-plans-dir": "Use `agnt plans-dir` instead.",
-    "pi-peer": "Use `agnt invoke` instead.",
-    "pi-fanout": "Use `agnt invoke --fanout` instead.",
+    "pi-peer": "Use routed `subagent` instead.",
+    "pi-fanout": "Use the `subagent` tasks array instead.",
     "automatically installs project-local Graphify refresh hooks": "Graphify hooks are explicit/approval-gated.",
 }
 

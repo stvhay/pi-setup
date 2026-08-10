@@ -114,7 +114,7 @@ The tracked schema and example are:
 
 ## Run cold discovery passes
 
-`--one-shot` disables tools, skills, context-file discovery, prompt templates, and session persistence. It also defaults to a 180-second subprocess timeout. This makes the packet the complete context, bounds stalled calls, and prevents tool-loop request multiplication.
+Subagent `mode: "one-shot"` disables tools and ambient project context. A 180-second child limit bounds stalled calls and one provider request prevents tool-loop multiplication.
 
 Policy by risk:
 
@@ -123,19 +123,19 @@ Policy by risk:
 - **High:** Terra at extra-high thinking plus one fresh Opus 5 boundary/adversarial pass; human adjudicates consequential findings.
 - **Reserve/hard cap:** use the subscription-backed Terra target returned by `agnt route`.
 
-Example:
+Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes. Each task embeds one complete packet and sets:
 
-```bash
-agnt invoke --one-shot --task review --risk-category medium \
-  openai-codex/gpt-5.6-terra \
-  "$ReviewDir/behavioral-packet.md" > "$ReviewDir/codex-findings.json"
-
-agnt invoke --one-shot --task review --risk-category medium \
-  openrouter/moonshotai/kimi-k2.7-code \
-  "$ReviewDir/boundary-packet.md" > "$ReviewDir/kimi-findings.json"
+```json
+{
+  "model": "<routed-provider/model>",
+  "mode": "one-shot",
+  "thinking": "<routed-thinking-level>",
+  "limits": {"maxProviderRequests": 1, "maxDurationMs": 180000},
+  "outputContract": "inline"
+}
 ```
 
-For parallel high-risk passes, use `agnt invoke --one-shot --fanout` with one complete packet per provider/model pair.
+Save each returned child output under `$ReviewDir` before validation. Metered review tasks must use one-shot mode; the Archimedes wrapper applies the configured provider output cap.
 
 Validate every output before counting it:
 

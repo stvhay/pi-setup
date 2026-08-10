@@ -78,7 +78,7 @@ For interactive work, keep policy in `agnt` and execution in Archimedes:
 }
 ```
 
-Use `agnt invoke --one-shot` only for cold complete packets. Use plain `agnt invoke` only for noninteractive headless or artifact-backed workers that need tools or ambient context. Default peer roles should come from curated task/model policy, not hard-coded Claude assumptions.
+Use `mode: "one-shot"` for cold complete packets and normal agentic mode for peers that need tools or project context. Default peer roles should come from curated task/model policy, not hard-coded Claude assumptions.
 
 ## Web research
 
@@ -96,6 +96,6 @@ Use backend-agnostic helpers:
 When porting older Claude Code skills to Pi:
 
 - Replace `.claude/...` paths with `.pi/...` unless there is a project-specific reason not to.
-- Replace platform-specific Task assumptions with routed unnamed `subagent` calls or explicit manual execution; use `agnt invoke --one-shot` only for cold packets.
+- Replace platform-specific Task assumptions with routed unnamed `subagent` calls or explicit manual execution; use subagent `mode: "one-shot"` for cold packets.
 - Do not assume native WebSearch/WebFetch, AskUserQuestion, TodoWrite, MCP, hooks, background bash, or plan mode.
 - Prefer concise prompts and artifacts that can be found with `rg`.

@@ -9,7 +9,6 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 BIN = ROOT / "bin"
 TASKS = ROOT / "tasks"
 EVALS = ROOT / "evals"
-PROMPT_PATTERNS = ROOT / "prompt-patterns"
 ACTIONS = ROOT / "actions"
 
 VALID_OUTCOMES = {"unknown", "accepted", "rejected", "verified-pass", "verified-fail", "escalated"}

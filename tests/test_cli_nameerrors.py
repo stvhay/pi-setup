@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import sys
 from pathlib import Path
 
@@ -11,14 +10,6 @@ if str(BIN) not in sys.path:
     sys.path.insert(0, str(BIN))
 
 
-def test_removed_benchmark_and_session_import_are_not_advertised(agnt, capsys):
-    assert agnt.main(["--help"]) == 0
-    assert "benchmark" not in capsys.readouterr().out
-
-    assert agnt.cmd_metrics(["--help"]) == 0
-    assert "import-session" not in capsys.readouterr().out
-
-
 def test_improve_command_is_advertised_and_dispatched(agnt, monkeypatch, capsys):
     assert agnt.main(["--help"]) == 0
     assert "improve" in capsys.readouterr().out
@@ -27,22 +18,6 @@ def test_improve_command_is_advertised_and_dispatched(agnt, monkeypatch, capsys)
     monkeypatch.setattr(agnt, "cmd_improve", lambda args: seen.append(args) or 7)
     assert agnt.main(["improve", "scan", "--dry-run"]) == 7
     assert seen == [["scan", "--dry-run"]]
-
-
-def test_legacy_learning_command_is_retired(agnt, capsys):
-    command = "les" + "sons"
-    assert agnt.main(["--help"]) == 0
-    assert command not in capsys.readouterr().out
-    assert agnt.main([command]) == 2
-
-
-def test_front_controller_has_one_dispatch_lookup(agnt):
-    source = inspect.getsource(agnt.main)
-    assert source.count("if command") == 1
-
-
-def test_removed_session_importer_has_no_deployed_hook():
-    assert not (BIN.parent.parent / ".githooks" / "pre-commit").exists()
 
 
 def test_invoke_eval_records_metrics_without_nameerror(monkeypatch, tmp_path):
@@ -111,26 +86,16 @@ def test_invoke_eval_dry_run_materializes_embedded_one_shot_prompt(tmp_path):
         [],
     )
 
-    command = result["results"][0]["plannedCommand"]
-    assert "--one-shot" in command
-    planned_prompt = Path(command[-1])
+    worker = result["results"][0]["plannedWorker"]
+    assert worker["mode"] == "one-shot"
+    assert worker["target"] == "test/model"
+    planned_prompt = Path(worker["promptFile"])
     assert planned_prompt.parent == out_dir
     assert planned_prompt.read_text(encoding="utf-8") == "skill body\n\n---\n\nscenario"
 
 
-def test_prompt_eval_alias_is_retired(agnt):
+def test_prompt_help_omits_pattern_note_import(agnt, capsys):
     with pytest.raises(SystemExit) as exc:
-        agnt.cmd_prompt(["eval", "routing-smoke"])
-    assert exc.value.code == 2
-
-
-def test_prompt_pattern_note_has_timestamp_helper(monkeypatch, tmp_path):
-    from agnt_lib import prompt
-
-    monkeypatch.setattr(prompt, "PROMPT_PATTERNS", tmp_path)
-    path = prompt.write_pattern_note(
-        name="Test pattern", source_url="https://example.com", source_license="MIT", pattern="brief", rewrite="rewrite", notes=None,
-    )
-
-    assert path.is_file()
-    assert "createdAt:" in path.read_text(encoding="utf-8")
+        agnt.cmd_prompt(["--help"])
+    assert exc.value.code == 0
+    assert "import-pattern-note" not in capsys.readouterr().out

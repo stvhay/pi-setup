@@ -111,61 +111,10 @@ def test_gateway_create_draft_rejects_caller_supplied_implementation_approval(ag
         )
 
 
-def test_gateway_model_resolution_rejects_approved_or_answered_outcomes(agnt):
-    for outcome in ("approved", "answered"):
-        with pytest.raises(ValueError, match="cannot resolve approved or answered"):
-            agnt.ticket_gateway(
-                {"operation": "resolve_blocker", "decisionBead": "pi-decision.1", "outcome": outcome},
-                approval_resolver=lambda **_kwargs: {},
-            )
-
-
-def test_gateway_request_approval_rejects_unknown_target_alias(agnt):
-    with pytest.raises(ValueError, match="unsupported gateway field"):
-        agnt.ticket_gateway({"operation": "request_approval", "target_bead": "pi-task.1"})
-
-
-def test_gateway_request_approval_and_resolve_blocker_delegate_to_approval_core(agnt):
-    approval_calls = []
-    resolve_calls = []
-
-    def fake_approval(**kwargs):
-        approval_calls.append(kwargs)
-        return {"decisionBead": "pi-decision.1", "blockerCreated": True}
-
-    def fake_resolve(**kwargs):
-        resolve_calls.append(kwargs)
-        return {"decisionBead": "pi-decision.1", "outcome": "cancelled", "blockerVisible": True}
-
-    request = agnt.ticket_gateway(
-        {
-            "operation": "request_approval",
-            "targetBead": "pi-task.1",
-            "question": "Approve?",
-            "context": "Need approval.",
-            "options": ["approve", "reject"],
-            "default": "reject",
-            "requestingRun": "run-1",
-            "preview": {
-                "action": "Edit files",
-                "scope": "one file",
-                "consequences": "writes change",
-                "reversibility": "git revert",
-                "closeoutPath": "tests pass",
-            },
-        },
-        approval_creator=fake_approval,
-    )
-    resolved = agnt.ticket_gateway(
-        {"operation": "resolve_blocker", "decisionBead": "pi-decision.1", "outcome": "cancelled", "answer": "Cancelled."},
-        approval_resolver=fake_resolve,
-    )
-
-    assert request["approval"]["decisionBead"] == "pi-decision.1"
-    assert approval_calls[0]["kind"] == "approval"
-    assert approval_calls[0]["target_bead"] == "pi-task.1"
-    assert resolved["resolution"]["outcome"] == "cancelled"
-    assert resolve_calls[0]["decision_bead"] == "pi-decision.1"
+@pytest.mark.parametrize("operation", ["request_approval", "resolve_blocker"])
+def test_gateway_rejects_dedicated_approval_operations(agnt, operation):
+    with pytest.raises(ValueError, match="unsupported gateway operation"):
+        agnt.ticket_gateway({"operation": operation})
 
 
 def test_gateway_runner_status_surfaces_runner_state(agnt, tmp_path):
@@ -178,14 +127,6 @@ def test_gateway_runner_status_surfaces_runner_state(agnt, tmp_path):
     assert result["runner"]["suggestedAction"] == "agnt work daemon start --json"
 
 
-def test_ticket_gateway_approval_requests_prompt_the_interactive_human():
-    text = Path("pi/agent/extensions/ticket-gateway.ts").read_text(encoding="utf-8")
-    assert 'params.operation === "request_approval"' in text
-    assert 'ctx.ui.confirm("Approval requested"' in text
-    assert '["approvals", "resolve"' in text
-    assert '"--resolver-kind", "human-ui"' in text
-
-
 def test_ticket_gateway_extension_registers_tool_and_work_command():
     path = Path("pi/agent/extensions/ticket-gateway.ts")
     assert path.is_file()
@@ -195,4 +136,5 @@ def test_ticket_gateway_extension_registers_tool_and_work_command():
     assert "registerCommand" in text
     assert '"/work"' in text or "registerCommand(\"work\"" in text
     assert "StringEnum" in text
-    assert "approvals" not in text or "request_approval" in text
+    assert "request_approval" not in text
+    assert "resolve_blocker" not in text

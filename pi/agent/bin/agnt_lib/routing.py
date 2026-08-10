@@ -470,7 +470,7 @@ def select_model(
             "reviewBudgetState": review_budget_state,
             "reviewPolicyTargets": review_policy,
             "reasons": reasons,
-            "invokeExample": None,
+            "subagentExample": None,
         }
 
     selected = scored[0]
@@ -507,11 +507,12 @@ def select_model(
         "reviewBudgetState": review_budget_state,
         "reviewPolicyTargets": review_policy,
         "reasons": reasons,
-        "invokeExample": (
-            f"agnt invoke {'--one-shot ' if task == 'review' else ''}--task {task} "
-            f"--risk-category {risk} --thinking-level {selected['thinkingLevel']} "
-            f"{selected['target']} <prompt-or-file>"
-        ),
+        "subagentExample": {
+            "task": f"<{task}-task>",
+            "model": selected["target"],
+            "mode": "one-shot" if task == "review" else "agentic",
+            "thinking": selected["thinkingLevel"],
+        },
     }
 
 

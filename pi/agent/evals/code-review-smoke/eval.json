@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "code-review-smoke",
-  "summary": "Smoke-test the code-review peer prompt shape through agnt invoke.",
+  "summary": "Smoke-test the code-review peer prompt through the internal headless worker.",
   "kind": "invoke",
   "task": "review",
   "defaultModels": ["openai-codex/gpt-5.6-terra"],

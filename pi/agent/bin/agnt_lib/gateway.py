@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
-from .approvals import create_beads_approval_request, resolve_beads_approval_request
 from .core import die
 from .orchestration import validate_bead_orchestration_metadata
 from .runner_client import RunnerClient, RunnerClientError
@@ -19,8 +18,6 @@ VALID_OPERATIONS = {
     "show",
     "tree",
     "create_draft",
-    "request_approval",
-    "resolve_blocker",
     "runner_status",
 }
 BANNED_KEYS = {"command", "cmd", "shell", "bash", "raw", "script", "subagent", "argv", "args"}
@@ -33,18 +30,6 @@ ALLOWED_KEYS = {
     "show": {"operation", "bead", "runsDir"},
     "tree": {"operation", "root", "epic", "runsDir"},
     "create_draft": {"operation", "title", "description", "issueType", "priority", "labels", "metadata", "parent", "acceptance"},
-    "request_approval": {
-        "operation",
-        "targetBead",
-        "question",
-        "context",
-        "options",
-        "default",
-        "requestingRun",
-        "preview",
-        "runBundle",
-    },
-    "resolve_blocker": {"operation", "decisionBead", "outcome", "answer", "runBundle"},
     "runner_status": {"operation", "root"},
 }
 
@@ -58,7 +43,7 @@ def _require_object(payload: Any) -> Dict[str, Any]:
 def _operation(payload: Dict[str, Any]) -> str:
     operation = payload.get("operation")
     if operation not in VALID_OPERATIONS:
-        raise ValueError(f"operation must be one of {sorted(VALID_OPERATIONS)}")
+        raise ValueError(f"unsupported gateway operation; expected one of {sorted(VALID_OPERATIONS)}")
     return str(operation)
 
 
@@ -210,34 +195,6 @@ def _create_draft_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner)
     return {"schemaVersion": 1, "operation": "create_draft", "created": created}
 
 
-def _request_approval_gateway(payload: Dict[str, Any], *, approval_creator: Callable[..., Dict[str, Any]]) -> Dict[str, Any]:
-    result = approval_creator(
-        kind="approval",
-        target_bead=_require_string(payload, "targetBead"),
-        question=_require_string(payload, "question"),
-        context=_require_string(payload, "context"),
-        options=payload.get("options"),
-        default=payload.get("default"),
-        requesting_run=payload.get("requestingRun"),
-        preview=payload.get("preview"),
-        run_bundle=_optional_path(payload.get("runBundle")),
-    )
-    return {"schemaVersion": 1, "operation": "request_approval", "approval": result}
-
-
-def _resolve_blocker_gateway(payload: Dict[str, Any], *, approval_resolver: Callable[..., Dict[str, Any]]) -> Dict[str, Any]:
-    outcome = _require_string(payload, "outcome")
-    if outcome in {"approved", "answered"}:
-        raise ValueError("model gateway cannot resolve approved or answered outcomes; use the human UI")
-    result = approval_resolver(
-        decision_bead=_require_string(payload, "decisionBead"),
-        outcome=outcome,
-        answer=payload.get("answer"),
-        run_bundle=_optional_path(payload.get("runBundle")),
-    )
-    return {"schemaVersion": 1, "operation": "resolve_blocker", "resolution": result}
-
-
 def _compact_lease(lease: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "leaseId": lease.get("leaseId"),
@@ -303,8 +260,6 @@ def ticket_gateway(
     *,
     beads_runner: BeadsRunner = run_beads_json,
     tree_builder: TreeBuilder = build_work_tree,
-    approval_creator: Callable[..., Dict[str, Any]] = create_beads_approval_request,
-    approval_resolver: Callable[..., Dict[str, Any]] = resolve_beads_approval_request,
     runs_dir: Path | None = None,
 ) -> Dict[str, Any]:
     data = _require_object(payload)
@@ -317,10 +272,6 @@ def ticket_gateway(
         return _tree_gateway(data, tree_builder=tree_builder, runs_dir=runs_dir)
     if operation == "create_draft":
         return _create_draft_gateway(data, beads_runner=beads_runner)
-    if operation == "request_approval":
-        return _request_approval_gateway(data, approval_creator=approval_creator)
-    if operation == "resolve_blocker":
-        return _resolve_blocker_gateway(data, approval_resolver=approval_resolver)
     if operation == "runner_status":
         return _runner_status_gateway(data)
     raise ValueError(f"unsupported operation: {operation}")

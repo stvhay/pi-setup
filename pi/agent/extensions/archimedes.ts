@@ -325,13 +325,17 @@ function isOpenRouterModel(model: string | undefined, ctx: any): boolean {
   return matches.length === 1 && matches[0].provider.toLowerCase() === "openrouter";
 }
 
-function isMeteredReviewSubagent(params: any, ctx: any): boolean {
+function isAgenticMeteredReviewSubagent(params: any, ctx: any): boolean {
   const inheritedModel = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
   const tasks = Array.isArray(params.tasks)
-    ? params.tasks.map((task: any) => ({ prompt: task.task, model: task.model ?? inheritedModel }))
-    : [{ prompt: params.task, model: params.model ?? inheritedModel }];
-  return tasks.some(({ prompt, model }: { prompt?: string; model?: string }) =>
-    /\breview(?:ed|ing)?\b/i.test(prompt ?? "") && isOpenRouterModel(model, ctx)
+    ? params.tasks.map((task: any) => ({
+        prompt: task.task,
+        model: task.model ?? inheritedModel,
+        mode: task.mode ?? params.mode ?? "agentic",
+      }))
+    : [{ prompt: params.task, model: params.model ?? inheritedModel, mode: params.mode ?? "agentic" }];
+  return tasks.some(({ prompt, model, mode }: { prompt?: string; model?: string; mode: string }) =>
+    mode !== "one-shot" && /\breview(?:ed|ing)?\b/i.test(prompt ?? "") && isOpenRouterModel(model, ctx)
   );
 }
 
@@ -349,11 +353,11 @@ function registerContractAwareSubagent(
     ...upstreamSubagent,
     parameters: subagentParameters(upstreamSubagent.parameters),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      if (isMeteredReviewSubagent(params, ctx)) {
+      if (isAgenticMeteredReviewSubagent(params, ctx)) {
         return {
           content: [{
             type: "text",
-            text: "Metered OpenRouter reviews cannot run through subagent. Use `agnt invoke --one-shot --task review <provider/model> <packet.md>`.",
+            text: "Metered OpenRouter reviews require subagent mode one-shot.",
           }],
           details: {
             mode: Array.isArray(params.tasks) ? "parallel" : "single",

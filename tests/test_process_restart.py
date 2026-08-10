@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
+
+from conftest import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "process-restart.ts"
 README = ROOT / "pi" / "README.md"
 MATRIX = ROOT / "docs" / "extension-web-compatibility.md"
-
-
-def run_node(script: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
 
 
 def loader_prelude(runtime_setup: str = "") -> str:

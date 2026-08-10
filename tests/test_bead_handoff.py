@@ -2,22 +2,13 @@ from __future__ import annotations
 
 import os
 import stat
-import subprocess
 from pathlib import Path
+
+from conftest import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "bead-handoff.ts"
-
-
-def run_node(script: str, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
 
 
 def loader_prelude(runtime_setup: str = "") -> str:

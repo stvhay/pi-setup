@@ -156,7 +156,13 @@ def run_invoke_eval(eval_path: Path, spec: Dict[str, Any], out_dir: Path, dry_ru
         safe = safe_target_name(target)
         case_result: Dict[str, Any] = {"target": target, "task": task, "dryRun": dry_run}
         if dry_run:
-            case_result["plannedCommand"] = ["agnt", "invoke", "--one-shot", "--task", task, "--metrics-dir", str(metrics_dir), target, str(planned_prompt_file)]
+            case_result["plannedWorker"] = {
+                "target": target,
+                "task": task,
+                "mode": "one-shot",
+                "metricsDir": str(metrics_dir),
+                "promptFile": str(planned_prompt_file),
+            }
         else:
             code, out, err, record = invoke_one(target, prompt, metrics=True, task=task, risk_category="eval", outcome="unknown", one_shot=True)
             (out_dir / f"{safe}.md").write_text(out, encoding="utf-8")

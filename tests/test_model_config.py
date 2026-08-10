@@ -90,25 +90,21 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
         "minimax-m3": {
             "target": "openrouter/minimax/minimax-m3",
             "contextWindow": 524_288,
-            "maxTokens": 16_384,
             "rates": {"input": 0.3, "output": 1.2, "cacheRead": 0.06},
         },
         "kimi-k2.7-code": {
             "target": "openrouter/moonshotai/kimi-k2.7-code",
             "contextWindow": 262_144,
-            "maxTokens": 16_384,
             "rates": {"input": 0.73, "output": 3.5, "cacheRead": 0.15},
         },
         "kimi-k3": {
             "target": "openrouter/moonshotai/kimi-k3",
             "contextWindow": 1_048_576,
-            "maxTokens": 16_384,
             "rates": {"input": 3.0, "output": 15.0, "cacheRead": 0.3},
         },
         "claude-opus-5": {
             "target": "openrouter/anthropic/claude-opus-5",
             "contextWindow": 1_000_000,
-            "maxTokens": 16_384,
             "rates": {"input": 5.0, "output": 25.0, "cacheRead": 0.5, "cacheWrite": 6.25},
         },
     }
@@ -119,7 +115,6 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
         assert venue["billingClass"] == "metered"
         assert venue["reasoning"] is True
         assert venue["contextWindow"] == wanted["contextWindow"]
-        assert venue["maxTokens"] == wanted["maxTokens"]
         assert family["openrouterRates"] == wanted["rates"]
 
 
@@ -130,6 +125,5 @@ def test_approved_dispatch_roles_use_direct_openrouter_targets():
     assert "openrouter/moonshotai/kimi-k2.7-code" in task("implementation")
     assert "openrouter/moonshotai/kimi-k2.7-code" in task("review")
     assert "openrouter/anthropic/claude-opus-5" in task("review")
-    assert "escalationTarget: openrouter/moonshotai/kimi-k3" in task("review")
     assert "openrouter/moonshotai/kimi-k3" not in task("implementation")
     assert "openrouter/moonshotai/kimi-k3" not in task("cheap-peer")

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 from pathlib import Path
+
+from conftest import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,16 +33,6 @@ PONYTAIL_PACKAGE = {
     "skills": [],
 }
 PONYTAIL_INPUT = ROOT / "pi" / "agent" / "extensions" / "ponytail-skill-input.ts"
-
-
-def run_node(script: str):
-    subprocess.run(
-        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=os.environ,
-    )
 
 
 def test_architecture_skill_package_is_unpinned_and_filtered_to_dependencies():

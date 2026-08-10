@@ -1,6 +1,6 @@
 # agnt command reference
 
-`agnt` is the primary command surface for Pi orchestration helpers: routing, peer invocation, context composition, action templates, run artifacts, Beads-backed work, the project-local runner service, metrics, evals, and context-health checks. For the conceptual overview, see [The agnt System](../../../docs/AGNT-SYSTEM.md); for service lifecycle and API details, see [Project-Local Runner Service](../../../docs/RUNNER-SERVICE.md).
+`agnt` is the primary command surface for Pi routing, context composition, action templates, run artifacts, Beads-backed work, the project-local runner service, metrics, evals, and context-health checks. For the conceptual overview, see [The agnt System](../../../docs/AGNT-SYSTEM.md); for service lifecycle and API details, see [Project-Local Runner Service](../../../docs/RUNNER-SERVICE.md).
 
 Commands are designed to compose with normal Unix idioms: stdin when no file is supplied, stdout for primary output, stderr for diagnostics, and `-o` for files/directories when needed.
 
@@ -21,8 +21,8 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
 
 ## Research
 
-- `agnt web-search "query" [-n N] [--category auto|default|it|science|news]`
-  - Searches via the configured backend.
+- `agnt web-search "query" [-n N] [--category it|science|news|...]`
+  - Searches via the configured backend and uses its default category unless one is explicit.
   - Prints `cat: <category>` in output.
 
 - `agnt web-fetch URL [--max-chars N] [--raw]`
@@ -30,12 +30,9 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
 
 ## Model orchestration
 
-- `agnt invoke --list [TASK]`
-  - Lists preferred/qualified models for one task or all tasks.
-
 - `agnt route --task TASK [--risk low|medium|high] [--budget cheap|balanced|quality] [--context-tokens N] [--modality text|image|audio|video] [--monthly-paid-spend USD] [--ignore-history]`
   - Recommends a model, fallback models, thinking level, context policy, and whether fanout is useful. Subscription-backed models rank before metered models when capability is comparable.
-  - Uses the existing task files as policy, filters by `agent/settings.json` `enabledModels` plus runtime constraints, and includes metrics hints when available. `contextPolicy: fresh` means a selected metered OpenRouter model must run through a new `subagent` or `agnt invoke` worker, not as a root-conversation continuation.
+  - Uses the existing task files as policy, filters by `agent/settings.json` `enabledModels` plus runtime constraints, and includes metrics hints when available. `contextPolicy: fresh` means a selected metered OpenRouter model must run through a new `subagent`, not as a root-conversation continuation.
   - For `review`, emits the approved risk-specific `reviewPolicyTargets` fanout and a deterministic monthly spend state: Terra at high thinking by default, Kimi K2.7 Code for medium-risk diversity, and Opus 5 for high-risk independent review. It counts OpenRouter, configured metered venues, and positive provider-reported spend from retired venues while excluding configured subscription targets. It uses `AGNT_REVIEW_PAID_SPEND_USD` as an operator floor, accepts an authoritative `--monthly-paid-spend` override, and keeps only subscription-backed Terra at the `$18` reserve and `$20` hard-cap thresholds. K3 is escalation-only.
   - `--ignore-history` is reserved for deterministic policy evaluation; normal routing uses outcome history.
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason.
@@ -52,27 +49,9 @@ For interactive delegation, run `agnt route`, then call the Archimedes `subagent
   - Tracks exact provider venues, not model families. Deterministic quota, credit, authentication, and availability errors open circuits for 30 minutes, 30 minutes, 15 minutes, and 2 minutes respectively; all TTLs have a one-hour hard cap. Successful calls close an open venue circuit, while expiry is pruned lazily.
   - Routing excludes every candidate on an open provider and reports bounded reason/expiry metadata; other providers serving the same model family remain eligible. Private mode-`0600` state is lock-serialized and atomically replaced under a mode-`0700` runtime directory. It stores only provider, reason enum, and timestamps; it never stores raw provider errors, targets, prompts, outputs, URLs, or credentials.
 
-- `agnt invoke [--one-shot] [--timeout-seconds N] [--task TASK] [--risk-category LABEL] [--thinking-level LEVEL] [--outcome OUTCOME] [--human-override] [--fallback-used] [--preflight] [--no-metrics] [--metrics-dir DIR] provider/model [filename]`
-  - Runs one ephemeral Pi peer. Metrics are on by default, so `agnt` uses `pi --mode json --no-session`, preserves normal stdout, and writes raw token/cost/wall-clock metrics to `DIR` or resolved private `metrics/invocations` directory.
-  - `--one-shot` also disables tools, skills, context-file discovery, and prompt templates, supplies a compact read-only system prompt, and defaults to a 180-second subprocess timeout. Use `--timeout-seconds` to override it. Use one-shot only when `filename` embeds the complete task context; it prevents agentic tool loops from multiplying provider requests.
-  - `--thinking-level` is passed to Pi as `--thinking` and recorded in metrics. Metrics also include `invocationMode`, counted `providerRequests`, task, risk category, context size, estimated input tokens, outcome, human override, and fallback-used flags.
-  - Use `--no-metrics` to use the older `pi --print --no-session` path and skip metrics.
-  - Reads prompt from `filename`, `@filename`, argv text, or stdin.
-  - `--preflight` runs a focused `agnt doctor` check before calling the model; failures abort and warnings are printed to stderr.
-
-- `agnt invoke --fanout [--task TASK] [--no-metrics] [-o DIR] [prompt-or-file]`
-  - Runs the task's preferred models and writes output artifacts to `DIR`.
-  - With default metrics, writes `<model>.metrics.json` for each peer, `metrics.summary.json`, and central raw invocation metrics.
-
-- `agnt invoke --fanout [--no-metrics] [-o DIR] provider/model [filename]`
-  - Runs one model and writes output artifacts to `DIR`.
-
-- `agnt invoke --fanout [--no-metrics] [-o DIR] provider/model filename [provider/model filename ...]`
-  - Runs multiple provider/model + prompt-file pairs in parallel.
-
 Metrics use `schemaVersion: 2` and are best-effort. Each invocation gets one UUID `invocationId` before execution; the ID is random and never derived from prompt, output, target, or child index. Records normalize `parentSessionId`, optional `childSessionId` for exact delegated-trace lookup, `workItem`, `provider`, `model`, `target`, `thinkingLevel`, objective `executionOutcome` (`succeeded`, `failed`, or `unavailable`), delegated `outputContract` (or `unknown`), `status` (`succeeded` or `failed`), `failureClass` (`provider`, `process`, `timeout`, or null), optional bounded `providerFailureClass`, usage, duration, and bounded artifact refs. Human outcome annotations remain separate and cannot mutate execution. `recordId` remains a backward-compatible selector, and schema-v1 records without v2 fields remain loadable with execution and output contract `unknown`. When Pi/provider usage is unavailable, metrics JSON records `usageSource: "unavailable"` and `usage: null`. When usage is available but the provider reports zero/missing dollars for a known subscription-backed or OpenRouter model, `agnt` fills `usage.cost` with an OpenRouter-price opportunity-cost estimate and marks it with `usage.costSource: "openrouter-assumed"` and `usage.costEstimated: true`. This keeps subscription GPT usage comparable without routing GPT calls through OpenRouter.
 
-Use routed unnamed `subagent` calls for interactive peers. Use `agnt invoke --one-shot` for cold complete packets and `agnt invoke` for headless or artifact-backed execution. Both paths capture compatible metrics. The old `pi-peer`/`pi-fanout` wrappers remain removed.
+Use routed unnamed `subagent` calls for peers. Set `mode: "one-shot"` for cold complete packets and use its `tasks` array for parallel dispatch. Internal eval/run workers keep the same metrics schema without exposing a second public peer command.
 
 ## Common routing flow
 
@@ -90,7 +69,10 @@ Cold review example:
 
 ```bash
 agnt route --task review --risk medium --budget balanced --fanout-size 3
-agnt invoke --one-shot --task review --risk-category medium <selected-provider/model> complete-packet.md
+```
+
+```json
+{"task":"<complete packet contents>","model":"<selected-provider/model>","mode":"one-shot","thinking":"<routed level>","limits":{"maxDurationMs":180000}}
 ```
 
 For structured review findings:
@@ -107,10 +89,6 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 
 - `agnt prompt inventory [--kind KIND] [--paths-only]`
   - Lists tracked prompt/instruction artifacts such as `AGENTS.md`, skills, model/role supplements, action templates, and eval prompts.
-
-- `agnt prompt import-pattern-note --name NAME --source-url URL --source-license LICENSE --pattern TEXT --rewrite TEXT [--notes TEXT]`
-  - Writes a provenance note under `agent/prompt-patterns/` without copying external prompt text.
-  - Use this for GPL/community prompt repositories: record the pattern and an original Pi-specific rewrite, not the source prompt.
 
 ## Action templates and run artifacts
 
@@ -190,8 +168,8 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt approvals resolve DECISION_ID --outcome approved|answered|rejected|cancelled|timed-out [--answer TEXT] [--structured-answer] [--selected-option TEXT ...] [--custom-input TEXT]`
   - Records the human outcome and public-safe UI resolver kind in Beads, never the private Pi session or requesting-run ID. Answered questions may persist predefined selections and typed input separately while retaining a readable answer summary; `--structured-answer` preserves an explicit empty multi-selection. Structured question fields cannot approve an action. Approved/answered decisions close the decision bead; rejected/cancelled/timed-out decisions keep visible blockers.
 
-- `agnt gateway --payload-json JSON`
-  - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `request_approval`, `resolve_blocker`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields.
+- `agnt gateway --payload JSON`
+  - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields. Use dedicated `ticket_question`, `ticket_approval`, and `ticket_decision_resolve` tools for human decisions.
   - `runner_status` is the stable model-facing service status surface. It returns absent-service state when no service is running, and redacted running/paused/draining state, leases, active work, budget, model/thinking, context, and cost when connected.
 
 ## Langfuse evaluator configuration
@@ -246,7 +224,7 @@ Private telemetry, IDs, excerpts, URLs, user content, and absolute paths stay ou
 - `agnt graphify [ARGS...]`
   - Runs the Graphify CLI (`graphify`) if installed, otherwise falls back to `uv tool run --from graphifyy graphify`.
   - Never installs project-local Graphify refresh hooks implicitly.
-  - `agnt graphify hooks install|status|uninstall [--repo PATH]` explicitly manages best-effort `post-commit`, `post-merge`, and `post-checkout` hooks for a project; install/uninstall requires user approval in agent workflows.
+  - `agnt graphify hook install|status|uninstall` passes through Graphify's native hook manager; install/uninstall requires user approval in agent workflows.
   - The tracked `graphify` Pi skill lives at `agent/skills/graphify/SKILL.md` and provides `/graphify` workflow guidance.
 
 ## Evals
@@ -256,7 +234,7 @@ Private telemetry, IDs, excerpts, URLs, user content, and absolute paths stay ou
 
 - `agnt eval run EVAL_ID [--dry-run] [--models provider/model[,provider/model...]] [-o DIR]`
   - Runs a filesystem-defined eval and writes `result.json` plus any model outputs under `.pi/eval-runs/<timestamp>-<eval>/` by default.
-  - Route evals call `agnt route`; instruction evals call `agnt instructions`; invoke evals call the same invocation path as `agnt invoke`, so metrics are captured automatically when not dry-run.
+  - Route evals call `agnt route`; instruction evals call `agnt instructions`; invoke evals use the internal headless worker and capture metrics automatically when not dry-run.
   - Invoke evals may set `skill` to a path relative to `eval.json`; its contents are embedded before the scenario for cold skill-behavior checks. Assertions support `nonEmptyOutput`, `contains`, and `notContains`.
 
 ## Metrics
@@ -292,10 +270,6 @@ To consolidate metrics automatically before commits, install a local hook that r
   - Loads model files from least to most specific: family overlay first, then provider/model overlays such as `openrouter.md` and `openrouter/minimax/minimax-m3.md`.
   - Uses append-only concatenation. Prefer moving optional context into role/model files over patching root instructions.
   - `--roles` lists available global/project role files and compact metadata; `--check` validates package structure and flags suspicious safety-gate weakening phrases.
-
-- `agnt soul [SOUL.md] [--check]`
-  - Emits or validates communication preferences from `SOUL.md` plus optional `SOUL.d/**/*.md` supplements.
-  - `SOUL.md` affects style only; it must not weaken safety gates.
 
 ## Workflow artifacts
 

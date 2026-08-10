@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
+
+from conftest import run_node as run_node_process
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,13 +26,7 @@ SUBAGENT_HARNESS = f"""
 
 
 def run_node(script: str, env: dict[str, str] | None = None):
-    subprocess.run(
-        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent"), **(env or {})},
-    )
+    return run_node_process(script, {"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent"), **(env or {})})
 
 
 def test_subagent_workaround_exposes_failures_without_touching_successes():

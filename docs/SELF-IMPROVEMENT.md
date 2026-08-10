@@ -29,9 +29,9 @@ Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
 
 ### 1. Capture
 
-Every `agnt invoke` writes a metric record (model, family, task, tokens,
+Internal eval/run workers write metric records (model, family, task, tokens,
 cost, latency) to the resolved private `metrics/invocations` directory.
-The tracked observer converts interactive Archimedes unnamed `subagent` results
+The tracked observer converts Archimedes unnamed `subagent` results
 to the same schema. Projection, parent-owned artifact, and metric records share
 invocation, provider, model, target, effective thinking, and optional output
 contract dimensions; missing/legacy contracts are `unknown`. Config-less workers

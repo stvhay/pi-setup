@@ -6,44 +6,9 @@ Uses a SearXNG instance configured with SEARXNG_URL.
 import argparse
 import json
 import os
-import re
 import sys
 import urllib.parse
 import urllib.request
-
-
-def infer_category(query: str) -> str | None:
-    """Infer a SearXNG category. None means use the instance default."""
-    q = query.lower()
-
-    news_terms = [
-        "latest", "today", "breaking", "news", "announced", "release", "released",
-        "earnings", "acquisition", "lawsuit", "election", "current", "recent",
-    ]
-    science_terms = [
-        "paper", "papers", "arxiv", "doi", "pubmed", "clinical", "study", "studies",
-        "meta-analysis", "systematic review", "trial", "research literature", "journal",
-        "citation", "citations", "scholar", "academic",
-    ]
-    it_terms = [
-        "api", "sdk", "cli", "docs", "documentation", "github", "stackoverflow",
-        "npm", "pypi", "crate", "rust", "python", "typescript", "javascript",
-        "node", "react", "vue", "svelte", "go", "golang", "swift", "kubernetes",
-        "docker", "postgres", "sqlite", "error", "exception", "stack trace",
-        "function", "class", "library", "framework", "package", "config", "configuration",
-    ]
-
-    def has_any(terms: list[str]) -> bool:
-        return any(term in q for term in terms)
-
-    # Prefer time-sensitive news over topical categories when the query asks for recency.
-    if has_any(news_terms):
-        return "news"
-    if has_any(science_terms):
-        return "science"
-    if has_any(it_terms) or re.search(r"\b[A-Za-z0-9_.-]+Error\b", query):
-        return "it"
-    return None
 
 
 parser = argparse.ArgumentParser(description="Search the web via SearXNG and print concise markdown results.")
@@ -52,8 +17,7 @@ parser.add_argument("-n", "--num", type=int, default=8, help="number of results 
 parser.add_argument(
     "-c",
     "--category",
-    default="auto",
-    help="SearXNG category: auto (default), default/general, it, science, news, etc.",
+    help="optional SearXNG category such as it, science, or news",
 )
 parser.add_argument("--json", action="store_true", help="print raw JSON response")
 args = parser.parse_args()
@@ -63,7 +27,7 @@ if not base:
     print("SEARXNG_URL is not set; configure a SearXNG instance URL before using web-search", file=sys.stderr)
     sys.exit(2)
 query = " ".join(args.query)
-category = infer_category(query) if args.category == "auto" else args.category
+category = args.category
 if category in ("", "default", "general"):
     category = None
 

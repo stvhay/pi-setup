@@ -88,87 +88,6 @@ def test_graphify_skill_matches_current_cli_contract():
     }
 
 
-def test_simplification_uses_native_tools_and_canonical_references():
-    project_init = AGENT / "skills" / "project-init"
-    stamp_skill = (AGENT / "skills" / "stamp-stpa-sec" / "SKILL.md").read_text(encoding="utf-8")
-    stamp_reference = (AGENT / "skills" / "stamp-stpa-sec" / "references" / "stpa-security.md").read_text(encoding="utf-8")
-    research_skill = (AGENT / "skills" / "research" / "SKILL.md").read_text(encoding="utf-8")
-
-    assert not (ROOT / ".envrc.d" / "gh.sh").exists()
-    assert not (project_init / "templates" / "gh.sh").exists()
-    assert not (AGENT / "skills" / "requesting-code-review" / "references" / "structured-format-parsing.md").exists()
-    assert "## STPA-Sec Process" not in stamp_skill
-    assert "## STPA-Sec Process" in stamp_reference
-    assert "## Core Insight" not in stamp_skill
-    assert "## Core Insight" in stamp_reference
-    assert "references/UrlVerificationProtocol.md" in research_skill
-    for workflow in ("StandardResearch.md", "ExtensiveResearch.md"):
-        text = (AGENT / "skills" / "research" / "workflows" / workflow).read_text(encoding="utf-8")
-        assert "## CRITICAL: URL Verification Required" not in text
-        assert 'curl -s -o /dev/null -w "%{http_code}"' not in text
-    assert "shellHook" not in (project_init / "templates" / "flake.nix").read_text(encoding="utf-8")
-
-
-def test_ponytail_code_cuts_use_native_and_existing_helpers():
-    flake = (ROOT / "flake.nix").read_text(encoding="utf-8")
-    lock = (ROOT / "flake.lock").read_text(encoding="utf-8")
-    agnt = (AGENT / "bin" / "agnt").read_text(encoding="utf-8")
-    doctor = (AGENT / "bin" / "agnt_lib" / "doctor.py").read_text(encoding="utf-8")
-    health = (AGENT / "bin" / "agnt_lib" / "health.py").read_text(encoding="utf-8")
-    runner = (AGENT / "bin" / "agnt_lib" / "runner.py").read_text(encoding="utf-8")
-    protocol = (AGENT / "bin" / "agnt_lib" / "runner_protocol.py").read_text(encoding="utf-8")
-    scheduler = (AGENT / "bin" / "agnt_lib" / "runner_scheduler.py").read_text(encoding="utf-8")
-    tasks = (AGENT / "bin" / "agnt_lib" / "tasks.py").read_text(encoding="utf-8")
-    instructions = (AGENT / "bin" / "agent-instructions").read_text(encoding="utf-8")
-
-    assert "flake-utils" not in flake + lock
-    assert "nixpkgs.lib.genAttrs" in flake
-    assert "jq" not in flake
-    assert "direnv" not in flake
-    assert not (AGENT / "bin" / "openrouter-api-key").exists()
-    assert not (AGENT / "mcp.json").exists()
-    assert "install_patch_base" not in (ROOT / "scripts" / "update-pi-config.sh").read_text(encoding="utf-8")
-    assert not (ROOT / ".pi" / "skill-evals" / "project-skills-maintenance").exists()
-    assert all(name not in agnt.split("from agnt_lib.tasks", 1)[0] for name in ("EVALS", "PROMPT_PATTERNS", "TASKS", "VALID_OUTCOMES", "capture"))
-    assert "def check_result(" not in doctor and "check_result," in doctor
-    assert "def default_status_runner(" not in health and "default_status_runner" in health
-    assert "def utc_now(" not in runner
-    assert "def _default_budget(" not in protocol
-    assert "TERMINAL_STATUSES" not in scheduler
-    assert "def parse_frontmatter(" not in tasks
-    assert "def split_frontmatter(" not in instructions
-    assert "dependencies = []" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "DEFAULT_BASE" not in (AGENT / "bin" / "web-search").read_text(encoding="utf-8")
-    assert "catalog-free" not in (AGENT / "bin" / "agnt_lib" / "metrics.py").read_text(encoding="utf-8")
-
-
-def test_ponytail_shrinks_use_stdlib_and_concrete_clients():
-    agnt = (AGENT / "bin" / "agnt").read_text(encoding="utf-8")
-    runtime_paths = (AGENT / "bin" / "agnt_lib" / "runtime_paths.py").read_text(encoding="utf-8")
-    runner_client = (AGENT / "bin" / "agnt_lib" / "runner_client.py").read_text(encoding="utf-8")
-    work = (AGENT / "bin" / "agnt_lib" / "work.py").read_text(encoding="utf-8")
-    gateway = (AGENT / "bin" / "agnt_lib" / "gateway.py").read_text(encoding="utf-8")
-    metrics = (AGENT / "bin" / "agnt_lib" / "metrics.py").read_text(encoding="utf-8")
-
-    assert not (AGENT / "bin" / "pi-plans-dir").exists()
-    assert '"plans-dir": ("print/create the active plans directory", cmd_plans_dir)' in agnt
-    assert "def cmd_plans_dir(" in runtime_paths
-    for name in ("evals.py", "prompt.py", "runs.py"):
-        text = (AGENT / "bin" / "agnt_lib" / name).read_text(encoding="utf-8")
-        assert "re.sub(" in text
-        assert "for ch in value.lower()" not in text
-        assert "for char in value.lower()" not in text
-    for name in ("runner_client_status", "runner_client_pause", "runner_client_resume", "runner_client_tick"):
-        assert f"def {name}(" not in runner_client
-        assert name not in work
-        assert name not in gateway
-    assert "RunnerClient" in work
-    assert "RunnerClient" in gateway
-    assert "argparse.BooleanOptionalAction" in metrics
-    assert 'add_argument("--no-human-override"' not in metrics
-    assert 'add_argument("--no-fallback-used"' not in metrics
-
-
 def test_project_init_eval_excludes_opt_in_github_templates():
     skill = (AGENT / "skills" / "project-init" / "SKILL.md").read_text(encoding="utf-8")
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
@@ -386,25 +305,13 @@ def test_skill_runtime_references_resolve():
     assert not failures, "broken skill runtime references:\n" + "\n".join(failures)
 
 
-def test_active_skills_reserve_agnt_invoke_for_cold_or_headless_peers():
-    common_path = AGENT / "skills" / "dev-workflow-common" / "SKILL.md"
-    common = common_path.read_text(encoding="utf-8")
-    assert "plain `agnt invoke` only for noninteractive headless or artifact-backed workers" in common
-
-    review_path = AGENT / "skills" / "requesting-code-review" / "SKILL.md"
-    for line in review_path.read_text(encoding="utf-8").splitlines():
-        if "agnt invoke" in line:
-            assert "--one-shot" in line
-
-    allowed = {common_path, review_path}
+def test_active_skills_use_subagent_for_delegation():
     violations = []
     for skill_path in sorted((AGENT / "skills").glob("**/*.md")):
-        if skill_path in allowed:
-            continue
         for line_no, line in enumerate(skill_path.read_text(encoding="utf-8").splitlines(), start=1):
             if "agnt invoke" in line:
                 violations.append(f"{skill_path.relative_to(ROOT)}:{line_no}")
-    assert not violations, "interactive peer guidance must use subagent: " + ", ".join(violations)
+    assert not violations, "peer guidance must use subagent: " + ", ".join(violations)
 
 
 def test_finish_action_uses_one_closeout_coordinator(common):

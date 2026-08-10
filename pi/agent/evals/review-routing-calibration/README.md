@@ -2,7 +2,7 @@
 
 Paired synthetic review evaluation for `openai-codex/gpt-5.6-terra` and `openai-codex/gpt-5.6-luna`.
 
-Execution uses Pi's native `subagent` tool, not `agnt invoke`. Each wave runs both models in parallel on identical packet text. Run waves serially to avoid one provider burst hiding latency differences.
+Execution uses Pi's native `subagent` tool. Each wave runs both models in parallel on identical packet text. Run waves serially to avoid one provider burst hiding latency differences.
 
 ## Bounds
 

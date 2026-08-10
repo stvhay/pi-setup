@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
+import subprocess
 import sys
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -10,6 +13,19 @@ from pathlib import Path
 import pytest
 
 BIN = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin"
+
+
+def run_node(script: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is unavailable")
+    return subprocess.run(
+        [node, "--experimental-strip-types", "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, **(env or {})},
+    )
 
 
 @pytest.fixture(autouse=True)

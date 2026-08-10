@@ -1,209 +1,102 @@
 # The agnt System
 
-`agnt` is a lightweight orchestration/control layer around Pi. It does not replace Pi; it gives Pi sessions a more explicit operating system for model routing, context assembly, delegated work, artifacts, metrics, and safety gates.
+`agnt` is a small control layer around Pi. Pi remains the interactive runtime; `agnt` supplies repeatable routing, context composition, artifacts, metrics, and optional orchestration.
 
-## Problem statement
+## Problem
 
-A normal agent chat can do useful work, but the important control state is often implicit:
+A capable model runtime does not by itself define:
 
-- Which work item is being handled?
-- Which model should run it, and why?
-- Which instructions, role, and skills should the worker see?
-- What side effects are allowed?
-- What evidence did the worker produce?
-- Which follow-up work became ready?
-- Did this model/workflow perform well enough to influence future routing?
+- which model should handle a task;
+- which instructions and skills should enter a worker context;
+- how delegated results become durable evidence;
+- when an agent may act versus request a human decision; or
+- how outcomes should change future routing policy.
 
-If that state stays in chat, later humans, tools, and agents cannot reliably inspect it, retry it, audit it, or improve it.
-
-`agnt` moves that state into files and deterministic commands.
+Encoding those choices in prompts makes them hard to inspect and easy to drift. `agnt` keeps durable policy in tracked files and leaves ordinary work in Pi.
 
 ## Design thesis
 
-Agent work becomes safer and more useful when orchestration is explicit:
+Use the smallest surface that fits the work:
 
-```text
-work graph -> invocation artifact -> worker run -> result artifact -> state transition
-```
-
-The system favors small, inspectable primitives over hidden automation. The default development path is a direct Pi session: establish a Bead before changing code, then inspect, edit, and verify in the current session. For work that benefits from delegation or strict dispatch gates, the preserved optional path uses Beads for durable work state, private run artifacts for execution evidence, and a project-local loopback runner for scheduling/executor lifecycle.
+1. Work directly in the current Pi session by default.
+2. Track code-changing work in Beads.
+3. Route delegated work with `agnt route`, then execute it through Pi's `subagent` tool.
+4. Select optional run bundles or the local runner only when durable orchestration evidence is needed.
+5. Keep private runtime data out of Git; commit only reviewed policy and code changes.
 
 ## Core primitives
 
-### Work items
+These concepts remain separate:
 
-Beads records durable work state: open, ready, blocked, in progress, closed, or deferred. Beads is the canonical agent-facing work graph for this repository. GitHub issues may become an adapter/export surface, but they are not a second source of truth.
+- **Bead:** durable work item, dependency, blocker, decision, and closeout state.
+- **Task:** routing policy for model selection and risk/budget constraints.
+- **Action:** explicit operation binding a task, skills, role, effects, and output contract.
+- **Skill:** reusable method loaded when relevant.
+- **Role:** delegated-worker stance and reporting contract.
+- **Tool or eval:** deterministic operation or validation.
 
-### Routing tasks
+A prompt or role does not replace a skill method, Bead state, approval gate, or verification command.
 
-A task is an operational routing label such as `review`, `planning`, `research`, or `orchestration`. Task files define preferred, qualified, and avoided model targets. They answer: **which model or execution default should handle this kind of work?**
+## Context composition
 
-### Skills
+`agnt instructions` composes global instructions, project instructions, and optional model/role supplements from least to most specific. Skills stay discoverable by compact metadata and load their full method only when triggered.
 
-A skill is a reusable capability package: method, domain expertise, workflow, references, helper tools, or some combination. Skills answer: **what method should be loaded when doing this work?**
+This keeps the root context small while preserving exact project and safety rules. See [Architecture](ARCHITECTURE.md) for file boundaries and data flow.
 
-### Roles
+## Delegation
 
-A role defines a delegated worker’s stance and output contract, such as code reviewer, verifier, researcher, or implementation worker. Roles answer: **how should this peer behave and report?**
+Interactive delegation uses one path:
 
-### Action templates
+1. Run `agnt route` for task, risk, and budget policy.
+2. Call `subagent` with `agent` omitted and the routed target as `model`.
+3. Use agentic mode when the child needs tools or project context.
+4. Use `mode: "one-shot"` for a complete cold packet.
+5. Use the `tasks` array for parallel peers.
 
-An action template is a verb-like invocation pattern. It binds routing task, skills, role, allowed effects, and output contract. Actions answer: **what work is being explicitly started now?**
+The tracked subagent observer records compatible payload-free metrics and persists complete child results under private runtime storage. Internal eval and run-bundle workers retain a headless Pi primitive because they execute outside a live Pi tool context; that primitive is not a second public peer command.
 
-### Run artifacts
+## Normal lifecycle
 
-Run artifacts live under `<runtime-runs-dir>/<run-id>/`, where `agnt runtime-path runs` resolves the private base directory. Project `.pi/runs/` is selected only when Git proves it ignored, untracked, and symlink-safe; otherwise the resolver uses a repository-keyed directory under `~/.pi/runtime/`. Bundles contain `invocation.yaml`, `result.yaml`, and output files. They answer: **what was requested, what happened, and what evidence supports it?** Worker sessions are recorded by default for inspectable execution history. Observational memory may provide session-local recall, but it is advisory until promoted into Beads or private run evidence.
+For direct coding:
 
-### Metrics and evals
+1. Run `bd prime` and inspect ready work.
+2. Confirm or create a Bead, then link the current session with `agnt work direct-start`.
+3. Inspect, edit, and verify in Pi.
+4. Commit task-owned changes.
+5. Record `agnt improve outcome`, close the Bead, and hand off ready follow-up work in a fresh session when needed.
 
-Metrics record best-effort model usage and outcomes. Telemetry schema v2 assigns
-one collision-resistant, payload-free `invocationId` at invocation start and
-reuses it across run events, results, metrics, and unnamed-subagent projections.
-The normalized record includes parent session/work item, provider/model/target,
-effective thinking level, objective `executionOutcome`, status, failure class,
-usage, duration, and bounded artifact refs. Execution is `succeeded`, `failed`,
-`unavailable`, or `unknown` for legacy records; human annotations cannot rewrite
-it. `recordId`
-remains a backward-compatible selector, and schema-v1 records remain readable.
-Code-review metrics can link a validated structured finding artifact, separating discovery from fresh-context confirmation, refutation, or unresolved evidence. Evals check routing, instruction composition, actions, and workflow behavior. Together they let policy improve from evidence without treating telemetry as tracked source code or model confidence as ground truth.
+For optional orchestration, action templates may create private run bundles containing invocation metadata, live status, result evidence, artifacts, and metric references. The local runner executes those bundles and reports status through the ticket gateway. See [Run Artifacts](RUN-ARTIFACTS.md) and [Project-Local Runner Service](RUNNER-SERVICE.md).
 
-## What agnt commands do
+## Human decisions and safety
 
-`agnt` is a front controller for several related command families:
+Direct Pi work uses normal workspace tools. Structured orchestration remains opt-in.
 
-- `agnt route` recommends a model for a task, risk level, budget, context size, and modality.
-- Archimedes `subagent` runs routed interactive peers with live TUI progress and cancellation. Before returning, the parent persists each child result under `agnt runtime-path delegated-results` and adds one bounded opaque ref to tool content, details, metrics, and projection metadata. When Archimedes returns the child's logical Pi session UUID, the parent also retains it as `childSessionId`; this is the exact foreign key to that child's Langfuse session. Parent projections declare the resolved effective mode and child-trace expectation. Bounded improvement scans classify already-discovered roots as available, expected-unavailable, missing, ambiguous, incomplete, or unknown; isolated one-shot absence is expected, while a successful agentic absence under complete discovery is a gap. Workers need no shared-write access. Unnamed projections and metrics share invocation, provider, model, target, thinking, objective execution, and artifact dimensions. Named-profile projections mark unavailable model dimensions explicitly, and metrics remain skipped until Archimedes exposes their effective provider and thinking level.
-- `agnt invoke` remains the cold/headless and run-artifact executor; `--one-shot` disables tools and ambient context expansion for complete embedded packets.
-- `agnt review` validates and summarizes structured discovery/adjudication findings.
-- `agnt instructions` composes global, project, model, and role context packages.
-- `agnt action` lists, validates, and renders action templates.
-- `agnt runs` creates, validates, invokes, and updates invocation/result bundles.
-- `agnt work direct-start` validates and shows a Bead, explicitly claims when requested, and idempotently links the current session without orchestration artifacts.
-- `agnt work handoff-check` gives the tracked `handoff_bead` extension a deterministic closeout and target-readiness preflight before fresh-session replacement.
-- Other `agnt work` commands connect Beads work items to action/run artifacts, plan/tree views, daemon lifecycle, service-backed runner clients, health checks, and maintenance checkpoints.
-- `agnt approvals` creates and resolves Beads-backed questions and approval gates. Questions preserve predefined selections and typed custom input separately; arbitrary text never substitutes for explicit approval confirmation.
-- `agnt gateway` exposes a constrained ticket control surface for Pi extensions without raw shell/Beads passthrough.
-- `agnt metrics` annotates, consolidates, prunes, and reports invocation metrics.
-- `agnt eval` runs deterministic or model-backed checks.
-- `agnt doctor` checks local operational readiness before agents rely on tools, providers, Beads, Node, or project config.
-- `agnt context-health` checks active context for drift, unsafe weakening, and entropy signals.
-- `agnt improve` links interactive sessions to Beads, records explicit closeout outcomes, scans bounded private telemetry, records reviewed sessions, and promotes only approved public-safe findings.
+Consequential actions use dedicated Beads-backed tools:
 
-See the [agnt command reference](../pi/agent/bin/README.md) for syntax and examples.
+- `ticket_question` for durable blocking questions;
+- `ticket_approval` for informed approval gates; and
+- `ticket_decision_resolve` for recording human outcomes.
 
-## Work lifecycle
-
-The normal coding lifecycle is:
-
-```bash
-agnt work direct-start <bead-id> [--claim]
-# inspect, edit, and run focused tests directly in Pi
-```
-
-This direct start is safe to repeat. Its structured result shows validation, optional claim, and session-link stages plus a retry command after partial failure. It creates no run bundle, runner, or worktree.
-
-One logical Pi session belongs to one Bead. After outcome recording, task-owned commit, and Bead closure, `handoff_bead` validates the target in `bd ready` and queues `/handoff-bead`. The command calls `ctx.newSession` with parent provenance, then uses only replacement-session context to initiate `agnt work direct-start <id>`. It carries no source transcript. `/new` remains a human fallback when the tool is unavailable.
-
-A delegated run is an explicit optional workflow and can be manual and gated:
-
-```bash
-bd ready
-agnt work tree --epic <epic-id> --json
-agnt work plan <bead-id> --action review --target <path> --dry-run
-agnt work run <bead-id> --action review --target <path> --claim
-```
-
-The explicitly selected project-local service path adds startup health and a REST client boundary:
-
-```bash
-agnt doctor --profile orchestrator-startup --json
-agnt work daemon start --json --concurrency 1
-agnt work runner status --json
-agnt work runner tick --dry-run --json --limit 1
-```
-
-Behind that flow, `agnt`:
-
-1. reads the Beads work item;
-2. validates `metadata.pi` and dispatch policy;
-3. selects a model/thinking level through routing policy, not ad hoc override;
-4. creates a run bundle under the resolved private runs directory with ticket, worktree, session, memory, and todo-seed snapshots;
-5. invokes a recorded Pi worker session from that artifact;
-6. captures response, stderr, metrics, session refs, and evidence;
-7. updates the result artifact with approvals, decisions, health checks, closeout checks, follow-ups, and artifacts; and
-8. mutates Beads only when the caller supplied explicit flags such as `--claim`, `--close-bead`, or explicit maintenance/approval commands.
-
-This makes retries, review, and handoff possible without reconstructing intent from chat.
-
-## Safety model
-
-`agnt` is intentionally gated. It does not assume every useful command should become autonomous.
-
-Important gates include:
-
-- dry-run planning before dispatch;
-- declared allowed effects in action/run artifacts;
-- read-only-by-default peer review patterns;
-- explicit flags for Beads mutation;
-- Beads-backed approval/decision records for human gates;
-- one worktree per epic for implementation dispatch, with dirty/protected-branch refusal;
-- health and closeout checks for missing evidence, unresolved approvals, stale sessions, orphaned runs, raw-tool bypass markers, and dirty worktrees;
-- explicit approval for destructive git actions, remote writes, deployments, hook installation, and other irreversible changes;
-- fresh verification evidence before completion claims;
-- risk-specific, month-to-date spend gates for paid review and no automatic K3 review route;
-- evidence-first finding adjudication that ignores reviewer confidence and consensus as escalation signals;
-- instruction checks that reject safety-gate weakening phrases.
-
-The safety model is layered: user preferences, roles, skills, prompts, and model overlays can specialize behavior, but they must not weaken project approval, verification, git, or security gates.
+The generic ticket gateway lists and inspects work, creates drafts, shows trees, and reports runner status; it does not duplicate human decision flows. Approval records do not grant push, merge, deployment, history rewrite, hook installation, or other separately gated actions.
 
 ## Feedback loop
 
-The system separates runtime telemetry from tracked policy:
+Both subagent and internal headless workers emit the same normalized metric shape. Private consolidation and review can then adjust routing policy, prompts, model metadata, or evals:
 
 ```text
-metrics -> annotate -> consolidate -> adjust routing/prompts -> eval -> commit policy
-private telemetry -> scan -> review marker -> approved safe Bead -> implement/eval -> monitor
+execute -> record -> annotate -> consolidate -> review -> change policy -> eval
 ```
 
-Raw metrics, private improvement packets, observational-memory ledgers, and global telemetry stay out of git. Git tracks the durable policy changes they justify: task routing edits, model catalog updates, prompt overlays, docs, tools, Beads work, and evals. Maintenance due signals are derived from Beads, git, private run artifacts, health reports, and context-health warnings rather than hidden counters.
-
-This means the system can learn from observed model behavior while preserving an auditable source-of-truth boundary.
+Telemetry is evidence, not authority. Human outcome labels remain separate from objective execution status, and raw prompts, outputs, IDs, URLs, credentials, and private traces stay outside tracked source.
 
 ## Relationship to Pi
 
-Pi provides the agent runtime, providers, sessions, extensions, and normal interaction surface. Archimedes provides the interactive subagent transport and TUI. `agnt` remains the control layer for repeatable orchestration tasks:
+Pi provides sessions, providers, tools, extensions, skills, and interaction. Archimedes provides subagent transport and live progress. Beads provides durable work state. `agnt` connects those systems with tracked policy and optional artifacts; it does not replace them.
 
-- choosing a model;
-- composing context;
-- launching cold/headless or recorded worker sessions while interactive peers use `subagent`;
-- bridging ask/approval UI to durable Beads decisions;
-- capturing artifacts, metrics, transcripts, and session refs;
-- validating workflow invariants.
+## Further reading
 
-Use Pi directly for ordinary interactive work, including implementation and verification, after confirming a Bead exists for any code-changing task. For interactive delegation, route with `agnt route` and call `subagent` with `agent` omitted. Use `agnt invoke --one-shot` for cold packets and `agnt runs`/`agnt work` when execution needs durable run artifacts. The runner and orchestrator-only tool surface are opt-in rather than startup requirements.
-
-## Stable vs experimental
-
-Relatively stable:
-
-- repository/runtime separation;
-- `agnt route`, `invoke`, `instructions`, `metrics`, and basic evals;
-- Beads as the repository’s canonical agent-facing work graph;
-- additive telemetry and action/run artifact schemas at v2, with v1 reader compatibility;
-- the single-user project-local runner service boundary, CLI client commands, and opt-in orchestrator startup gate.
-
-Still evolving:
-
-- explicit idempotency keys and richer duplicate-run detection;
-- richer result extraction from worker transcripts;
-- GitHub or other external adapters;
-- conventions for larger multi-worker runs, production soak operation, notifications, and remote/multi-project dashboards.
-
-## Where to read next
-
-- [Architecture](ARCHITECTURE.md) — implementation map and subsystem boundaries.
-- [Project-Local Runner Service](RUNNER-SERVICE.md) — service lifecycle, REST API, leases, drain, and status/security model.
-- [Run Artifacts](RUN-ARTIFACTS.md) — invocation/result schemas and commands.
-- [Orchestration Loop Decision](ORCHESTRATION-LOOP.md) — why the system uses a Beads-first gated workflow plus project-local service boundary.
-- [Self-Improvement Loop](SELF-IMPROVEMENT.md) — metrics, routing feedback, prompt overlays, and eval-gated policy changes.
-- [agnt command reference](../pi/agent/bin/README.md) — command syntax and examples.
+- [Architecture](ARCHITECTURE.md) — subsystem boundaries and data flow.
+- [Command Reference](../pi/agent/bin/README.md) — exact CLI syntax.
+- [Run Artifacts](RUN-ARTIFACTS.md) — invocation and result contracts.
+- [Project-Local Runner Service](RUNNER-SERVICE.md) — optional service lifecycle.
+- [Self-Improvement Loop](SELF-IMPROVEMENT.md) — metrics and policy feedback.

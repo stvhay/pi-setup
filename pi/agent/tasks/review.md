@@ -23,7 +23,6 @@ hardCapReview:
 thinkingLow: high
 thinkingMedium: high
 thinkingHigh: xhigh
-escalationTarget: openrouter/moonshotai/kimi-k3
 ---
 
 Use Terra for first-pass review. Medium risk adds Kimi K2.7 Code as a bounded different-family challenger; high risk uses Opus 5 plus human adjudication for consequential findings. Verify every finding against files, tests, specifications, or profiling before acting. Model confidence never triggers escalation.
