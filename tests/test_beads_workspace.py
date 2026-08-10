@@ -30,7 +30,7 @@ def test_node_test_runtime_is_pinned():
     manifest = json.loads(manifest_path.read_text())
     lock = json.loads(lock_path.read_text())
     assert manifest["private"] is True
-    assert manifest["engines"]["node"] == ">=22.19.0 <23"
+    assert manifest["engines"]["node"] == ">=24 <25"
     assert manifest["devDependencies"]["@earendil-works/pi-coding-agent"] == "0.84.1"
     assert lock["packages"][""]["devDependencies"] == manifest["devDependencies"]
     nested = "node_modules/@earendil-works/pi-coding-agent/node_modules/"
@@ -42,7 +42,7 @@ def test_node_test_runtime_is_pinned():
         if package.get("resolved", "").startswith("https://") and "integrity" not in package
     ]
     assert missing_integrity == []
-    assert "nodejs_22" in (ROOT / "flake.nix").read_text()
+    assert "nodejs_24" in (ROOT / "flake.nix").read_text()
     assert "node_modules/" in (ROOT / ".gitignore").read_text().splitlines()
 
 
@@ -56,7 +56,7 @@ def test_ci_installs_pinned_node_dependencies_before_tests():
     for marker in markers:
         assert marker in workflow
 
-    assert "node-version: '22.22.0'" in workflow
+    assert "node-version: '24'" in workflow
     assert [workflow.index(marker) for marker in markers] == sorted(workflow.index(marker) for marker in markers)
 
 

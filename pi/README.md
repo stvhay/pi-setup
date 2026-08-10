@@ -54,6 +54,12 @@ The tracked Archimedes wrapper reads `agent/catalog.json` rather than inferring 
 
 Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, verify them, then deploy.
 
+### Reload or restart Pi
+
+`/reload` refreshes settings, extensions, skills, prompts, themes, and context files inside the current process. It does not load a new Node runtime.
+
+`/restart` gracefully replaces the Pi process and resumes the same persisted session. Agents can call `restart_pi`, which queues `/restart` after the current turn. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
+
 ## Contents
 
 - [`agent/AGENTS.md`](agent/AGENTS.md) — global Pi agent instructions

@@ -91,7 +91,7 @@ Adapt stack tools only when detection is obvious:
 
 | Detected file | Nix tools |
 |---|---|
-| `package.json` | `nodejs_22` |
+| `package.json` | `nodejs_24` |
 | `pyproject.toml` or `requirements.txt` | `uv`, `python313`, `ruff` |
 | `Cargo.toml` | `cargo`, `rustc`, `rustfmt`, `clippy` |
 | `go.mod` | `go` |

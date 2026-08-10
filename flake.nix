@@ -20,7 +20,7 @@
               ripgrep
               uv
               python3
-              nodejs_22
+              nodejs_24
             ];
           };
         });
