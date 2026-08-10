@@ -10,6 +10,7 @@ This matrix covers the packages configured in `pi/agent/settings.json` and track
 - `langfuse-config-env.ts` sets the `conversations` preset and unconditionally disables tool I/O, system prompts, and cwd before composing the installed `pi-langfuse@1.5.12` public entrypoint. Explicit false input/output flags remain false. No package-event proxy sanitizer runs: the package applies finite ordinary-string bounds, preserves valid media only for transient OTel extraction from captured generation input, and emits bounded markers elsewhere. Two ordered `message_end` handlers expose the zero-priced subscription alias only to upstream telemetry, then restore the runtime model ID for later handlers and persistence.
 - `agent-os-compat.ts` activates only for `--mode rpc`. It supplies `/reload`, text todo/subagent widgets, and the browser-internal `/agent-os-package` adapter. The package adapter accepts only strict `install npm:<name> <approved-version>`, `remove npm:<name>`, or bounded selected `update npm:<name> <approved-version>` pairs after browser approval. It installs approved versions exactly while retaining unpinned project settings, rejects baseline/pinned/non-project updates, reports partial failures, reloads after any success, and skips reload when all selected updates fail. Settings flush and progress cleanup precede terminal `ctx.reload()`.
 - `process-restart.ts` is TUI-only. `/restart` and `restart_pi` replace the current Node 24 process after graceful shutdown and resume its persisted session on macOS/Linux. Process replacement is unavailable in RPC, JSON, and print modes and rejects Windows or missing `process.execve` before shutdown.
+- `bead-handoff.ts` is TUI-only. `handoff_bead` queues `/handoff-bead`; the command validates closeout/readiness, then uses `ctx.newSession` and replacement-session continuation without copying the source transcript. RPC, JSON, print, and ephemeral sessions reject before replacement.
 - Ponytail package skills are filtered from automatic discovery while its extension remains enabled. `ponytail-skill-input.ts` handles explicit `/skill:ponytail*` input from users and package aliases, resolves the installed package root from Pi command provenance, and reads the canonical skill body on each invocation. Ponytail still owns aliases, mode state, status, and active-mode prompt injection.
 - Arbitrary TUI components, component widgets, custom headers/footers/editors, terminal input listeners, themes, and autocomplete have no exact browser parity. Browser-owned controls replace decorative chrome; unsupported management screens remain unavailable.
 
@@ -33,6 +34,7 @@ This matrix covers the packages configured in `pi/agent/settings.json` and track
 | --- | --- | --- |
 | `agent-os-compat.ts` | RPC adapter | Text-only todo/subagent widgets, terminal in-process `/reload`, and strict project-local catalog package install/remove after agent-os approval; inactive outside `--mode rpc`. User-scope baseline packages remain source-controlled and read-only. |
 | `archimedes.ts` | Public composition adapter | Preserves Archimedes public composition while wrapping captured ask/subagent definitions. Ask retains upstream TUI/headless behavior and portable RPC custom responses. Subagent retains upstream execution/rendering and adds optional `outputContract` fields that are removed before delegation. |
+| `bead-handoff.ts` | TUI-only | Starts a ready Bead in a fresh persisted session after deterministic closeout/readiness preflight. Parent provenance and target-only kickoff cross the replacement boundary; source transcript does not. |
 | `beads-ask-bridge.ts` | Adapted | Durable questions require explicit selection mode, always offer typed Other input, and persist `selectedOptions` and `customInput` separately with a compatible answer summary. Blank custom input warns and remains open; cancellation remains distinct. Approvals remain confirm-only and reject structured question answers. |
 | `guidance-edit-guard.ts` | Unchanged | Portable warning notifications. |
 | `langfuse-config-env.ts` | Public composition adapter | Reads pre-provisioned credentials, sets managed capture values before public package registration, keeps startup notification non-blocking, and surrounds upstream telemetry with a transient subscription alias that is removed before persistence. It does not proxy package event registration. |
@@ -46,7 +48,7 @@ This matrix covers the packages configured in `pi/agent/settings.json` and track
 
 ```bash
 scripts/check-pi-config.sh
-.venv/bin/python -m pytest tests/test_agent_os_compat.py
+.venv/bin/python -m pytest tests/test_agent_os_compat.py tests/test_bead_handoff.py
 .venv/bin/python -m ruff check pi/agent/bin/agnt_lib tests
 .venv/bin/python -m pytest tests/
 ```

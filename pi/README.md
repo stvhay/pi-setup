@@ -60,6 +60,12 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 `/restart` gracefully replaces the Pi process and resumes the same persisted session. Agents can call `restart_pi`, which queues `/restart` after the current turn. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
 
+### Start the next Bead in a fresh session
+
+After recording the current outcome, committing task-owned changes, and closing the current Bead, agents call `handoff_bead` with the next ready Bead ID. The tool queues `/handoff-bead`, whose deterministic preflight requires a linked explicit outcome, a closed source Bead, and a target returned by `bd ready`.
+
+The command calls `ctx.newSession` with parent-session provenance. Its replacement-session callback sends only the target Bead ID and `agnt work direct-start <id>` instruction; it copies no source transcript. This flow is TUI-only and requires a persisted session. If automated handoff is unavailable, `/new` is the human fallback. Fork and clone remain separate exploration features, not work-item transitions.
+
 ## Contents
 
 - [`agent/AGENTS.md`](agent/AGENTS.md) — global Pi agent instructions

@@ -1068,7 +1068,7 @@ def _session_ownership_scores(client: Any, session_id: str) -> list[dict[str, An
         if len(found) > SCORES_PER_QUERY:
             raise SessionWorkItemConflict(
                 "current Pi session ownership is incomplete; "
-                "start a fresh logical session with /clone or /new and retry"
+                "use handoff_bead or the /new human fallback and retry"
             )
         rows.extend(_canonical_score_rows(found, score_id))
     return rows
@@ -1081,8 +1081,31 @@ def _assert_session_work_item(client: Any, session_id: str, bead_id: str) -> Non
         if not isinstance(owner, str) or not BEAD_ID.fullmatch(owner) or owner != bead_id:
             raise SessionWorkItemConflict(
                 "current Pi session belongs to another work item; "
-                "start a fresh logical session with /clone or /new and retry"
+                "use handoff_bead or the /new human fallback and retry"
             )
+
+
+def session_handoff_source(client: Any, session_id: str) -> dict[str, str]:
+    scores = _session_ownership_scores(client, session_id)
+    links = _canonical_score_rows(scores, _work_link_score_id(session_id))
+    metadata = links[0].get("metadata") if len(links) == 1 else None
+    bead_id = metadata.get("beadId") if isinstance(metadata, dict) else None
+    if len(links) != 1 or links[0].get("value") != "linked" or not isinstance(bead_id, str) or not BEAD_ID.fullmatch(bead_id):
+        raise ValueError("current Pi session has no linked work item")
+    correlation = {"status": "linked", "beadId": bead_id}
+    outcomes, mismatched = _correlated_outcome_scores(session_id, correlation, scores)
+    if mismatched:
+        raise SessionWorkItemConflict("current Pi session closeout ownership conflicts")
+    if len(outcomes) != 1 or outcomes[0].get("value") not in TASK_OUTCOMES:
+        raise ValueError("current Pi session closeout outcome is unavailable")
+    return {
+        "beadId": str(correlation["beadId"]),
+        "outcome": str(outcomes[0]["value"]),
+    }
+
+
+def current_session_handoff_source(session_id: str) -> dict[str, str]:
+    return session_handoff_source(_client_from_env(), session_id)
 
 
 def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: Any) -> dict[str, Any]:
@@ -1932,7 +1955,7 @@ def _max_traces(value: str) -> int:
     return limit
 
 
-def _report_session_work_item_conflict(*, json_output: bool) -> int:
+def _report_session_work_item_conflict(*, target_bead: str, json_output: bool) -> int:
     if json_output:
         print(json.dumps({
             "schemaVersion": 1,
@@ -1940,13 +1963,18 @@ def _report_session_work_item_conflict(*, json_output: bool) -> int:
             "error": "session belongs to another work item",
             "recovery": {
                 "action": "start-fresh-session",
-                "sessionCommands": ["/clone", "/new"],
+                "handoffTool": {
+                    "name": "handoff_bead",
+                    "arguments": {"targetBead": target_bead},
+                },
+                "humanFallback": {"command": "/new"},
             },
         }))
     else:
         print(
             "Current Pi session belongs to another work item. "
-            "Run /clone or /new, then retry.",
+            f"Call handoff_bead with targetBead={target_bead}; "
+            "if the tool is unavailable, run /new, then retry.",
             file=sys.stderr,
         )
     return 2
@@ -1992,7 +2020,7 @@ def cmd_improve(argv: list[str]) -> int:
                 beads_runner=_beads,
             )
         except SessionWorkItemConflict:
-            return _report_session_work_item_conflict(json_output=args.json)
+            return _report_session_work_item_conflict(target_bead=args.bead, json_output=args.json)
         except (LangfuseError, OSError, ValueError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement outcome failed"}))
@@ -2008,7 +2036,7 @@ def cmd_improve(argv: list[str]) -> int:
         try:
             summary = link_current_session(args.bead)
         except SessionWorkItemConflict:
-            return _report_session_work_item_conflict(json_output=args.json)
+            return _report_session_work_item_conflict(target_bead=args.bead, json_output=args.json)
         except (LangfuseError, OSError, ValueError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement link failed"}))

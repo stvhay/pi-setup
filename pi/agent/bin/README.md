@@ -137,8 +137,12 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 
 - `agnt work direct-start BEAD [--claim]`
   - Starts ordinary direct work by validating and showing the Bead, optionally claiming it only when `--claim` is explicit and the Bead is not already in progress, then idempotently linking the current Pi session.
-  - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten; start a fresh session with `/clone` or `/new`, then retry. Quitting and resuming may retain the same logical session.
+  - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. After current Bead closeout, call `handoff_bead` with the target ready Bead ID; `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
   - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle, runner, or worktree creation.
+
+- `agnt work handoff-check BEAD --session-id SESSION`
+  - Internal preflight for the tracked Bead handoff extension. It requires one linked explicit session outcome, a closed source Bead, and an existing target in `bd ready` before session replacement.
+  - Returns bounded JSON containing source/target Bead IDs, status, and outcome; it does not copy transcript content or replace the session itself.
 
 - `agnt work next --json`
   - Reads Beads ready work and selects the first non-epic ready bead when available.
@@ -225,7 +229,7 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 ## Private improvement review
 
 - `agnt improve link BEAD [--json]`
-  - Idempotently links the current private Pi session to one exact public work-item ID, preferring canonical `PI_SESSION_ID` and falling back to the `PI_SESSION_FILE` stem. Existing canonical link/outcome ownership for another Bead fails closed with `/clone` or `/new` recovery instead of being overwritten. `agnt work direct-start` normally handles this for interactive work; runner sessions link automatically.
+  - Idempotently links the current private Pi session to one exact public work-item ID, preferring canonical `PI_SESSION_ID` and falling back to the `PI_SESSION_FILE` stem. Existing canonical link/outcome ownership for another Bead fails closed with `handoff_bead` recovery and a `/new` human fallback instead of being overwritten. `agnt work direct-start` normally handles this for interactive work; runner sessions link automatically.
 - `agnt improve outcome BEAD success|partial|failure|unclear [--json]`
   - Idempotently backfills the same-Bead work-item link and records an explicit human final session outcome; run at interactive closeout. Scans keep objective execution and sampled apparent judgment separate, prefer only explicit outcomes whose Bead metadata matches session correlation, and otherwise prevent failed or unavailable execution from being promoted by a positive apparent score. Historical owner mismatches become count-only `mismatched-work-item-outcome` capture gaps.
 - `agnt improve scan [--since ISO] [--limit N] [--max-traces N] [--recheck] [--dry-run] [--json]`

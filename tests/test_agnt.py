@@ -1157,9 +1157,121 @@ def test_direct_start_requires_fresh_session_after_work_item_conflict(agnt, caps
         "requiredAction": "start-fresh-session",
         "retryCommand": "agnt work direct-start pi-test.second --claim",
         "safeToRetry": False,
-        "sessionCommands": ["/clone", "/new"],
+        "handoffTool": {
+            "name": "handoff_bead",
+            "arguments": {"targetBead": "pi-test.second"},
+        },
+        "humanFallback": {
+            "command": "/new",
+            "retryCommand": "agnt work direct-start pi-test.second --claim",
+        },
     }
     assert "pi-private.1" not in json.dumps(result)
+    assert "/clone" not in json.dumps(result)
+
+
+def test_handoff_check_requires_closed_source_and_ready_target(agnt):
+    handoff_check = getattr(agnt, "handoff_check", None)
+    assert handoff_check is not None, "handoff_check is missing"
+    source = {"id": "pi-current.1", "status": "closed"}
+    target = {"id": "pi-next.1", "status": "open"}
+    calls = []
+
+    def fake_beads(args):
+        calls.append(args)
+        if args == ["show", source["id"]]:
+            return 0, [source], ""
+        if args == ["show", target["id"]]:
+            return 0, [target], ""
+        if args == ["ready", "--limit", "0"]:
+            return 0, [target], ""
+        pytest.fail(f"unexpected Beads call: {args}")
+
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": lambda _session_id: {
+            "beadId": source["id"],
+            "outcome": "success",
+        },
+        "run_beads_json": fake_beads,
+    }):
+        result = handoff_check(target["id"], session_id="old-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "ready",
+        "source": {"beadId": source["id"], "outcome": "success", "status": "closed"},
+        "target": {"beadId": target["id"], "status": "open"},
+    }
+    assert calls == [
+        ["show", source["id"]],
+        ["show", target["id"]],
+        ["ready", "--limit", "0"],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_status", "target_exists", "target_ready", "error"),
+    [
+        ("in_progress", True, True, "current work item is not closed"),
+        ("closed", False, False, "could not load target work item"),
+        ("closed", True, False, "target work item is not ready"),
+    ],
+)
+def test_handoff_check_fails_before_session_replacement(
+    agnt, source_status, target_exists, target_ready, error
+):
+    handoff_check = getattr(agnt, "handoff_check", None)
+    assert handoff_check is not None, "handoff_check is missing"
+    source = {"id": "pi-current.1", "status": source_status}
+    target = {"id": "pi-next.1", "status": "open"}
+
+    def fake_beads(args):
+        if args == ["show", source["id"]]:
+            return 0, [source], ""
+        if args == ["show", target["id"]]:
+            return (0, [target], "") if target_exists else (1, None, "private detail")
+        if args == ["ready", "--limit", "0"]:
+            return 0, [target] if target_ready else [], ""
+        pytest.fail(f"unexpected Beads call: {args}")
+
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": lambda _session_id: {
+            "beadId": source["id"],
+            "outcome": "success",
+        },
+        "run_beads_json": fake_beads,
+    }):
+        result = handoff_check(target["id"], session_id="old-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "error",
+        "targetBead": target["id"],
+        "error": error,
+    }
+    assert "private detail" not in json.dumps(result)
+
+
+def test_handoff_check_cli_returns_bounded_json(agnt, capsys):
+    cmd_work = getattr(agnt, "cmd_work", None)
+    assert cmd_work is not None
+    ready = {
+        "schemaVersion": 1,
+        "status": "ready",
+        "source": {"beadId": "pi-current.1", "outcome": "success", "status": "closed"},
+        "target": {"beadId": "pi-next.1", "status": "open"},
+    }
+
+    with patch.dict(cmd_work.__globals__, {
+        "handoff_check": lambda bead_id, session_id: ready
+        if (bead_id, session_id) == ("pi-next.1", "old-session")
+        else pytest.fail("unexpected handoff arguments"),
+    }):
+        assert agnt.main([
+            "work", "handoff-check", "pi-next.1", "--session-id", "old-session"
+        ]) == 0
+
+    assert json.loads(capsys.readouterr().out) == ready
 
 
 def test_direct_start_reports_retryable_partial_claim_failure(agnt):

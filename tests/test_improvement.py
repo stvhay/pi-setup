@@ -2950,6 +2950,43 @@ def _ownership_score(session_id, name, bead_id):
     }
 
 
+def test_session_handoff_source_requires_linked_explicit_closeout():
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    client = FakeSessionOwnershipClient([
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
+        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1"),
+    ])
+
+    assert improvement.session_handoff_source(client, session_id) == {
+        "beadId": "pi-current.1",
+        "outcome": "success",
+    }
+
+    missing_outcome = FakeSessionOwnershipClient([
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
+    ])
+    with pytest.raises(ValueError, match="closeout outcome"):
+        improvement.session_handoff_source(missing_outcome, session_id)
+
+
+def test_session_handoff_source_uses_only_canonical_score_ownership(monkeypatch):
+    session_id = "run-cwd-shadow"
+    client = FakeSessionOwnershipClient([
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
+        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1"),
+    ])
+    monkeypatch.setattr(
+        improvement,
+        "_correlate",
+        lambda *_args, **_kwargs: pytest.fail("handoff source must not inspect run bundles"),
+    )
+
+    assert improvement.session_handoff_source(client, session_id) == {
+        "beadId": "pi-current.1",
+        "outcome": "success",
+    }
+
+
 @pytest.mark.parametrize("existing_name", [improvement.WORK_LINK_SCORE, improvement.OUTCOME_SCORE])
 def test_link_session_rejects_conflicting_canonical_owner_before_write(existing_name):
     session_id = "018cc251-f400-7000-8000-000000000000"
@@ -2957,7 +2994,7 @@ def test_link_session_rejects_conflicting_canonical_owner_before_write(existing_
         _ownership_score(session_id, existing_name, "pi-first.1"),
     ])
 
-    with pytest.raises(ValueError, match="fresh logical session") as caught:
+    with pytest.raises(ValueError, match="handoff_bead") as caught:
         improvement.link_session(
             client,
             session_id=session_id,
@@ -2975,7 +3012,7 @@ def test_link_session_fails_closed_on_malformed_canonical_owner():
     malformed["metadata"] = {"schemaVersion": 1}
     client = FakeSessionOwnershipClient([malformed])
 
-    with pytest.raises(ValueError, match="fresh logical session"):
+    with pytest.raises(ValueError, match="handoff_bead"):
         improvement.link_session(
             client,
             session_id=session_id,
@@ -2995,7 +3032,7 @@ def test_link_session_fails_closed_when_ownership_read_hits_cap():
         rows.append(row)
     client = FakeSessionOwnershipClient(rows)
 
-    with pytest.raises(ValueError, match="fresh logical session"):
+    with pytest.raises(ValueError, match="handoff_bead"):
         improvement.link_session(
             client,
             session_id=session_id,
@@ -3046,15 +3083,21 @@ def test_improve_cli_requires_fresh_session_after_work_item_conflict(action, mon
 
     assert improvement.cmd_improve(argv) == 2
 
-    assert json.loads(capsys.readouterr().out) == {
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
         "schemaVersion": 1,
         "status": "error",
         "error": "session belongs to another work item",
         "recovery": {
             "action": "start-fresh-session",
-            "sessionCommands": ["/clone", "/new"],
+            "handoffTool": {
+                "name": "handoff_bead",
+                "arguments": {"targetBead": "pi-second.1"},
+            },
+            "humanFallback": {"command": "/new"},
         },
     }
+    assert "/clone" not in output
     assert client.put_calls == []
 
 

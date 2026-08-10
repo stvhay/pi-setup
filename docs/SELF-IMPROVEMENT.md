@@ -57,10 +57,13 @@ join the root agent trace without heuristic matching. `agnt improve` reads
 bounded cohorts and writes private packets under `~/.pi/improvement/`.
 Runner sessions correlate from run bundles; interactive work must call
 `agnt improve link <bead>` after claim and `agnt improve outcome <bead> <outcome>`
-at closeout. One logical Pi session belongs to one Bead; use `/clone` or `/new`
-before starting different work because quitting and resuming may retain the same
-session. Link and outcome commands fail closed rather than overwrite conflicting
-canonical ownership. The outcome command idempotently backfills the same-Bead
+at closeout. One logical Pi session belongs to one Bead. After current Bead
+closeout, agents call `handoff_bead` with the next ready Bead ID. The tool validates
+source closeout and target readiness, then starts a parent-linked session without
+copying the transcript. `/new` remains the human fallback when automated handoff
+is unavailable. Quitting and resuming may retain the same session. Link and outcome
+commands fail closed rather than overwrite conflicting canonical ownership. The
+outcome command idempotently backfills the same-Bead
 link and records an explicit final outcome, which overrides sampled evaluator
 guesses only when its Bead metadata matches correlation. Private evidence stays
 outside git and committed Beads.
@@ -136,8 +139,9 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 `link` writes an idempotent private session score containing only the public
 work-item ID after bounded reads prove existing canonical link/outcome ownership
 is absent or belongs to the same Bead. `outcome` refreshes that same-Bead link and
-adds one idempotent categorical session score. Conflicts expose only fresh-session
-recovery (`/clone` or `/new`), not prior owner or session IDs. Scans keep objective
+adds one idempotent categorical session score. Conflicts expose only
+`handoff_bead` recovery plus the `/new` human fallback, not prior owner or session
+IDs. Scans keep objective
 `executionOutcome`, sampled `apparentOutcome`, and explicit human outcome distinct.
 An explicit human outcome is authoritative only when its Bead metadata matches the
 session correlation; historical mismatches are ignored as outcomes and counted as

@@ -249,6 +249,25 @@ def test_global_instructions_use_direct_lifecycle_start():
     assert "`agnt direct start" not in instructions
     assert "run `agnt improve link <id>`" not in instructions
     assert "does not create run bundles, runners, or worktrees" in instructions
+    assert "`handoff_bead`" in instructions
+    assert "after current bead closeout" in instructions.lower()
+    assert "`/new`" in instructions and "human fallback" in instructions
+    assert "use `/clone` or `/new`" not in instructions
+
+
+def test_fresh_bead_recovery_docs_prefer_agent_handoff():
+    paths = [
+        AGENT / "AGENTS.md",
+        ROOT / "docs" / "SELF-IMPROVEMENT.md",
+        AGENT / "bin" / "README.md",
+    ]
+
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert "handoff_bead" in text, path
+        assert "`/new`" in text and "fallback" in text, path
+        assert "use `/clone` or `/new`" not in text, path
+        assert "with `/clone` or `/new`" not in text, path
 
 
 def test_default_instructions_batch_reads_and_use_phase_progress():

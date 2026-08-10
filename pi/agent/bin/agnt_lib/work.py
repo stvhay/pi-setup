@@ -15,7 +15,7 @@ from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
-from .improvement import BEAD_ID, SessionWorkItemConflict, link_current_session
+from .improvement import BEAD_ID, SessionWorkItemConflict, current_session_handoff_source, link_current_session
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .runner_client import RunnerClient, RunnerClientError, daemon_serve, daemon_start, daemon_status, daemon_stop
 from .worktree_policy import worktree_snapshot_for_bead
@@ -727,6 +727,61 @@ def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str],
     return {"result": result, "beadClose": close_result}
 
 
+def handoff_check(target_bead_id: str, *, session_id: str) -> Dict[str, Any]:
+    def failed(error: str) -> Dict[str, Any]:
+        return {
+            "schemaVersion": 1,
+            "status": "error",
+            "targetBead": target_bead_id,
+            "error": error,
+        }
+
+    if not BEAD_ID.fullmatch(target_bead_id):
+        return failed("target Bead ID is malformed")
+    if not session_id or len(session_id) > 200:
+        return failed("current Pi session is unavailable")
+    try:
+        source = current_session_handoff_source(session_id)
+    except (OSError, RuntimeError, ValueError):
+        return failed("current session closeout is unavailable")
+
+    source_bead_id = source["beadId"]
+    if source_bead_id == target_bead_id:
+        return failed("target work item matches current work item")
+    code, data, _error = run_beads_json(["show", source_bead_id])
+    source_bead = normalize_bead(data)
+    if code != 0 or not source_bead:
+        return failed("could not load current work item")
+    if str(source_bead.get("status") or "").lower() != "closed":
+        return failed("current work item is not closed")
+
+    code, data, _error = run_beads_json(["show", target_bead_id])
+    target_bead = normalize_bead(data)
+    if code != 0 or not target_bead:
+        return failed("could not load target work item")
+    code, ready_data, _error = run_beads_json(["ready", "--limit", "0"])
+    if code != 0 or not isinstance(ready_data, list):
+        return failed("could not load ready work")
+    if target_bead_id not in {
+        str(item.get("id")) for item in ready_data if isinstance(item, dict)
+    }:
+        return failed("target work item is not ready")
+
+    return {
+        "schemaVersion": 1,
+        "status": "ready",
+        "source": {
+            "beadId": source_bead_id,
+            "outcome": source["outcome"],
+            "status": "closed",
+        },
+        "target": {
+            "beadId": target_bead_id,
+            "status": str(target_bead.get("status") or "unknown"),
+        },
+    }
+
+
 def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
     bead: Dict[str, Any] = {"id": bead_id}
     stages: Dict[str, Any] = {}
@@ -792,7 +847,14 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
                 "requiredAction": "start-fresh-session",
                 "retryCommand": retry_command,
                 "safeToRetry": False,
-                "sessionCommands": ["/clone", "/new"],
+                "handoffTool": {
+                    "name": "handoff_bead",
+                    "arguments": {"targetBead": bead_id},
+                },
+                "humanFallback": {
+                    "command": "/new",
+                    "retryCommand": retry_command,
+                },
             },
         }
     except (OSError, RuntimeError, ValueError):
@@ -815,6 +877,9 @@ def cmd_work(argv: List[str]) -> int:
     direct_start_cmd = sub.add_parser("direct-start", help="validate a bead, optionally claim it, and link this Pi session")
     direct_start_cmd.add_argument("bead_id")
     direct_start_cmd.add_argument("--claim", action="store_true", help="claim the bead only when it is not already in progress")
+    handoff_check_cmd = sub.add_parser("handoff-check", help="validate closeout and target readiness before fresh-session handoff")
+    handoff_check_cmd.add_argument("bead_id")
+    handoff_check_cmd.add_argument("--session-id", required=True)
     next_cmd = sub.add_parser("next", help="show the next ready bead")
     next_cmd.add_argument("--json", action="store_true")
     plan = sub.add_parser("plan", help="construct a dry-run dispatch plan for a bead")
@@ -931,6 +996,10 @@ def cmd_work(argv: List[str]) -> int:
         result = direct_start(args.bead_id, claim=args.claim)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
+    if args.command == "handoff-check":
+        result = handoff_check(args.bead_id, session_id=args.session_id)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] == "ready" else 2
     if args.command == "next":
         code, data, err = run_beads_json(["ready"])
         if code != 0:
