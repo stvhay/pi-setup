@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Tuple
 from .approvals import create_beads_approval_request, resolve_beads_approval_request
 from .core import die
 from .orchestration import validate_bead_orchestration_metadata
-from .runner_client import RunnerClientError, runner_client_status
+from .runner_client import RunnerClient, RunnerClientError
 from .runner_protocol import DEFAULT_BUDGET, active_run_summary, redact_service_metadata
 from .runs import default_runs_dir
 from .work import build_work_tree, normalize_bead, run_beads_json, run_refs_by_bead
@@ -291,7 +291,7 @@ def _runner_status_gateway(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("root must be a string when present")
     normalized_root = Path(root).expanduser() if root else None
     try:
-        status = runner_client_status(root=normalized_root)
+        status = RunnerClient(normalized_root).status()
         runner = _normalize_runner_visibility(status, service_state="present")
     except RunnerClientError as exc:
         runner = _normalize_runner_visibility(exc.payload, service_state="absent")

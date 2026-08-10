@@ -88,7 +88,7 @@ def test_orchestrator_extension_defaults_to_direct_pi_without_startup_or_tool_ga
     assert "orchestrationEnabled" in text
     session_start = text.split('pi.on("session_start"', 1)[1].split("// idempotent shutdown", 1)[0]
     assert "if (!orchestrationEnabled(pi)) return;" in session_start
-    assert session_start.index("if (!orchestrationEnabled(pi)) return;") < session_start.index("applyToolMode(pi, ctx, state)")
+    assert session_start.index("if (!orchestrationEnabled(pi)) return;") < session_start.index("restrictTools(pi)")
     assert session_start.index("if (!orchestrationEnabled(pi)) return;") < session_start.index('"doctor", "--profile", "orchestrator-startup"')
 
 
@@ -200,25 +200,24 @@ def test_orchestrator_extension_restricts_tools_to_safe_orchestrator_surface():
     assert forbidden.isdisjoint(tools)
 
 
-def test_orchestrator_extension_has_explicit_repair_tools_mode():
+def test_orchestrator_extension_has_no_legacy_repair_tools_mode():
     text = source()
 
-    assert 'pi.registerFlag("orchestrator-repair-tools"' in text
-    assert "PI_ORCHESTRATOR_REPAIR_TOOLS" in text
-    assert "repairToolsEnabled" in text
-    assert "repairToolsActive" in text
-    assert "orch repair-tools" in text
-    assert "repair-tools" in text.split('pi.registerCommand("runner"', 1)[1]
+    assert "orchestrator-repair-tools" not in text
+    assert "PI_ORCHESTRATOR_REPAIR_TOOLS" not in text
+    assert "repairToolsEnabled" not in text
+    assert "repairToolsActive" not in text
+    assert "orch repair-tools" not in text
+    assert not (ROOT / "scripts" / "pi-bootstrap-repair-mode.sh").exists()
+    assert "repair-tools" not in (ROOT / "docs" / "RUNNER-SERVICE.md").read_text(encoding="utf-8")
 
 
-def test_orchestrator_extension_only_skips_tool_restriction_in_repair_mode():
+def test_orchestrator_extension_always_restricts_tools_when_selected():
     text = source()
     session_start = text.split('pi.on("session_start"', 1)[1].split('// idempotent shutdown', 1)[0]
 
-    assert "restrictTools(pi);" not in session_start
-    assert "applyToolMode(pi, ctx, state);" in session_start
-    assert "restrictTools(pi);" in extract_async_function_body(text, "applyToolMode")
-    assert "state.repairToolsActive" in extract_async_function_body(text, "applyToolMode")
+    assert "restrictTools(pi);" in session_start
+    assert "applyToolMode" not in text
 
 
 def test_orchestrator_extension_surfaces_status_without_large_json_dumps():

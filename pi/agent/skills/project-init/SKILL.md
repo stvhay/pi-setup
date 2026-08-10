@@ -40,7 +40,6 @@ CONTRIBUTING.md
 .pi/plans/
 .worktrees/
 .envrc
-.envrc.d/gh.sh
 flake.nix
 .gitignore entries for .worktrees/, .envrc.local.d/, and .direnv/
 ```
@@ -86,7 +85,6 @@ Use repository templates instead of duplicating them:
 - `templates/CONTRIBUTING.md`
 - `templates/envrc`
 - `templates/flake.nix`
-- `templates/gh.sh`
 - optional GitHub templates under `templates/`
 
 Adapt stack tools only when detection is obvious:

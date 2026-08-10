@@ -2,7 +2,6 @@
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.6-sol",
   "defaultThinkingLevel": "xhigh",
-  "theme": "dark",
   "enabledModels": [
     "openai-codex/gpt-5.6-sol",
     "openai-codex/gpt-5.6-terra",
@@ -52,8 +51,6 @@
       "provider": "openai-codex",
       "id": "gpt-5.6-sol",
       "thinking": "low"
-    },
-    "passive": false,
-    "debugLog": false
+    }
   }
 }

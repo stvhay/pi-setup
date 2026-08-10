@@ -572,13 +572,14 @@ def cmd_metrics(argv: List[str]) -> int:
         p.add_argument("--outcome", choices=sorted(VALID_OUTCOMES))
         p.add_argument("--risk-category")
         p.add_argument("--thinking-level")
-        p.add_argument("--human-override", action="store_true")
-        p.add_argument("--no-human-override", action="store_true")
-        p.add_argument("--fallback-used", action="store_true")
-        p.add_argument("--no-fallback-used", action="store_true")
+        p.add_argument("--human-override", action=argparse.BooleanOptionalAction, default=None)
+        p.add_argument("--fallback-used", action=argparse.BooleanOptionalAction, default=None)
         p.add_argument("--notes")
         p.add_argument("--findings-file", help="validated structured review findings JSON")
         args = p.parse_args(rest)
+        for flag in ("human-override", "fallback-used"):
+            if f"--{flag}" in rest and f"--no-{flag}" in rest:
+                p.error(f"use only one of --{flag}/--no-{flag}")
         metrics_dir = Path(args.metrics_dir) if args.metrics_dir else default_metrics_dir()
         record, source_file, warnings = resolve_metric_selector(args.selector, metrics_dir)
         for warning in warnings:
@@ -598,18 +599,10 @@ def cmd_metrics(argv: List[str]) -> int:
             annotation["riskCategory"] = args.risk_category
         if args.thinking_level is not None:
             annotation["thinkingLevel"] = args.thinking_level
-        if args.human_override and args.no_human_override:
-            p.error("use only one of --human-override/--no-human-override")
-        if args.human_override:
-            annotation["humanOverride"] = True
-        if args.no_human_override:
-            annotation["humanOverride"] = False
-        if args.fallback_used and args.no_fallback_used:
-            p.error("use only one of --fallback-used/--no-fallback-used")
-        if args.fallback_used:
-            annotation["fallbackUsed"] = True
-        if args.no_fallback_used:
-            annotation["fallbackUsed"] = False
+        if args.human_override is not None:
+            annotation["humanOverride"] = args.human_override
+        if args.fallback_used is not None:
+            annotation["fallbackUsed"] = args.fallback_used
         if args.notes is not None:
             annotation["notes"] = args.notes
         if args.findings_file is not None:

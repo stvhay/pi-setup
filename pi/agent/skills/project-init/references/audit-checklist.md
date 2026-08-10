@@ -46,8 +46,8 @@ Pi-native checklist for project-init audits.
 - **Check:** `flake.nix` exists with a default dev shell
 - **Severity:** MISSING
 
-### ENV-3: GitHub CLI snippet
-- **Check:** `.envrc.d/gh.sh` exists or equivalent `gh` provisioning is documented
+### ENV-3: GitHub CLI
+- **Check:** `flake.nix` includes `gh` when GitHub CLI workflows are used
 - **Severity:** MISSING
 
 ### ENV-4: Local env ignored

@@ -610,6 +610,20 @@ class FakeScanClient:
         return self.observations.get(trace_id, [])[: kwargs["limit"]]
 
 
+def _scan_sessions(client, tmp_path, **overrides):
+    options = {
+        "since": "2026-07-26T00:00:00Z",
+        "until": "2026-07-27T00:00:00Z",
+        "limit": 1,
+        "output_dir": tmp_path / "private",
+        "runs_dir": tmp_path / "runs",
+        "repository_root": tmp_path / "repo",
+        "dry_run": True,
+    }
+    options.update(overrides)
+    return improvement.scan_sessions(client, **options)
+
+
 def _private_trace(session_id="run-private-run", trace_id="private-trace"):
     return {
         "id": trace_id,
@@ -874,15 +888,11 @@ def test_scan_separates_nominal_and_catalog_derived_marginal_cost(tmp_path):
         },
     }), encoding="utf-8")
 
-    summary, packet = improvement.scan_sessions(
+    summary, packet = _scan_sessions(
         client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
+        tmp_path,
         limit=10,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
         repository_root=repository_root,
-        dry_run=True,
     )
 
     features = {item["sessionId"]: item["features"] for item in packet["sessions"]}
@@ -1113,16 +1123,11 @@ def test_scan_emits_identical_cohort_health_without_extra_api_calls(tmp_path):
     settings.parent.mkdir(parents=True)
     settings.write_text(json.dumps({"enabledModels": ["openai-codex/gpt-5.6-terra"]}), encoding="utf-8")
 
-    summary, packet = improvement.scan_sessions(
+    summary, packet = _scan_sessions(
         client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
+        tmp_path,
         max_traces=7,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
         repository_root=repository_root,
-        dry_run=True,
     )
 
     assert summary["schemaVersion"] == 1
@@ -1161,15 +1166,10 @@ def test_scan_classifies_child_traces_from_bounded_discovery_without_extra_api_c
         },
     )
 
-    summary, packet = improvement.scan_sessions(
+    summary, packet = _scan_sessions(
         client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
+        tmp_path,
         limit=10,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
     )
 
     parent = next(item for item in packet["sessions"] if item["sessionId"] == "parent-session")
@@ -1313,16 +1313,7 @@ def test_scan_keeps_out_of_window_or_malformed_child_absence_unknown(tmp_path, m
         {"child-projection": [_child_projection(mode, child_id)]},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     health = packet["sessions"][0]["features"]["childTraceHealth"]
     assert health["byAvailability"]["unknown"] == 1
@@ -1344,16 +1335,7 @@ def test_scan_marks_score_capture_limit_as_lower_bound(tmp_path):
         trace_scores={"score-limited-trace": scores},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     features = packet["sessions"][0]["features"]
     assert len(features["evaluatorOutcomes"]) == improvement.SCORES_PER_QUERY
@@ -1574,16 +1556,7 @@ def test_scan_normalizes_exact_tool_fingerprint_without_copying_payload(tmp_path
         {"private-trace": observations},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     assert summary["schemaVersion"] == 1
     assert packet["schemaVersion"] == 2
@@ -1634,14 +1607,13 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
         },
     )
 
-    summary, packet = improvement.scan_sessions(
+    summary, packet = _scan_sessions(
         client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
+        tmp_path,
         output_dir=output_dir,
         runs_dir=runs_dir,
         repository_root=repo_root,
+        dry_run=False,
     )
 
     assert summary["status"] == "ok"
@@ -1713,16 +1685,7 @@ def test_scan_joins_projected_outcomes_and_payload_free_error_signals(tmp_path):
         },
     )
 
-    _, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    _, packet = _scan_sessions(client, tmp_path)
 
     features = packet["sessions"][0]["features"]
     assert features["finalOutcome"] == "success"
@@ -1930,16 +1893,7 @@ def test_scan_uses_explicit_private_work_item_link(tmp_path):
         {"private-trace": _private_observations()},
     )
 
-    _, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    _, packet = _scan_sessions(client, tmp_path)
 
     assert packet["sessions"][0]["correlation"] == {"status": "linked", "beadId": "pi-work.1"}
 
@@ -1975,16 +1929,7 @@ def test_scan_prefers_explicit_linked_outcome_over_sampled_evaluator(tmp_path):
         },
     )
 
-    _, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    _, packet = _scan_sessions(client, tmp_path)
 
     features = packet["sessions"][0]["features"]
     assert features["finalOutcome"] == "success"
@@ -2018,16 +1963,7 @@ def test_scan_rejects_explicit_outcome_owned_by_different_work_item(tmp_path):
         {"private-trace": _private_observations()},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     session = packet["sessions"][0]
     assert session["correlation"] == {"status": "linked", "beadId": "pi-second.1"}
@@ -2066,16 +2002,7 @@ def test_scan_rejects_explicit_outcome_with_ambiguous_idless_links(tmp_path):
         {"private-trace": _private_observations()},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     session = packet["sessions"][0]
     assert session["correlation"] == {"status": "unlinked"}
@@ -2095,15 +2022,10 @@ def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
     )
     output_dir = tmp_path / "must-not-exist"
 
-    summary, packet = improvement.scan_sessions(
+    summary, packet = _scan_sessions(
         client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
+        tmp_path,
         output_dir=output_dir,
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
     )
 
     expected_summary = {
@@ -2140,16 +2062,7 @@ def test_scan_rechecks_stale_review_policy_markers(tmp_path):
         reviewed={"stale-session": "older-policy"},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     assert summary["eligibleSessions"] == 1
     assert summary["reviewedSessionsSkipped"] == 0
@@ -2185,15 +2098,11 @@ def test_scan_score_markers_are_bounded_from_session_start(tmp_path, session_id,
         {"private-trace": _private_observations()},
     )
 
-    improvement.scan_sessions(
+    _scan_sessions(
         client,
+        tmp_path,
         since=since,
         until=until,
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
     )
 
     session_queries = [query for query in client.score_queries if query.get("session_id") == session_id]
@@ -2225,16 +2134,7 @@ def test_scan_checks_multiple_review_markers_for_current_policy(tmp_path):
 
     client = MixedMarkerClient([_private_trace("reviewed-session", "reviewed-trace")], {})
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     assert client.marker_limit == improvement.SCORES_PER_QUERY + 1
     assert summary["reviewedSessionsSkipped"] == 1
@@ -2250,16 +2150,7 @@ def test_scan_trace_discovery_paginates_past_reviewed_prefix(tmp_path):
         reviewed={f"reviewed-{index}" for index in range(10)},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     assert client.trace_limits == []
     assert summary["eligibleSessions"] == 1
@@ -2285,16 +2176,7 @@ def test_trace_discovery_reports_lower_bounds_and_unattributed_traces(tmp_path):
         {"attributed-trace": []},
     )
 
-    summary, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    summary, packet = _scan_sessions(client, tmp_path)
 
     expected = {
         "totalAvailable": 3,
@@ -2323,16 +2205,7 @@ def test_scan_marks_truncated_observations_as_capture_gap(tmp_path):
         {"eligible-trace": observations},
     )
 
-    _, packet = improvement.scan_sessions(
-        client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
-        runs_dir=tmp_path / "runs",
-        repository_root=tmp_path / "repo",
-        dry_run=True,
-    )
+    _, packet = _scan_sessions(client, tmp_path)
 
     features = packet["sessions"][0]["features"]
     assert "observation-limit" in features["captureGaps"]
@@ -2354,15 +2227,10 @@ def test_scan_never_correlates_parent_directory_session_ids(tmp_path):
         {"private-trace": []},
     )
 
-    _, packet = improvement.scan_sessions(
+    _, packet = _scan_sessions(
         client,
-        since="2026-07-26T00:00:00Z",
-        until="2026-07-27T00:00:00Z",
-        limit=1,
-        output_dir=tmp_path / "private",
+        tmp_path,
         runs_dir=runs_dir,
-        repository_root=tmp_path / "repo",
-        dry_run=True,
     )
 
     assert packet["sessions"][0]["correlation"] == {"status": "unlinked"}
@@ -2374,14 +2242,13 @@ def test_scan_refuses_report_directory_inside_repository(tmp_path):
     client = FakeScanClient([], {})
 
     with pytest.raises(ValueError, match="outside repository"):
-        improvement.scan_sessions(
+        _scan_sessions(
             client,
-            since="2026-07-26T00:00:00Z",
-            until="2026-07-27T00:00:00Z",
-            limit=1,
+            tmp_path,
             output_dir=repo_root / ".pi" / "improvement",
             runs_dir=repo_root / ".pi" / "runs",
             repository_root=repo_root,
+            dry_run=False,
         )
 
 

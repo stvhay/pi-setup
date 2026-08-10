@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -12,16 +13,8 @@ from .core import ACTIONS, EVALS, PROMPT_PATTERNS, ROOT, die
 from .metrics import utc_now
 
 def slugify(value: str) -> str:
-    chars: List[str] = []
-    for ch in value.lower():
-        if ch.isalnum():
-            chars.append(ch)
-        elif ch in {"-", "_", " ", ".", "/"}:
-            chars.append("-")
-    slug = "".join(chars).strip("-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug or "prompt-pattern"
+    cleaned = re.sub(r"[^\w\- ./]", "", value.lower())
+    return re.sub(r"[-_ ./]+", "-", cleaned).strip("-") or "prompt-pattern"
 
 
 def prompt_inventory_rows() -> List[Dict[str, Any]]:

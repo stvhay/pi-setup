@@ -95,6 +95,13 @@ def write_applied_archimedes(meta: Path, subagent: Path) -> None:
     (subagent / "src/index.ts").write_text("new-subagent\n", encoding="utf-8")
 
 
+def write_package(root: Path, relative: str, name: str, version: str) -> Path:
+    package = root / relative
+    package.mkdir(parents=True)
+    (package / "package.json").write_text(json.dumps({"name": name, "version": version}), encoding="utf-8")
+    return package
+
+
 def test_update_refuses_home_destination_without_mutating(tmp_path):
     home_dest = Path.home()
     marker = home_dest / ".managed-by-pi-setup"
@@ -387,12 +394,7 @@ def test_update_repairs_missing_archimedes_subagent_before_patching(tmp_path):
         ("pi-archimedes", "pi-archimedes", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.12"),
     ):
-        package = dest / "agent" / "npm" / "node_modules" / relative
-        package.mkdir(parents=True)
-        (package / "package.json").write_text(
-            json.dumps({"name": name, "version": version}),
-            encoding="utf-8",
-        )
+        package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
         if name == "pi-langfuse":
             write_clean_langfuse(package)
     fake_pi = tmp_path / "pi"
@@ -433,12 +435,7 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.12"),
     ):
-        package = dest / "agent" / "npm" / "node_modules" / relative
-        package.mkdir(parents=True)
-        (package / "package.json").write_text(
-            json.dumps({"name": name, "version": version}),
-            encoding="utf-8",
-        )
+        package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
     modules = dest / "agent" / "npm" / "node_modules"
     write_applied_archimedes(
         modules / "pi-archimedes",
@@ -490,12 +487,7 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.12"),
     ):
-        package = dest / "agent" / "npm" / "node_modules" / relative
-        package.mkdir(parents=True)
-        (package / "package.json").write_text(
-            json.dumps({"name": name, "version": version}),
-            encoding="utf-8",
-        )
+        package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
         if name == "pi-langfuse":
             write_clean_langfuse(package)
     modules = dest / "agent" / "npm" / "node_modules"
@@ -548,12 +540,7 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.12"),
     ):
-        package = dest / "agent" / "npm" / "node_modules" / relative
-        package.mkdir(parents=True)
-        (package / "package.json").write_text(
-            json.dumps({"name": name, "version": version}),
-            encoding="utf-8",
-        )
+        package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
     modules = dest / "agent" / "npm" / "node_modules"
     write_applied_archimedes(
         modules / "pi-archimedes",
@@ -616,12 +603,7 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
         ("pi-langfuse", "pi-langfuse", "1.5.12"),
     ):
-        package = modules / relative
-        package.mkdir(parents=True)
-        (package / "package.json").write_text(
-            json.dumps({"name": name, "version": version}),
-            encoding="utf-8",
-        )
+        package = write_package(modules, relative, name, version)
     write_applied_archimedes(
         modules / "pi-archimedes",
         modules / "@pi-archimedes/subagent",

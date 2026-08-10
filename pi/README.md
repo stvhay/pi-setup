@@ -59,7 +59,7 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 - [`agent/AGENTS.md`](agent/AGENTS.md) — global Pi agent instructions
 - `agent/AGENTS.d/roles/` — delegated-worker stances and output contracts
 - `agent/AGENTS.d/models/` — family-wide and venue-specific instruction overlays
-- `agent/settings.json` — shared Pi settings, package declarations, and runtime defaults
+- `agent/settings.json` — shared Pi settings, package declarations, and selected runtime overrides
 - `agent/catalog.json` — model family catalog: maps each family to configured direct OpenRouter/Codex targets and records cost classes, billing classes, context, rates, and model-overlay keys
 - `agent/tasks/` — operational routing labels and preferred, qualified, or avoided model targets
 - `agent/actions/` — action templates that bind routing task, skills, role, allowed effects, and output contract
@@ -67,7 +67,6 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 - `agent/evals/` — deterministic routing, prompt, and instruction checks
 - `agent/extensions/` — Pi extensions
 - `agent/skills/` — Pi skills
-- `agent/mcp.json` — MCP configuration, when used
 
 For the conceptual overview, see [The agnt System](../docs/AGNT-SYSTEM.md). For the implementation map, see [Architecture](../docs/ARCHITECTURE.md).
 

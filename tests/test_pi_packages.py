@@ -267,6 +267,15 @@ def test_observational_memory_compaction_precedes_native_threshold():
     assert "81,000" in docs
 
 
+def test_settings_omit_runtime_defaults():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    config = settings["observational-memory"]
+
+    assert "theme" not in settings
+    assert "passive" not in config
+    assert "debugLog" not in config
+
+
 def test_observational_memory_workers_use_low_thinking_sol():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     config = settings["observational-memory"]

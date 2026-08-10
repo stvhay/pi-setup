@@ -131,27 +131,6 @@ class RunnerClient:
         return self.request("POST", "/v1/stop", {"force": force})
 
 
-def runner_client_status(root: Path | str | None = None) -> Dict[str, Any]:
-    return RunnerClient(root).status()
-
-
-def runner_client_pause(root: Path | str | None = None, *, reason: str | None = None) -> Dict[str, Any]:
-    return RunnerClient(root).pause(reason=reason)
-
-
-def runner_client_resume(root: Path | str | None = None) -> Dict[str, Any]:
-    return RunnerClient(root).resume()
-
-
-def runner_client_tick(
-    *,
-    root: Path | str | None = None,
-    dry_run: bool = True,
-    limit: int = 1,
-) -> Dict[str, Any]:
-    return RunnerClient(root).tick(dry_run=dry_run, limit=limit)
-
-
 def daemon_status(root: Path | str | None = None) -> Dict[str, Any]:
     try:
         status = RunnerClient(root).status()
@@ -279,8 +258,4 @@ __all__ = [
     "daemon_start",
     "daemon_status",
     "daemon_stop",
-    "runner_client_pause",
-    "runner_client_resume",
-    "runner_client_status",
-    "runner_client_tick",
 ]

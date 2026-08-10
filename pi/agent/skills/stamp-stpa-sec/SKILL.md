@@ -117,56 +117,6 @@ STPA-Sec generates compliance artifacts as outputs, not separate activities:
 
 Read and follow [references/stpa-security.md](references/stpa-security.md) for the STPA-Sec process, mission-focused analysis, wargaming, and security-requirements derivation.
 
-## Core Insight
-
-**Security threats are causal scenarios for unsafe control actions.**
-
-When STPA asks "why might this unsafe control action occur?", traditional answers focus on accidents: sensor failure, software bugs, human error. STPA-Sec adds: "because an adversary intentionally caused it."
-
-The adversary's attack has the same structure as an Unsafe Control Action:
-```
-<Exploit> <Provides> <Malicious Action> when <Context>
-```
-
-## STRIDE Integration
-
-Microsoft's STRIDE threat taxonomy maps to control structure elements:
-
-| STRIDE Threat | Control Structure Target | Effect |
-|--------------|-------------------------|--------|
-| **S**poofing | Controller identity, feedback source | False commands accepted, wrong process model |
-| **T**ampering | Control actions, feedback, algorithm | Modified behavior, corrupted state |
-| **R**epudiation | Audit/logging feedback | Loss of accountability, hidden attacks |
-| **I**nformation Disclosure | Process model, control actions | Adversary learns system state |
-| **D**enial of Service | Any control/feedback path | Missing control actions, stale process model |
-| **E**levation of Privilege | Controller authority | Unauthorized control actions |
-
-## Security Scenarios by Path
-
-### Feedback Path Attacks
-
-| STPA Causal Factor | Security Attack |
-|-------------------|-----------------|
-| Feedback not provided | **DoS** - block sensor data |
-| Incorrect feedback | **Spoofing** - inject false readings |
-| Feedback delayed | **DoS** - slow network, queue flooding |
-
-### Control Path Attacks
-
-| STPA Causal Factor | Security Attack |
-|-------------------|-----------------|
-| Control action not executed | **DoS** - block commands |
-| Wrong control action executed | **Tampering** - modify commands in transit |
-| Unauthorized control action | **Spoofing** - inject malicious commands |
-
-### Controller Attacks
-
-| STPA Causal Factor | Security Attack |
-|-------------------|-----------------|
-| Flawed control algorithm | **Tampering** - modify software/firmware |
-| Incorrect process model | **Spoofing** - corrupt state information |
-| Wrong goals | **Tampering** - modify configuration/policy |
-
 ## Output Schema
 
 When producing STPA-Sec analysis, structure output for machine parsing:
@@ -234,20 +184,6 @@ Use this schema when:
 - Handing off to another agent
 - Integrating with traditional security tools
 - Feeding back into STPA for safety analysis
-
-## When to Apply STPA-Sec
-
-Use STPA-Sec when:
-- System has network connections or external interfaces
-- Adversarial threats are credible (not just accidents)
-- Safety and security are coupled (security failure → safety failure)
-- Mission assurance requires understanding cyber risk
-
-Particularly valuable for:
-- Cyber-physical systems (vehicles, industrial control, medical devices)
-- Critical infrastructure (power grid, water systems)
-- Military and defense systems
-- Systems with wireless or remote access
 
 ## Related
 

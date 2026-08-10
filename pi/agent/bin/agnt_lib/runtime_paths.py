@@ -112,6 +112,18 @@ def resolve_runtime_directory(
     return _private_tree(runtime_root, (key, *parts))
 
 
+def cmd_plans_dir(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="agnt plans-dir", description="Print and create the active plans directory.")
+    parser.parse_args(argv)
+    override = os.environ.get("PI_PLANS_DIR")
+    cwd = Path.cwd().resolve()
+    context = _git_context(cwd)
+    path = Path(override).expanduser() if override else (context[1] if context else cwd) / ".pi" / "plans"
+    path.mkdir(parents=True, exist_ok=True)
+    print(path)
+    return 0
+
+
 def cmd_runtime_path(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt runtime-path", description="Resolve a safe private runtime directory.")
     parser.add_argument("kind", help="relative artifact kind, such as runs or metrics/invocations")

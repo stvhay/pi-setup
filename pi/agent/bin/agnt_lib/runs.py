@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -34,16 +35,8 @@ def utc_now() -> str:
 
 
 def slugify(value: str) -> str:
-    chars: List[str] = []
-    for ch in value.lower():
-        if ch.isalnum():
-            chars.append(ch)
-        elif ch in {"-", "_", " ", ".", "/", ":"}:
-            chars.append("-")
-    slug = "".join(chars).strip("-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug or "run"
+    cleaned = re.sub(r"[^\w\- ./\:]", "", value.lower())
+    return re.sub(r"[-_ ./\:]+", "-", cleaned).strip("-") or "run"
 
 
 def default_runs_dir() -> Path:

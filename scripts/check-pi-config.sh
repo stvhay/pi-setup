@@ -67,7 +67,6 @@ check_exists "$PI_DIR/agent/bin"
 check_exists "$PI_DIR/agent/bin/agnt"
 check_exists "$PI_DIR/agent/skills"
 check_exists "$PI_DIR/agent/extensions"
-check_exists "$PI_DIR/agent/mcp.json"
 
 if [ -x "$PI_DIR/agent/bin/agnt" ]; then
   "$PI_DIR/agent/bin/agnt" action validate >/dev/null

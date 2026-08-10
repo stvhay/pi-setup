@@ -20,9 +20,7 @@
             buildInputs = with pkgs; [
               git
               gh
-              jq
               ripgrep
-              direnv
             ];
           };
         });

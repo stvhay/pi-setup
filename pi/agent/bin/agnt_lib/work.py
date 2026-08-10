@@ -17,17 +17,7 @@ from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_y
 from .health import check_status_passed, work_health_report
 from .improvement import BEAD_ID, SessionWorkItemConflict, link_current_session
 from .maintenance import maintenance_create_beads, maintenance_due_report
-from .runner_client import (
-    RunnerClientError,
-    daemon_serve,
-    daemon_start,
-    daemon_status,
-    daemon_stop,
-    runner_client_pause,
-    runner_client_resume,
-    runner_client_status,
-    runner_client_tick,
-)
+from .runner_client import RunnerClient, RunnerClientError, daemon_serve, daemon_start, daemon_status, daemon_stop
 from .worktree_policy import worktree_snapshot_for_bead
 
 
@@ -1048,14 +1038,15 @@ def cmd_work(argv: List[str]) -> int:
     if args.command == "runner":
         root = Path(args.root).expanduser() if getattr(args, "root", None) else None
         try:
+            client = RunnerClient(root)
             if args.runner_command == "status":
-                result = runner_client_status(root=root)
+                result = client.status()
             elif args.runner_command == "pause":
-                result = runner_client_pause(root=root, reason=args.reason)
+                result = client.pause(reason=args.reason)
             elif args.runner_command == "resume":
-                result = runner_client_resume(root=root)
+                result = client.resume()
             elif args.runner_command == "tick":
-                result = runner_client_tick(root=root, dry_run=args.dry_run, limit=args.limit)
+                result = client.tick(dry_run=args.dry_run, limit=args.limit)
             else:
                 parser.print_help(sys.stderr)
                 return 2

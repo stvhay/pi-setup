@@ -35,8 +35,6 @@ The opted-in extension then:
 4. establishes an event cursor, attaches an informational client record, restricts the session to orchestrator tools, and polls service status plus events; and
 5. exposes status through `ticket_gateway`, `/runner`, and the TUI widget, then queues one Pi follow-up turn when each run finishes.
 
-The legacy `scripts/pi-bootstrap-repair-mode.sh`, `PI_ORCHESTRATOR_REPAIR_TOOLS=1`, and `/runner repair-tools` controls remain available for explicit recovery of the optional orchestration path. They are not needed for normal direct implementation.
-
 ## Shutdown and drain
 
 When a Pi session exits, the extension detaches its informational client record:

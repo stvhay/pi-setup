@@ -245,6 +245,21 @@ def test_documented_common_agnt_entry_points_still_parse(agnt, monkeypatch, tmp_
         capsys.readouterr()
 
 
+def test_cmd_plans_dir_uses_override(agnt, monkeypatch, tmp_path, capsys):
+    plans = tmp_path / "custom-plans"
+    monkeypatch.setenv("PI_PLANS_DIR", str(plans))
+
+    assert agnt.cmd_plans_dir([]) == 0
+    assert plans.is_dir()
+    assert capsys.readouterr().out.strip() == str(plans)
+
+
+@pytest.mark.parametrize("flag", ["human-override", "fallback-used"])
+def test_metrics_annotate_rejects_conflicting_boolean_flags(agnt, flag):
+    with pytest.raises(SystemExit):
+        agnt.cmd_metrics(["annotate", f"--{flag}", f"--no-{flag}"])
+
+
 def test_prompt_inventory_rows_reads_frontmatter(agnt):
     rows = agnt.prompt_inventory_rows()
     by_path = {row["path"]: row for row in rows}

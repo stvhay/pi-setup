@@ -770,10 +770,19 @@ def test_work_runner_cli_status_and_tick_json(agnt, tmp_path, capsys):
     status_result = {"schemaVersion": 1, "status": "running", "running": True, "paused": False}
     calls = []
 
-    with patch.dict(agnt.cmd_work.__globals__, {
-        "runner_client_status": lambda root=None: calls.append(("status", root)) or status_result,
-        "runner_client_tick": lambda **kwargs: calls.append(("tick", kwargs)) or tick_result,
-    }):
+    class FakeRunnerClient:
+        def __init__(self, root):
+            self.root = root
+
+        def status(self):
+            calls.append(("status", self.root))
+            return status_result
+
+        def tick(self, *, dry_run, limit):
+            calls.append(("tick", {"root": self.root, "dry_run": dry_run, "limit": limit}))
+            return tick_result
+
+    with patch.dict(agnt.cmd_work.__globals__, {"RunnerClient": FakeRunnerClient}):
         assert agnt.cmd_work(["runner", "status", "--json", "--root", str(tmp_path)]) == 0
         status_out = json.loads(capsys.readouterr().out)
         assert status_out["status"] == "running"
@@ -792,7 +801,14 @@ def test_work_runner_cli_reports_missing_service_json(agnt, tmp_path, capsys):
     class MissingService(Exception):
         payload = {"schemaVersion": 1, "status": "not-running", "suggestedAction": "agnt work daemon start --json"}
 
-    with patch.dict(agnt.cmd_work.__globals__, {"RunnerClientError": MissingService, "runner_client_status": lambda root=None: (_ for _ in ()).throw(MissingService())}):
+    class MissingRunnerClient:
+        def __init__(self, _root):
+            pass
+
+        def status(self):
+            raise MissingService()
+
+    with patch.dict(agnt.cmd_work.__globals__, {"RunnerClient": MissingRunnerClient, "RunnerClientError": MissingService}):
         assert agnt.cmd_work(["runner", "status", "--json", "--root", str(tmp_path)]) == 2
 
     output = json.loads(capsys.readouterr().out)

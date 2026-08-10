@@ -21,21 +21,6 @@ const ORCHESTRATOR_SAFE_TOOLS = [
 	"recall",
 ] as const;
 
-const ORCHESTRATOR_REPAIR_TOOLS = [
-	"read",
-	"bash",
-	"edit",
-	"write",
-	"grep",
-	"find",
-	"ls",
-	"ticket_gateway",
-	"ticket_question",
-	"ticket_approval",
-	"ticket_decision_resolve",
-	"recall",
-] as const;
-
 type JsonObject = Record<string, unknown>;
 
 interface ServiceConnection {
@@ -51,7 +36,6 @@ interface SessionState {
 	eventOffset?: number;
 	startupAbort?: AbortController;
 	shutdownStarted: boolean;
-	repairToolsActive: boolean;
 }
 
 function asObject(value: unknown): JsonObject {
@@ -327,37 +311,13 @@ function restrictTools(pi: ExtensionAPI): void {
 	pi.setActiveTools(ORCHESTRATOR_SAFE_TOOLS as unknown as string[]);
 }
 
-function enableRepairTools(pi: ExtensionAPI): void {
-	pi.setActiveTools(ORCHESTRATOR_REPAIR_TOOLS as unknown as string[]);
-}
-
 function getBooleanFlag(pi: ExtensionAPI, name: string): boolean {
 	const getFlag = (pi as unknown as { getFlag?: (flagName: string) => unknown }).getFlag;
 	return getFlag?.(name) === true;
 }
 
 function orchestrationEnabled(pi: ExtensionAPI): boolean {
-	return getBooleanFlag(pi, "orchestrator-service")
-		|| process.env.PI_ORCHESTRATOR_SERVICE === "1"
-		|| process.env.PI_ORCHESTRATOR_REPAIR_TOOLS === "1";
-}
-
-function repairToolsEnabled(pi: ExtensionAPI): boolean {
-	return getBooleanFlag(pi, "orchestrator-repair-tools") || process.env.PI_ORCHESTRATOR_REPAIR_TOOLS === "1";
-}
-
-async function applyToolMode(pi: ExtensionAPI, ctx: ExtensionContext, state: SessionState): Promise<void> {
-	state.repairToolsActive = repairToolsEnabled(pi) || state.repairToolsActive;
-	if (state.repairToolsActive) {
-		enableRepairTools(pi);
-		ctx.ui.setStatus("orchestrator-service", statusText(ctx, "orch repair-tools", "warn"));
-		ctx.ui.setWidget("orchestrator-service", [
-			"Orchestrator repair-tools mode is active.",
-			"Runner lifecycle is enabled; bash/edit/write are temporarily available for bootstrap repair.",
-		]);
-		return;
-	}
-	restrictTools(pi);
+	return getBooleanFlag(pi, "orchestrator-service") || process.env.PI_ORCHESTRATOR_SERVICE === "1";
 }
 
 function startStatusPolling(pi: ExtensionAPI, ctx: ExtensionContext, state: SessionState): void {
@@ -385,21 +345,15 @@ export default function orchestratorService(pi: ExtensionAPI) {
 		default: false,
 	});
 
-	pi.registerFlag("orchestrator-repair-tools", {
-		description: "Keep orchestrator-service running but enable write tools for temporary bootstrap repair",
-		type: "boolean",
-		default: false,
-	});
-
-	const state: SessionState = { shutdownStarted: false, repairToolsActive: false };
+	const state: SessionState = { shutdownStarted: false };
 
 	pi.on("session_start", async (_event, ctx) => {
 		if (!orchestrationEnabled(pi)) return;
 		state.shutdownStarted = false;
 		const startupAbort = new AbortController();
 		state.startupAbort = startupAbort;
-		await applyToolMode(pi, ctx, state);
-		if (!state.repairToolsActive) ctx.ui.setStatus("orchestrator-service", statusText(ctx, "orch checking", "warn"));
+		restrictTools(pi);
+		ctx.ui.setStatus("orchestrator-service", statusText(ctx, "orch checking", "warn"));
 		try {
 			const startup = await runAgntJson(["doctor", "--profile", "orchestrator-startup", "--json"], ctx.cwd, startupAbort.signal);
 			if (state.shutdownStarted) return;
@@ -448,28 +402,8 @@ export default function orchestratorService(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("runner", {
-		description: "Inspect the optional project runner or manage explicit repair-tools mode",
-		handler: async (args, ctx) => {
-			const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
-			if (parts[0] === "repair-tools") {
-				const action = parts[1] || "status";
-				if (action === "on") {
-					state.repairToolsActive = true;
-					await applyToolMode(pi, ctx, state);
-					ctx.ui.notify("orchestrator repair-tools mode enabled for this session", "warning");
-					return;
-				}
-				if (action === "off") {
-					state.repairToolsActive = false;
-					restrictTools(pi);
-					ctx.ui.notify("orchestrator repair-tools mode disabled; safe orchestrator tools restored", "info");
-					await refreshRunnerStatus(ctx).catch(() => undefined);
-					return;
-				}
-				ctx.ui.notify(`orchestrator repair-tools mode: ${state.repairToolsActive ? "on" : "off"}`, state.repairToolsActive ? "warning" : "info");
-				ctx.ui.setStatus("orchestrator-service", statusText(ctx, state.repairToolsActive ? "orch repair-tools" : "orch normal", state.repairToolsActive ? "warn" : "ok"));
-				return;
-			}
+		description: "Inspect the optional project runner",
+		handler: async (_args, ctx) => {
 			try {
 				await refreshRunnerStatus(ctx);
 			} catch (err) {

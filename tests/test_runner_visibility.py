@@ -66,7 +66,14 @@ def service_status_payload(root: Path) -> dict:
 def test_gateway_runner_status_uses_rest_client_and_stable_visibility_shape(tmp_path):
     payload = service_status_payload(tmp_path)
 
-    with patch.dict(gateway._runner_status_gateway.__globals__, {"runner_client_status": lambda root=None: payload}):
+    class FakeRunnerClient:
+        def __init__(self, _root):
+            pass
+
+        def status(self):
+            return payload
+
+    with patch.dict(gateway._runner_status_gateway.__globals__, {"RunnerClient": FakeRunnerClient}):
         result = gateway.ticket_gateway({"operation": "runner_status", "root": str(tmp_path)})
 
     runner = result["runner"]
@@ -109,10 +116,15 @@ def test_gateway_runner_status_reports_absent_service_without_legacy_idle_shape(
     from agnt_lib.runner_client import RunnerClientError
 
     missing = {"schemaVersion": 1, "status": "not-running", "running": False, "connected": False, "suggestedAction": "agnt work daemon start --json"}
-    with patch.dict(
-        gateway._runner_status_gateway.__globals__,
-        {"runner_client_status": lambda root=None: (_ for _ in ()).throw(RunnerClientError("missing", payload=missing))},
-    ):
+
+    class MissingRunnerClient:
+        def __init__(self, _root):
+            pass
+
+        def status(self):
+            raise RunnerClientError("missing", payload=missing)
+
+    with patch.dict(gateway._runner_status_gateway.__globals__, {"RunnerClient": MissingRunnerClient}):
         result = gateway.ticket_gateway({"operation": "runner_status", "root": str(tmp_path)})
 
     runner = result["runner"]

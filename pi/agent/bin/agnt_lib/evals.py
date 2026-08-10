@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -15,13 +16,7 @@ from .metrics import git_root, write_json, write_metric_record
 from .tasks import preferred_models
 
 def slugify(value: str) -> str:
-    cleaned = []
-    for char in value.lower():
-        if char.isalnum():
-            cleaned.append(char)
-        elif cleaned and cleaned[-1] != "-":
-            cleaned.append("-")
-    return "".join(cleaned).strip("-") or "item"
+    return re.sub(r"[\W_]+", "-", value.lower()).strip("-") or "item"
 
 
 def eval_files() -> List[Path]:

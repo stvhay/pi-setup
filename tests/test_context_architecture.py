@@ -88,20 +88,23 @@ def test_graphify_skill_matches_current_cli_contract():
     }
 
 
-def test_simplification_sources_canonical_templates_and_references():
-    root_gh = (ROOT / ".envrc.d" / "gh.sh").read_text(encoding="utf-8")
+def test_simplification_uses_native_tools_and_canonical_references():
     project_init = AGENT / "skills" / "project-init"
     stamp_skill = (AGENT / "skills" / "stamp-stpa-sec" / "SKILL.md").read_text(encoding="utf-8")
     stamp_reference = (AGENT / "skills" / "stamp-stpa-sec" / "references" / "stpa-security.md").read_text(encoding="utf-8")
+    research_skill = (AGENT / "skills" / "research" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "pi/agent/skills/project-init/templates/gh.sh" in root_gh
-    assert len(root_gh.splitlines()) <= 3
+    assert not (ROOT / ".envrc.d" / "gh.sh").exists()
+    assert not (project_init / "templates" / "gh.sh").exists()
     assert not (AGENT / "skills" / "requesting-code-review" / "references" / "structured-format-parsing.md").exists()
     assert "## STPA-Sec Process" not in stamp_skill
     assert "## STPA-Sec Process" in stamp_reference
+    assert "## Core Insight" not in stamp_skill
+    assert "## Core Insight" in stamp_reference
+    assert "references/UrlVerificationProtocol.md" in research_skill
     for workflow in ("StandardResearch.md", "ExtensiveResearch.md"):
         text = (AGENT / "skills" / "research" / "workflows" / workflow).read_text(encoding="utf-8")
-        assert "references/UrlVerificationProtocol.md" in text
+        assert "## CRITICAL: URL Verification Required" not in text
         assert 'curl -s -o /dev/null -w "%{http_code}"' not in text
     assert "shellHook" not in (project_init / "templates" / "flake.nix").read_text(encoding="utf-8")
 
@@ -120,7 +123,12 @@ def test_ponytail_code_cuts_use_native_and_existing_helpers():
 
     assert "flake-utils" not in flake + lock
     assert "nixpkgs.lib.genAttrs" in flake
+    assert "jq" not in flake
+    assert "direnv" not in flake
     assert not (AGENT / "bin" / "openrouter-api-key").exists()
+    assert not (AGENT / "mcp.json").exists()
+    assert "install_patch_base" not in (ROOT / "scripts" / "update-pi-config.sh").read_text(encoding="utf-8")
+    assert not (ROOT / ".pi" / "skill-evals" / "project-skills-maintenance").exists()
     assert all(name not in agnt.split("from agnt_lib.tasks", 1)[0] for name in ("EVALS", "PROMPT_PATTERNS", "TASKS", "VALID_OUTCOMES", "capture"))
     assert "def check_result(" not in doctor and "check_result," in doctor
     assert "def default_status_runner(" not in health and "default_status_runner" in health
@@ -134,13 +142,44 @@ def test_ponytail_code_cuts_use_native_and_existing_helpers():
     assert "catalog-free" not in (AGENT / "bin" / "agnt_lib" / "metrics.py").read_text(encoding="utf-8")
 
 
+def test_ponytail_shrinks_use_stdlib_and_concrete_clients():
+    agnt = (AGENT / "bin" / "agnt").read_text(encoding="utf-8")
+    runtime_paths = (AGENT / "bin" / "agnt_lib" / "runtime_paths.py").read_text(encoding="utf-8")
+    runner_client = (AGENT / "bin" / "agnt_lib" / "runner_client.py").read_text(encoding="utf-8")
+    work = (AGENT / "bin" / "agnt_lib" / "work.py").read_text(encoding="utf-8")
+    gateway = (AGENT / "bin" / "agnt_lib" / "gateway.py").read_text(encoding="utf-8")
+    metrics = (AGENT / "bin" / "agnt_lib" / "metrics.py").read_text(encoding="utf-8")
+
+    assert not (AGENT / "bin" / "pi-plans-dir").exists()
+    assert '"plans-dir": ("print/create the active plans directory", cmd_plans_dir)' in agnt
+    assert "def cmd_plans_dir(" in runtime_paths
+    for name in ("evals.py", "prompt.py", "runs.py"):
+        text = (AGENT / "bin" / "agnt_lib" / name).read_text(encoding="utf-8")
+        assert "re.sub(" in text
+        assert "for ch in value.lower()" not in text
+        assert "for char in value.lower()" not in text
+    for name in ("runner_client_status", "runner_client_pause", "runner_client_resume", "runner_client_tick"):
+        assert f"def {name}(" not in runner_client
+        assert name not in work
+        assert name not in gateway
+    assert "RunnerClient" in work
+    assert "RunnerClient" in gateway
+    assert "argparse.BooleanOptionalAction" in metrics
+    assert 'add_argument("--no-human-override"' not in metrics
+    assert 'add_argument("--no-fallback-used"' not in metrics
+
+
 def test_project_init_eval_excludes_opt_in_github_templates():
     skill = (AGENT / "skills" / "project-init" / "SKILL.md").read_text(encoding="utf-8")
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
     case = workflow_eval.split("case_project_init_clean_scaffold()", 1)[1].split("case_implementation_commits_task_owned_changes()", 1)[0]
 
+    scaffold_paths = case.split("for path in", 1)[1].split("; do", 1)[0]
+    prompt = case.split("run_pi '", 1)[1].split("' >", 1)[0]
     assert ".github/pull_request_template.md" in skill.split("Optional only when requested:", 1)[1]
-    assert ".github/pull_request_template.md" not in case.split("for path in", 1)[1].split("; do", 1)[0]
+    assert ".envrc.d" not in prompt
+    assert ".github/pull_request_template.md" not in scaffold_paths
+    assert ".envrc.d/gh.sh" not in scaffold_paths
     assert "created opt-in GitHub template without request" in case
 
 

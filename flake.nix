@@ -17,9 +17,7 @@
             packages = with pkgs; [
               git
               gh
-              jq
               ripgrep
-              direnv
               uv
               python3
               nodejs_22

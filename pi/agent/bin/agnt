@@ -101,7 +101,7 @@ def main(argv: List[str]) -> int:
         "langfuse": ("check or apply tracked evaluator configuration", cmd_langfuse),
         "improve": ("scan and review private improvement telemetry", cmd_improve),
         "graphify": ("run graphify knowledge-graph tooling", cmd_graphify),
-        "plans-dir": ("print/create the active plans directory", lambda args: run([str(BIN / "pi-plans-dir"), *args])),
+        "plans-dir": ("print/create the active plans directory", cmd_plans_dir),
     }
     parser = argparse.ArgumentParser(prog="agnt", description="Pi agent helper command surface.")
     sub = parser.add_subparsers(dest="command")

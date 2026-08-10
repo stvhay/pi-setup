@@ -125,16 +125,6 @@ os.replace(temporary_path, path)
 PY
 }
 
-install_patch_base() {
-  local source=$1 relative=$2 expected_name=$3 expected_version=$4
-  local package_json="$DEST/agent/npm/node_modules/$relative/package.json"
-  if package_is_exact "$package_json" "$expected_name" "$expected_version"; then
-    echo "$expected_name $expected_version: already installed"
-  else
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install "$source"
-  fi
-}
-
 restore_archimedes_reinstall_backup() {
   [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ] || return 0
   local modules="$DEST/agent/npm/node_modules"

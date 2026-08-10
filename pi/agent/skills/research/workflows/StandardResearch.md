@@ -2,16 +2,6 @@
 
 **Mode:** 2 peers/search angles in parallel | **Target:** about 1 minute
 
-## CRITICAL: URL Verification Required
-
-**BEFORE delivering any research results with URLs:**
-1. Verify EVERY URL using curl or another real fetch tool
-2. Confirm the content matches what you're citing
-3. NEVER include unverified URLs - research agents HALLUCINATE URLs
-4. A single broken link is a CATASTROPHIC FAILURE
-
-See `references/UrlVerificationProtocol.md` for full protocol.
-
 ## When to Use
 
 - Default mode for most research requests
@@ -59,11 +49,7 @@ Combine the two perspectives:
 - Note unique contributions from each
 - Flag any conflicts
 
-### Step 4: VERIFY ALL URLs (MANDATORY)
-
-Follow `references/UrlVerificationProtocol.md`. Verify every URL and its support for the cited claim; remove or replace anything unverified.
-
-### Step 5: Return Results
+### Step 4: Return Results
 
 ```markdown
 ## Research: [topic]

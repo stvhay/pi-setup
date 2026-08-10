@@ -8,6 +8,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "subagent-error-workaround.ts"
 RUNTIME_ARTIFACTS = ROOT / "pi" / "agent" / "extensions" / "lib" / "runtime-artifacts.ts"
+SUBAGENT_HARNESS = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      function installDefaultHandlers() {{
+        install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+          observe() {{}},
+          persistDelegatedResult(_root, payload) {{
+            return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+          }},
+        }});
+      }}
+"""
 
 
 def run_node(script: str, env: dict[str, str] | None = None):
@@ -24,16 +38,8 @@ def test_subagent_workaround_exposes_failures_without_touching_successes():
     assert EXTENSION.exists(), "tracked subagent failure workaround is required"
 
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
-      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
-        observe() {{}},
-        persistDelegatedResult(_root, payload) {{
-          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
-        }},
-      }});
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
       const handler = handlers.tool_result;
       assert.equal(typeof handler, "function");
 
@@ -188,10 +194,7 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
 
 def test_interactive_results_emit_evaluator_ready_observations():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
+      {SUBAGENT_HARNESS}
       const observations = [];
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
@@ -254,10 +257,7 @@ def test_interactive_results_emit_evaluator_ready_observations():
 
 def test_aborted_interactive_result_is_unavailable_not_successful():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
+      {SUBAGENT_HARNESS}
       const observations = [];
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
@@ -282,10 +282,7 @@ def test_aborted_interactive_result_is_unavailable_not_successful():
 
 def test_interactive_results_emit_payload_free_tool_error_signals():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
+      {SUBAGENT_HARNESS}
       const observations = [];
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
@@ -325,10 +322,7 @@ def test_interactive_results_emit_payload_free_tool_error_signals():
 
 def test_subagent_results_emit_evaluator_ready_observations():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
+      {SUBAGENT_HARNESS}
       const observations = [];
       const payloads = [];
       install({{
@@ -454,18 +448,8 @@ def test_subagent_results_emit_evaluator_ready_observations():
 
 def test_parallel_inline_contract_projects_only_inline_child_outputs():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe() {{}},
-        persistDelegatedResult(_root, payload) {{
-          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
-        }},
-      }});
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
 
       const patch = await handlers.tool_result({{
         toolName: "subagent",
@@ -500,18 +484,8 @@ def test_parallel_inline_contract_projects_only_inline_child_outputs():
 
 def test_parallel_unspecified_contract_keeps_upstream_outputs_once():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe() {{}},
-        persistDelegatedResult(_root, payload) {{
-          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
-        }},
-      }});
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
 
       const patch = await handlers.tool_result({{
         toolName: "subagent",
@@ -542,18 +516,8 @@ def test_parallel_unspecified_contract_keeps_upstream_outputs_once():
 
 def test_parallel_inline_outputs_share_bounded_parent_context():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe() {{}},
-        persistDelegatedResult(_root, payload) {{
-          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
-        }},
-      }});
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
 
       const patch = await handlers.tool_result({{
         toolName: "subagent",
@@ -579,18 +543,8 @@ def test_parallel_inline_outputs_share_bounded_parent_context():
 
 def test_parallel_inline_projection_reports_extreme_fanout_omissions():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe() {{}},
-        persistDelegatedResult(_root, payload) {{
-          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
-        }},
-      }});
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
 
       const tasks = Array.from({{ length: 800 }}, (_, index) => ({{ task: `Task ${{index}}` }}));
       const results = tasks.map((_, index) => ({{ exitCode: 0, finalOutput: `${{index}}:` + "X".repeat(200) }}));
@@ -620,18 +574,8 @@ def test_parallel_inline_projection_reports_extreme_fanout_omissions():
 
 def test_parallel_malformed_tasks_container_does_not_break_projection():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe() {{}},
-        persistDelegatedResult(_root, payload) {{
-          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
-        }},
-      }});
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
 
       const patch = await handlers.tool_result({{
         toolName: "subagent",
@@ -652,18 +596,8 @@ def test_parallel_malformed_tasks_container_does_not_break_projection():
 
 def test_parallel_malformed_tasks_with_empty_results_synthesizes_failure():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe() {{}},
-        persistDelegatedResult(_root, payload) {{
-          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
-        }},
-      }});
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
 
       const patch = await handlers.tool_result({{
         toolName: "subagent",
@@ -682,10 +616,7 @@ def test_parallel_malformed_tasks_with_empty_results_synthesizes_failure():
 
 def test_subagent_evaluator_view_bounds_output_and_marks_unavailable():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
+      {SUBAGENT_HARNESS}
       const observations = [];
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
@@ -725,10 +656,7 @@ def test_subagent_evaluator_view_bounds_output_and_marks_unavailable():
 
 def test_subagent_evaluator_marks_persisted_artifact_without_output_unavailable():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
+      {SUBAGENT_HARNESS}
       const observations = [];
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
@@ -758,10 +686,7 @@ def test_subagent_evaluator_marks_persisted_artifact_without_output_unavailable(
 
 def test_named_agent_projection_marks_provider_and_thinking_unavailable():
     script = f"""
-      import assert from "node:assert/strict";
-      import install from {EXTENSION.as_uri()!r};
-
-      const handlers = {{}};
+      {SUBAGENT_HARNESS}
       const observations = [];
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},

@@ -2,16 +2,6 @@
 
 **Mode:** 9 peers/search angles (3 types x 3 threads each) | **Review point:** 5 minutes
 
-## CRITICAL: URL Verification Required
-
-**BEFORE delivering any research results with URLs:**
-1. Verify EVERY URL using curl or another real fetch tool
-2. Confirm the content matches what you're citing
-3. NEVER include unverified URLs - research agents HALLUCINATE URLs
-4. A single broken link is a CATASTROPHIC FAILURE
-
-See `references/UrlVerificationProtocol.md` for full protocol.
-
 ## When to Use
 
 - User says "extensive research" or "do extensive research"
@@ -102,11 +92,7 @@ Persist returned results under `.pi/research/scratch/` only when synthesis needs
 [Note disagreements]
 ```
 
-### Step 4: VERIFY ALL URLs (MANDATORY)
-
-Follow `references/UrlVerificationProtocol.md`. Verify every URL and its support for the cited claim; remove or replace anything unverified. Extensive mode needs time for this pass.
-
-### Step 5: Return Results
+### Step 4: Return Results
 
 ```markdown
 ## Extensive Research: [topic]
