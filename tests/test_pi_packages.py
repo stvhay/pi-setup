@@ -14,10 +14,10 @@ PI_README = ROOT / "pi" / "README.md"
 KEYBINDINGS = ROOT / "pi" / "agent" / "keybindings.json"
 ARCHIMEDES_PACKAGE = {"source": "npm:pi-archimedes@2.0.1", "extensions": []}
 ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
-LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.5.10", "extensions": []}
+LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.5.12", "extensions": []}
 LANGFUSE_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 ARCHITECTURE_SKILL_PACKAGE = {
-    "source": "git:github.com/mattpocock/skills@2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+    "source": "git:github.com/mattpocock/skills",
     "extensions": [],
     "skills": [
         "skills/engineering/codebase-design",
@@ -45,10 +45,15 @@ def run_node(script: str):
     )
 
 
-def test_architecture_skill_package_is_pinned_and_filtered_to_dependencies():
+def test_architecture_skill_package_is_unpinned_and_filtered_to_dependencies():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
 
     assert ARCHITECTURE_SKILL_PACKAGE in settings["packages"]
+    assert not any(
+        isinstance(package, dict)
+        and str(package.get("source", "")).startswith("git:github.com/mattpocock/skills@")
+        for package in settings["packages"]
+    )
 
 
 def test_ponytail_discovery_filters_package_skills_without_disabling_extension():
@@ -219,6 +224,15 @@ def test_gpt56_codex_subscription_context_matches_routing_catalog():
     for family in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
         assert provider["modelOverrides"][family] == {"contextWindow": 272_000}
         assert catalog[family]["venues"][0]["contextWindow"] == 272_000
+
+
+def test_betterwright_tracks_latest_unpinned_release_in_docs():
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    compatibility = (ROOT / "docs" / "extension-web-compatibility.md").read_text(encoding="utf-8")
+
+    assert "npm:betterwright" in settings["packages"]
+    assert "npm:betterwright@" not in settings["packages"]
+    assert "| `npm:betterwright` | 1.7.1 |" in compatibility
 
 
 def test_observational_memory_compaction_precedes_native_threshold():
