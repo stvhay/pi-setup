@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
-ARCHIMEDES_VENDOR_HEAD = "56c2a997e716f2ff24d37987c0d3d0cbf6b9d40d"
+ARCHIMEDES_VENDOR_HEAD = "ac70804d1c061610d3381eb6337cb39f2a6621b6"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "7f6e9eca4689b5ba6612cff687c6cabbb4e71142"
 
@@ -300,8 +300,8 @@ def test_archimedes_vendor_submodule_pins_combined_runtime_head():
     assert head.stdout.strip() == ARCHIMEDES_VENDOR_HEAD
     for ancestor in (
         "bdfeea3ed77392a2d02617fa1e0d4aa5fd8317e3",
-        "4365aba67c5f77590c9d4310275ea7488832b6a3",
-        "7d27342100e691e59f22b5cbfa8a0922b70d8495",
+        "c717d96239488a5199aa17747a4839f52cb649df",
+        "61955d2e28102cdc36fc62b8b528ac4ea7174565",
     ):
         assert subprocess.run(
             ["git", "-C", str(ARCHIMEDES_VENDOR), "merge-base", "--is-ancestor", ancestor, "HEAD"],
@@ -353,6 +353,8 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "maxProviderRequests" in archimedes
     assert "maxOutputTokens" in archimedes
     assert "PI_ARCHIMEDES_OUTPUT_LIMIT" in archimedes
+    assert "isCodexResponsesPayload" in archimedes
+    assert 'state.error = typeof message.errorMessage' in archimedes
     assert "workspace:*" not in archimedes
     assert "PARALLEL_OUTPUT_MAX_CHARS" in archimedes
     assert "turnTokens" in archimedes

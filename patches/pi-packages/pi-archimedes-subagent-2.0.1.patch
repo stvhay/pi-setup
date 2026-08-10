@@ -432,7 +432,7 @@ index 0f9dfed..7828cff 100644
 +      : formatTokens(tokens) + " tok");
 +  }
 diff --git a/src/handlers.ts b/src/handlers.ts
-index 07868e1..36e3c2e 100644
+index 07868e1..8c20a4e 100644
 --- a/src/handlers.ts
 +++ b/src/handlers.ts
 @@ -0,0 +1 @@
@@ -604,30 +604,31 @@ index 07868e1..36e3c2e 100644
 +  return false;
 +}
 +
-@@ -120,3 +261,8 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+@@ -120,7 +261,7 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
 -export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const message = event.message as Record<string, unknown> | undefined;
 -  if (!message || message.role !== "assistant") return;
-+export function handleMessageEnd(state: StreamState, event: MessageEndEvent): void {
-+  const message = event.message;
-+  if (
-+    !message ||
-+    typeof message !== "object" ||
-+    message.role !== "assistant" ||
-+    !hasAssistantStreamData(message)
-+  ) return;
-@@ -124,4 +270,6 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+-
 -  // Capture model name
 -  if (!state.model && message.model) {
 -    state.model = message.model as string;
--  }
++export function handleMessageEnd(state: StreamState, event: MessageEndEvent): void {
++  const message = event.message;
++  if (!message || typeof message !== "object" || message.role !== "assistant") return;
++  if (message.stopReason === "error") {
++    state.error = typeof message.errorMessage === "string" && message.errorMessage.trim()
++      ? message.errorMessage.trim().slice(0, 4_000)
++      : "Provider request failed";
+@@ -127,0 +269,8 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
++  if (!hasAssistantStreamData(message)) return;
++
 +  // Finalized data replaces the latest partial message.
 +  clearStreamingMessage(state);
 +  clearPartialUsage(state);
 +
 +  if (!state.provider && message.provider) state.provider = message.provider;
 +  if (!state.model && message.model) state.model = message.model;
-@@ -130,18 +278,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -130,18 +279,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const content = message.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
 -    state.accumulatedOutput.push(content);
@@ -659,7 +660,7 @@ index 07868e1..36e3c2e 100644
 +      state.accumulatedOutput.push(`[thinking] ${part.thinking.trim()}`);
 +      const lines = part.thinking.split("\n").filter((line: string) => line.trim());
 +      state.recentOutput.push(...lines.slice(-5).map((line: string) => `[thinking] ${line}`));
-@@ -157,9 +300,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -157,9 +301,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  if (message.usage) {
 -    const usage = message.usage as Record<string, unknown>;
 -    state.totalInput += (usage.input as number) || 0;
@@ -671,18 +672,18 @@ index 07868e1..36e3c2e 100644
 -  }
 +  state.turnUsage = readUsage(message.usage);
 +  state.usage = addUsage(state.usage, state.turnUsage);
-@@ -171,3 +307,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+@@ -171,3 +308,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const messages = event.messages as Array<Record<string, unknown>> | undefined;
 -  if (!messages || messages.length === 0) return;
 +export function handleAgentEnd(state: StreamState, event: AgentEndEvent): void {
 +  const messages = objectItems<AgentEndEvent["messages"][number]>(event.messages);
 +  if (messages.length === 0) return;
-@@ -176 +312,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -176 +313,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 +  const lastAssistant = [...messages].reverse().find((message): message is AssistantMessage =>
 +    message.role === "assistant");
-@@ -179,14 +316 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+@@ -179,14 +317 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const allText: string[] = [];
 -  const content = lastAssistant.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
@@ -1218,10 +1219,10 @@ index 0000000..9989c73
 +}
 diff --git a/src/output-limit.ts b/src/output-limit.ts
 new file mode 100644
-index 0000000..fbb8956
+index 0000000..f45cd7c
 --- /dev/null
 +++ b/src/output-limit.ts
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,89 @@
 +import type { OutputLimitEvidence } from "./types.js";
 +
 +const ROOT_OUTPUT_LIMIT_KEYS = [
@@ -1249,7 +1250,11 @@ index 0000000..fbb8956
 +    evidence.enforcement = "applied";
 +  }
 +
-+  if (evidence.enforcement === "unsupported" && Array.isArray(payload.input)) {
++  if (
++    evidence.enforcement === "unsupported" &&
++    Array.isArray(payload.input) &&
++    !isCodexResponsesPayload(payload)
++  ) {
 +    output().max_output_tokens = requested;
 +    evidence.enforcement = "applied";
 +  }
@@ -1267,6 +1272,13 @@ index 0000000..fbb8956
 +  }
 +
 +  return { payload: rewritten ?? payload, evidence };
++}
++
++function isCodexResponsesPayload(payload: Record<string, unknown>): boolean {
++  return typeof payload.instructions === "string" &&
++    isRecord(payload.text) &&
++    Array.isArray(payload.include) &&
++    payload.include.includes("reasoning.encrypted_content");
 +}
 +
 +function clamped(value: unknown, requested: number): number {
@@ -1469,7 +1481,7 @@ index d64d741..0c8f2f5 100644
 +    if (options.signal.aborted) abortHandler();
 +    else options.signal.addEventListener("abort", abortHandler, { once: true });
 diff --git a/src/stream.ts b/src/stream.ts
-index d3a2524..dd67633 100644
+index d3a2524..1b93c34 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
 @@ -0,0 +1 @@
@@ -1552,13 +1564,15 @@ index d3a2524..dd67633 100644
 +      streamingOutput: undefined,
 +      streamingParts: new Map(),
 +      outputLimit: undefined,
-@@ -70,4 +129 @@ export function streamEvents(
+@@ -67,0 +127 @@ export function streamEvents(
++      error: undefined,
+@@ -70,4 +130 @@ export function streamEvents(
 -    // Collect stderr for error reporting
 -    const stderrChunks: Buffer[] = [];
 -    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 -
 +    const stderrLines: string[] = [];
-@@ -74,0 +131,9 @@ export function streamEvents(
+@@ -74,0 +132,9 @@ export function streamEvents(
 +    let termination = undefined as SubagentResult["termination"];
 +    const toolFingerprints = new Map<
 +      string,
@@ -1568,7 +1582,7 @@ index d3a2524..dd67633 100644
 +    let repeatedErrorTracking = true;
 +    let lastErrorFingerprint: string | undefined;
 +    let repeatedErrorCount = 0;
-@@ -76,22 +141,98 @@ export function streamEvents(
+@@ -76,22 +142,98 @@ export function streamEvents(
 -    const buildProgress = (): SubagentProgress => ({
 -      agent: callbacks.agent ?? "subagent",
 -      status: "running",
@@ -1689,7 +1703,7 @@ index d3a2524..dd67633 100644
 +        model: state.model,
 +      };
 +    };
-@@ -136,0 +278,25 @@ export function streamEvents(
+@@ -136,0 +279,25 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1715,7 +1729,7 @@ index d3a2524..dd67633 100644
 +              }
 +            }
 +          }
-@@ -152,0 +319,22 @@ export function streamEvents(
+@@ -152,0 +320,22 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -1738,7 +1752,7 @@ index d3a2524..dd67633 100644
 +            if (pending.call) observeToolResult(pending.call, event.result, event.isError);
 +            else resetRepeatedErrorStreak();
 +          }
-@@ -160,0 +349,11 @@ export function streamEvents(
+@@ -160,0 +350,11 @@ export function streamEvents(
 +          state.turnUsage = readUsage(undefined);
 +          state.partialUsage = readUsage(undefined);
 +          break;
@@ -1750,28 +1764,31 @@ index d3a2524..dd67633 100644
 +        }
 +        case "message_update": {
 +          if (handleMessageUpdate(state, event)) emitProgress();
-@@ -172 +371 @@ export function streamEvents(
+@@ -172 +372 @@ export function streamEvents(
 -        // Ignore: agent_start, message_start, message_update, turn_end, tool_execution_update
 +        // Ignore: agent_start, turn_end, tool_execution_update
-@@ -181 +380,2 @@ export function streamEvents(
+@@ -181 +381,2 @@ export function streamEvents(
 -      const exitCode = code ?? 1;
-+      const exitCode = termination ? 2 : (code ?? 1);
++      const processExitCode = code ?? 1;
 +      const usage = observedUsage();
-@@ -183 +382,0 @@ export function streamEvents(
+@@ -183,3 +384,3 @@ export function streamEvents(
 -      // Surface stderr as error if the process failed and we have no other error
-@@ -185 +384 @@ export function streamEvents(
+-      if (exitCode !== 0 && !error) {
 -        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
++      error ??= state.error;
++      if (processExitCode !== 0 && !error) {
 +        const stderr = stderrLines.join("\n").trim();
-@@ -187,0 +387,6 @@ export function streamEvents(
+@@ -187,0 +389,7 @@ export function streamEvents(
++      const exitCode = termination ? 2 : state.error ? 1 : processExitCode;
 +      termination ??= exitCode === 0
 +        ? { reason: "completed", usageState: "complete" }
 +        : {
 +          reason: "process-error",
 +          usageState: state.streamingOutput ? "partial" : "unknown",
 +        };
-@@ -193,0 +399 @@ export function streamEvents(
+@@ -193,0 +402 @@ export function streamEvents(
 +        provider: state.provider,
-@@ -195,9 +401,9 @@ export function streamEvents(
+@@ -195,9 +404,9 @@ export function streamEvents(
 -        usage: {
 -          input: state.totalInput,
 -          output: state.totalOutput,
@@ -1790,13 +1807,13 @@ index d3a2524..dd67633 100644
 +        } : {}),
 +        usage: toSubagentUsage(usage, state.turnCount),
 +        finalOutput: state.finalOutput ?? observedOutput(),
-@@ -204,0 +411 @@ export function streamEvents(
+@@ -204,0 +414 @@ export function streamEvents(
 +        termination,
-@@ -212 +419 @@ export function streamEvents(
+@@ -212 +422 @@ export function streamEvents(
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index 0217f26..2d3330f 100644
+index 0217f26..cf050c6 100644
 --- a/src/types.ts
 +++ b/src/types.ts
 @@ -0,0 +1,68 @@
@@ -1903,6 +1920,8 @@ index 0217f26..2d3330f 100644
 +  streamingOutput: string | undefined;
 +  streamingParts: Map<number, { type: "text" | "thinking"; content: string }>;
 +  outputLimit: OutputLimitEvidence | undefined;
+@@ -83,0 +167 @@ export interface StreamState {
++  error?: string | undefined;
 diff --git a/src/usage.ts b/src/usage.ts
 new file mode 100644
 index 0000000..884279c

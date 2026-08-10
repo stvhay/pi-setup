@@ -58,7 +58,7 @@ Agentic cumulative token/cost limits observe authoritative completed-turn usage 
 - `mode: "one-shot"` means at most one provider request with provider retries disabled.
 - `limits.maxOutputTokens` is a per-provider-response cap. It is distinct from cumulative `maxTotalTokens`.
 - The explicit child guard uses `before_provider_request` to clamp recognized existing payload fields; it never raises a lower provider/model cap.
-- Recognized payloads report payload-free `outputLimit.enforcement = "applied"`; unknown shapes run unchanged and report `"unsupported"`.
+- Recognized payloads report payload-free `outputLimit.enforcement = "applied"`; unknown shapes run unchanged and report `"unsupported"`. Pi's current Codex Responses adapter exposes no output-cap field, so its distinctive payload runs unchanged as unsupported.
 - Caller-supplied one-shot `maxTotalTokens` or `maxCostUsd` is rejected with guidance to use `maxOutputTokens`; operator agentic defaults for those fields are omitted from one-shot resolution.
 - Post-response one-shot usage is recorded but never used to discard output or pretend to prevent already-spent tokens.
 - Provider `length` completion reports structured `output-limit` evidence while preserving full/partial text and canonical usage.
@@ -219,9 +219,11 @@ git diff --check
 - Vendor branch may update only by verified normal fast-forward.
 - No upstream PR, Ready action, reviewer request, merge, release, deletion, or pi-setup push.
 
-**Staging evidence:** Fork `main` fast-forwarded to exact v2.0.1. Draft PR 1 is `4365aba`, stacked draft PR 2 is `7d27342`, independent draft PR 3 is `0f4af55`, and `vendor/pi-setup-v2` is `56c2a99`. All three PRs remain OPEN+DRAFT, mergeable, and without reviewer requests; archived v1.8.3 heads remain available under `archive/v1.8.3-*`; no upstream PR exists.
+**Staging evidence:** Fork `main` matches exact v2.0.1. Draft PR 1 is `c717d96`, stacked draft PR 2 is `61955d2`, independent draft PR 3 is `5e0e66c`, and `vendor/pi-setup-v2` is `ac70804`. All three PRs remain OPEN+DRAFT, mergeable, and without reviewer requests; archived v1.8.3 and pre-live-fix v2 heads remain available; no upstream PR exists.
 
-**Deployment gate:** Separate informed approval after local integration candidate passes all checks. Manual `/quit` and restart are required; `/reload` is insufficient.
+**Live-rollout finding:** Two separately approved, non-retried subscription Codex one-shot calls produced no output because the initial payload heuristic treated any Responses-style `input` array as cap-capable. Pi's Codex adapter does not serialize an output cap, so the injected field caused a provider error; Pi JSON mode exited zero and the initial stream parser mislabeled that assistant error as completed. Test-first follow-ups now classify Codex as unsupported and propagate assistant provider errors even on zero process exit. No third call was made.
+
+**Deployment gate:** Corrected runtime redeployment and any post-fix live call require separate informed approval. Manual `/quit` and restart are required; `/reload` is insufficient.
 
 ## File conflicts and ordering
 
