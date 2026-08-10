@@ -188,7 +188,7 @@ corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit
 4. Update revision detection so stale exact v2.0.1 and old 1.8.3 projections repair atomically.
 5. Verify isolated migration, rollback, repeat idempotence, package patch exactness, and local wrapper output contracts.
 
-### Task 7: Review, verify, and stage [In progress]
+### Task 7: Review, verify, and stage [Completed]
 
 **Upstream gates:**
 ```bash
@@ -218,6 +218,8 @@ git diff --check
 - Verify remote SHAs, OPEN+DRAFT state, bases, files, commit lists, body, and zero reviewer requests.
 - Vendor branch may update only by verified normal fast-forward.
 - No upstream PR, Ready action, reviewer request, merge, release, deletion, or pi-setup push.
+
+**Staging evidence:** Fork `main` fast-forwarded to exact v2.0.1. Draft PR 1 is `4365aba`, stacked draft PR 2 is `7d27342`, independent draft PR 3 is `0f4af55`, and `vendor/pi-setup-v2` is `56c2a99`. All three PRs remain OPEN+DRAFT, mergeable, and without reviewer requests; archived v1.8.3 heads remain available under `archive/v1.8.3-*`; no upstream PR exists.
 
 **Deployment gate:** Separate informed approval after local integration candidate passes all checks. Manual `/quit` and restart are required; `/reload` is insufficient.
 

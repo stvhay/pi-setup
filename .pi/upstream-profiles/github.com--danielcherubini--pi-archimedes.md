@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/danielcherubini/pi-archimedes
-last_checked_utc: 2026-08-09T22:09:49Z
+last_checked_utc: 2026-08-10T01:24:07Z
 target_ref: v2.0.1
 source_commit: bdfeea3ed77392a2d02617fa1e0d4aa5fd8317e3
 status: current-for-target-ref
@@ -63,7 +63,7 @@ source_files:
 - Commits are logical and use repository conventional style.
 - Required candidate checks: subagent/package TypeScript, all workspace typechecks, focused Vitest, full repository tests, and diff checks.
 - No PR template, CONTRIBUTING file, CLA/DCO requirement, issue-first rule, or repository AI-contribution policy was observed at the target.
-- User permission checked 2026-08-09: upstream repository is read-only; existing user fork `stvhay/pi-archimedes` grants ADMIN and still has main at v1.8.3. Recheck before remote actions.
+- User permission checked 2026-08-10: upstream repository is read-only; user fork `stvhay/pi-archimedes` grants ADMIN and its `main` now matches exact v2.0.1. Recheck before remote actions.
 - Upstream `main` was unprotected and had zero open issues when checked. Fork draft CI remains a staging signal, not proof of upstream acceptance.
 - Release/publish workflow is tag-driven and publishes packages in dependency order; PR approval does not authorize release or publication.
 
@@ -98,7 +98,7 @@ At exact v2.0.1 on 2026-08-09:
 
 ## PR implications
 
-- Existing fork drafts based on v1.8.3 are not upstream-ready. Rebuild by behavior on v2.0.1; do not replay commits blindly.
+- Fork-local drafts 1–3 now stage behaviorally rebuilt v2.0.1 candidates and remain OPEN+DRAFT without reviewer requests; no corresponding upstream PR exists.
 - Public additions must remain minimal, additive, documented, and tested for invalid inputs, Windows spawn, ordering, abort/cleanup, model rendering, output/usage preservation, and progress compatibility.
 - Upstream v2.0.1 already includes child session IDs and model labels; omit duplicate candidate code.
 - Use repository pnpm commands and keep reviewer-facing PR prose free of pi-setup projection mechanics.
