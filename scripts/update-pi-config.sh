@@ -352,10 +352,10 @@ if [ -f "$legacy_ollama_extension" ] && grep -qF './olla-provider.ts' "$legacy_o
   run mv "$legacy_ollama_extension" "$backup"
 fi
 
-# Preserve runtime secrets/state while deleting stale managed files. Python
-# caches are sender-only excludes, so they are not deployed or deletion-protected.
+# Preserve runtime secrets/state while deleting stale managed files. Source-only
+# metadata and caches are not deployed or deletion-protected.
 RSYNC_EXCLUDES=(
-  --exclude='.git/'
+  --filter='-s .git/'
   --exclude='.git.backup-*'
   --exclude='agent/auth.json'
   --exclude='agent/sessions/'

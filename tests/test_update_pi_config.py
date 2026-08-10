@@ -258,6 +258,23 @@ def test_update_preserves_private_runtime_store(tmp_path):
     assert artifact.read_text(encoding="utf-8") == '{"private": true}\n'
 
 
+def test_update_deletes_unmanaged_nested_git_but_preserves_private_git_store(tmp_path):
+    dest = tmp_path / ".pi"
+    stale = dest / "eval-runs" / "run" / "repo" / ".git" / "config"
+    private = dest / "agent" / "git" / "checkout" / ".git" / "config"
+    stale.parent.mkdir(parents=True)
+    private.parent.mkdir(parents=True)
+    stale.write_text("stale\n", encoding="utf-8")
+    private.write_text("private\n", encoding="utf-8")
+
+    proc = run_update(dest)
+
+    assert proc.returncode == 0, proc.stderr
+    assert "cannot delete non-empty directory" not in proc.stdout + proc.stderr
+    assert not (dest / "eval-runs").exists()
+    assert private.read_text(encoding="utf-8") == "private\n"
+
+
 def test_update_dry_run_excludes_models_store(tmp_path):
     proc = run_update(tmp_path / ".pi", "--dry-run")
 
