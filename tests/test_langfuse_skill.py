@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
-SKILL_SOURCE = "git:github.com/langfuse/skills@13a79944c3c16cde049bb39576102cd768baa06b"
+SKILL_SOURCE = "git:github.com/langfuse/skills"
 
 
 def run_extension_script(script: str, *, home: Path | None = None):
@@ -25,9 +25,13 @@ def run_extension_script(script: str, *, home: Path | None = None):
     )
 
 
-def test_langfuse_skill_is_pinned_and_reuses_extension_config(tmp_path):
+def test_langfuse_skill_is_unpinned_and_reuses_extension_config(tmp_path):
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     assert SKILL_SOURCE in settings["packages"]
+    assert not any(
+        isinstance(package, str) and package.startswith(f"{SKILL_SOURCE}@")
+        for package in settings["packages"]
+    )
 
     config = tmp_path / ".pi" / "agent" / "pi-langfuse" / "config.json"
     config.parent.mkdir(parents=True)

@@ -30,18 +30,18 @@ index 5f2b464..dd6615b 100644
 -        statusMessage: String(event.error ?? metadata.statusMessage ?? "Provider request failed")
 +        statusMessage: redactString(String(event.error ?? metadata.statusMessage ?? "Provider request failed"))
 diff --git a/src/langfuse.ts b/src/langfuse.ts
-index 54c2c51..c01d271 100644
+index c27f7fd..1733a7f 100644
 --- a/src/langfuse.ts
 +++ b/src/langfuse.ts
 @@ -3,0 +4 @@ import { randomUUID } from "node:crypto";
 +import { redactValue } from "./redaction.js";
-@@ -68,0 +70,3 @@ const MAX_SCORE_BATCH_SIZE = 100;
+@@ -71,0 +73,3 @@ const MAX_SCORE_BATCH_SIZE = 100;
 +// Legacy POST /api/public/ingestion batches are limited to 3.5 MB.
 +const MAX_INGESTION_REQUEST_BYTES = 3_000_000;
 +const EMPTY_INGESTION_BODY_BYTES = Buffer.byteLength('{"batch":[]}');
-@@ -70,0 +75 @@ let shutdownStepTimeoutMs = DEFAULT_SHUTDOWN_STEP_TIMEOUT_MS;
+@@ -73,0 +78 @@ let shutdownStepTimeoutMs = DEFAULT_SHUTDOWN_STEP_TIMEOUT_MS;
 +const scoreEventIds = new WeakMap<PendingScore, string>();
-@@ -195,9 +200,45 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+@@ -228,9 +233,19 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
 -  const response = await fetch(`${config.host.replace(/\/$/, "")}/api/public/ingestion`, {
 -    method: "POST",
 -    headers: ingestionHeaders(rt),
@@ -70,7 +70,10 @@ index 54c2c51..c01d271 100644
 +    if (!response.ok) {
 +      throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
 +    }
-+
+@@ -238,3 +253,32 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+-  const text = await response.text();
+-  if (!text) {
+-    return [];
 +    const text = await response.text();
 +    if (text) {
 +      const responseBody = JSON.parse(text) as { errors?: unknown[] };
@@ -96,17 +99,14 @@ index 54c2c51..c01d271 100644
 +      });
 +      continue;
 +    }
-@@ -205,3 +246,6 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
--  const text = await response.text();
--  if (!text) {
--    return [];
++
 +    const separatorBytes = serializedEvents.length > 0 ? 1 : 0;
 +    if (bodyBytes + separatorBytes + eventBytes > MAX_INGESTION_REQUEST_BYTES) {
 +      await flush();
 +    }
 +    bodyBytes += (serializedEvents.length > 0 ? 1 : 0) + eventBytes;
 +    serializedEvents.push(serialized);
-@@ -210,2 +254,12 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+@@ -243,2 +287,12 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
 -  const responseBody = JSON.parse(text) as { errors?: unknown[] };
 -  return Array.isArray(responseBody.errors) ? responseBody.errors : [];
 +  await flush();
@@ -121,20 +121,20 @@ index 54c2c51..c01d271 100644
 +  const id = randomUUID();
 +  scoreEventIds.set(score, id);
 +  return id;
-@@ -230 +284 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
+@@ -263 +317 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
 -          id: randomUUID(),
 +          id: scoreEventId(score),
-@@ -327,0 +382,4 @@ function mergeMetadata(current: Record<string, unknown> | undefined, next: Recor
+@@ -360,0 +415,4 @@ function mergeMetadata(current: Record<string, unknown> | undefined, next: Recor
 +function prepareRestFallbackValue(value: unknown): unknown {
 +  return redactValue(value);
 +}
 +
-@@ -333,2 +391,2 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+@@ -366,2 +424,2 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
 -  if ("input" in body) record.input = body.input;
 -  if ("output" in body) record.output = body.output;
 +  if ("input" in body) record.input = prepareRestFallbackValue(body.input);
 +  if ("output" in body) record.output = prepareRestFallbackValue(body.output);
-@@ -336 +394,7 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+@@ -369 +427,7 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
 -    record.metadata = mergeMetadata(record.metadata, body.metadata as Record<string, unknown>);
 +    record.metadata = mergeMetadata(
 +      record.metadata,
@@ -143,73 +143,70 @@ index 54c2c51..c01d271 100644
 +  }
 +  if (typeof body.model === "string") {
 +    record.model = prepareRestFallbackValue(body.model) as string;
-@@ -338 +401,0 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+@@ -371 +434,0 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
 -  if (typeof body.model === "string") record.model = body.model;
-@@ -340 +403 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+@@ -373 +436 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
 -    record.modelParameters = body.modelParameters as Record<string, string | number>;
 +    record.modelParameters = prepareRestFallbackValue(body.modelParameters) as Record<string, string | number>;
-@@ -349 +412,3 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+@@ -382 +445,3 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
 -  if (typeof body.statusMessage === "string") record.statusMessage = body.statusMessage;
 +  if (typeof body.statusMessage === "string") {
 +    record.statusMessage = prepareRestFallbackValue(body.statusMessage) as string;
 +  }
-@@ -359,2 +424,2 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
+@@ -392,2 +457,2 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
 -  if ("input" in body) store.trace.input = body.input;
 -  if ("output" in body) store.trace.output = body.output;
 +  if ("input" in body) store.trace.input = prepareRestFallbackValue(body.input);
 +  if ("output" in body) store.trace.output = prepareRestFallbackValue(body.output);
-@@ -362 +427,4 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
+@@ -395 +460,4 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
 -    store.trace.metadata = mergeMetadata(store.trace.metadata, body.metadata as Record<string, unknown>);
 +    store.trace.metadata = mergeMetadata(
 +      store.trace.metadata,
 +      prepareRestFallbackValue(body.metadata) as Record<string, unknown>,
 +    );
-@@ -380,0 +449 @@ function wrapObservation(
+@@ -413,0 +482 @@ function wrapObservation(
 +  const fallbackMetadata = prepareRestFallbackValue(metadata) as Record<string, unknown> | undefined;
-@@ -388 +457 @@ function wrapObservation(
+@@ -421 +490 @@ function wrapObservation(
 -    metadata: mergeMetadata(metadata, asType && asType !== "generation" && asType !== "span" ? { langfuseObservationType: asType } : undefined),
 +    metadata: mergeMetadata(fallbackMetadata, asType && asType !== "generation" && asType !== "span" ? { langfuseObservationType: asType } : undefined),
-@@ -400,3 +469,3 @@ function wrapObservation(
+@@ -433,3 +502,3 @@ function wrapObservation(
 -      input: body?.input,
 -      sessionId: typeof metadata?.sessionId === "string" ? metadata.sessionId : state.currentSessionId || undefined,
 -      metadata,
 +      input: prepareRestFallbackValue(body?.input),
 +      sessionId: typeof fallbackMetadata?.sessionId === "string" ? fallbackMetadata.sessionId : state.currentSessionId || undefined,
 +      metadata: fallbackMetadata,
-@@ -468,2 +537,9 @@ async function traceExists(rt: LangfuseRuntime, traceId: string, signal: AbortSi
--async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, signal: AbortSignal): Promise<boolean> {
--  const deadline = Date.now() + OTEL_VISIBILITY_TIMEOUT_MS;
-+async function waitForTraceVisibility(
-+  rt: LangfuseRuntime,
-+  traceId: string,
-+  signal: AbortSignal,
+@@ -550,0 +620 @@ async function waitForTraceVisibility(
 +  timeoutMs = OTEL_VISIBILITY_TIMEOUT_MS,
-+): Promise<boolean> {
+@@ -552 +622,3 @@ async function waitForTraceVisibility(
+-  const deadline = Date.now() + OTEL_VISIBILITY_TIMEOUT_MS;
 +  if (timeoutMs <= 0) {
-+    return false;
++    return "missing";
 +  }
-@@ -471,4 +547,7 @@ async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, sign
+@@ -554,5 +626,8 @@ async function waitForTraceVisibility(
 -  while (true) {
--    if (await traceExists(rt, traceId, signal)) {
--      return true;
+-    const visibility = await getTraceVisibility(rt, store, traceId, signal);
+-    if (visibility !== "missing") {
+-      return visibility;
 -    }
 +  const deadline = Date.now() + timeoutMs;
 +  const visibilitySignal = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
 +  try {
 +    while (true) {
-+      if (await traceExists(rt, traceId, visibilitySignal)) {
-+        return true;
++      const visibility = await getTraceVisibility(rt, store, traceId, visibilitySignal);
++      if (visibility !== "missing") {
++        return visibility;
 +      }
-@@ -476,4 +555,4 @@ async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, sign
+@@ -560,4 +635,4 @@ async function waitForTraceVisibility(
 -    const remainingMs = deadline - Date.now();
 -    if (remainingMs <= 0) {
--      return false;
+-      return "missing";
 -    }
 +      const remainingMs = deadline - Date.now();
 +      if (remainingMs <= 0) {
-+        return false;
++        return "missing";
 +      }
-@@ -481 +560,7 @@ async function waitForTraceVisibility(rt: LangfuseRuntime, traceId: string, sign
+@@ -565 +640,7 @@ async function waitForTraceVisibility(
 -    await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), signal);
 +      await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), visibilitySignal);
 +    }
@@ -217,12 +214,12 @@ index 54c2c51..c01d271 100644
 +    if (signal.aborted) {
 +      throw error;
 +    }
-+    return false;
-@@ -489 +574 @@ function eventTimestamp(record: { endTime?: string; startTime?: string; timestam
++    return "missing";
+@@ -573 +654 @@ function eventTimestamp(record: { endTime?: string; startTime?: string; timestam
 -async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal) {
 +async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal, deadline: number) {
-@@ -496 +581,16 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
--  if (await waitForTraceVisibility(rt, store.trace.id, signal)) {
+@@ -580 +661,16 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+-  const visibility = await waitForTraceVisibility(rt, store, store.trace.id, signal);
 +  const trace = store.trace;
 +  trace.input = prepareRestFallbackValue(trace.input);
 +  trace.output = prepareRestFallbackValue(trace.output);
@@ -238,10 +235,10 @@ index 54c2c51..c01d271 100644
 +
 +  const remainingMs = Math.max(0, deadline - Date.now());
 +  const visibilityTimeoutMs = Math.min(OTEL_VISIBILITY_TIMEOUT_MS, Math.floor(remainingMs / 2));
-+  if (await waitForTraceVisibility(rt, trace.id, signal, visibilityTimeoutMs)) {
-@@ -500 +599,0 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
++  const visibility = await waitForTraceVisibility(rt, store, trace.id, signal, visibilityTimeoutMs);
+@@ -589 +684,0 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
 -  const trace = store.trace;
-@@ -674 +773 @@ function doShutdownRuntime(): Promise<void> {
+@@ -773 +868 @@ function doShutdownRuntime(): Promise<void> {
 -        () => fallbackToRestIngestion(rt, controller.signal),
 +        () => fallbackToRestIngestion(rt, controller.signal, deadline),
 diff --git a/src/limits.ts b/src/limits.ts

@@ -1,9 +1,9 @@
 ---
 profile_version: 1
 repository: https://github.com/gooyoung/pi-langfuse
-last_checked_utc: 2026-08-07T17:18:34Z
-target_ref: v1.5.9
-source_commit: 3243208ea89d6fdc2b5f0e66660a4a626880ebd0
+last_checked_utc: 2026-08-10T03:20:32Z
+target_ref: v1.5.12
+source_commit: c79c527a7294e1d4b8153525d5218e87354cbcb1
 status: current-for-target-ref
 recheck_every_use:
   - permissions
@@ -13,69 +13,79 @@ recheck_every_use:
   - issue-requirements
 source_files:
   - path: README.md
-    sha256: a2ca04dbf6650c37890bb464a63988d73586554fa7623f259b335990ac62b706
+    sha256: 280fb745bc97172178431f713216b3436b8192b9ed9b435dab21b207229adb25
   - path: README_CN.md
-    sha256: eb47226dd64b98fb582734cb8b928994002fb053be35d8d0886846cd941712a9
+    sha256: b7b204c24056d324791e902d062745fd70bd42254647ef9b14bd3b8988f12b37
   - path: AGENTS.md
     sha256: 2d0b44fb79d7814319741acd9e25cdb0d16ea559dbdda54aae0e7439e16cd8ab
   - path: DEVELOPMENT.md
-    sha256: 4f466210982ef6ac900ed86a08a38be5dc2024fce93c0ba44b37b0d024bfb4e7
+    sha256: 196e9623b39fe43011f5a41ea19f9e4431bb0836273239a9060dfa07d14996fd
   - path: DEVELOPMENT_CN.md
-    sha256: 065f7e8b6432341ef5c8119b3c2fd346ba7ba753842fe73938ae4018c63a0910
+    sha256: f99ad1b19c17f00782d35d57b25c1d87b52aa0ed5f25db0e82e1f0ca184e1721
   - path: package.json
-    sha256: 0baffc5ad02f9c053722e1be5437b8301661dd067f165f0b26cf5fc9c8d26e3b
+    sha256: 6b23c313563eeb17fe84c1483ae2cf55111cc19c555e384055ef7f1599ac0969
   - path: package-lock.json
-    sha256: b8856f9352f81cac3dda502cd3b371f6c386e02a85c9f879774bc2292b4d19e7
+    sha256: 3c8a85edf68c7bbaf933a6193b141ab6f1b03abb04af0db8610718503a4b2673
   - path: .github/workflows/publish.yml
     sha256: c5e0be88634700712947da8645490c3ec4a87e304ca9c4fde9020869fa40c672
   - path: index.ts
-    sha256: 1a4f8b0c122fe0397d3c7ce95b0dc22e7c3ca296e1ca73f274c612b52a9ce89f
+    sha256: 90c67250f7f2dd481922b4935efabf37f29fc7ba17390dbf71f239595ad3bb0f
   - path: src/state.ts
     sha256: b1bf3e3af672c1aa1bec9166acb1f110f8552297434ee806b5a5f85bebedcd0f
   - path: src/langfuse.ts
-    sha256: aa2e74e14bbe498265353c9bf50ab21334dcf88362964353db1f93b813a5f922
+    sha256: 7ebaeb6c574e9ed4cc03e65eb810f87b2a9699c9441916e83196b2ae24c76437
+  - path: src/handlers/agent.ts
+    sha256: 08ff8c2d3e897c14d1cb616d25dbcfd5c3cbaa1d08324719029625743e5f90bc
   - path: src/types.ts
-    sha256: c99b36ed5021784fb606b780eaeeb62459f3b8b6df327b264fbb3d99e906bb69
+    sha256: 765ba0e144942793072ead95db235a42fca967548adf22e2633cbe38b32a8c4e
   - path: test/index.test.ts
-    sha256: e1ab7efa6ca1a73f574d499610df80507be68b87ee91a5ee552c538b8de281d3
+    sha256: 78871aea43e59a22d4df205b5a25854c1a5c6ef09964649224d8c413d2ebadc8
   - path: test/state.test.ts
     sha256: 471fcaaac505569ad5d1dfaa30d786853a605948661464fc51407a0367e6944b
   - path: test/langfuse.test.ts
-    sha256: fcc9d756ebaf8109f77b4d5ac99d9258b8b19ede7782cf0c75267c5e2176004b
+    sha256: d3c6e67bc2e23324ac64d9a0704507f9d54a667b8c789308332049e503051b2c
+  - path: test/system-prompt-capture.test.ts
+    sha256: b30031519dc047eb8b8be1d6d44c54772a164d734264df613aacdfd081787227
 ---
 
 # gooyoung/pi-langfuse upstream profile
 
 ## Contribution workflow
 
-- Default branch observed: `main`; target tag matched `origin/main` when checked.
-- npm project; install with `npm ci` and use package scripts.
-- Required candidate checks: `npm run typecheck`, hermetic `npm test`, `npm pack --dry-run`, and diff checks.
-- `DEVELOPMENT.md` and `DEVELOPMENT_CN.md` at this target ref prescribe `node --test test/*.test.ts`, which fails on the clean baseline under Node v22.22.3. `npm test` is the working package-native command. Treat correction as separate by default.
-- No PR template or repository AI-contribution policy observed in checked sources.
-- Mutable state rechecked 2026-08-07T17:18:34Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has two open issues, no PR/issue templates observed, open PRs #13, #10, #9, and draft #6, plus fork-local drafts `stvhay/pi-langfuse#1` and `#2`; branch-protection details were unavailable through the API (HTTP 404).
-- Publish workflow is release/tag driven; PR approval does not authorize release or publication.
+- Default branch: `main`; stable target `v1.5.12` resolves to `c79c527a7294e1d4b8153525d5218e87354cbcb1` and matches checked upstream `main`.
+- npm-only project; use tracked `package-lock.json` with `npm ci`.
+- Required candidate checks: `npm run typecheck`, `npm test`, `npm pack --dry-run`, and diff checks.
+- `AGENTS.md`, `DEVELOPMENT.md`, and `DEVELOPMENT_CN.md` now agree on `npm test`; the older direct `node --test` guidance is gone.
+- No PR template, issue template, CLA/DCO, or repository AI-contribution policy observed at this target.
+- Mutable state checked 2026-08-10T03:20:32Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has open issue #11 and draft PR #6; branch-protection details remain unavailable through the API (HTTP 404).
+- Publish workflow is release/tag driven on Node 24 and runs install, typecheck, tag validation, package inspection, then npm provenance publication. PR approval never authorizes release.
+
+## Target changes relevant to this contribution
+
+- v1.5.11 captures the final system prompt at `agent_start`, after later extension overrides.
+- v1.5.12 capability-gates legacy trace REST fallback for Langfuse v4 `events_only`, isolates shutdown-step failures, bounds score shutdown independently, and keeps later shutdown steps running after one failure.
+- Logical Pi session correlation and stable score entity/body IDs remain native; retry-stable ingestion envelope IDs are still absent.
+- v1.5.12 still sends each `ingestBatch()` argument as one request and still lacks media-safe finite ordinary-string handling, so reviewed batching/media contributions remain candidates but must be rebuilt around the new fallback and shutdown seams.
 
 ## Policy findings
 
-- License: root `package.json` declares MIT; no root license file was present at the target ref.
-- CLA/DCO, contributor eligibility, commit signoff/signing, branch naming, and issue-first requirements: none observed in checked sources. Recheck repository settings and current GitHub metadata every use.
-- Documentation: user-facing behavior is documented in paired English/Chinese READMEs; assess both when behavior changes.
-- Generated artifacts: `package-lock.json` is tracked. No generated-source update rule was observed; package contents are checked with `npm pack --dry-run`.
+- License: root `package.json` declares MIT; no root license file observed.
+- Commit signoff/signing, branch naming, issue-first requirements, and generated-source rules: none observed.
+- User-facing behavior belongs in paired English/Chinese READMEs.
+- Package contents are checked with `npm pack --dry-run`; no generated production source is tracked.
 
 ## Coding style
 
 **Confidence:** high
 
-- TypeScript entrypoint with small local helpers, explicit lifecycle handlers, defensive ignored catches, semicolons, and double quotes.
-- Tests use `node:test`, `assert`, synthetic IDs, fake runtime objects, handler capture, `try/finally`, and public-boundary assertions.
-- Ambient Pi declarations under `types/` are the repository-compatible type seam; importing complete external Pi types caused unrelated existing errors during the reviewed contribution.
-- Existing code includes `any`, unbraced one-line conditionals, mixed `Array<T>`/`T[]`, and ignored catches. Do not modernize these broadly.
+- TypeScript entrypoint with small helpers, defensive catches, semicolons, and double quotes.
+- Tests use `node:test`, `assert`, synthetic IDs, fake runtimes, captured handlers, and `try/finally` cleanup.
+- Validate `unknown` at runtime boundaries; avoid unrelated modernization of existing `any`, array-style, or brace conventions.
+- Keep lifecycle, session isolation, privacy shaping, trace fallback, and shutdown ordering changes narrowly tested.
 
 ## PR implications
 
-- Prefer public Pi context types available through the ambient shim.
-- Validate `unknown` at external/runtime boundaries.
-- Preserve legacy behavior only where compatibility needs it; state grouping discontinuities explicitly.
-- Keep repository-wide advisory strict-lint debt out of reviewer prose; required checks and changed behavior matter.
-- Use direct public behavior tests rather than private-helper tests.
+- Rebuild against v1.5.12; never replay the 1.5.10 `src/langfuse.ts` wholesale.
+- Preserve capability detection and `runShutdownStep()` behavior while adding bounded ingestion.
+- Keep media handling separate from batching in fork-local review candidates; combine only in the vendor/runtime lineage.
+- Reviewer prose should list repository-required checks and behavior evidence, not private workflow artifacts.

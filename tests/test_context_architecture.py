@@ -69,6 +69,25 @@ def test_active_skills_do_not_reference_removed_plan_helper():
         assert "pi-plans-dir" not in skill_path.read_text(encoding="utf-8"), skill_path
 
 
+def test_graphify_skill_matches_current_cli_contract():
+    graphify = AGENT / "skills" / "graphify"
+    assert (graphify / ".graphify_version").read_text(encoding="utf-8") == "0.9.25"
+    skill = (graphify / "SKILL.md").read_text(encoding="utf-8")
+    assert "agnt graphify" in skill
+    assert "path-qualified" in skill
+    assert "explicitly approves" in skill
+    assert {path.name for path in (graphify / "references").glob("*.md")} == {
+        "add-watch.md",
+        "exports.md",
+        "extraction-spec.md",
+        "github-and-merge.md",
+        "hooks.md",
+        "query.md",
+        "transcribe.md",
+        "update.md",
+    }
+
+
 def test_simplification_sources_canonical_templates_and_references():
     root_gh = (ROOT / ".envrc.d" / "gh.sh").read_text(encoding="utf-8")
     project_init = AGENT / "skills" / "project-init"

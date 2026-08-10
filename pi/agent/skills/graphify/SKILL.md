@@ -13,7 +13,7 @@ Pi integration rule: use the Pi helper surface first:
 agnt graphify [ARGS...]
 ```
 
-`agnt graphify` runs an installed `graphify` binary when available and falls back to `uv tool run --from graphifyy graphify`. Do not install or enable project-local Graphify refresh hooks unless the user explicitly approves hook installation in the current conversation.
+`agnt graphify` runs an installed `graphify` binary when available and falls back to `uv tool run --from graphifyy graphify`. This tracked wrapper is adapted to Graphify 0.9.25. Do not install or enable project-local Graphify refresh hooks unless the user explicitly approves hook installation in the current conversation.
 
 ## Fast path: existing graph
 
@@ -60,11 +60,19 @@ Build a graph for the current project:
 agnt graphify extract .
 ```
 
-For a faster or CI-friendly first pass, skip clustering/visualization when appropriate:
+Force a full rebuild after extractor or node-ID changes. Graphify 0.9.25 emits path-qualified IDs that avoid same-name file collisions:
 
 ```bash
-agnt graphify extract . --no-cluster
+agnt graphify extract . --force
 ```
+
+For a deterministic code-only or CI pass, skip semantic files and clustering when appropriate:
+
+```bash
+agnt graphify extract . --code-only --no-cluster
+```
+
+A full semantic rebuild uses configured Gemini credentials for documents, papers, and images. Show corpus size and obtain informed approval before a potentially material model call. Use `--max-concurrency` and `--token-budget` when the approved cost or load boundary requires them.
 
 Update an existing graph after code changes:
 
@@ -92,6 +100,8 @@ Diagnose graph issues:
 agnt graphify diagnose multigraph --graph graphify-out/graph.json
 ```
 
+After a full rebuild, verify diagnostics, path-qualified IDs, manifest/root metadata, and shrink protection before trusting the graph. Detailed 0.9.25 workflows live under `references/`: `extraction-spec.md`, `query.md`, `update.md`, `github-and-merge.md`, `add-watch.md`, `hooks.md`, `exports.md`, and `transcribe.md`. Load only the reference needed for the current operation.
+
 ## Project refresh hooks
 
 Manage per-project hooks explicitly when needed:
@@ -110,7 +120,8 @@ The hooks are best-effort `post-commit`, `post-merge`, and `post-checkout` hooks
 
 - Graphify's PyPI package is `graphifyy`; the CLI command is `graphify`.
 - `uv` is the preferred installer/runner in this Pi setup.
-- Extraction may require an LLM backend/API key depending on content and selected flags. Do not ask for secrets unless the command fails and the error explicitly requires one.
+- Code extraction is deterministic. Semantic extraction uses Gemini only when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is already available; never print or request existing secrets.
+- Warn before scanning more than 500 files or 2,000,000 words. Proceed with an approved whole-project rebuild or narrow to a subfolder.
 - Never commit generated `graphify-out/` artifacts unless the project explicitly asks to version them.
 - If the graph is stale or missing, say so and offer the smallest useful build/update command.
 
@@ -122,4 +133,5 @@ When using graph results:
 2. Summarize the relevant nodes/edges or paths.
 3. Verify important claims against source files when the answer will drive edits or decisions.
 4. If graph results are sparse or stale, fall back to normal filesystem inspection and say that the graph was insufficient.
-5. The graph reflects the last commit (`built_at_commit` in `graph.json`); uncommitted edits and newly added symbols are absent. Use it for pre-change structure and impact analysis, not to inspect brand-new code.
+5. The graph reflects its saved manifest/root and build revision; uncommitted edits and newly added symbols may be absent. Use it for pre-change structure and impact analysis, not to inspect brand-new code.
+6. Never invent an edge. Preserve and report `EXTRACTED`, `INFERRED`, and `AMBIGUOUS` provenance, raw cohesion values, token cost, and graph-health warnings.

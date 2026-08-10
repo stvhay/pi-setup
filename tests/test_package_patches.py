@@ -9,10 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
+GITMODULES = ROOT / ".gitmodules"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
 ARCHIMEDES_VENDOR_HEAD = "ac70804d1c061610d3381eb6337cb39f2a6621b6"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
-LANGFUSE_VENDOR_HEAD = "7f6e9eca4689b5ba6612cff687c6cabbb4e71142"
+LANGFUSE_VENDOR_HEAD = "c5da10a7cd0bced92ffc70e419d0198829a7a36c"
 
 
 def _package(root: Path, relative: str, name: str, version: str, source: str) -> Path:
@@ -57,7 +58,7 @@ def _archimedes_meta(root: Path) -> Path:
 
 def _fixture_patches(root: Path) -> Path:
     root.mkdir()
-    (root / "pi-langfuse-1.5.10.patch").write_text(
+    (root / "pi-langfuse-1.5.12.patch").write_text(
         """diff --git a/src/langfuse.ts b/src/langfuse.ts
 --- a/src/langfuse.ts
 +++ b/src/langfuse.ts
@@ -113,7 +114,7 @@ def _run(package_root: Path, patch_root: Path, *args: str) -> subprocess.Complet
 
 def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.10", "export const nativeSession = true;\n")
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.12", "export const nativeSession = true;\n")
     archimedes = _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -146,7 +147,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
     package_json.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.8"}), encoding="utf-8")
     rejected = _run(package_root, patch_root, "--check")
     assert rejected.returncode != 0
-    assert "expected pi-langfuse 1.5.10" in rejected.stderr
+    assert "expected pi-langfuse 1.5.12" in rejected.stderr
 
 
 def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
@@ -155,7 +156,7 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.10",
+        "1.5.12",
         "export const session = ctx?.sessionManager?.getSessionId?.();\n",
     )
     score_source = langfuse.parent / "src/langfuse.ts"
@@ -188,7 +189,7 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.10",
+        "1.5.12",
         'export const session = "file";\n',
     )
     score_source = langfuse.parent / "src/langfuse.ts"
@@ -221,7 +222,7 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.10",
+        "1.5.12",
         'export const session = "file";\n',
     )
     archimedes = _package(
@@ -243,7 +244,7 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
 
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.10", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.12", 'export const session = "file";\n')
     score_source = langfuse.parent / "src/langfuse.ts"
     score_source.write_text(
         score_source.read_text(encoding="utf-8").replace(
@@ -270,7 +271,7 @@ def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
 
 def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.10", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.12", 'export const session = "file";\n')
     _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -317,14 +318,19 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
 
     assert head.returncode == 0, head.stderr
     assert head.stdout.strip() == LANGFUSE_VENDOR_HEAD
-    for ancestor in ("f156802", "cebf7c6"):
+    assert "branch = vendor/pi-setup-1512" in GITMODULES.read_text(encoding="utf-8")
+    for ancestor in (
+        "c79c527a7294e1d4b8153525d5218e87354cbcb1",
+        "9c4103d5c0e704b494ed018e4b789f8c4bf64f26",
+        "bcaa42a928c7df8ceecc18ececf263cbf9632300",
+    ):
         assert subprocess.run(
             ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", ancestor, "HEAD"],
         ).returncode == 0
 
 
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
-    langfuse = (PATCHES / "pi-langfuse-1.5.10.patch").read_text(encoding="utf-8")
+    langfuse = (PATCHES / "pi-langfuse-1.5.12.patch").read_text(encoding="utf-8")
     archimedes = (PATCHES / "pi-archimedes-subagent-2.0.1.patch").read_text(encoding="utf-8")
     meta = (PATCHES / "pi-archimedes-meta-2.0.1.patch").read_text(encoding="utf-8")
     added = "\n".join(
@@ -343,6 +349,8 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "MAX_INGESTION_REQUEST_BYTES" in langfuse
     assert "scoreEventIds" in langfuse
     assert "AbortSignal.any" in langfuse
+    assert "getLegacyTraceApiCapability" not in langfuse
+    assert "runShutdownStep" not in langfuse
     assert "MALFORMED_MEDIA_DATA_URI" in langfuse
     assert "OMITTED_MEDIA_DATA_URI" in langfuse
     assert "isLangfuseMediaDataUri" in langfuse
@@ -381,7 +389,7 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
 
 
 def test_langfuse_runtime_patch_uses_zero_context_without_losing_source_removals():
-    patch = (PATCHES / "pi-langfuse-1.5.10.patch").read_text(encoding="utf-8")
+    patch = (PATCHES / "pi-langfuse-1.5.12.patch").read_text(encoding="utf-8")
     hunks: list[list[str]] = []
     current: list[str] | None = None
     for line in patch.splitlines():

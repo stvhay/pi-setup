@@ -152,6 +152,15 @@ npm pack --dry-run
 | `docs/extension-web-compatibility.md` | 3, 4, 6 | Update once after all exact versions/heads are known. |
 | `tests/test_pi_packages.py` | 3, 4 | Keep one shared fixture update. |
 
+## Local candidate evidence
+
+- v1.5.12 clean baseline: typecheck and 71 hermetic tests pass; inherited Langfuse privacy environment causes two known false baseline failures unless cleared.
+- Media candidate: `bcaa42a` on `rebuild/media-safe-payload-bounds-1512`; 94 hermetic tests pass.
+- Batching candidate: `9c4103d` on `rebuild/ingestion-byte-batches-1512`; 74 hermetic tests pass.
+- Combined vendor: `c5da10a` on `vendor/pi-setup-1512`; 97 serial hermetic tests pass. Concurrent `npm test` exposes a Node 22 test-runner IPC deserialization failure in unchanged `test/index.test.ts` after the large batching fixtures run; each separate upstream candidate passes the required command.
+- Root candidate projects only six production Langfuse files, passes fuzz=0 package checks, and passed 667 project tests before the final focused migration-fixture adjustment.
+- Fork publication, local-main integration, deployment, live skill/package updates, full Graphify semantic extraction, and closeout remain pending their explicit gates.
+
 ## Execution Handoff
 
 Plan saved to: `.pi/plans/2026-08-10-pi-dependency-refresh-design-plan.md`
