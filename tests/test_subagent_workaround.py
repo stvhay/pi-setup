@@ -8,6 +8,7 @@ from conftest import run_node as run_node_process
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "subagent-error-workaround.ts"
+LANGFUSE_CONFIG_EXTENSION = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 RUNTIME_ARTIFACTS = ROOT / "pi" / "agent" / "extensions" / "lib" / "runtime-artifacts.ts"
 SUBAGENT_HARNESS = f"""
       import assert from "node:assert/strict";
@@ -425,6 +426,185 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
       }}
     """
     run_node(script)
+
+
+def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdown(tmp_path):
+    agent_dir = tmp_path / "agent"
+    npm_dir = agent_dir / "npm"
+    tracing_dir = npm_dir / "node_modules" / "@langfuse" / "tracing" / "dist"
+    package_dir = npm_dir / "node_modules" / "pi-langfuse"
+    tracing_dir.mkdir(parents=True)
+    (package_dir / "src").mkdir(parents=True)
+    (agent_dir / "pi-langfuse").mkdir(parents=True)
+    (agent_dir / "bin").mkdir(parents=True)
+    (npm_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
+    (package_dir / "package.json").write_text(
+        '{"name":"pi-langfuse","type":"module","exports":"./index.ts"}\n',
+        encoding="utf-8",
+    )
+    (package_dir / "index.ts").write_text(
+        """
+import { getRuntime, shutdownRuntime } from "./src/langfuse.ts";
+export default function register(pi) {
+  pi.on("session_start", async () => { await getRuntime(); });
+  pi.on("agent_end", async () => { await shutdownRuntime(); });
+}
+""",
+        encoding="utf-8",
+    )
+    (package_dir / "src" / "langfuse.ts").write_text(
+        """
+function createRuntime() {
+  const pending = [];
+  return {
+    pending,
+    startObservation(name, attributes, options) {
+      const propagated = globalThis.__langfusePropagation;
+      return {
+        end() {
+          pending.push({ name, attributes, options, propagated });
+        },
+      };
+    },
+    propagateAttributes(attributes, callback) {
+      const previous = globalThis.__langfusePropagation;
+      globalThis.__langfusePropagation = attributes;
+      try { return callback(); }
+      finally { globalThis.__langfusePropagation = previous; }
+    },
+  };
+}
+export async function getRuntime() {
+  return globalThis.__langfuseRuntime ??= createRuntime();
+}
+export async function shutdownRuntime() {
+  globalThis.__langfuseShutdowns++;
+  if (globalThis.__langfuseRuntime) {
+    globalThis.__langfuseObservations.push(...globalThis.__langfuseRuntime.pending);
+    globalThis.__langfuseRuntime = undefined;
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    (tracing_dir / "index.mjs").write_text(
+        """
+export function startObservation(name, attributes, options) {
+  return globalThis.__langfuseRuntime?.startObservation(name, attributes, options) ?? { end() {} };
+}
+export function propagateAttributes(attributes, callback) {
+  return globalThis.__langfuseRuntime?.propagateAttributes(attributes, callback) ?? callback();
+}
+""",
+        encoding="utf-8",
+    )
+    (package_dir / "src" / "redaction.ts").write_text(
+        "export function redactValue(value) { return value; }\n",
+        encoding="utf-8",
+    )
+    (package_dir / "src" / "capture-policy.ts").write_text(
+        "export function createCapturePolicy() { return { captureInputs: true, captureOutputs: true }; }\n",
+        encoding="utf-8",
+    )
+    (agent_dir / "pi-langfuse" / "config.json").write_text("{}\n", encoding="utf-8")
+    agnt = agent_dir / "bin" / "agnt"
+    agnt.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"circuits":{}}\'\n', encoding="utf-8")
+    agnt.chmod(0o755)
+
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ dirname, resolve }} from "node:path";
+      import {{ fileURLToPath, pathToFileURL }} from "node:url";
+      import {{ ExtensionRunner, SessionManager }} from "@earendil-works/pi-coding-agent";
+
+      delete process.env.PI_SUBAGENT_SOCKET;
+      const piEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+      const loader = await import(pathToFileURL(resolve(dirname(piEntry), "core/extensions/loader.js")).href);
+      const runtime = loader.createExtensionRuntime();
+      globalThis.__langfuseObservations = [];
+      globalThis.__langfusePropagation = undefined;
+      globalThis.__langfuseRuntime = undefined;
+      globalThis.__langfuseShutdowns = 0;
+      const loaded = await loader.loadExtensions(
+        [{str(LANGFUSE_CONFIG_EXTENSION)!r}, {str(EXTENSION)!r}],
+        process.cwd(),
+        undefined,
+        runtime,
+      );
+      assert.deepEqual(loaded.errors, []);
+      const sessionManager = SessionManager.inMemory(process.cwd());
+      const runner = new ExtensionRunner(loaded.extensions, runtime, process.cwd(), sessionManager, {{}});
+      const errors = [];
+      runner.onError((error) => errors.push(error));
+      await runner.emit({{ type: "session_start", reason: "startup" }});
+
+      const assistant = (text, stopReason = "stop", errorMessage) => ({{
+        role: "assistant",
+        content: text === undefined ? [] : [{{ type: "text", text }}],
+        stopReason,
+        errorMessage,
+      }});
+      const start = (prompt) => runner.emitBeforeAgentStart(
+        prompt,
+        undefined,
+        "system",
+        {{ cwd: process.cwd() }},
+      );
+      const end = (messages) => runner.emit({{ type: "agent_end", messages }});
+      const settle = () => runner.emit({{ type: "agent_settled" }});
+
+      const secret = "SECRET raw tool payload";
+      await start("P".repeat(13_000));
+      await runner.emitToolResult({{
+        type: "tool_result",
+        toolName: "bash",
+        toolCallId: "failed-tool",
+        input: {{ command: secret }},
+        content: [],
+        details: {{ exitCode: 1 }},
+        isError: true,
+      }});
+      await end([assistant("intermediate")]);
+      await end([assistant("N".repeat(13_000))]);
+      await settle();
+      await settle();
+      assert.equal(globalThis.__langfuseObservations.length, 1, "settled result must reach exporter flush");
+
+      await start("provider failure");
+      await end([assistant("useful partial", "error", "HTTP 503 Service Unavailable")]);
+      await settle();
+
+      await start("abort");
+      await end([assistant("abort partial", "aborted")]);
+      await settle();
+
+      await start("length");
+      await end([assistant("length partial", "length")]);
+      await settle();
+
+      await start("empty");
+      await end([assistant(undefined)]);
+      await settle();
+
+      assert.deepEqual(errors, []);
+      assert.equal(globalThis.__langfuseShutdowns, 10);
+      assert.equal(globalThis.__langfuseObservations.length, 4);
+      const [normal, provider, aborted, length] = globalThis.__langfuseObservations;
+      assert.equal(normal.name, "interactive-result");
+      assert.equal(normal.attributes.input.length <= 12_000, true);
+      assert.equal(normal.attributes.output.length <= 12_000, true);
+      assert.equal(normal.attributes.output.includes("intermediate"), false);
+      assert.equal(normal.attributes.metadata.executionOutcome, "succeeded");
+      assert.equal(normal.attributes.metadata.toolErrorSignals.length, 1);
+      assert.equal(normal.attributes.metadata.toolErrorSignals[0].inputHash.length, 64);
+      assert.equal(JSON.stringify(normal).includes(secret), false);
+      assert.equal(normal.propagated.sessionId, sessionManager.getSessionId());
+      assert.equal(provider.attributes.metadata.executionOutcome, "failed");
+      assert.equal(provider.attributes.metadata.providerFailureClass, "availability");
+      assert.equal(aborted.attributes.metadata.executionOutcome, "unavailable");
+      assert.equal(length.attributes.metadata.executionOutcome, "unavailable");
+    """
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(agent_dir)})
 
 
 def test_interactive_results_emit_evaluator_ready_observations():

@@ -19,6 +19,7 @@ type ChildTraceAvailability = "expected-available" | "expected-unavailable" | "u
 
 const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
+const INTERACTIVE_VALUE_MAX_CHARS = 12_000;
 const INLINE_OUTPUT_MAX_CHARS = 12_000;
 const ARTIFACT_MESSAGE_MAX_CHARS = 4_000;
 const TERMINATION_MESSAGE_MAX_CHARS = 4_000;
@@ -155,6 +156,12 @@ function assistantOutput(messages: unknown): unknown {
     return text ? `${text}\n\n[execution failed: ${error}]` : error;
   }
   return text || undefined;
+}
+
+function boundedInteractiveValue(value: unknown): unknown {
+  if (typeof value !== "string" || value.length <= INTERACTIVE_VALUE_MAX_CHARS) return value;
+  const notice = "\n[interactive value truncated]";
+  return value.slice(0, INTERACTIVE_VALUE_MAX_CHARS - notice.length) + notice;
 }
 
 function assistantExecutionMetadata(messages: unknown): Record<string, unknown> {
@@ -440,12 +447,12 @@ function parallelInlineOutputMessages(
 
 async function loadDefaultObserve(): Promise<Observe> {
   const modules = join(agentDir, "npm", "node_modules");
-  const [{ startObservation, propagateAttributes }, { redactValue }, { createCapturePolicy }] = await Promise.all([
-    import(pathToFileURL(join(modules, "@langfuse", "tracing", "dist", "index.mjs")).href),
+  const [{ getRuntime, shutdownRuntime }, { redactValue }, { createCapturePolicy }] = await Promise.all([
+    import(pathToFileURL(join(modules, "pi-langfuse", "src", "langfuse.ts")).href),
     import(pathToFileURL(join(modules, "pi-langfuse", "src", "redaction.ts")).href),
     import(pathToFileURL(join(modules, "pi-langfuse", "src", "capture-policy.ts")).href),
   ]);
-  return (name, attributes, options) => {
+  return async (name, attributes, options) => {
     let saved: Record<string, unknown> = {};
     try {
       saved = JSON.parse(readFileSync(join(agentDir, "pi-langfuse", "config.json"), "utf8"));
@@ -458,18 +465,23 @@ async function loadDefaultObserve(): Promise<Observe> {
       ...(typeof saved.privacyPreset === "string" ? { LANGFUSE_PRIVACY_PRESET: saved.privacyPreset } : {}),
       ...process.env,
     });
-    const record = () => {
-      const observation = startObservation(name, {
-        ...attributes,
-        input: policy.captureInputs ? redactValue(attributes.input) : undefined,
-        output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
-        metadata: redactValue(attributes.metadata),
-      }, { asType: options.asType });
-      observation.end();
-    };
-    return options.sessionId
-      ? propagateAttributes({ sessionId: options.sessionId }, record)
-      : record();
+    const runtime = await getRuntime();
+    try {
+      const record = () => {
+        const observation = runtime.startObservation(name, {
+          ...attributes,
+          input: policy.captureInputs ? redactValue(attributes.input) : undefined,
+          output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
+          metadata: redactValue(attributes.metadata),
+        }, { asType: options.asType });
+        observation.end();
+      };
+      return options.sessionId
+        ? runtime.propagateAttributes({ sessionId: options.sessionId }, record)
+        : record();
+    } finally {
+      await shutdownRuntime(options.sessionId);
+    }
   };
 }
 
@@ -844,7 +856,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
 
   pi.on("before_agent_start", (event) => {
     if (!process.env.PI_SUBAGENT_SOCKET) {
-      interactivePrompt = event.prompt;
+      interactivePrompt = boundedInteractiveValue(event.prompt);
       interactiveOutput = undefined;
       interactiveExecution = { executionOutcome: "unknown" };
       interactiveToolSignals.clear();
@@ -853,7 +865,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
 
   pi.on("agent_end", (event) => {
     if (!process.env.PI_SUBAGENT_SOCKET) {
-      interactiveOutput = assistantOutput(event.messages);
+      interactiveOutput = boundedInteractiveValue(assistantOutput(event.messages));
       interactiveExecution = assistantExecutionMetadata(event.messages);
     }
   });
