@@ -2179,6 +2179,36 @@ def test_compact_metric_preserves_delegated_artifact_envelope(agnt):
     assert compact["outputContract"] == "status-only"
 
 
+def test_compact_metric_preserves_sanitized_termination_evidence(agnt):
+    compact = agnt.compact_metric_record({
+        "schemaVersion": 2,
+        "executionOutcome": "unavailable",
+        "failureClass": "timeout",
+        "terminationReason": "time-limit",
+        "terminationSource": "caller",
+        "terminationLimit": 300_000,
+        "terminationObserved": 300_012,
+        "terminationUsageState": "partial",
+        "effectiveMaxDurationMs": 300_000,
+    })
+
+    assert {key: compact[key] for key in (
+        "terminationReason",
+        "terminationSource",
+        "terminationLimit",
+        "terminationObserved",
+        "terminationUsageState",
+        "effectiveMaxDurationMs",
+    )} == {
+        "terminationReason": "time-limit",
+        "terminationSource": "caller",
+        "terminationLimit": 300_000,
+        "terminationObserved": 300_012,
+        "terminationUsageState": "partial",
+        "effectiveMaxDurationMs": 300_000,
+    }
+
+
 def test_bounded_artifact_refs_reject_traversal_absolute_and_unbounded(agnt):
     safe = [f"artifacts/{index}.txt" for index in range(20)]
 

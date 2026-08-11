@@ -114,7 +114,7 @@ The tracked schema and example are:
 
 ## Run cold discovery passes
 
-Subagent `mode: "one-shot"` disables tools and ambient project context. A 180-second child limit bounds stalled calls and one provider request prevents tool-loop multiplication.
+Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child limit bounds stalled calls without cutting off otherwise-healthy slower reviews; one provider request prevents tool-loop multiplication.
 
 Policy by risk:
 
@@ -130,7 +130,7 @@ Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes
   "model": "<routed-provider/model>",
   "mode": "one-shot",
   "thinking": "<routed-thinking-level>",
-  "limits": {"maxProviderRequests": 1, "maxDurationMs": 180000},
+  "limits": {"maxProviderRequests": 1, "maxDurationMs": 300000},
   "outputContract": "inline"
 }
 ```
@@ -156,6 +156,17 @@ Verification statuses:
 - `refuted` — caller, invariant, test, reproducer, or specification disproves it;
 - `unresolved` — a concrete serious claim survives inspection but conflicting requirements or unavailable evidence prevent a decision;
 - `unverified` — discovery only; never a promotion gate.
+
+Use agentic mode for each fresh subscription-backed verifier. Keep liveness bounds without cumulative token or cost ceilings:
+
+```json
+{
+  "model": "<routed-subscription-provider/model>",
+  "mode": "agentic",
+  "limits": {"maxProviderRequests": 30, "maxDurationMs": 300000},
+  "outputContract": "inline"
+}
+```
 
 Validate the enriched artifact again. Do not implement a fix solely because several reviewers agree.
 

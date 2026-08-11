@@ -36,8 +36,9 @@ to the same schema. Projection, parent-owned artifact, and metric records share
 invocation, provider, model, target, effective thinking, and optional output
 contract dimensions; missing/legacy contracts are `unknown`. Config-less workers
 record thinking `default` because Archimedes passes no thinking override. Metrics
-store usage, timing, payload lengths, bounded artifact refs, and contract—not
-prompt or response bodies. Named-profile projections mark unavailable dimensions
+store usage, timing, payload lengths, bounded artifact refs, contract, and sanitized
+termination reason/source/effective deadline—not prompt or response bodies.
+Named-profile projections mark unavailable dimensions
 explicitly, while metrics remain skipped because Archimedes does not expose their
 effective provider or thinking level.
 
@@ -45,7 +46,9 @@ effective provider or thinking level.
 output plus objective outcome, declared contract, artifact persistence/content
 status, and ref count. Parent metadata also carries validated `effectiveMode` and
 a declared child-trace expectation derived from Archimedes's resolved execution
-evidence. Agentic children with a usable foreign key are expected available;
+evidence. Failed-child projections retain bounded termination evidence alongside
+partial output, while complete output and errors remain in parent-owned artifacts.
+Agentic children with a usable foreign key are expected available;
 isolated one-shot children are expected unavailable. It does not receive raw refs
 or filesystem paths. Requested status-only and PASS/no-findings responses are
 judged against that contract; missing required inline/artifact output remains

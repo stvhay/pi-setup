@@ -314,6 +314,19 @@ def test_active_skills_use_subagent_for_delegation():
     assert not violations, "peer guidance must use subagent: " + ", ".join(violations)
 
 
+def test_review_skill_uses_realistic_liveness_bounds_without_token_cost_caps():
+    skill = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
+    discovery = skill.split("## Run cold discovery passes", 1)[1].split("## Fresh adversarial verification", 1)[0]
+    verification = skill.split("## Fresh adversarial verification", 1)[1].split("## Deterministic K3 escalation gate", 1)[0]
+
+    assert "300-second child limit" in discovery
+    assert '"limits": {"maxProviderRequests": 1, "maxDurationMs": 300000}' in discovery
+    assert "180-second child limit" not in discovery
+    assert '"limits": {"maxProviderRequests": 30, "maxDurationMs": 300000}' in verification
+    assert "maxTotalTokens" not in discovery + verification
+    assert "maxCostUsd" not in discovery + verification
+
+
 def test_finish_action_uses_one_closeout_coordinator(common):
     action_path = AGENT / "actions" / "finish.md"
     meta = load_frontmatter(common, action_path)

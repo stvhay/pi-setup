@@ -91,6 +91,133 @@ def test_subagent_workaround_exposes_failures_without_touching_successes():
     run_node(script)
 
 
+def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
+    script = f"""
+      {SUBAGENT_HARNESS}
+      import {{ readFile, readdir }} from "node:fs/promises";
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const input = {{ tasks: [
+        {{ task: "Deadline", model: "openai-codex/gpt-5.6-luna", limits: {{ maxDurationMs: 180000 }}, outputContract: "inline" }},
+        {{ task: "Verifier", model: "openai-codex/gpt-5.6-luna", mode: "agentic", limits: {{ maxProviderRequests: 4, maxDurationMs: 300000 }}, outputContract: "inline" }},
+        {{ task: "Startup", model: "openai-codex/gpt-5.6-luna", outputContract: "inline" }},
+        {{ task: "Operator", model: "openai-codex/gpt-5.6-luna", outputContract: "inline" }},
+        {{ task: "Cancel", model: "openai-codex/gpt-5.6-luna", outputContract: "inline" }},
+        {{ task: "Legacy", model: "openai-codex/gpt-5.6-luna", limits: {{ maxDurationMs: 90000 }}, outputContract: "inline" }},
+      ] }};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "limits", input }}, ctx);
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "limits",
+        input,
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "parallel", results: [
+          {{
+            exitCode: 2,
+            execution: {{ profile: {{ mode: "one-shot" }}, limits: {{ maxProviderRequests: 1, maxDurationMs: 180000 }} }},
+            finalOutput: "usable deadline partial " + "x".repeat(12_050),
+            error: "Subagent stopped: time-limit",
+            termination: {{ reason: "time-limit", limit: 180000, observed: 180012, usageState: "partial" }},
+          }},
+          {{
+            exitCode: 2,
+            execution: {{ profile: {{ mode: "agentic" }}, limits: {{ maxProviderRequests: 4, maxDurationMs: 300000 }} }},
+            finalOutput: "usable verifier partial",
+            error: "Subagent stopped: request-limit",
+            termination: {{ reason: "request-limit", limit: 4, observed: 4, usageState: "complete" }},
+          }},
+          {{
+            exitCode: 1,
+            execution: {{ profile: {{ mode: "agentic" }} }},
+            error: "subagent timed out: no output within 2 minutes of startup",
+            termination: {{ reason: "process-error", usageState: "unknown" }},
+          }},
+          {{
+            exitCode: 2,
+            execution: {{ profile: {{ mode: "agentic" }}, limits: {{ maxDurationMs: 240000 }} }},
+            error: "Subagent stopped: time-limit",
+            termination: {{ reason: "time-limit", limit: 240000, observed: 240005, usageState: "unknown" }},
+          }},
+          {{
+            exitCode: 1,
+            execution: {{ profile: {{ mode: "agentic" }} }},
+            error: "Subagent cancelled after no output within 2 minutes of startup",
+            termination: {{ reason: "user-abort", usageState: "partial" }},
+          }},
+          {{
+            exitCode: 124,
+            execution: {{ profile: {{ mode: "agentic" }}, limits: {{ maxDurationMs: 90000 }} }},
+            finalOutput: "legacy timeout partial",
+          }},
+        ] }},
+        isError: true,
+      }}, ctx);
+
+      const evidence = patch.content.find((part) => part.text.startsWith("Delegated termination evidence:"));
+      assert(evidence);
+      assert.match(evidence.text, /Child 1: time-limit; source=caller; limit=180000; observed=180012; output=partial/);
+      assert.match(evidence.text, /Child 2: request-limit; source=caller; limit=4; observed=4; output=complete/);
+      assert.match(evidence.text, /Child 3: time-limit; source=worker-startup; limit=120000; output=unknown/);
+      assert.match(evidence.text, /Child 4: time-limit; source=operator; limit=240000; observed=240005; output=unknown/);
+      assert.match(evidence.text, /Child 5: user-abort; source=parent-cancellation; output=partial/);
+      assert.match(evidence.text, /Child 6: time-limit; source=caller; limit=90000; output=partial/);
+      assert.doesNotMatch(evidence.text.split("Child 2:")[1].split("Child 3:")[0], /time-limit/);
+      assert.equal(JSON.stringify(patch.content).includes("usable deadline partial"), true);
+      assert.equal(JSON.stringify(patch.content).includes("usable verifier partial"), true);
+      assert.equal(patch.details.results.every((result) => result.artifact.status === "persisted"), true);
+      assert.equal(patch.isError, true);
+
+      assert.deepEqual(observations.map((item) => ({{
+        outcome: item.attributes.metadata.executionOutcome,
+        reason: item.attributes.metadata.terminationReason,
+        source: item.attributes.metadata.terminationSource,
+        deadline: item.attributes.metadata.effectiveMaxDurationMs,
+      }})), [
+        {{ outcome: "unavailable", reason: "time-limit", source: "caller", deadline: 180000 }},
+        {{ outcome: "failed", reason: "request-limit", source: "caller", deadline: 300000 }},
+        {{ outcome: "unavailable", reason: "time-limit", source: "worker-startup", deadline: null }},
+        {{ outcome: "unavailable", reason: "time-limit", source: "operator", deadline: 240000 }},
+        {{ outcome: "unavailable", reason: "user-abort", source: "parent-cancellation", deadline: null }},
+        {{ outcome: "unavailable", reason: "time-limit", source: "caller", deadline: 90000 }},
+      ]);
+      assert.match(observations[0].attributes.output, /usable deadline partial/);
+      assert.match(observations[0].attributes.output, /time-limit; source=caller/);
+      assert.equal(observations[0].attributes.output.length <= 12_000, true);
+      assert.equal(patch.details.results[0].finalOutput.length > 12_000, true);
+
+      const files = await readdir(`${{cwd}}/.pi/metrics/invocations`);
+      const records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(`${{cwd}}/.pi/metrics/invocations/${{file}}`, "utf8"))));
+      records.sort((left, right) => left.childIndex - right.childIndex);
+      assert.deepEqual(records.map((record) => [
+        record.executionOutcome,
+        record.failureClass,
+        record.terminationReason,
+        record.terminationSource,
+        record.effectiveMaxDurationMs,
+      ]), [
+        ["unavailable", "timeout", "time-limit", "caller", 180000],
+        ["failed", "process", "request-limit", "caller", 300000],
+        ["unavailable", "timeout", "time-limit", "worker-startup", null],
+        ["unavailable", "timeout", "time-limit", "operator", 240000],
+        ["unavailable", "process", "user-abort", "parent-cancellation", null],
+        ["unavailable", "timeout", "time-limit", "caller", 90000],
+      ]);
+    """
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
+
+
 def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
     script = f"""
       import assert from "node:assert/strict";

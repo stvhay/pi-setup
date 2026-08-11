@@ -22,13 +22,32 @@ const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
 const INLINE_OUTPUT_MAX_CHARS = 12_000;
 const ARTIFACT_MESSAGE_MAX_CHARS = 4_000;
+const TERMINATION_MESSAGE_MAX_CHARS = 4_000;
 
+type SubagentLimitKey =
+  | "maxProviderRequests"
+  | "maxToolCalls"
+  | "maxTotalTokens"
+  | "maxOutputTokens"
+  | "maxCostUsd"
+  | "maxDurationMs";
+type SubagentLimits = Partial<Record<SubagentLimitKey, number>>;
+type SubagentTaskInput = {
+  agent?: string;
+  task: string;
+  model?: string;
+  mode?: "agentic" | "one-shot";
+  limits?: SubagentLimits;
+  outputContract?: OutputContract;
+};
 type SubagentInput = {
   agent?: string;
   task?: string;
   model?: string;
+  mode?: "agentic" | "one-shot";
+  limits?: SubagentLimits;
   outputContract?: OutputContract;
-  tasks?: Array<{ agent?: string; task: string; model?: string; outputContract?: OutputContract }>;
+  tasks?: SubagentTaskInput[];
 };
 
 type ArtifactEnvelope = {
@@ -43,9 +62,15 @@ type SubagentResult = {
   exitCode?: number;
   task?: string;
   model?: string;
-  execution?: { profile?: { mode?: unknown } };
+  execution?: { profile?: { mode?: unknown }; limits?: SubagentLimits };
   finalOutput?: string;
   error?: string;
+  termination?: {
+    reason?: unknown;
+    limit?: unknown;
+    observed?: unknown;
+    usageState?: unknown;
+  };
   usage?: {
     input?: number;
     output?: number;
@@ -144,8 +169,105 @@ function assistantExecutionMetadata(messages: unknown): Record<string, unknown> 
   };
 }
 
-function resultExecutionOutcome(exitCode: number): "succeeded" | "failed" | "unavailable" {
-  return exitCode === 0 ? "succeeded" : exitCode === 124 ? "unavailable" : "failed";
+type TerminationEvidence = {
+  reason: string;
+  source: "caller" | "operator" | "execution-profile" | "wrapper" | "parent-cancellation" | "worker-startup" | "worker" | "provider";
+  limit?: number;
+  observed?: number;
+  usageState: "complete" | "partial" | "unknown";
+};
+
+const LIMIT_KEY_BY_REASON: Partial<Record<string, SubagentLimitKey>> = {
+  "request-limit": "maxProviderRequests",
+  "tool-limit": "maxToolCalls",
+  "token-limit": "maxTotalTokens",
+  "output-limit": "maxOutputTokens",
+  "cost-limit": "maxCostUsd",
+  "time-limit": "maxDurationMs",
+};
+
+function positiveFinite(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function callerLimit(input: SubagentInput, index: number, key: SubagentLimitKey): number | undefined {
+  const values = [
+    positiveFinite(input.limits?.[key]),
+    positiveFinite(input.tasks?.[index]?.limits?.[key]),
+  ].filter((value): value is number => value !== undefined);
+  return values.length ? Math.min(...values) : undefined;
+}
+
+function startupTimeoutMs(error: string | undefined): number | undefined {
+  const match = error?.match(/no output within ([0-9]+(?:\.[0-9]+)?) minutes? of startup/i);
+  return match ? Number(match[1]) * 60_000 : undefined;
+}
+
+function terminationEvidence(
+  input: SubagentInput,
+  result: SubagentResult,
+  index: number,
+): TerminationEvidence | undefined {
+  const rawReason = result.termination?.reason;
+  const validReason = typeof rawReason === "string" && /^[a-z][a-z0-9-]{0,40}$/.test(rawReason)
+    ? rawReason
+    : undefined;
+  const startupLimit = startupTimeoutMs(result.error);
+  if ((!validReason || validReason === "process-error") && startupLimit !== undefined) {
+    return {
+      reason: "time-limit",
+      source: "worker-startup",
+      limit: startupLimit,
+      usageState: "unknown",
+    };
+  }
+  if ((!validReason || validReason === "process-error") && result.exitCode === 124) {
+    const effective = positiveFinite(result.execution?.limits?.maxDurationMs);
+    const requested = callerLimit(input, index, "maxDurationMs");
+    return {
+      reason: "time-limit",
+      source: requested !== undefined && requested === effective ? "caller" : effective !== undefined ? "operator" : "worker",
+      ...(effective !== undefined ? { limit: effective } : {}),
+      usageState: result.finalOutput ? "partial" : "unknown",
+    };
+  }
+  if (!validReason || validReason === "completed") return undefined;
+  const usageState = result.termination?.usageState === "complete" || result.termination?.usageState === "partial"
+    ? result.termination.usageState
+    : "unknown";
+  const limit = positiveFinite(result.termination?.limit);
+  const observed = positiveFinite(result.termination?.observed);
+  const key = LIMIT_KEY_BY_REASON[validReason];
+  const effective = key ? positiveFinite(result.execution?.limits?.[key]) : undefined;
+  const requested = key ? callerLimit(input, index, key) : undefined;
+  let source: TerminationEvidence["source"];
+  if (validReason === "user-abort") source = "parent-cancellation";
+  else if (requested !== undefined && requested === effective) source = "caller";
+  else if (
+    validReason === "request-limit" &&
+    result.execution?.profile?.mode === "one-shot" &&
+    effective === 1
+  ) source = "execution-profile";
+  else if (validReason === "output-limit" && effective !== undefined) source = "wrapper";
+  else if (effective !== undefined) source = "operator";
+  else if (providerFailureClass(result.error)) source = "provider";
+  else source = "worker";
+
+  return {
+    reason: validReason,
+    source,
+    ...(limit !== undefined ? { limit } : {}),
+    ...(observed !== undefined ? { observed } : {}),
+    usageState,
+  };
+}
+
+function resultExecutionOutcome(result: SubagentResult): "succeeded" | "failed" | "unavailable" {
+  if ((result.exitCode ?? 1) === 0) return "succeeded";
+  const reason = result.termination?.reason;
+  return result.exitCode === 124 || reason === "time-limit" || reason === "user-abort" || startupTimeoutMs(result.error)
+    ? "unavailable"
+    : "failed";
 }
 
 function outputContract(input: SubagentInput, index: number): NormalizedOutputContract {
@@ -153,29 +275,65 @@ function outputContract(input: SubagentInput, index: number): NormalizedOutputCo
   return OUTPUT_CONTRACTS.has(value as OutputContract) ? value as OutputContract : "unknown";
 }
 
+function terminationMetadata(
+  result: SubagentResult,
+  evidence: TerminationEvidence | undefined,
+): Record<string, unknown> {
+  if (!evidence) return {};
+  return {
+    terminationReason: evidence.reason,
+    terminationSource: evidence.source,
+    terminationLimit: evidence.limit ?? null,
+    terminationObserved: evidence.observed ?? null,
+    terminationUsageState: evidence.usageState,
+    effectiveMaxDurationMs: positiveFinite(result.execution?.limits?.maxDurationMs) ?? null,
+  };
+}
+
 function evaluationContext(
   task: string | undefined,
   result: SubagentResult,
   contract: NormalizedOutputContract,
+  termination: TerminationEvidence | undefined,
 ): Record<string, unknown> {
   return {
     task: task ?? null,
     outputContract: contract,
-    executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+    executionOutcome: resultExecutionOutcome(result),
     artifactStatus: result.artifact?.status ?? "failed",
     artifactContentStatus: result.artifact?.status === "persisted" && Boolean(result.finalOutput ?? result.error)
       ? "available"
       : "unavailable",
     artifactReferenceCount: result.artifact?.refs.length ?? 0,
     artifactFailureClass: result.artifact?.failureClass ?? null,
+    ...terminationMetadata(result, termination),
   };
 }
 
-function evaluationOutput(result: SubagentResult): string {
+function terminationDescription(evidence: TerminationEvidence): string {
+  return [
+    evidence.reason,
+    `source=${evidence.source}`,
+    ...(evidence.limit !== undefined ? [`limit=${evidence.limit}`] : []),
+    ...(evidence.observed !== undefined ? [`observed=${evidence.observed}`] : []),
+    `output=${evidence.usageState}`,
+  ].join("; ");
+}
+
+function evaluationOutput(result: SubagentResult, termination: TerminationEvidence | undefined): string {
   const value = result.finalOutput ?? result.error;
-  if (!value) return "[delegated output unavailable]";
-  if (value.length <= EVALUATION_OUTPUT_MAX_CHARS) return value;
-  return `${value.slice(0, EVALUATION_OUTPUT_MAX_CHARS)}\n[delegated output truncated at ${EVALUATION_OUTPUT_MAX_CHARS} characters]`;
+  if (!termination) {
+    if (!value) return "[delegated output unavailable]";
+    if (value.length <= EVALUATION_OUTPUT_MAX_CHARS) return value;
+    return `${value.slice(0, EVALUATION_OUTPUT_MAX_CHARS)}\n[delegated output truncated at ${EVALUATION_OUTPUT_MAX_CHARS} characters]`;
+  }
+
+  const suffix = `\n\n[delegated termination: ${terminationDescription(termination)}]`;
+  if (!value) return suffix.trim();
+  if (value.length + suffix.length <= EVALUATION_OUTPUT_MAX_CHARS) return value + suffix;
+  const notice = "\n[delegated output truncated]";
+  const available = Math.max(0, EVALUATION_OUTPUT_MAX_CHARS - notice.length - suffix.length);
+  return value.slice(0, available) + notice + suffix;
 }
 
 function artifactReferenceMessage(refs: string[]): { type: "text"; text: string } | undefined {
@@ -186,6 +344,30 @@ function artifactReferenceMessage(refs: string[]): { type: "text"; text: string 
     const omitted = refs.length - index;
     const notice = `\n[${omitted} artifact refs omitted; complete refs remain in details.results]`;
     if (text.length + line.length + notice.length > ARTIFACT_MESSAGE_MAX_CHARS) {
+      text += notice;
+      break;
+    }
+    text += line;
+  }
+  return { type: "text", text };
+}
+
+function terminationEvidenceMessage(
+  input: SubagentInput,
+  details: SubagentDetails,
+): { type: "text"; text: string } | undefined {
+  const rows = details.results.flatMap((result, index) => {
+    const evidence = terminationEvidence(input, result, index);
+    return evidence ? [`- Child ${index + 1}: ${terminationDescription(evidence)}`] : [];
+  });
+  if (!rows.length) return undefined;
+
+  let text = "Delegated termination evidence:";
+  for (const [index, row] of rows.entries()) {
+    const line = `\n${row}`;
+    const omitted = rows.length - index;
+    const notice = `\n[${omitted} termination records omitted; complete evidence remains in details.results]`;
+    if (text.length + line.length + notice.length > TERMINATION_MESSAGE_MAX_CHARS) {
       text += notice;
       break;
     }
@@ -413,7 +595,7 @@ async function persistSubagentArtifacts(
           parentSessionId,
           childSessionId: childSessionId(result),
           childIndex,
-          executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+          executionOutcome: resultExecutionOutcome(result),
           outputContract: outputContract(input, childIndex),
           exitCode: result.exitCode ?? 1,
           model: result.model ?? null,
@@ -520,6 +702,7 @@ function metricRecord(
     .slice(0, 16);
 
   const exitCode = result.exitCode ?? 1;
+  const termination = terminationEvidence(input, result, index);
   return {
     schemaVersion: 2,
     invocationId,
@@ -533,9 +716,12 @@ function metricRecord(
     durationMs,
     elapsedMs: durationMs,
     status: exitCode === 0 ? "succeeded" : "failed",
-    executionOutcome: resultExecutionOutcome(exitCode),
-    failureClass: exitCode === 0 ? null : exitCode === 124 ? "timeout" : failureClass ? "provider" : "process",
+    executionOutcome: resultExecutionOutcome(result),
+    failureClass: exitCode === 0
+      ? null
+      : termination?.reason === "time-limit" ? "timeout" : failureClass ? "provider" : "process",
     providerFailureClass: exitCode === 0 ? null : failureClass ?? null,
+    ...terminationMetadata(result, termination),
     artifactRefs: result.artifact?.refs ?? [],
     artifactStatus: result.artifact?.status ?? "failed",
     artifactFailureClass: result.artifact?.failureClass ?? null,
@@ -763,19 +949,21 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       const dimensions = modelDimensions(input, result, index, ctx);
       const contract = outputContract(input, index);
       const mode = effectiveMode(result);
+      const termination = terminationEvidence(input, result, index);
       try {
         await (await getObserve())("subagent-result", {
-          input: evaluationContext(task, result, contract),
-          output: evaluationOutput(result),
+          input: evaluationContext(task, result, contract, termination),
+          output: evaluationOutput(result, termination),
           metadata: {
             invocationId: invocation.invocationIds[index],
             index,
             ...dimensions,
-            executionOutcome: resultExecutionOutcome(result.exitCode ?? 1),
+            executionOutcome: resultExecutionOutcome(result),
             effectiveMode: mode,
             childTraceAvailability: childTraceAvailability(result, mode),
             outputContract: contract,
             ...artifactMetadata(result),
+            ...terminationMetadata(result, termination),
             exitCode: result.exitCode ?? 1,
             ...(providerFailureClasses[index] ? { providerFailureClass: providerFailureClasses[index] } : {}),
           },
@@ -792,6 +980,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     );
     const baseContent = normalizeParallelOutputs ? event.content.slice(0, 1) : event.content;
     const inlineOutputMessages = normalizeParallelOutputs ? parallelInlineOutputMessages(input, details) : [];
+    const terminationMessage = terminationEvidenceMessage(input, details);
     const persistedRefs = details.results.flatMap((result) => result.artifact?.refs ?? []);
     const artifactReference = artifactReferenceMessage(persistedRefs);
     const artifactMessages = [
@@ -800,7 +989,15 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
         ? [{ type: "text" as const, text: `Delegated artifact unavailable for child ${index} (${result.artifact.failureClass}).` }]
         : []),
     ];
-    const patch = { content: [...baseContent, ...inlineOutputMessages, ...artifactMessages], details };
+    const patch = {
+      content: [
+        ...baseContent,
+        ...inlineOutputMessages,
+        ...(terminationMessage ? [terminationMessage] : []),
+        ...artifactMessages,
+      ],
+      details,
+    };
     if (synthesized || details.results.some((result) => result.exitCode !== 0)) return { ...patch, isError: true };
     return patch;
   });
