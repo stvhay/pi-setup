@@ -12,7 +12,6 @@ GitRunner = Callable[[List[str], str], Tuple[int, str, str]]
 
 def slugify(value: str, *, max_len: int = 64) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
-    slug = re.sub(r"-+", "-", slug)
     return slug[:max_len].strip("-") or "epic"
 
 
@@ -144,7 +143,7 @@ def checkpoint_epic_worktree(
     stat_code, diff_stat, stat_err = git_runner(["diff", "--cached", "--stat"], path)
     if stat_code != 0:
         return {"ok": False, "reason": f"could not capture staged checkpoint diff: {stat_err or stat_code}", "baselineSha": baseline_sha}
-    message = f"runner checkpoint {predecessor} before {bead_id}"
+    message = f"agnt checkpoint {predecessor} before {bead_id}"
     commit_code, _commit_out, commit_err = git_runner(["commit", "-m", message], path)
     if commit_code != 0:
         return {"ok": False, "reason": f"could not create local continuation checkpoint: {commit_err or commit_code}", "baselineSha": baseline_sha}

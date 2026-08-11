@@ -1,41 +1,6 @@
 from __future__ import annotations
 
-import json
 import subprocess
-
-
-IMPLEMENT_META = {
-    "pi": {
-        "action": "implement",
-        "routingTask": "implementation",
-        "approved": True,
-        "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
-        "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
-        "modelPolicy": {"mode": "auto"},
-        "epicId": "pi-6yg",
-        "worktreePolicy": "epic-worktree",
-        "writeSet": ["pi/agent/bin/agnt_lib/runner.py", "tests/test_runner.py"],
-        "closeout": {
-            "requiresEvidence": True,
-            "requiresResolvedApprovals": True,
-            "requiresFollowUpsReconciled": True,
-        },
-    }
-}
-
-
-def implement_bead(bead_id="pi-task.1", write_set=None):
-    meta = json.loads(json.dumps(IMPLEMENT_META))
-    if write_set is not None:
-        meta["pi"]["writeSet"] = write_set
-    return {
-        "id": bead_id,
-        "title": "Implement runner",
-        "issue_type": "task",
-        "status": "open",
-        "acceptance_criteria": "tests pass",
-        "metadata": json.dumps(meta),
-    }
 
 
 def test_epic_worktree_spec_is_deterministic(agnt, tmp_path):
@@ -112,7 +77,7 @@ def test_checkpoint_epic_worktree_creates_scoped_local_commit(agnt, tmp_path):
             return 1, "", ""
         if args == ["diff", "--cached", "--stat"]:
             return 0, " e2e-test/challenge.py | 1 +\n", ""
-        if args == ["commit", "-m", "runner checkpoint pi-6yg.1 before pi-6yg.2"]:
+        if args == ["commit", "-m", "agnt checkpoint pi-6yg.1 before pi-6yg.2"]:
             return 0, "[epic/pi-6yg checkpoint-sha] checkpoint\n", ""
         raise AssertionError(args)
 
@@ -205,44 +170,3 @@ def test_checkpoint_epic_worktree_rejects_unsafe_write_set(agnt, tmp_path):
 
     assert result["ok"] is False
     assert "unsafe" in result["reason"]
-
-
-def test_runner_tick_blocks_implementation_when_epic_worktree_missing(agnt, tmp_path):
-    ready = [implement_bead()]
-
-    def fake_beads(args):
-        assert args == ["ready"]
-        return 0, ready, ""
-
-    result = agnt.runner_tick(root=tmp_path, dry_run=True, beads_runner=fake_beads, limit=1)
-
-    assert result["actions"][0]["action"] == "would_block"
-    assert result["actions"][0]["worktree"]["status"] == "needs-approval"
-    assert "explicit approval" in result["actions"][0]["context"]
-
-
-def test_overlapping_write_sets_create_dependency_plan(agnt, tmp_path):
-    ready = [
-        implement_bead("pi-task.1", ["pi/agent/bin/agnt_lib/runner.py"]),
-        implement_bead("pi-task.2", ["pi/agent/bin/agnt_lib/runner.py", "tests/test_runner.py"]),
-    ]
-
-    def fake_beads(args):
-        assert args == ["ready"]
-        return 0, ready, ""
-
-    def dispatchable_worktree(_bead, _validation):
-        return {"status": "ready", "dispatchable": True, "path": str(tmp_path), "branch": "epic/pi-6yg-test"}
-
-    result = agnt.runner_tick(
-        root=tmp_path,
-        dry_run=True,
-        beads_runner=fake_beads,
-        worktree_resolver=dispatchable_worktree,
-        limit=2,
-    )
-
-    assert result["actions"][0]["action"] == "would_start"
-    assert result["actions"][1]["action"] == "would_add_dependency"
-    assert result["actions"][1]["blockedBy"] == "pi-task.1"
-    assert result["actions"][1]["overlap"] == ["pi/agent/bin/agnt_lib/runner.py"]

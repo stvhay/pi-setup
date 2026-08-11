@@ -202,6 +202,4 @@ export function installAgentOSCompat(pi: ExtensionAPI, rpc = isRPCMode()): void 
   });
 }
 
-export default function agentOSCompat(pi: ExtensionAPI): void {
-  installAgentOSCompat(pi);
-}
+export default installAgentOSCompat;

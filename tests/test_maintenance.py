@@ -251,28 +251,3 @@ def test_work_maintenance_cli_due_and_create_beads_json(agnt, tmp_path, capsys):
         assert json.loads(capsys.readouterr().out)["due"][0]["mode"] == "context-health"
         assert agnt.cmd_work(["maintenance", "create-beads", "--dry-run", "--json"]) == 0
         assert json.loads(capsys.readouterr().out)["beads"][0]["title"] == "Maintenance: context-health"
-
-
-def test_runner_tick_surfaces_due_maintenance_before_idle(agnt, tmp_path):
-    def fake_beads(args):
-        assert args == ["ready"]
-        return 0, [], ""
-
-    report = {
-        "schemaVersion": 1,
-        "due": [{"mode": "workflow-retro", "label": "maintenance:workflow-retro", "reason": "closed work"}],
-        "suppressed": [],
-        "signals": {"closedImplementationBeads": 3},
-    }
-    created = {"schemaVersion": 1, "dryRun": True, "beads": [{"title": "Maintenance: workflow-retro"}]}
-
-    result = agnt.runner_tick(
-        root=tmp_path,
-        dry_run=True,
-        beads_runner=fake_beads,
-        maintenance_due_provider=lambda **_kwargs: report,
-        maintenance_creator=lambda due_report, dry_run, **_kwargs: created,
-    )
-
-    assert result["actions"][0]["action"] == "would_create_maintenance"
-    assert result["actions"][0]["maintenance"]["beads"][0]["title"] == "Maintenance: workflow-retro"

@@ -152,14 +152,16 @@ logic. Command implementations live under `pi/agent/bin/agnt_lib/` (`routing`,
 and `work`) and share catalog/frontmatter helpers through `_agnt_common.py`.
 New shared behavior should move into those importable modules, or a new
 `agnt_lib` module when the seam is clear; avoid adding another independent
-model/catalog/parser table inside the executable. The orchestration additions
-follow that seam: metadata validation in `orchestration.py`, approval flow in
-`approvals.py`, ticket gateway in `gateway.py`, runner compatibility wrappers in
-`runner.py`, runner protocol/state contracts in `runner_protocol.py`, the
-loopback service in `runner_service.py`, REST clients and daemon lifecycle in
-`runner_client.py`, scheduling in `runner_scheduler.py`, startup policy in
-`startup_policy.py`, worktree policy in `worktree_policy.py`, health checks in
-`health.py`, and maintenance cadence in `maintenance.py`.
+model/catalog/parser table inside the executable.
+
+Concern seams are explicit: `agnt_lib` owns deterministic domain logic; the
+`agnt` CLI adapts it for humans, CI, and headless callers; Pi extensions own
+lifecycle, UI, session, and provider integration; typed tools are thin
+agent-facing adapters. Metadata validation lives in `orchestration.py`, approval
+flow in `approvals.py`, ticket operations in `gateway.py`, worktree policy in
+`worktree_policy.py`, health checks in `health.py`, and maintenance cadence in
+`maintenance.py`. Long-lived Pi process automation and scheduling live outside
+this repository.
 
 ### Inspectable work backbone
 
@@ -180,18 +182,15 @@ directories for optional invocation/result artifacts, parent-owned delegated
 results, and runtime telemetry (project `.pi/runs/`, `.pi/delegated-results/`,
 and `.pi/metrics/` only when Git proves each candidate ignored, untracked, and
 symlink-safe; hashed `~/.pi/runtime/` fallback otherwise), `agnt action render`
-and `agnt runs` for message artifacts, `agnt
-work` for dry-run bead dispatch plans,
-plan trees, daemon lifecycle, service-backed runner client operations, health
-checks, and maintenance checkpoints, `agnt approvals` for durable human
-decisions, `agnt gateway` for constrained Pi extension access and service-backed
-runner visibility, Archimedes `subagent` for interactive peer dispatch, `agnt
-runs invoke` / `agnt work run` for artifact-backed headless worker execution,
-`agnt context-health` for
-context entropy checks, and `pi/agent/evals/` for gates. See the
-[Orchestration Loop Decision](ORCHESTRATION-LOOP.md) and
-[Project-Local Runner Service](RUNNER-SERVICE.md) for the explicitly selected
-Beads-first gated workflow and its project-local loopback service boundary.
+and `agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch
+plans, plan trees, manual artifact execution, health checks, and maintenance
+checkpoints, `agnt approvals` for durable human decisions, `agnt gateway` for
+constrained Pi extension access, Archimedes `subagent` for interactive peer
+dispatch, `agnt runs invoke` / `agnt work run` for artifact-backed headless
+worker execution, `agnt context-health` for context entropy checks, and
+`pi/agent/evals/` for gates. See the [Orchestration Loop
+Decision](ORCHESTRATION-LOOP.md) for the explicitly selected Beads-first gated
+workflow.
 
 ### Metrics and feedback
 

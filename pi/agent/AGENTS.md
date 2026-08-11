@@ -6,7 +6,7 @@
 
 # Agent helper
 
-Use `~/.pi/agent/bin/agnt` as the primary helper interface. Run `agnt -h` or the command's `-h` for current syntax; full command reference lives in `~/.pi/agent/bin/README.md`.
+Use `~/.pi/agent/bin/agnt` as the deterministic human/CI/headless helper interface. Keep domain logic in `agnt_lib`; Pi extensions own lifecycle, UI, session, and provider integration; typed tools are thin agent-facing adapters. Do not duplicate domain logic across these surfaces. Run `agnt -h` or the command's `-h` for current syntax; full command reference lives in `~/.pi/agent/bin/README.md`.
 
 Common entry points:
 
@@ -36,7 +36,7 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Work directly in the current Pi session by default: inspect, edit tracked files, and run focused verification.
 - Batch independent read-only tool calls in one turn. Keep ordered mutations, approvals, and safety gates serial.
 - Update progress at phase boundaries; prefer harness/tool execution state over model-authored progress-only turns.
-- Before code changes in a repository with `.beads/`, use `bd prime` and `bd ready` for context, then start interactive work with `agnt work direct-start <id> [--claim]`. This validates and shows the Bead, claims only with the explicit flag when needed, and links the current session; it does not create run bundles, runners, or worktrees. One logical Pi session belongs to one Bead. At interactive closeout, first commit task-owned implementation changes, then run `agnt improve outcome <id> <success|partial|failure|unclear>` and `agnt work direct-closeout <id> --reason "<reason>"`. Direct closeout requires matching session ownership/outcome and no tracked non-Beads changes; it closes the Bead, explicitly exports and verifies `.beads/issues.jsonl`, then commits only that shared portable Beads state, including legitimate mixed Bead rows, and never pushes. After current Bead closeout, call `handoff_bead` with the next ready Bead ID; it starts a fresh parent-linked session without copying the transcript. If the tool is unavailable, `/new` is the human fallback. Quitting and resuming may retain the same session.
+- Before code changes in a repository with `.beads/`, use `bd prime` and `bd ready` for context, then start interactive work with `agnt work direct-start <id> [--claim]`. This validates and shows the Bead, claims only with the explicit flag when needed, and links the current session; it does not create run bundles or worktrees. One logical Pi session belongs to one Bead. At interactive closeout, first commit task-owned implementation changes, then run `agnt improve outcome <id> <success|partial|failure|unclear>` and `agnt work direct-closeout <id> --reason "<reason>"`. Direct closeout requires matching session ownership/outcome and no tracked non-Beads changes; it closes the Bead, explicitly exports and verifies `.beads/issues.jsonl`, then commits only that shared portable Beads state, including legitimate mixed Bead rows, and never pushes. After current Bead closeout, call `handoff_bead` with the next ready Bead ID; it starts a fresh parent-linked session without copying the transcript. If the tool is unavailable, `/new` is the human fallback. Quitting and resuming may retain the same session.
 - Documentation-only and read-only work may proceed without a Bead unless project instructions say otherwise.
 - Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads or tracked artifacts.
 - Prefer exact paths and filesystem retrieval (`rg`, `find`, `git grep`, `git diff`, `read`) over large pasted context.
@@ -44,7 +44,7 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Do not give subscription-backed subagents or reviewers default `maxProviderRequests`, `maxTotalTokens`, or `maxCostUsd` limits. One-shot already has one provider turn; omit its redundant request cap. Omit request caps for subscription-backed agentic work by default. Add request or duration caps only for an explicit bounded experiment or identified liveness/runaway risk, and label them as caller limits.
 - Keep subscription-backed OpenAI/Codex as the root and default controller. Use direct metered OpenRouter models only for bounded diversity, specialist review, or explicit canary work; verify peer output against primary sources, files, and tests.
 - Metered `openrouter` models must run in fresh workers through `subagent`; never switch a long-running root conversation to them. Use `mode: "one-shot"` for reviews and pass a bounded task packet, not ambient conversation history. Only tracked Codex and OpenRouter routes are configured.
-- Runner, ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
+- Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 - Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.
 

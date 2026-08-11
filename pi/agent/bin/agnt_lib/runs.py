@@ -792,7 +792,7 @@ def cmd_runs(argv: List[str]) -> int:
     update.add_argument("--completed", action="store_true")
     invoke = sub.add_parser("invoke", help="invoke a model from invocation.yaml and write output/metrics into result.yaml")
     invoke.add_argument("bundle")
-    invoke.add_argument("--model", help="manual provider/model override for direct run invocation; work/runner dispatch uses policy-selected models")
+    invoke.add_argument("--model", help="manual provider/model override for direct run invocation; work dispatch uses policy-selected models")
     invoke.add_argument("--no-metrics", action="store_true")
     invoke.add_argument("--metrics-dir")
     if not argv:

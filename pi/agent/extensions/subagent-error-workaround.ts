@@ -1,8 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
@@ -11,7 +10,7 @@ import {
   type DelegatedArtifactPayload,
 } from "./lib/runtime-artifacts.ts";
 
-const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+const agentDir = getAgentDir();
 
 type OutputContract = "inline" | "artifact" | "status-only" | "pass-no-findings";
 type NormalizedOutputContract = OutputContract | "unknown";

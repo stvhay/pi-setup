@@ -14,7 +14,6 @@ const OperationEnum = StringEnum([
 	"show",
 	"tree",
 	"create_draft",
-	"runner_status",
 ] as const);
 
 const GatewayParamsSchema = Type.Object({
@@ -45,19 +44,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-function summarizeRunnerStatus(runnerValue: unknown): string {
-	const runner = asRecord(runnerValue);
-	const firstActive = asRecord(runner.firstActive);
-	const activeCount = Number(runner.activeCount ?? 0);
-	const state = String(runner.status ?? "unknown");
-	const flags = [runner.paused ? "paused" : "", runner.draining ? "draining" : ""]
-		.filter(Boolean)
-		.join("/");
-	const slug = String(firstActive.slug || firstActive.bead || "").slice(0, 80);
-	const work = slug ? ` first=${slug}` : "";
-	return `ticket_gateway runner_status: ${state}${flags ? ` ${flags}` : ""} active=${activeCount}${work}`;
-}
-
 function summarize(result: Record<string, unknown>): string {
 	const operation = String(result.operation ?? "gateway");
 	if (operation === "list" && Array.isArray(result.items)) {
@@ -71,17 +57,11 @@ function summarize(result: Record<string, unknown>): string {
 		const tree = result.tree as { root?: string; nodes?: Record<string, unknown> } | undefined;
 		return `ticket_gateway tree: ${tree?.root ?? "unknown"} (${Object.keys(tree?.nodes ?? {}).length} node(s))`;
 	}
-	if (operation === "runner_status") {
-		return summarizeRunnerStatus(result.runner);
-	}
 	return `ticket_gateway ${operation}: ok`;
 }
 
 function widgetLines(result: Record<string, unknown>): string[] {
 	const operation = String(result.operation ?? "gateway");
-	if (operation === "runner_status") {
-		return [summarizeRunnerStatus(result.runner)];
-	}
 	if (operation === "list" && Array.isArray(result.items)) {
 		return [summarize(result), ...result.items.slice(0, 8).map((item) => {
 			const row = asRecord(item);
@@ -100,11 +80,11 @@ export default function ticketGateway(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "ticket_gateway",
 		label: "Ticket Gateway",
-		description: "Optional structured Beads ticket gateway. Supports list, show, tree, create_draft, and runner_status.",
+		description: "Optional structured Beads ticket gateway. Supports list, show, tree, and create_draft.",
 		promptSnippet: "Use ticket_gateway when the structured orchestration workflow is explicitly selected; direct Pi coding remains the default.",
 		promptGuidelines: [
 			"For direct coding, confirm a Bead exists before code edits; use normal workspace tools for inspection, editing, and verification.",
-			"Use ticket_gateway for structured work listing, ticket details, tree views, draft creation, and runner status when orchestration is selected.",
+			"Use ticket_gateway for structured work listing, ticket details, tree views, and draft creation when orchestration is selected.",
 			"Do not send shell commands or raw Beads commands to ticket_gateway; choose one enum operation and structured fields only.",
 		],
 		parameters: GatewayParamsSchema,

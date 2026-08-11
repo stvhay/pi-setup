@@ -2854,9 +2854,9 @@ def test_reapplying_review_preserves_promoted_bead_links(tmp_path):
     assert client.calls[0]["metadata"]["beadIds"] == [bead_id]
 
 
-def test_runner_session_uses_exact_correlated_start_time_for_monitoring(tmp_path):
+def test_correlated_session_uses_exact_start_time_for_monitoring(tmp_path):
     _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
-    packet = _monitoring_packet("runner-report", ["run-later"])
+    packet = _monitoring_packet("headless-report", ["run-later"])
     packet["sessions"][0]["correlation"]["startedAt"] = "2026-07-29T00:00:00Z"
 
     improvement.review_sessions(

@@ -19,7 +19,6 @@ from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_y
 from .health import check_status_passed, work_health_report
 from .improvement import BEAD_ID, SessionWorkItemConflict, current_session_handoff_source, current_session_id, link_current_session
 from .maintenance import maintenance_create_beads, maintenance_due_report
-from .runner_client import RunnerClient, RunnerClientError, daemon_serve, daemon_start, daemon_status, daemon_stop
 from .worktree_policy import worktree_snapshot_for_bead
 
 
@@ -1088,52 +1087,10 @@ def cmd_work(argv: List[str]) -> int:
     run.add_argument("--preflight", action="store_true", help="run agnt doctor dispatch preflight before invoking the worker")
     run.add_argument("--id")
     run.add_argument("--dry-run", action="store_true", help="show dispatch plan without invoking")
-    runner = sub.add_parser("runner", help="manage the project singleton work runner")
-    runner_sub = runner.add_subparsers(dest="runner_command", required=True)
-    runner_status_cmd = runner_sub.add_parser("status", help="show runner singleton status")
-    runner_status_cmd.add_argument("--root")
-    runner_status_cmd.add_argument("--json", action="store_true")
-    runner_pause_cmd = runner_sub.add_parser("pause", help="pause accepting new runner work")
-    runner_pause_cmd.add_argument("--root")
-    runner_pause_cmd.add_argument("--reason")
-    runner_pause_cmd.add_argument("--json", action="store_true")
-    runner_resume_cmd = runner_sub.add_parser("resume", help="resume accepting runner work")
-    runner_resume_cmd.add_argument("--root")
-    runner_resume_cmd.add_argument("--json", action="store_true")
-    runner_tick_cmd = runner_sub.add_parser("tick", help="process one bounded runner tick")
-    runner_tick_cmd.add_argument("--root")
-    runner_tick_cmd.add_argument("--dry-run", action="store_true", help="explain actions without starting/blocking work")
-    runner_tick_cmd.add_argument("--json", action="store_true")
-    runner_tick_cmd.add_argument("--limit", type=int, default=1)
-    daemon = sub.add_parser("daemon", help="manage the project-local runner service lifecycle")
-    daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
-    daemon_status_cmd = daemon_sub.add_parser("status", help="show project-local runner service status")
-    daemon_status_cmd.add_argument("--root")
-    daemon_status_cmd.add_argument("--json", action="store_true")
-    daemon_start_cmd = daemon_sub.add_parser("start", help="start the project-local runner service")
-    daemon_start_cmd.add_argument("--root")
-    daemon_start_cmd.add_argument("--host", default="127.0.0.1")
-    daemon_start_cmd.add_argument("--port", type=int, default=0)
-    daemon_start_cmd.add_argument("--concurrency", type=int)
-    daemon_start_cmd.add_argument("--interval", type=float)
-    daemon_start_cmd.add_argument("--json", action="store_true")
-    daemon_stop_cmd = daemon_sub.add_parser("stop", help="drain or force-stop the project-local runner service")
-    daemon_stop_cmd.add_argument("--root")
-    daemon_stop_cmd.add_argument("--drain", action="store_true", help="request graceful drain; this is the default")
-    daemon_stop_cmd.add_argument("--force", action="store_true", help="force service shutdown through the service API")
-    daemon_stop_cmd.add_argument("--reason")
-    daemon_stop_cmd.add_argument("--json", action="store_true")
-    daemon_serve_cmd = daemon_sub.add_parser("serve", help=argparse.SUPPRESS)
-    daemon_serve_cmd.add_argument("--root")
-    daemon_serve_cmd.add_argument("--host", default="127.0.0.1")
-    daemon_serve_cmd.add_argument("--port", type=int, default=0)
-    daemon_serve_cmd.add_argument("--concurrency", type=int)
-    daemon_serve_cmd.add_argument("--interval", type=float)
-    daemon_serve_cmd.add_argument("--json", action="store_true")
     audit = sub.add_parser("audit", help="audit Beads queue health against unresolved required-work signals")
     audit.add_argument("--json", action="store_true")
     audit.add_argument("--scan-root", action="append", default=[], help="file or directory to scan; defaults to docs, README, AGENTS, and .pi/runs")
-    health = sub.add_parser("health", help="run read-only rail-guard checks over runs, runner state, Beads refs, and worktrees")
+    health = sub.add_parser("health", help="run read-only rail-guard checks over runs, Beads refs, and worktrees")
     health.add_argument("--json", action="store_true")
     health.add_argument("--root")
     health.add_argument("--runs-dir")
@@ -1283,49 +1240,6 @@ def cmd_work(argv: List[str]) -> int:
             return 2
         invoked = result.get("invoked") if isinstance(result, dict) else None
         return int(invoked.get("exitCode") or 0) if isinstance(invoked, dict) else 1
-    if args.command == "runner":
-        root = Path(args.root).expanduser() if getattr(args, "root", None) else None
-        try:
-            client = RunnerClient(root)
-            if args.runner_command == "status":
-                result = client.status()
-            elif args.runner_command == "pause":
-                result = client.pause(reason=args.reason)
-            elif args.runner_command == "resume":
-                result = client.resume()
-            elif args.runner_command == "tick":
-                result = client.tick(dry_run=args.dry_run, limit=args.limit)
-            else:
-                parser.print_help(sys.stderr)
-                return 2
-        except RunnerClientError as exc:
-            print(json.dumps(exc.payload, indent=2, sort_keys=True))
-            return 2
-        print(json.dumps(result, indent=2, sort_keys=True) if getattr(args, "json", False) else json.dumps(result, indent=2, sort_keys=True))
-        return 0
-    if args.command == "daemon":
-        root = Path(args.root).expanduser() if getattr(args, "root", None) else None
-        if args.daemon_command == "status":
-            result = daemon_status(root=root)
-            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
-            return 0
-        if args.daemon_command == "start":
-            result = daemon_start(root=root, host=args.host, port=args.port, concurrency=args.concurrency, interval=args.interval)
-            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
-            return 0 if result.get("started") or result.get("alreadyRunning") else 1
-        if args.daemon_command == "stop":
-            if args.drain and args.force:
-                print("choose either --drain or --force, not both", file=sys.stderr)
-                return 2
-            result = daemon_stop(root=root, drain=not args.force, force=args.force, reason=args.reason)
-            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
-            return 0 if result.get("draining") or result.get("stopping") else 1
-        if args.daemon_command == "serve":
-            result = daemon_serve(root=root, host=args.host, port=args.port, concurrency=args.concurrency, interval=args.interval)
-            print(json.dumps(result, indent=2, sort_keys=True) if args.json else json.dumps(result, indent=2, sort_keys=True))
-            return 0 if result.get("served") else 1
-        parser.print_help(sys.stderr)
-        return 2
     if args.command == "audit":
         roots = [Path(item).expanduser() for item in args.scan_root] if args.scan_root else None
         report = work_audit_report(scan_roots=roots)

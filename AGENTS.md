@@ -5,7 +5,7 @@
 - Use Pi skills for design, planning, verification, review, docs, and branch finishing.
 - Keep implementation plans under `.pi/plans/`.
 - Use Beads (`bd`/`beads`) as the canonical agent-facing work graph. Every code-changing task must have a Bead before edits begin. Run `bd prime` for workflow context, `bd ready` for unblocked work, and `bd show <id>` to inspect a bead.
-- Work directly in the current Pi session by default. The project-local runner, run artifacts, and orchestrated worktrees are optional paths selected explicitly for work that benefits from them.
+- Work directly in the current Pi session by default. Run artifacts and orchestrated worktrees are optional paths selected explicitly for work that benefits from them.
 - GitHub issues, if used, are an external adapter/export surface rather than a second source of truth for agents.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 - Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.

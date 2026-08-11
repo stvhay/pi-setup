@@ -66,24 +66,6 @@ def preferred_models(task: str | None) -> List[str]:
     return []
 
 
-def list_models(task: str | None) -> int:
-    rows = task_rows()
-    if task:
-        rows = [row for row in rows if row[0] == task]
-        if not rows:
-            die(f"unknown task: {task}", 1)
-    for tid, meta, _body in rows:
-        print(f"# {tid}")
-        for label in ("preferred", "qualified", "avoid"):
-            models = as_list(meta.get(label))
-            if models:
-                print(f"{label}:")
-                for model in models:
-                    print(f"- {model}")
-        print()
-    return 0
-
-
 def task_meta(task: str) -> Tuple[Dict[str, object], str]:
     for tid, meta, body in task_rows():
         if tid == task:

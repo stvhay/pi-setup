@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import _agnt_common as common
 
-from .core import VALID_OUTCOMES, capture, split_target
+from .core import VALID_OUTCOMES, split_target
 from .review import load_review_document, review_annotation_fields
 from .runtime_paths import resolve_runtime_directory
 
@@ -198,7 +198,7 @@ def write_json(path: Path, data: Dict[str, Any]) -> None:
 
 def git_root() -> Path:
     try:
-        return Path(capture(["git", "rev-parse", "--show-toplevel"]).strip())
+        return Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
     except (OSError, subprocess.CalledProcessError):
         return Path(os.getcwd())
 
@@ -440,7 +440,7 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def current_head() -> str | None:
     try:
-        return capture(["git", "rev-parse", "HEAD"]).strip()
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
 

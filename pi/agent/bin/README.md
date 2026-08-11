@@ -1,6 +1,6 @@
 # agnt command reference
 
-`agnt` is the primary command surface for Pi routing, context composition, action templates, run artifacts, Beads-backed work, the project-local runner service, metrics, evals, and context-health checks. For the conceptual overview, see [The agnt System](../../../docs/AGNT-SYSTEM.md); for service lifecycle and API details, see [Project-Local Runner Service](../../../docs/RUNNER-SERVICE.md).
+`agnt` is the deterministic command surface for Pi routing, context composition, action templates, run artifacts, Beads-backed work, metrics, evals, and context-health checks. Domain logic lives in `agnt_lib`; this CLI adapts it for humans, CI, and headless callers. For the conceptual overview, see [The agnt System](../../../docs/AGNT-SYSTEM.md).
 
 Commands are designed to compose with normal Unix idioms: stdin when no file is supplied, stdout for primary output, stderr for diagnostics, and `-o` for files/directories when needed.
 
@@ -36,7 +36,6 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
   - For `review`, emits the approved risk-specific `reviewPolicyTargets` fanout and a deterministic monthly spend state: Terra at high thinking by default, Kimi K2.7 Code for medium-risk diversity, and Opus 5 for high-risk independent review. It counts OpenRouter, configured metered venues, and positive provider-reported spend from retired venues while excluding configured subscription targets. It uses `AGNT_REVIEW_PAID_SPEND_USD` as an operator floor, accepts an authoritative `--monthly-paid-spend` override, and keeps only subscription-backed Terra at the `$18` reserve and `$20` hard-cap thresholds. K3 is escalation-only.
   - `--ignore-history` is reserved for deterministic policy evaluation; normal routing uses outcome history.
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason.
-  - `agnt recommend` is an alias.
 
 For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and the selected target as `model`. Use its `tasks` array for parallel peers. Optional single/per-child `outputContract` values are `inline`, `artifact`, `status-only`, and `pass-no-findings`; omitted contracts remain `unknown`. The tracked observer generates one payload-free `invocationId` per child at tool start and reuses it in the projection, metric, and parent-owned result artifact. Before returning, the parent writes full final, partial, and error output under `agnt runtime-path delegated-results`; tool content/details and telemetry gain a bounded `runtime:delegated-results/...` ref plus payload-free persistence status. Failed children also expose bounded termination reason/source/effective deadline even when usable partial output exists. Projections and metrics carry matching provider, model, target, effective thinking level, objective execution outcome, and output contract. Quality evaluators receive only a bounded parent-result view plus contract and artifact persistence/content status/count, never raw refs or filesystem paths. Config-less workers use thinking `default` because Archimedes supplies no thinking override. Parallel indexes are metadata, not identity. Named-profile projections mark provider, target, and thinking unavailable, and their metrics remain skipped because Archimedes does not expose those effective values.
 
@@ -127,7 +126,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt work direct-start BEAD [--claim]`
   - Starts ordinary direct work by validating and showing the Bead, optionally claiming it only when `--claim` is explicit and the Bead is not already in progress, then idempotently linking the current Pi session.
   - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. After current Bead closeout, call `handoff_bead` with the target ready Bead ID; `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
-  - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle, runner, or worktree creation.
+  - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle or worktree creation.
 
 - `agnt work direct-closeout BEAD --reason REASON`
   - Runs only after task-owned implementation changes are verified and committed and `agnt improve outcome BEAD OUTCOME` has recorded matching session ownership.
@@ -156,17 +155,11 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Direct `--model` overrides are rejected for work dispatch; tune routing with Beads metadata policy instead.
   - `--preflight` runs a focused operational doctor before dispatch.
 
-- `agnt work daemon start|stop|status --json`
-  - Manages the project-local runner service lifecycle. `start` launches one loopback service for the project root; `stop --drain` asks it to finish active work and stop accepting new work; `stop --force` is explicit operator-only shutdown.
-
-- `agnt work runner status|pause|resume|tick [--json]`
-  - Calls the project-local runner service REST API. If no service is running, these commands return a JSON error suggesting `agnt work daemon start --json`. `tick --dry-run --json` explains planned dispatch/blocker/maintenance actions without mutation.
-
 - `agnt work audit [--json] [--scan-root PATH ...]`
   - Reports Beads queue counts and required-work signals in docs/run artifacts; fails when the queue is empty but required future work appears unresolved.
 
 - `agnt work health [--json] [--strict-checkout] [--runs-dir DIR]`
-  - Runs read-only rail-guard checks over run artifacts, Beads refs, approvals, decisions, follow-ups, stale sessions, stale runner locks, dirty current/epic worktrees, raw-tool bypass markers, orphaned runs, and failed health/closeout checks.
+  - Runs read-only rail-guard checks over run artifacts, Beads refs, approvals, decisions, follow-ups, stale sessions, dirty current/epic worktrees, raw-tool bypass markers, orphaned runs, and failed health/closeout checks.
 
 - `agnt work maintenance due --json`
   - Reports self-improvement modes due from durable signals: Beads, git commits, runs, health/context warnings, human blockers, and a bounded count of sessions not reviewed under the current improvement policy. Telemetry failure leaves improvement-review due state unknown; incomplete discovery warns that the count may be understated.
@@ -186,8 +179,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Records the human outcome and public-safe UI resolver kind in Beads, never the private Pi session or requesting-run ID. Answered questions may persist predefined selections and typed input separately while retaining a readable answer summary; `--structured-answer` preserves an explicit empty multi-selection. Structured question fields cannot approve an action. Approved/answered decisions close the decision bead; rejected/cancelled/timed-out decisions keep visible blockers.
 
 - `agnt gateway --payload JSON`
-  - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`, `runner_status`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields. Use dedicated `ticket_question`, `ticket_approval`, and `ticket_decision_resolve` tools for human decisions.
-  - `runner_status` is the stable model-facing service status surface. It returns absent-service state when no service is running, and redacted running/paused/draining state, leases, active work, budget, model/thinking, context, and cost when connected.
+  - Executes strict ticket-gateway operations (`list`, `show`, `tree`, `create_draft`) for Pi extensions. Payloads are enum-based and reject shell-like/raw-command fields. Use dedicated `ticket_question`, `ticket_approval`, and `ticket_decision_resolve` tools for human decisions.
 
 ## Langfuse evaluator configuration
 
@@ -200,12 +192,10 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 
 ## Operational health
 
-- `agnt doctor [--json] [--strict] [--profile PROFILE] [--check CHECK ...] [--skip CHECK ...]`
+- `agnt doctor [--json] [--strict] [--check CHECK ...] [--skip CHECK ...]`
   - Checks local Pi/agnt operational readiness: core binaries, Python, git root, Beads, Node LTS policy, provider env vars, and core config parsing.
-  - `--profile orchestrator-startup` adds the strict opt-in gate used before background runner dispatch: `SEARXNG_URL` and a Beads workspace are required, provider env warnings are scoped to configured/enabled providers, and background dispatch is allowed only with zero failures and zero unacknowledged warnings. Normal direct Pi sessions do not run this profile.
-  - Reports JSON with check status, evidence, redacted env-var presence, acknowledged warnings, and suggested actions.
-  - Non-secret intent acknowledgements may live in project `.pi/doctor-intent.json` or global `~/.pi/agent/doctor-intent.json`, for example `{ "intentionallyAbsentEnv": { "ANTHROPIC_API_KEY": "not used" } }`.
-  - `--strict` exits nonzero when required checks fail; with `orchestrator-startup`, it also exits nonzero for unacknowledged warnings. The doctor is read-only and never edits shell startup files.
+  - Reports JSON with check status, evidence, redacted env-var presence, warnings, and suggested actions.
+  - `--strict` exits nonzero when required checks fail. The doctor is read-only and never edits shell startup files.
   - After repeated tool, provider, or environment failures, run `agnt doctor` and fix the environment instead of retrying blindly.
 
 - `agnt doctor node [--json]`
@@ -224,7 +214,7 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 ## Private improvement review
 
 - `agnt improve link BEAD [--json]`
-  - Idempotently links the current private Pi session to one exact public work-item ID, preferring canonical `PI_SESSION_ID` and falling back to the `PI_SESSION_FILE` stem. Existing canonical link/outcome ownership for another Bead fails closed with `handoff_bead` recovery and a `/new` human fallback instead of being overwritten. `agnt work direct-start` normally handles this for interactive work; runner sessions link automatically.
+  - Idempotently links the current private Pi session to one exact public work-item ID, preferring canonical `PI_SESSION_ID` and falling back to the `PI_SESSION_FILE` stem. Existing canonical link/outcome ownership for another Bead fails closed with `handoff_bead` recovery and a `/new` human fallback instead of being overwritten. `agnt work direct-start` normally handles this for interactive work.
 - `agnt improve outcome BEAD success|partial|failure|unclear [--json]`
   - Idempotently backfills the same-Bead work-item link and records an explicit human final session outcome; run at interactive closeout. Scans keep objective execution and sampled apparent judgment separate, prefer only explicit outcomes whose Bead metadata matches session correlation, and otherwise prevent failed or unavailable execution from being promoted by a positive apparent score. Historical owner mismatches become count-only `mismatched-work-item-outcome` capture gaps.
 - `agnt improve scan [--since ISO] [--limit N] [--max-traces N] [--recheck] [--dry-run] [--json]`

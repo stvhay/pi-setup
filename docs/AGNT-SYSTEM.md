@@ -21,8 +21,10 @@ Use the smallest surface that fits the work:
 1. Work directly in the current Pi session by default.
 2. Track code-changing work in Beads.
 3. Route delegated work with `agnt route`, then execute it through Pi's `subagent` tool.
-4. Select optional run bundles or the local runner only when durable orchestration evidence is needed.
+4. Select optional run bundles only when durable orchestration evidence is needed.
 5. Keep private runtime data out of Git; commit only reviewed policy and code changes.
+
+Concern seams stay explicit: `agnt_lib` owns deterministic domain logic; the `agnt` CLI adapts it for humans, CI, and headless callers; Pi extensions own lifecycle, UI, session, and provider integration; typed tools are thin agent-facing adapters. Do not duplicate domain logic across these surfaces.
 
 ## Core primitives
 
@@ -66,7 +68,7 @@ For direct coding:
 5. Record `agnt improve outcome`, then run `agnt work direct-closeout` to close the Bead, explicitly export and verify `.beads/issues.jsonl`, and create its separate portable-state commit.
 6. Hand off ready follow-up work in a fresh session when needed.
 
-For optional orchestration, action templates may create private run bundles containing invocation metadata, live status, result evidence, artifacts, and metric references. The local runner executes those bundles and reports status through the ticket gateway. See [Run Artifacts](RUN-ARTIFACTS.md) and [Project-Local Runner Service](RUNNER-SERVICE.md).
+For optional orchestration, action templates may create private run bundles containing invocation metadata, result evidence, artifacts, and metric references. `agnt runs invoke` and `agnt work run` execute those bundles through the internal headless worker. See [Run Artifacts](RUN-ARTIFACTS.md).
 
 ## Human decisions and safety
 
@@ -78,7 +80,7 @@ Consequential actions use dedicated Beads-backed tools:
 - `ticket_approval` for informed approval gates; and
 - `ticket_decision_resolve` for recording human outcomes.
 
-The generic ticket gateway lists and inspects work, creates drafts, shows trees, and reports runner status; it does not duplicate human decision flows. Approval records do not grant push, merge, deployment, history rewrite, hook installation, or other separately gated actions.
+The generic ticket gateway lists and inspects work, creates drafts, and shows trees; it does not duplicate human decision flows. Approval records do not grant push, merge, deployment, history rewrite, hook installation, or other separately gated actions.
 
 ## Feedback loop
 
@@ -92,12 +94,11 @@ Telemetry is evidence, not authority. Human outcome labels remain separate from 
 
 ## Relationship to Pi
 
-Pi provides sessions, providers, tools, extensions, skills, and interaction. Archimedes provides subagent transport and live progress. Beads provides durable work state. `agnt` connects those systems with tracked policy and optional artifacts; it does not replace them.
+Pi provides sessions, providers, tools, extensions, skills, and interaction. Archimedes provides subagent transport and live progress. Beads provides durable work state. `agnt` provides deterministic policy, checks, artifacts, and headless adapters; it does not replace Pi or own long-lived runtime automation.
 
 ## Further reading
 
 - [Architecture](ARCHITECTURE.md) — subsystem boundaries and data flow.
 - [Command Reference](../pi/agent/bin/README.md) — exact CLI syntax.
 - [Run Artifacts](RUN-ARTIFACTS.md) — invocation and result contracts.
-- [Project-Local Runner Service](RUNNER-SERVICE.md) — optional service lifecycle.
 - [Self-Improvement Loop](SELF-IMPROVEMENT.md) — metrics and policy feedback.

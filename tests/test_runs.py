@@ -1,64 +1,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 from uuid import UUID
-
-
-VALID_REVIEW_META = {
-    "pi": {
-        "action": "review",
-        "routingTask": "review",
-        "allowedEffects": ["read_workspace", "write_artifacts"],
-        "modelPolicy": {"mode": "auto"},
-        "sessionPolicy": "recorded",
-        "memoryPolicy": "auto",
-    }
-}
-
-NEEDS_APPROVAL_META = {
-    "pi": {
-        "action": "implement",
-        "routingTask": "implementation",
-        "approved": False,
-        "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
-        "modelPolicy": {"mode": "auto"},
-        "epicId": "pi-epic",
-        "worktreePolicy": "epic-worktree",
-        "writeSet": ["pi/agent/bin/agnt_lib/runner.py"],
-        "closeout": {
-            "requiresEvidence": True,
-            "requiresResolvedApprovals": True,
-            "requiresFollowUpsReconciled": True,
-        },
-        "sessionPolicy": "recorded",
-        "memoryPolicy": "auto",
-    }
-}
-
-
-def test_runner_status_pause_resume_and_singleton_lock(agnt, tmp_path):
-    status = agnt.runner_status(root=tmp_path)
-    assert status["status"] == "idle"
-    assert status["running"] is False
-    assert status["paused"] is False
-
-    paused = agnt.runner_pause(root=tmp_path, reason="maintenance")
-    assert paused["paused"] is True
-    assert agnt.runner_status(root=tmp_path)["paused"] is True
-
-    lock = agnt.acquire_runner_lock(root=tmp_path, owner="test-runner")
-    assert lock["acquired"] is True
-    second = agnt.acquire_runner_lock(root=tmp_path, owner="other-runner")
-    assert second["acquired"] is False
-    assert second["existing"]["owner"] == "test-runner"
-    assert agnt.runner_status(root=tmp_path)["running"] is True
-
-    released = agnt.release_runner_lock(root=tmp_path, owner="test-runner")
-    assert released["released"] is True
-    resumed = agnt.runner_resume(root=tmp_path)
-    assert resumed["paused"] is False
-    assert agnt.runner_status(root=tmp_path)["status"] == "idle"
 
 
 def test_dispatch_plan_uses_metadata_action_before_title_heuristics(agnt):
@@ -91,64 +34,6 @@ def test_dispatch_plan_uses_metadata_action_before_title_heuristics(agnt):
 
     assert plan["action"] == "implement"
     assert plan["routingTask"] == "implementation"
-
-
-def test_runner_tick_dry_run_plans_start_and_awaits_approval_without_mutation(agnt, tmp_path):
-    ready = [
-        {"id": "pi-ready.1", "title": "Review docs", "issue_type": "task", "status": "open", "metadata": json.dumps(VALID_REVIEW_META)},
-        {"id": "pi-needs.1", "title": "Implement change", "issue_type": "task", "status": "open", "acceptance_criteria": "tests pass", "metadata": json.dumps(NEEDS_APPROVAL_META)},
-    ]
-    calls = []
-
-    def fake_beads(args):
-        calls.append(args)
-        assert args == ["ready"]
-        return 0, ready, ""
-
-    result = agnt.runner_tick(root=tmp_path, dry_run=True, beads_runner=fake_beads, limit=2)
-
-    assert result["dryRun"] is True
-    assert [action["action"] for action in result["actions"]] == ["would_start", "awaiting_approval"]
-    assert result["actions"][0]["bead"] == "pi-ready.1"
-    assert result["actions"][0]["sessionPolicy"] == "recorded"
-    assert result["actions"][1]["validationStatus"] == "needs-human"
-    assert calls == [["ready"]]
-
-
-def test_runner_tick_live_starts_dispatchable_and_awaits_explicit_approval(agnt, tmp_path):
-    ready = [
-        {"id": "pi-ready.1", "title": "Review docs", "issue_type": "task", "status": "open", "metadata": json.dumps(VALID_REVIEW_META)},
-        {"id": "pi-needs.1", "title": "Implement change", "issue_type": "task", "status": "open", "acceptance_criteria": "tests pass", "metadata": json.dumps(NEEDS_APPROVAL_META)},
-    ]
-    started = []
-    blocked = []
-
-    def fake_beads(args):
-        assert args == ["ready"]
-        return 0, ready, ""
-
-    def fake_runner_start(bead, **kwargs):
-        started.append((bead, kwargs))
-        return {"started": {"bundle": str(tmp_path / "runs" / "run-1")}, "invoked": {"exitCode": 0}}
-
-    def fake_blocker(**kwargs):
-        blocked.append(kwargs)
-        return {"decisionBead": "pi-blocker.1", "blockerCreated": True}
-
-    result = agnt.runner_tick(
-        root=tmp_path,
-        dry_run=False,
-        beads_runner=fake_beads,
-        runner_start=fake_runner_start,
-        blocker_creator=fake_blocker,
-        limit=2,
-    )
-
-    assert [action["action"] for action in result["actions"]] == ["started", "awaiting_approval"]
-    assert started[0][0]["id"] == "pi-ready.1"
-    assert started[0][1]["claim"] is True
-    assert blocked == []
-    assert "metadata.pi.approved" in result["actions"][1]["context"]
 
 
 def test_invoke_one_reports_timeout(agnt, monkeypatch):
@@ -763,54 +648,3 @@ def test_invoke_run_bundle_fails_ambiguous_terminal_markers(agnt, monkeypatch, t
     result_doc = agnt.load_yaml_json(bundle / "result.yaml")
     assert result_doc["status"] == "failed"
     assert "ambiguous terminal markers" in result_doc["summary"]
-
-
-def test_work_runner_cli_status_and_tick_json(agnt, tmp_path, capsys):
-    tick_result = {"schemaVersion": 1, "dryRun": True, "actions": []}
-    status_result = {"schemaVersion": 1, "status": "running", "running": True, "paused": False}
-    calls = []
-
-    class FakeRunnerClient:
-        def __init__(self, root):
-            self.root = root
-
-        def status(self):
-            calls.append(("status", self.root))
-            return status_result
-
-        def tick(self, *, dry_run, limit):
-            calls.append(("tick", {"root": self.root, "dry_run": dry_run, "limit": limit}))
-            return tick_result
-
-    with patch.dict(agnt.cmd_work.__globals__, {"RunnerClient": FakeRunnerClient}):
-        assert agnt.cmd_work(["runner", "status", "--json", "--root", str(tmp_path)]) == 0
-        status_out = json.loads(capsys.readouterr().out)
-        assert status_out["status"] == "running"
-        assert agnt.cmd_work(["runner", "tick", "--dry-run", "--json", "--limit", "1", "--root", str(tmp_path)]) == 0
-        tick_out = json.loads(capsys.readouterr().out)
-        assert tick_out["dryRun"] is True
-
-    assert calls[0] == ("status", tmp_path)
-    assert calls[1] == (
-        "tick",
-        {"root": tmp_path, "dry_run": True, "limit": 1},
-    )
-
-
-def test_work_runner_cli_reports_missing_service_json(agnt, tmp_path, capsys):
-    class MissingService(Exception):
-        payload = {"schemaVersion": 1, "status": "not-running", "suggestedAction": "agnt work daemon start --json"}
-
-    class MissingRunnerClient:
-        def __init__(self, _root):
-            pass
-
-        def status(self):
-            raise MissingService()
-
-    with patch.dict(agnt.cmd_work.__globals__, {"RunnerClient": MissingRunnerClient, "RunnerClientError": MissingService}):
-        assert agnt.cmd_work(["runner", "status", "--json", "--root", str(tmp_path)]) == 2
-
-    output = json.loads(capsys.readouterr().out)
-    assert output["status"] == "not-running"
-    assert output["suggestedAction"] == "agnt work daemon start --json"

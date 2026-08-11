@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 
 class FakeProc:
     def __init__(self, returncode=0, stdout="", stderr=""):
@@ -166,34 +168,6 @@ def test_node_lts_passes(agnt, monkeypatch, tmp_path):
     assert report["checks"][0]["status"] == "pass"
 
 
-def test_doctor_orchestrator_startup_profile_strict_blocks_on_warning(agnt, capsys):
-    calls = []
-
-    def fake_doctor_report(*, check_names=None, skip=None, profile=None):
-        calls.append({"check_names": check_names, "skip": skip, "profile": profile})
-        return {
-            "schemaVersion": 1,
-            "profile": profile,
-            "status": "degraded",
-            "passed": True,
-            "summary": {"checkCount": 1, "failureCount": 0, "warningCount": 1, "acknowledgedWarningCount": 0},
-            "checks": [],
-            "failures": [],
-            "warnings": [{"id": "node.version", "status": "warning"}],
-            "acknowledgedWarnings": [],
-            "startup": {"backgroundDispatchAllowed": False},
-            "suggestedActions": [],
-        }
-
-    with patch.dict(agnt.cmd_doctor.__globals__, {"doctor_report": fake_doctor_report}):
-        assert agnt.cmd_doctor(["--profile", "orchestrator-startup", "--strict", "--json"]) == 1
-
-    output = json.loads(capsys.readouterr().out)
-    assert output["profile"] == "orchestrator-startup"
-    assert output["startup"]["backgroundDispatchAllowed"] is False
-    assert calls == [{"check_names": None, "skip": [], "profile": "orchestrator-startup"}]
-
-
-def test_doctor_unknown_profile_is_cli_error(agnt, capsys):
-    assert agnt.cmd_doctor(["--profile", "not-a-profile"]) == 2
-    assert "unknown profile" in capsys.readouterr().err
+def test_doctor_rejects_retired_profile_option(agnt):
+    with pytest.raises(SystemExit):
+        agnt.cmd_doctor(["--profile", "orchestrator-startup"])

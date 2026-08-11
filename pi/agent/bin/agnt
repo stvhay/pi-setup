@@ -28,7 +28,6 @@ from agnt_lib.work import *  # noqa: E402,F401,F403
 from agnt_lib.orchestration import *  # noqa: E402,F401,F403
 from agnt_lib.approvals import *  # noqa: E402,F401,F403
 from agnt_lib.gateway import *  # noqa: E402,F401,F403
-from agnt_lib.runner import *  # noqa: E402,F401,F403
 from agnt_lib.worktree_policy import *  # noqa: E402,F401,F403
 from agnt_lib.health import *  # noqa: E402,F401,F403
 from agnt_lib.maintenance import *  # noqa: E402,F401,F403
@@ -36,7 +35,6 @@ from agnt_lib.context_health import *  # noqa: E402,F401,F403
 from agnt_lib.doctor import *  # noqa: E402,F401,F403
 from agnt_lib.langfuse import *  # noqa: E402,F401,F403
 from agnt_lib.improvement import *  # noqa: E402,F401,F403
-from agnt_lib import graphify as graphify_impl  # noqa: E402
 
 def cmd_instructions(argv: List[str]) -> int:
     return run([str(BIN / "agent-instructions"), *argv])
@@ -44,7 +42,12 @@ def cmd_instructions(argv: List[str]) -> int:
 
 def cmd_graphify(argv: List[str]) -> int:
     """Run graphify through the Pi helper surface."""
-    return graphify_impl.cmd_graphify(argv, runner=run, which=shutil.which)
+    graphify = shutil.which("graphify")
+    if graphify:
+        return run([graphify, *argv])
+    if shutil.which("uv"):
+        return run(["uv", "tool", "run", "--from", "graphifyy", "graphify", *argv])
+    die("Graphify is unavailable. Install `graphifyy` or use an environment with `uv`.", 1)
 
 
 def main(argv: List[str]) -> int:
@@ -54,7 +57,6 @@ def main(argv: List[str]) -> int:
         "web-fetch": ("fetch a URL", lambda args: run([str(BIN / "web-fetch"), *args])),
         "instructions": ("generate layered instructions", cmd_instructions),
         "route": ("recommend a model for a task", cmd_route),
-        "recommend": ("alias for route", cmd_route),
         "runtime-path": ("resolve a safe private runtime directory", cmd_runtime_path),
         "provider-circuit": ("inspect or update provider-venue circuits", cmd_provider_circuit),
         "metrics": ("inspect and consolidate invocation metrics", cmd_metrics),

@@ -8,18 +8,10 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from .core import die
 from .orchestration import validate_bead_orchestration_metadata
-from .runner_client import RunnerClient, RunnerClientError
-from .runner_protocol import DEFAULT_BUDGET, active_run_summary, redact_service_metadata
 from .runs import default_runs_dir
 from .work import build_work_tree, normalize_bead, run_beads_json, run_refs_by_bead
 
-VALID_OPERATIONS = {
-    "list",
-    "show",
-    "tree",
-    "create_draft",
-    "runner_status",
-}
+VALID_OPERATIONS = {"list", "show", "tree", "create_draft"}
 BANNED_KEYS = {"command", "cmd", "shell", "bash", "raw", "script", "subagent", "argv", "args"}
 ISSUE_TYPES = {"bug", "feature", "task", "epic", "chore", "decision"}
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
@@ -30,7 +22,6 @@ ALLOWED_KEYS = {
     "show": {"operation", "bead", "runsDir"},
     "tree": {"operation", "root", "epic", "runsDir"},
     "create_draft": {"operation", "title", "description", "issueType", "priority", "labels", "metadata", "parent", "acceptance"},
-    "runner_status": {"operation", "root"},
 }
 
 
@@ -195,66 +186,6 @@ def _create_draft_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner)
     return {"schemaVersion": 1, "operation": "create_draft", "created": created}
 
 
-def _compact_lease(lease: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "leaseId": lease.get("leaseId"),
-        "sessionId": lease.get("sessionId"),
-        "client": lease.get("client"),
-        "attachedAt": lease.get("attachedAt"),
-        "lastSeenAt": lease.get("lastSeenAt"),
-    }
-
-
-def _normalize_runner_visibility(status: Dict[str, Any], *, service_state: str) -> Dict[str, Any]:
-    leases_raw = status.get("leases") if isinstance(status.get("leases"), dict) else {}
-    active_runs = [active_run_summary(item) for item in status.get("activeRuns") or [] if isinstance(item, dict)]
-    budget = status.get("budget") if isinstance(status.get("budget"), dict) else dict(DEFAULT_BUDGET)
-    service_metadata = status.get("service") if isinstance(status.get("service"), dict) else {}
-    result = {
-        "schemaVersion": 1,
-        "status": status.get("status") or ("running" if status.get("running") else "not-running"),
-        "running": bool(status.get("running")),
-        "connected": bool(status.get("connected", service_state == "present")),
-        "paused": bool(status.get("paused")),
-        "draining": bool(status.get("draining")),
-        "acceptingNewWork": bool(status.get("acceptingNewWork", False)),
-        "schedulerEnabled": bool(status.get("schedulerEnabled", False)),
-        "schedulerAlive": status.get("schedulerAlive") if isinstance(status.get("schedulerAlive"), bool) else None,
-        "scheduler": status.get("scheduler") if isinstance(status.get("scheduler"), dict) else {},
-        "root": status.get("root"),
-        "heartbeatAt": status.get("heartbeatAt"),
-        "updatedAt": status.get("updatedAt"),
-        "leaseCount": len(leases_raw),
-        "leases": [_compact_lease(lease) for lease in leases_raw.values() if isinstance(lease, dict)],
-        "activeCount": len(active_runs),
-        "activeRuns": active_runs,
-        "firstActive": active_runs[0] if active_runs else None,
-        "budget": budget,
-        "service": {
-            "state": service_state,
-            "metadata": redact_service_metadata(service_metadata),
-        },
-    }
-    if status.get("suggestedAction"):
-        result["suggestedAction"] = status.get("suggestedAction")
-    if status.get("detail"):
-        result["detail"] = status.get("detail")
-    return result
-
-
-def _runner_status_gateway(payload: Dict[str, Any]) -> Dict[str, Any]:
-    root = payload.get("root")
-    if root is not None and not isinstance(root, str):
-        raise ValueError("root must be a string when present")
-    normalized_root = Path(root).expanduser() if root else None
-    try:
-        status = RunnerClient(normalized_root).status()
-        runner = _normalize_runner_visibility(status, service_state="present")
-    except RunnerClientError as exc:
-        runner = _normalize_runner_visibility(exc.payload, service_state="absent")
-    return {"schemaVersion": 1, "operation": "runner_status", "runner": runner}
-
-
 def ticket_gateway(
     payload: Any,
     *,
@@ -272,8 +203,6 @@ def ticket_gateway(
         return _tree_gateway(data, tree_builder=tree_builder, runs_dir=runs_dir)
     if operation == "create_draft":
         return _create_draft_gateway(data, beads_runner=beads_runner)
-    if operation == "runner_status":
-        return _runner_status_gateway(data)
     raise ValueError(f"unsupported operation: {operation}")
 
 

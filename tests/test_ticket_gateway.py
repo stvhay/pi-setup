@@ -117,14 +117,9 @@ def test_gateway_rejects_dedicated_approval_operations(agnt, operation):
         agnt.ticket_gateway({"operation": operation})
 
 
-def test_gateway_runner_status_surfaces_runner_state(agnt, tmp_path):
-    result = agnt.ticket_gateway({"operation": "runner_status", "root": str(tmp_path)})
-
-    assert result["runner"]["service"]["state"] == "absent"
-    assert result["runner"]["status"] == "not-running"
-    assert result["runner"]["running"] is False
-    assert result["runner"]["activeRuns"] == []
-    assert result["runner"]["suggestedAction"] == "agnt work daemon start --json"
+def test_gateway_rejects_retired_runner_status(agnt):
+    with pytest.raises(ValueError, match="unsupported gateway operation"):
+        agnt.ticket_gateway({"operation": "runner_status"})
 
 
 def test_ticket_gateway_extension_registers_tool_and_work_command():

@@ -63,7 +63,7 @@ def approval_request_payload(
 ) -> Dict[str, Any]:
     """Build the durable Beads decision payload for a human gate.
 
-    The payload is intentionally plain JSON so the CLI, runner, and Pi extension
+    The payload is intentionally plain JSON so the CLI and Pi extension
     can share one auditable representation. Approval previews include the
     informed-consent fields required by the approval-confirmation design.
     """

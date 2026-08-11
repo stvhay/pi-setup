@@ -246,6 +246,12 @@ def test_documented_common_agnt_entry_points_still_parse(agnt, monkeypatch, tmp_
     assert "soul" not in help_text
 
 
+@pytest.mark.parametrize("command", [["runner", "status"], ["daemon", "status"]])
+def test_work_rejects_retired_runner_commands(agnt, command):
+    with pytest.raises(SystemExit):
+        agnt.cmd_work(command)
+
+
 def test_cmd_plans_dir_uses_override(agnt, monkeypatch, tmp_path, capsys):
     plans = tmp_path / "custom-plans"
     monkeypatch.setenv("PI_PLANS_DIR", str(plans))

@@ -88,6 +88,63 @@ def test_graphify_skill_matches_current_cli_contract():
     }
 
 
+def test_retired_runner_automation_surfaces_are_absent():
+    retired = [
+        AGENT / "bin" / "agnt_lib" / name
+        for name in (
+            "runner.py",
+            "runner_client.py",
+            "runner_protocol.py",
+            "runner_scheduler.py",
+            "runner_service.py",
+            "startup_policy.py",
+        )
+    ] + [
+        AGENT / "extensions" / "orchestrator-service.ts",
+        ROOT / "docs" / "RUNNER-SERVICE.md",
+        ROOT / "tests" / "test_orchestrator_extension.py",
+        ROOT / "tests" / "test_runner.py",
+        ROOT / "tests" / "test_runner_budget.py",
+        ROOT / "tests" / "test_runner_client.py",
+        ROOT / "tests" / "test_runner_protocol.py",
+        ROOT / "tests" / "test_runner_scheduler.py",
+        ROOT / "tests" / "test_runner_service.py",
+        ROOT / "tests" / "test_runner_visibility.py",
+        ROOT / "tests" / "test_startup_policy.py",
+    ]
+    assert not [str(path.relative_to(ROOT)) for path in retired if path.exists()]
+
+    work = (AGENT / "bin" / "agnt_lib" / "work.py").read_text(encoding="utf-8")
+    gateway = (AGENT / "bin" / "agnt_lib" / "gateway.py").read_text(encoding="utf-8")
+    doctor = (AGENT / "bin" / "agnt_lib" / "doctor.py").read_text(encoding="utf-8")
+    ticket_gateway = (AGENT / "extensions" / "ticket-gateway.ts").read_text(encoding="utf-8")
+    assert 'add_parser("runner"' not in work
+    assert 'add_parser("daemon"' not in work
+    assert "runner_status" not in gateway
+    assert "runner_status" not in ticket_gateway
+    assert "orchestrator-startup" not in doctor
+
+
+def test_approved_ponytail_surfaces_are_absent():
+    assert not (AGENT / "bin" / "agnt_lib" / "graphify.py").exists()
+    agnt = (AGENT / "bin" / "agnt").read_text(encoding="utf-8")
+    tasks = (AGENT / "bin" / "agnt_lib" / "tasks.py").read_text(encoding="utf-8")
+    core = (AGENT / "bin" / "agnt_lib" / "core.py").read_text(encoding="utf-8")
+    worktree = (AGENT / "bin" / "agnt_lib" / "worktree_policy.py").read_text(encoding="utf-8")
+    langfuse = (AGENT / "extensions" / "langfuse-config-env.ts").read_text(encoding="utf-8")
+    subagent = (AGENT / "extensions" / "subagent-error-workaround.ts").read_text(encoding="utf-8")
+    compat = (AGENT / "extensions" / "agent-os-compat.ts").read_text(encoding="utf-8")
+
+    assert "graphify_impl" not in agnt
+    assert '"recommend":' not in agnt
+    assert "def list_models" not in tasks
+    assert "def capture" not in core
+    assert 're.sub(r"-+"' not in worktree
+    assert "PI_CODING_AGENT_DIR ||" not in langfuse
+    assert "PI_CODING_AGENT_DIR ||" not in subagent
+    assert "export default installAgentOSCompat;" in compat
+
+
 def test_project_init_eval_excludes_opt_in_github_templates():
     skill = (AGENT / "skills" / "project-init" / "SKILL.md").read_text(encoding="utf-8")
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
@@ -170,7 +227,7 @@ def test_global_instructions_use_direct_lifecycle_start():
     assert "`agnt work direct-closeout <id> --reason \"<reason>\"`" in instructions
     assert "`agnt direct start" not in instructions
     assert "run `agnt improve link <id>`" not in instructions
-    assert "does not create run bundles, runners, or worktrees" in instructions
+    assert "does not create run bundles or worktrees" in instructions
     assert "shared portable Beads state" in instructions
     assert "never pushes" in instructions
     assert "`handoff_bead`" in instructions

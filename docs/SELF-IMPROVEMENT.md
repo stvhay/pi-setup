@@ -282,8 +282,8 @@ Maintenance labels include:
 - `maintenance:context-health`
 - `maintenance:improvement-review`
 
-Read-only maintenance reviews use `action: review` and may be auto-created by an
-idle optional runner or created explicitly after dry-run inspection.
+Read-only maintenance reviews use `action: review` and are created explicitly
+after dry-run inspection.
 Simplification/refactor implementation beads use
 `action: implement` with `approved: false`; creating the checkpoint does not
 authorize edits. Close maintenance checkpoints like normal Beads: record evidence,

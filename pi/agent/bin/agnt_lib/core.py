@@ -23,10 +23,6 @@ def run(argv: List[str]) -> int:
     return subprocess.call(argv)
 
 
-def capture(argv: List[str]) -> str:
-    return subprocess.check_output(argv, text=True)
-
-
 def split_target(target: str) -> tuple[str, str]:
     if "/" not in target:
         die(f"model must be provider/model: {target}")

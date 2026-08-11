@@ -82,7 +82,7 @@ Handoff stages one empty parent-linked session, gracefully shuts down current Pi
 
 For the conceptual overview, see [The agnt System](../docs/AGNT-SYSTEM.md). For the implementation map, see [Architecture](../docs/ARCHITECTURE.md).
 
-Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must have a Bead before editing. The runner and `agnt work` artifact workflow are preserved as explicit opt-in orchestration paths; deploying this config does not require or automatically start the runner.
+Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must have a Bead before editing. Manual `agnt work` artifact workflows remain explicit opt-in orchestration; long-lived Pi runtime automation belongs in a separate project.
 
 ## Provider credentials
 

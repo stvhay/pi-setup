@@ -259,9 +259,9 @@ agnt work finish <runtime-runs-dir>/<run-id> \
 resolved approval/decision refs, and passing health/closeout checks. `agnt work
 run` combines start + invoke + optional close while preserving those gates.
 
-For optional service lifecycle, scheduling, status, and runtime-state details,
-see [Project-Local Runner Service](RUNNER-SERVICE.md). Run `agnt work audit
---json` and `agnt work health --json` before trusting orchestrated closeout.
+Run `agnt work audit --json` and `agnt work health --json` before trusting
+artifact-backed closeout. Long-lived scheduling and Pi runtime automation belong
+to a separate project.
 
 ## Side-effect convention
 

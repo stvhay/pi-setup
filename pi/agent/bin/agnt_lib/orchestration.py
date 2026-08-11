@@ -178,7 +178,7 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
     """Validate the Beads metadata.pi dispatch contract.
 
     The validator is intentionally dependency-free and returns plain dictionaries
-    so Beads readers, runner code, and UI extensions can share one deterministic
+    so Beads readers, work dispatch, and UI extensions can share one deterministic
     status contract before any live dispatch behavior exists.
     """
     failures: List[str] = []
