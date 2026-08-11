@@ -229,11 +229,22 @@ per query. Aggregate provider/model rows are restricted to the tracked
 unconfigured, malformed, URL/path/hash/secret-shaped, and raw-ID labels count
 only as unknown and never enter the safe summary. Existing private per-session
 model evidence remains unchanged.
-Scans skip sessions already reviewed under the current policy.
-`review --apply` writes idempotent private Langfuse markers. `promote`
-accepts only allowlisted, generalized text and requires durable approval of the
-exact preview before creating a committed Bead. Private trace IDs, URLs, user
-content, excerpts, and absolute paths never enter the Bead.
+Scans skip sessions already reviewed under the current policy. Promoting a
+finding stores a private cohort fingerprint derived from available task, risk,
+role, model, and prompt dimensions. Later scan packets list monitored finding
+IDs only in the private packet and expose count-only monitoring status in safe
+stdout. A finding enters monitoring only after its linked Bead closes. Five
+distinct reviewed sessions from the exact stored post-change cohort mark it
+`validated`; fewer remain monitoring. A reviewer marks explicit recurrence by
+giving the new private finding a `relatedFindingId` from the packet's matched
+monitoring list. `review --apply` checks the implementation boundary and cohort,
+writes idempotent private Langfuse markers, and updates private monitoring state.
+It never updates public work. Recurrent follow-up uses the new finding's normal
+`promote` preview and exact human-approval gate.
+
+`promote` accepts only allowlisted, generalized text and requires durable
+approval of the exact preview before creating a committed Bead. Private trace
+IDs, URLs, user content, excerpts, and absolute paths never enter the Bead.
 
 ### 6. Maintenance cadence from durable signals
 
@@ -249,8 +260,14 @@ agnt work maintenance create-beads --apply --json
 The due report derives signals from durable project state: closed implementation
 beads since the last maintenance checkpoint, commits since that checkpoint,
 failed/blocked run artifacts, repeated human blockers, context-health warnings,
-rail-guard health warnings/failures, and recorded session volume. It suppresses
-modes that already have open maintenance beads.
+rail-guard health warnings/failures, and a bounded count of sessions not reviewed
+under the current improvement policy. That query starts at the latest closed
+`maintenance:improvement-review` checkpoint, recognizes historical closed
+`maintenance:lessons-harvest` checkpoints, and otherwise uses a seven-day bound.
+Telemetry failure emits a warning and leaves improvement-review due state unknown;
+incomplete bounded discovery warns that the eligible count may be understated.
+Neither condition silently claims no review is due. Open maintenance modes suppress
+duplicates.
 
 Maintenance labels include:
 
@@ -259,9 +276,11 @@ Maintenance labels include:
 - `maintenance:simplification`
 - `maintenance:workflow-retro`
 - `maintenance:context-health`
+- `maintenance:improvement-review`
 
-Read-only maintenance reviews use `action: maintenance` and may be auto-created
-by an idle runner. Simplification/refactor implementation beads use
+Read-only maintenance reviews use `action: review` and may be auto-created by an
+idle optional runner or created explicitly after dry-run inspection.
+Simplification/refactor implementation beads use
 `action: implement` with `approved: false`; creating the checkpoint does not
 authorize edits. Close maintenance checkpoints like normal Beads: record evidence,
 represent follow-ups as Beads, and pass closeout checks.

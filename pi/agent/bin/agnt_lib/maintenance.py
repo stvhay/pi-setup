@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Tuple
 
@@ -11,6 +11,7 @@ from .health import work_health_report
 from .runs import default_runs_dir
 
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
+ImprovementReviewProvider = Callable[..., Dict[str, Any]]
 
 MAINTENANCE_MODES: Dict[str, Dict[str, Any]] = {
     "design-review": {
@@ -48,7 +49,16 @@ MAINTENANCE_MODES: Dict[str, Dict[str, Any]] = {
         "role": "verifier",
         "action": "review",
     },
+    "improvement-review": {
+        "label": "maintenance:improvement-review",
+        "title": "Maintenance: improvement review",
+        "routingTask": "review",
+        "role": "quality-reviewer",
+        "action": "review",
+    },
 }
+
+LEGACY_MAINTENANCE_MODES = {"maintenance:lessons-harvest": "improvement-review"}
 
 DEFAULT_THRESHOLDS = {
     "closedImplementationBeads": 5,
@@ -58,11 +68,29 @@ DEFAULT_THRESHOLDS = {
     "contextWarnings": 3,
     "healthWarnings": 3,
     "healthFailures": 1,
+    "eligibleUnreviewedSessions": 5,
 }
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def default_improvement_review_provider(*, since: str | None, until: str) -> Dict[str, Any]:
+    from .improvement import eligible_unreviewed_session_summary
+    from .langfuse import LangfuseError, _client_from_env
+
+    if since is None:
+        end = datetime.fromisoformat(until.replace("Z", "+00:00"))
+        since = (end - timedelta(days=7)).isoformat().replace("+00:00", "Z")
+    try:
+        return eligible_unreviewed_session_summary(
+            _client_from_env(),
+            since=since,
+            until=until,
+        )
+    except (LangfuseError, OSError, ValueError):
+        return {"schemaVersion": 1, "status": "unavailable"}
 
 
 def default_beads_runner(args: List[str]) -> Tuple[int, Any, str]:
@@ -104,10 +132,11 @@ def _is_human_blocker(bead: Dict[str, Any]) -> bool:
 
 
 def _maintenance_mode_from_labels(bead: Dict[str, Any]) -> str | None:
+    labels = _labels(bead)
     for mode, config in MAINTENANCE_MODES.items():
-        if config["label"] in _labels(bead):
+        if config["label"] in labels:
             return mode
-    return None
+    return next((mode for label, mode in LEGACY_MAINTENANCE_MODES.items() if label in labels), None)
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -122,7 +151,18 @@ def _parse_time(value: Any) -> datetime | None:
 def latest_closed_maintenance_time(beads: Iterable[Dict[str, Any]]) -> datetime | None:
     times: List[datetime] = []
     for bead in beads:
-        if _maintenance_mode_from_labels(bead) and _is_closed(bead):
+        mode = _maintenance_mode_from_labels(bead)
+        if mode and mode != "improvement-review" and _is_closed(bead):
+            stamp = _parse_time(bead.get("closed_at") or bead.get("closedAt"))
+            if stamp:
+                times.append(stamp)
+    return max(times) if times else None
+
+
+def latest_closed_improvement_review_time(beads: Iterable[Dict[str, Any]]) -> datetime | None:
+    times: List[datetime] = []
+    for bead in beads:
+        if _maintenance_mode_from_labels(bead) == "improvement-review" and _is_closed(bead):
             stamp = _parse_time(bead.get("closed_at") or bead.get("closedAt"))
             if stamp:
                 times.append(stamp)
@@ -244,10 +284,12 @@ def maintenance_due_report(
     git_summary: Dict[str, Any] | None = None,
     health_report: Dict[str, Any] | None = None,
     context_health_report: Dict[str, Any] | None = None,
+    improvement_review_report: Dict[str, Any] | None = None,
     thresholds: Dict[str, int] | None = None,
     root: Path | str | None = None,
     runs_dir: Path | str | None = None,
     beads_runner: BeadsRunner = default_beads_runner,
+    improvement_review_provider: ImprovementReviewProvider = default_improvement_review_provider,
 ) -> Dict[str, Any]:
     warnings: List[str] = []
     if beads is None:
@@ -255,7 +297,14 @@ def maintenance_due_report(
         warnings.extend(bead_warnings)
     if runs is None:
         runs = collect_runs(runs_dir)
+    generated_at = utc_now()
     last_maintenance = latest_closed_maintenance_time(beads)
+    last_improvement_review = latest_closed_improvement_review_time(beads)
+    if improvement_review_report is None:
+        improvement_review_report = improvement_review_provider(
+            since=last_improvement_review.isoformat().replace("+00:00", "Z") if last_improvement_review else None,
+            until=generated_at,
+        )
     if git_summary is None:
         git_summary = git_commit_summary(root, since=last_maintenance)
     if health_report is None:
@@ -264,7 +313,23 @@ def maintenance_due_report(
         context_health_report = build_context_health_report()
     active_modes = open_maintenance_modes(beads)
     limits = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
-    signals = _derive_signals(beads=beads, runs=runs, git_summary=git_summary, health_report=health_report, context_health_report=context_health_report)
+    signals = _derive_signals(
+        beads=beads,
+        runs=runs,
+        git_summary=git_summary,
+        health_report=health_report,
+        context_health_report=context_health_report,
+    )
+    eligible_sessions = improvement_review_report.get("eligibleSessions")
+    if improvement_review_report.get("status") == "ok" and type(eligible_sessions) is int and eligible_sessions >= 0:
+        signals["eligibleUnreviewedSessions"] = eligible_sessions
+        if improvement_review_report.get("lowerBound") is True:
+            warnings.append(
+                "eligible unreviewed session count is incomplete; improvement-review due state may be understated"
+            )
+    else:
+        signals["eligibleUnreviewedSessions"] = None
+        warnings.append("private improvement telemetry unavailable; improvement-review due state is unknown")
 
     candidates: List[Dict[str, Any]] = []
     if signals["closedImplementationBeads"] >= limits["closedImplementationBeads"]:
@@ -277,6 +342,11 @@ def maintenance_due_report(
         candidates.append(_due_item("workflow-retro", "repeated human blockers reached workflow retrospective threshold", signals))
     if signals["contextWarnings"] >= limits["contextWarnings"] or signals["healthWarnings"] >= limits["healthWarnings"]:
         candidates.append(_due_item("context-health", "context or health warnings reached review threshold", signals))
+    if (
+        type(signals["eligibleUnreviewedSessions"]) is int
+        and signals["eligibleUnreviewedSessions"] >= limits["eligibleUnreviewedSessions"]
+    ):
+        candidates.append(_due_item("improvement-review", "eligible review work reached maintenance threshold", signals))
 
     due: List[Dict[str, Any]] = []
     suppressed: List[Dict[str, Any]] = []
@@ -288,12 +358,15 @@ def maintenance_due_report(
 
     return {
         "schemaVersion": 1,
-        "generatedAt": utc_now(),
+        "generatedAt": generated_at,
         "due": due,
         "suppressed": suppressed,
         "signals": signals,
         "thresholds": limits,
         "lastMaintenanceAt": last_maintenance.isoformat().replace("+00:00", "Z") if last_maintenance else None,
+        "lastImprovementReviewAt": (
+            last_improvement_review.isoformat().replace("+00:00", "Z") if last_improvement_review else None
+        ),
         "warnings": warnings,
     }
 
@@ -341,6 +414,17 @@ def _metadata_for_mode(mode: str) -> Dict[str, Any]:
 
 
 def _description_for_due(item: Dict[str, Any], report: Dict[str, Any]) -> str:
+    if item.get("mode") == "improvement-review":
+        return "\n".join([
+            "Why:",
+            "Eligible unreviewed agent sessions reached the maintenance threshold.",
+            "",
+            "What:",
+            "Run a bounded improvement review and record only generalized follow-up work.",
+            "",
+            "Closeout:",
+            "Record review completion; route any proposed public work through explicit human approval.",
+        ])
     signals = report.get("signals") or item.get("signals") or {}
     return "\n".join([
         "Why:",
@@ -430,6 +514,7 @@ __all__ = [
     "MAINTENANCE_MODES",
     "DEFAULT_THRESHOLDS",
     "maintenance_due_report",
+    "default_improvement_review_provider",
     "maintenance_bead_specs",
     "maintenance_create_beads",
     "collect_beads",

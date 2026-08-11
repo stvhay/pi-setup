@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import stat
 import sys
 import threading
@@ -622,6 +623,39 @@ def _scan_sessions(client, tmp_path, **overrides):
     }
     options.update(overrides)
     return improvement.scan_sessions(client, **options)
+
+
+def test_eligible_unreviewed_summary_is_bounded_and_payload_free():
+    client = FakeScanClient(
+        [
+            _private_trace("session-unreviewed-a", "trace-a"),
+            _private_trace("session-reviewed", "trace-b"),
+            _private_trace("session-unreviewed-c", "trace-c"),
+        ],
+        {},
+        reviewed={"session-reviewed": "v1"},
+    )
+
+    summary = improvement.eligible_unreviewed_session_summary(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+        max_traces=25,
+    )
+
+    assert summary == {
+        "schemaVersion": 1,
+        "status": "ok",
+        "candidateSessions": 3,
+        "eligibleSessions": 2,
+        "reviewedSessionsSkipped": 1,
+        "traceDiscoveryComplete": True,
+        "lowerBound": False,
+    }
+    assert client.trace_maxima == [25]
+    assert sorted(client.score_sessions) == ["session-reviewed", "session-unreviewed-a", "session-unreviewed-c"]
+    assert client.observation_traces == []
+    assert not any(session_id in json.dumps(summary) for session_id in client.score_sessions)
 
 
 def _private_trace(session_id="run-private-run", trace_id="private-trace"):
@@ -1583,7 +1617,14 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
     bundle = runs_dir / "private-run"
     bundle.mkdir(parents=True)
     (bundle / "invocation.yaml").write_text(
-        json.dumps({"id": "private-run", "bead": "pi-safe.1"}),
+        json.dumps({
+            "id": "private-run",
+            "bead": "pi-safe.1",
+            "createdAt": "2026-07-26T12:00:00Z",
+            "routingTask": "review",
+            "effectiveRole": "quality-reviewer",
+            "dispatchPolicy": {"risk": "medium"},
+        }),
         encoding="utf-8",
     )
     client = FakeScanClient(
@@ -1634,6 +1675,10 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
     assert session["correlation"]["status"] == "linked"
     assert session["correlation"]["runId"] == "private-run"
     assert session["correlation"]["beadId"] == "pi-safe.1"
+    assert session["correlation"]["startedAt"] == "2026-07-26T12:00:00Z"
+    assert session["correlation"]["routingTask"] == "review"
+    assert session["correlation"]["role"] == "quality-reviewer"
+    assert session["correlation"]["risk"] == "medium"
     assert session["features"]["tokens"] == {"freshInput": 100, "cacheRead": 80, "output": 20}
     assert session["features"]["toolCalls"] == 2
     assert session["features"]["toolErrors"] == 1
@@ -2308,6 +2353,86 @@ def _review_decisions():
     }
 
 
+def _monitoring_session(session_id, *, model="private-model"):
+    return {
+        "sessionId": session_id,
+        "traceIds": [f"trace-{session_id}"],
+        "correlation": {
+            "status": "linked",
+            "beadId": "pi-source",
+            "routingTask": "review",
+            "risk": "medium",
+            "role": "quality-reviewer",
+        },
+        "features": {
+            "toolErrors": 0,
+            "models": [model],
+            "promptHash": "a" * 64,
+            "captureGaps": [],
+        },
+    }
+
+
+def _monitoring_packet(report_id, session_ids, *, model="private-model"):
+    return {
+        "schemaVersion": 2,
+        "reportId": report_id,
+        "createdAt": "2026-07-30T00:00:00Z",
+        "scan": {
+            "since": "2026-07-26T00:00:00Z",
+            "until": "2026-07-30T00:00:00Z",
+            "limit": len(session_ids),
+            "recheck": False,
+            "reviewPolicyVersion": "v1",
+        },
+        "sessions": [_monitoring_session(session_id, model=model) for session_id in session_ids],
+    }
+
+
+def _no_action_decisions(packet):
+    return {
+        "schemaVersion": 1,
+        "reportId": packet["reportId"],
+        "reviewPolicyVersion": "v1",
+        "reviewedAt": packet["createdAt"],
+        "sessions": [
+            {"sessionId": session["sessionId"], "decision": "no-action", "findings": []}
+            for session in packet["sessions"]
+        ],
+    }
+
+
+def _promote_monitoring_source(tmp_path):
+    packet = _monitoring_packet("source-report", ["2026-07-27T00-00-00-000Z_source"])
+    decisions = _review_decisions()
+    decisions["reportId"] = packet["reportId"]
+    decisions["reviewedAt"] = packet["createdAt"]
+    decisions["sessions"][0]["sessionId"] = packet["sessions"][0]["sessionId"]
+    state_dir = tmp_path / "private-state"
+
+    def beads_runner(args):
+        if args[0] == "show":
+            return 0, {
+                "id": args[1],
+                "status": "closed",
+                "closed_at": "2026-07-28T00:00:00Z",
+            }, ""
+        return 0, {"id": args[args.index("--id") + 1]}, ""
+
+    base = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": state_dir,
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "beads_runner": beads_runner,
+    }
+    preview = improvement.promote_finding(None, packet, decisions, apply=False, **base)["approvalPreview"]
+    result = improvement.promote_finding(
+        FakeReviewClient(), packet, decisions, apply=True, approval=_approved_preview(preview), **base
+    )
+    return packet, decisions, state_dir, beads_runner, result["beadId"]
+
+
 def test_review_rubric_requires_unknown_and_evidence_thresholds():
     rubric = (ROOT / "pi" / "agent" / "langfuse" / "improvement-review.md").read_text(encoding="utf-8")
 
@@ -2317,6 +2442,9 @@ def test_review_rubric_requires_unknown_and_evidence_thresholds():
         "2 independent work items",
         "1.5×",
         "5 comparable invocations",
+        "`relatedFindingId`",
+        "`validated`",
+        "`recurrent`",
         "Human approval",
     ):
         assert required in rubric
@@ -2490,6 +2618,351 @@ def _approved_preview(preview):
             },
         },
     }
+
+
+def test_promotion_initializes_private_monitoring_state(tmp_path):
+    _packet, _decisions, state_dir, _beads_runner, bead_id = _promote_monitoring_source(tmp_path)
+
+    state = json.loads((state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8"))
+
+    assert state == {
+        "schemaVersion": 2,
+        "findingId": "finding-0123456789ab",
+        "beadId": bead_id,
+        "creationPending": False,
+        "linkRepairNeeded": False,
+        "monitoring": {
+            "status": "promoted",
+            "cohortKey": state["monitoring"]["cohortKey"],
+            "minimumSamples": 5,
+            "implementedAt": None,
+            "sampleIds": [],
+            "recurrentFindingIds": [],
+        },
+    }
+    assert re.fullmatch(r"[0-9a-f]{64}", state["monitoring"]["cohortKey"])
+
+
+def test_reviewed_matched_cohorts_stay_monitoring_until_minimum_then_validate(tmp_path):
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    first_packet = _monitoring_packet(
+        "later-report-1",
+        [f"2026-07-29T00-00-00-00{index}Z_case" for index in range(4)],
+    )
+    first_packet["sessions"].append(_monitoring_session("2026-07-29T00-00-00-009Z_unmatched", model="other-model"))
+
+    first = improvement.review_sessions(
+        FakeReviewClient(),
+        first_packet,
+        _no_action_decisions(first_packet),
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=beads_runner,
+    )
+    state_path = state_dir / "promotion-finding-0123456789ab.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert first["monitoring"] == {"monitoring": 1, "validated": 0, "recurrent": 0}
+    assert state["monitoring"]["status"] == "monitoring"
+    assert len(state["monitoring"]["sampleIds"]) == 4
+    assert state["monitoring"]["implementedAt"] == "2026-07-28T00:00:00Z"
+
+    final_packet = _monitoring_packet("later-report-2", ["2026-07-30T00-00-00-000Z_case"])
+    final = improvement.review_sessions(
+        FakeReviewClient(),
+        final_packet,
+        _no_action_decisions(final_packet),
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=beads_runner,
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert final["monitoring"] == {"monitoring": 0, "validated": 1, "recurrent": 0}
+    assert state["monitoring"]["status"] == "validated"
+    assert len(state["monitoring"]["sampleIds"]) == 5
+
+
+def test_related_later_finding_marks_recurrence_without_public_mutation(tmp_path):
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    packet = _monitoring_packet("recurrent-report", ["2026-07-29T00-00-00-000Z_case"])
+    decisions = _review_decisions()
+    decisions["reportId"] = packet["reportId"]
+    decisions["reviewedAt"] = packet["createdAt"]
+    decisions["sessions"][0]["sessionId"] = packet["sessions"][0]["sessionId"]
+    finding = decisions["sessions"][0]["findings"][0]
+    finding["findingId"] = "finding-abcdef012345"
+    finding["relatedFindingId"] = "finding-0123456789ab"
+    calls = []
+
+    def no_public_mutation(args):
+        calls.append(args)
+        return beads_runner(args)
+
+    summary = improvement.review_sessions(
+        FakeReviewClient(),
+        packet,
+        decisions,
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=no_public_mutation,
+    )
+    state = json.loads(
+        (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
+    )
+
+    assert summary["monitoring"] == {"monitoring": 0, "validated": 0, "recurrent": 1}
+    assert state["monitoring"]["status"] == "recurrent"
+    assert state["monitoring"]["recurrentFindingIds"] == ["finding-abcdef012345"]
+    assert all(args[0] == "show" for args in calls)
+
+    with pytest.raises(ValueError, match="exact human approval"):
+        improvement.promote_finding(
+            FakeReviewClient(),
+            packet,
+            decisions,
+            finding_id="finding-abcdef012345",
+            state_dir=state_dir,
+            repository_root=tmp_path / "repo",
+            tracked_paths={"pi/agent/AGENTS.md"},
+            apply=True,
+            approval=None,
+            beads_runner=beads_runner,
+        )
+
+
+def test_invalid_related_finding_fails_before_review_marker_write(tmp_path):
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    packet = _monitoring_packet("invalid-related-report", ["2026-07-29T00-00-00-000Z_case"])
+    decisions = _review_decisions()
+    decisions["reportId"] = packet["reportId"]
+    decisions["reviewedAt"] = packet["createdAt"]
+    decisions["sessions"][0]["sessionId"] = packet["sessions"][0]["sessionId"]
+    decisions["sessions"][0]["findings"][0]["findingId"] = "finding-abcdef012345"
+    decisions["sessions"][0]["findings"][0]["relatedFindingId"] = "finding-deadbeefdead"
+    client = FakeReviewClient()
+
+    with pytest.raises(ValueError, match="does not match monitored"):
+        improvement.review_sessions(
+            client,
+            packet,
+            decisions,
+            apply=True,
+            state_dir=state_dir,
+            beads_runner=beads_runner,
+        )
+
+    assert client.calls == []
+
+
+def test_related_finding_requires_available_closed_implementation_boundary(tmp_path):
+    _source, _decisions, state_dir, _beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    packet = _monitoring_packet("open-boundary-report", ["2026-07-29T00-00-00-000Z_case"])
+    decisions = _review_decisions()
+    decisions["reportId"] = packet["reportId"]
+    decisions["reviewedAt"] = packet["createdAt"]
+    decisions["sessions"][0]["sessionId"] = packet["sessions"][0]["sessionId"]
+    decisions["sessions"][0]["findings"][0]["findingId"] = "finding-abcdef012345"
+    decisions["sessions"][0]["findings"][0]["relatedFindingId"] = "finding-0123456789ab"
+    client = FakeReviewClient()
+
+    with pytest.raises(ValueError, match="implementation boundary is unavailable"):
+        improvement.review_sessions(
+            client,
+            packet,
+            decisions,
+            apply=True,
+            state_dir=state_dir,
+            beads_runner=lambda args: (0, {"id": args[1], "status": "open"}, ""),
+        )
+
+    assert client.calls == []
+
+
+def test_reapplying_review_preserves_promoted_bead_links(tmp_path):
+    packet, decisions, state_dir, beads_runner, bead_id = _promote_monitoring_source(tmp_path)
+    client = FakeReviewClient()
+
+    improvement.review_sessions(
+        client,
+        packet,
+        decisions,
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=beads_runner,
+    )
+
+    assert client.calls[0]["metadata"]["beadIds"] == [bead_id]
+
+
+def test_runner_session_uses_exact_correlated_start_time_for_monitoring(tmp_path):
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    packet = _monitoring_packet("runner-report", ["run-later"])
+    packet["sessions"][0]["correlation"]["startedAt"] = "2026-07-29T00:00:00Z"
+
+    improvement.review_sessions(
+        FakeReviewClient(),
+        packet,
+        _no_action_decisions(packet),
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=beads_runner,
+    )
+    state = json.loads(
+        (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
+    )
+
+    assert len(state["monitoring"]["sampleIds"]) == 1
+
+
+def test_concurrent_monitoring_updates_preserve_both_samples(monkeypatch, tmp_path):
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    packets = [
+        _monitoring_packet("parallel-a", ["2026-07-29T00-00-00-001Z_case"]),
+        _monitoring_packet("parallel-b", ["2026-07-29T00-00-00-002Z_case"]),
+    ]
+    original_write = improvement._write_private_json
+    first_write = threading.Event()
+    second_write = threading.Event()
+    write_count = 0
+    count_lock = threading.Lock()
+
+    def controlled_write(output_dir, filename, value):
+        nonlocal write_count
+        if filename == "promotion-finding-0123456789ab.json" and value.get("monitoring", {}).get("sampleIds"):
+            with count_lock:
+                write_count += 1
+                current = write_count
+            if current == 1:
+                first_write.set()
+                second_write.wait(timeout=0.2)
+            else:
+                second_write.set()
+        return original_write(output_dir, filename, value)
+
+    monkeypatch.setattr(improvement, "_write_private_json", controlled_write)
+    errors = []
+
+    def update(packet):
+        try:
+            improvement._update_monitoring_states(
+                packet,
+                _no_action_decisions(packet),
+                state_dir=state_dir,
+                beads_runner=beads_runner,
+            )
+        except Exception as error:  # pragma: no cover - asserted below
+            errors.append(error)
+
+    first = threading.Thread(target=update, args=(packets[0],))
+    second = threading.Thread(target=update, args=(packets[1],))
+    first.start()
+    assert first_write.wait(timeout=1)
+    second.start()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    state = json.loads(
+        (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
+    )
+    assert errors == []
+    assert not first.is_alive() and not second.is_alive()
+    assert len(state["monitoring"]["sampleIds"]) == 2
+
+
+@pytest.mark.parametrize("decision", ["excluded", "needs-human"])
+def test_inconclusive_review_decisions_do_not_validate_monitoring(tmp_path, decision):
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    packet = _monitoring_packet("inconclusive-report", ["2026-07-29T00-00-00-000Z_case"])
+    decisions = _no_action_decisions(packet)
+    decisions["sessions"][0]["decision"] = decision
+
+    summary = improvement.review_sessions(
+        FakeReviewClient(),
+        packet,
+        decisions,
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=beads_runner,
+    )
+    state = json.loads(
+        (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
+    )
+
+    assert summary["monitoring"] == {"monitoring": 1, "validated": 0, "recurrent": 0}
+    assert state["monitoring"]["sampleIds"] == []
+
+
+def test_scan_projects_matched_monitoring_privately_but_summary_is_count_only(tmp_path):
+    state_dir = tmp_path / "private-state"
+    source_id = "2026-07-27T00-00-00-000Z_source"
+    source_client = FakeScanClient(
+        [_private_trace(source_id, "source-trace")],
+        {"source-trace": _private_observations()},
+    )
+    _source_summary, source_packet = _scan_sessions(
+        source_client,
+        tmp_path,
+        output_dir=state_dir,
+        limit=1,
+    )
+    decisions = _review_decisions()
+    decisions["reportId"] = source_packet["reportId"]
+    decisions["reviewedAt"] = source_packet["createdAt"]
+    decisions["sessions"][0]["sessionId"] = source_id
+
+    def beads_runner(args):
+        if args[0] == "show":
+            return 0, {"id": args[1], "status": "closed", "closed_at": "2026-07-28T00:00:00Z"}, ""
+        return 0, {"id": args[args.index("--id") + 1]}, ""
+
+    base = {
+        "finding_id": "finding-0123456789ab",
+        "state_dir": state_dir,
+        "repository_root": tmp_path / "repo",
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "beads_runner": beads_runner,
+    }
+    preview = improvement.promote_finding(
+        None, source_packet, decisions, apply=False, **base
+    )["approvalPreview"]
+    improvement.promote_finding(
+        FakeReviewClient(),
+        source_packet,
+        decisions,
+        apply=True,
+        approval=_approved_preview(preview),
+        **base,
+    )
+
+    later_id = "2026-07-29T00-00-00-000Z_later"
+    later_client = FakeScanClient(
+        [_private_trace(later_id, "later-trace")],
+        {"later-trace": _private_observations()},
+    )
+    summary, packet = _scan_sessions(
+        later_client,
+        tmp_path,
+        output_dir=state_dir,
+        limit=1,
+        beads_runner=beads_runner,
+    )
+
+    assert packet["monitoring"] == [{
+        "findingId": "finding-0123456789ab",
+        "status": "monitoring",
+        "matchedSessionIndexes": [0],
+        "minimumSamples": 5,
+        "reviewedSamples": 0,
+    }]
+    assert summary["monitoring"] == {
+        "promoted": 0,
+        "monitoring": 1,
+        "validated": 0,
+        "recurrent": 0,
+        "matchedSessions": 1,
+    }
+    assert "finding-0123456789ab" not in json.dumps(summary)
 
 
 def test_promote_preview_contains_only_exact_public_bead_and_approval_text(tmp_path):

@@ -21,6 +21,7 @@ Each finding requires:
 - `evidenceRefs`: JSON pointers into packet session data. Never copy telemetry excerpts.
 - `proposedIntervention`: `prompt`, `code`, `tool`, `eval`, `workflow`, `routing`, `monitor`, `none`, or `unknown`.
 - `public`: proposed public-safe title, tracked relative paths, aggregate, intervention, acceptance criteria, and evaluation requirement.
+- `relatedFindingId` (optional): existing private monitored finding ID when this new finding is an explicit recurrence in a packet-listed matched post-change cohort.
 
 Use `unknown` whenever evidence cannot support a narrower classification. Use `needs-human` when privacy or attribution remains uncertain.
 
@@ -44,6 +45,8 @@ Classify raw tool errors as events, not mistakes. Escalate only after evidence s
 Default promotion threshold: at least 3 confirmed instances across 2 independent work items, or at least 5 comparable invocations with a materially worse baseline rate. Token inefficiency requires at least 5 comparable invocations and p95 normalized fresh tokens or cost at least 1.5× cohort median. Retry overhead becomes notable near 25% added tokens or latency without improved verified outcome.
 
 Match cohorts by task, risk, context shape, role, model, and prompt version where available. Separate fresh input, cache-read, and output tokens. Missing samples remain `monitor`; absence of evidence is not success.
+
+Promoted findings keep private monitoring state. Monitoring starts only after the linked Bead is closed. Five distinct reviewed sessions from the exact stored cohort mark the finding `validated` when none reports recurrence. Fewer samples remain monitoring. A new finding may use `relatedFindingId` only for a packet-listed matched session; applying review then marks the original finding `recurrent`. Validation and recurrence update private state only. Any recurrent public follow-up still requires the normal exact-preview Human approval before Bead creation.
 
 ## Public boundary
 

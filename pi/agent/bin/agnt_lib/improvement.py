@@ -14,7 +14,7 @@ import tempfile
 import unicodedata
 import uuid
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -93,6 +93,7 @@ FINDING_FIELDS = {
     "proposedIntervention",
     "public",
 }
+OPTIONAL_FINDING_FIELDS = {"relatedFindingId"}
 PUBLIC_FIELDS = {
     "title",
     "affectedPaths",
@@ -104,6 +105,18 @@ PUBLIC_FIELDS = {
 FINDING_ID = re.compile(r"finding-[a-f0-9]{12}\Z")
 BEAD_ID = re.compile(r"[a-z][a-z0-9]*-[A-Za-z0-9._-]+\Z")
 PROMOTION_STATE_FIELDS = {"schemaVersion", "findingId", "beadId", "creationPending", "linkRepairNeeded"}
+MONITORED_PROMOTION_STATE_FIELDS = PROMOTION_STATE_FIELDS | {"monitoring"}
+MONITORING_FIELDS = {
+    "status",
+    "cohortKey",
+    "minimumSamples",
+    "implementedAt",
+    "sampleIds",
+    "recurrentFindingIds",
+}
+MONITORING_STATUSES = {"promoted", "monitoring", "validated", "recurrent"}
+MONITORING_MINIMUM_SAMPLES = 5
+SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
 COHORT_DIMENSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}\Z")
 COHORT_CREDENTIAL_PREFIX = re.compile(r"(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|npm_|pypi-)", re.IGNORECASE)
 PRIVATE_PUBLIC_TEXT = re.compile(
@@ -996,12 +1009,21 @@ def _correlate(session_id: str, runs_dir: Path, scores: list[dict[str, Any]] | N
             except (OSError, json.JSONDecodeError):
                 invocation = None
             if isinstance(invocation, dict) and invocation.get("id") == run_id:
-                return {
+                correlation = {
                     "status": "linked",
                     "runId": run_id,
                     "beadId": invocation.get("bead"),
                     "bundle": str(bundle),
                 }
+                dispatch_policy = invocation.get("dispatchPolicy")
+                dimensions = {
+                    "routingTask": invocation.get("routingTask"),
+                    "role": invocation.get("effectiveRole") or invocation.get("role"),
+                    "risk": dispatch_policy.get("risk") if isinstance(dispatch_policy, dict) else None,
+                    "startedAt": invocation.get("createdAt"),
+                }
+                correlation.update({key: value for key, value in dimensions.items() if isinstance(value, str) and value})
+                return correlation
     canonical_scores = _canonical_score_rows(scores or [], _work_link_score_id(session_id))
     owners = set()
     for score in canonical_scores:
@@ -1191,10 +1213,16 @@ def _inside(path: Path, root: Path) -> bool:
         return False
 
 
-def _require_fields(value: Any, fields: set[str], name: str) -> dict[str, Any]:
+def _require_fields(
+    value: Any,
+    fields: set[str],
+    name: str,
+    *,
+    optional: set[str] | None = None,
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{name} must be an object")
-    unknown = set(value) - fields
+    unknown = set(value) - fields - (optional or set())
     missing = fields - set(value)
     if unknown:
         raise ValueError(f"{name} has unknown fields: {sorted(unknown)}")
@@ -1290,11 +1318,23 @@ def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dic
         if decision == "actions-created" and not session["findings"]:
             raise ValueError("actions-created decisions require findings")
         for finding_index, raw_finding in enumerate(session["findings"]):
-            finding = _require_fields(raw_finding, FINDING_FIELDS, f"findings[{finding_index}]")
+            finding = _require_fields(
+                raw_finding,
+                FINDING_FIELDS,
+                f"findings[{finding_index}]",
+                optional=OPTIONAL_FINDING_FIELDS,
+            )
             finding_id = finding["findingId"]
             if not isinstance(finding_id, str) or not FINDING_ID.fullmatch(finding_id) or finding_id in seen_findings:
                 raise ValueError("findingId must be unique and match finding-<12 lowercase hex>")
             seen_findings.add(finding_id)
+            related_finding_id = finding.get("relatedFindingId")
+            if related_finding_id is not None and (
+                not isinstance(related_finding_id, str)
+                or not FINDING_ID.fullmatch(related_finding_id)
+                or related_finding_id == finding_id
+            ):
+                raise ValueError("relatedFindingId must identify a different monitored finding")
             _require_choice(finding["category"], FINDING_CATEGORIES, "category")
             _require_choice(finding["errorRelevance"], ERROR_RELEVANCE, "errorRelevance")
             _require_choice(finding["impact"], IMPACTS, "impact")
@@ -1328,9 +1368,22 @@ def review_sessions(
     decisions: dict[str, Any],
     *,
     apply: bool = False,
+    state_dir: Path | None = None,
+    beads_runner: Any = None,
 ) -> dict[str, Any]:
     validated = validate_decisions(packet, decisions)
     findings = sum(len(session["findings"]) for session in validated["sessions"])
+    monitoring_enabled = apply and (state_dir is not None or beads_runner is not None)
+    if monitoring_enabled:
+        if state_dir is None or beads_runner is None:
+            raise ValueError("monitoring update requires private state and Beads access")
+        _update_monitoring_states(
+            packet,
+            validated,
+            state_dir=state_dir,
+            beads_runner=beads_runner,
+            persist=False,
+        )
     written = 0
     if apply:
         for session in validated["sessions"]:
@@ -1345,17 +1398,25 @@ def review_sessions(
                     "reviewPolicyVersion": validated["reviewPolicyVersion"],
                     "reviewedAt": validated["reviewedAt"],
                     "findingIds": [finding["findingId"] for finding in session["findings"]],
-                    "beadIds": [],
+                    "beadIds": _promoted_bead_ids(session, state_dir) if state_dir else [],
                 },
             )
             written += 1
-    return {
+    summary = {
         "schemaVersion": 1,
         "status": "applied" if apply else "preview",
         "reviewedSessions": len(validated["sessions"]),
         "findings": findings,
         "scoresWritten": written,
     }
+    if monitoring_enabled:
+        summary["monitoring"] = _update_monitoring_states(
+            packet,
+            validated,
+            state_dir=state_dir,
+            beads_runner=beads_runner,
+        )
+    return summary
 
 
 def _safe_public_text(value: str, name: str) -> str:
@@ -1467,8 +1528,72 @@ def _created_bead_id(data: Any) -> str:
     raise RuntimeError("Bead creation did not return an ID")
 
 
+def _monitoring_cohort_key(session: dict[str, Any]) -> str | None:
+    correlation = session.get("correlation") if isinstance(session.get("correlation"), dict) else {}
+    features = session.get("features") if isinstance(session.get("features"), dict) else {}
+    models = features.get("models") if isinstance(features.get("models"), list) else []
+    normalized_models = sorted({str(model) for model in models if isinstance(model, str) and model})
+    prompt_hash = features.get("promptHash")
+    if not normalized_models or not isinstance(prompt_hash, str) or not SHA256_HEX.fullmatch(prompt_hash):
+        return None
+    return _hash({
+        "routingTask": correlation.get("routingTask"),
+        "risk": correlation.get("risk"),
+        "role": correlation.get("role"),
+        "models": normalized_models,
+        "promptHash": prompt_hash,
+    })
+
+
+def _new_monitoring_state(packet: dict[str, Any], owner: dict[str, Any]) -> dict[str, Any]:
+    source = next(
+        (
+            session
+            for session in packet.get("sessions", [])
+            if isinstance(session, dict) and session.get("sessionId") == owner.get("sessionId")
+        ),
+        {},
+    )
+    return {
+        "status": "promoted",
+        "cohortKey": _monitoring_cohort_key(source),
+        "minimumSamples": MONITORING_MINIMUM_SAMPLES,
+        "implementedAt": None,
+        "sampleIds": [],
+        "recurrentFindingIds": [],
+    }
+
+
 def _promotion_state_path(state_dir: Path, finding_id: str) -> Path:
     return state_dir / f"promotion-{finding_id}.json"
+
+
+def _valid_monitoring_state(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != MONITORING_FIELDS:
+        return False
+    implemented_at = value.get("implementedAt")
+    if implemented_at is not None:
+        if not isinstance(implemented_at, str):
+            return False
+        try:
+            datetime.fromisoformat(implemented_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    sample_ids = value.get("sampleIds")
+    recurrent_ids = value.get("recurrentFindingIds")
+    cohort_key = value.get("cohortKey")
+    return (
+        value.get("status") in MONITORING_STATUSES
+        and (cohort_key is None or isinstance(cohort_key, str) and bool(SHA256_HEX.fullmatch(cohort_key)))
+        and type(value.get("minimumSamples")) is int
+        and value["minimumSamples"] > 0
+        and isinstance(sample_ids, list)
+        and len(sample_ids) == len(set(sample_ids))
+        and all(isinstance(item, str) and SHA256_HEX.fullmatch(item) for item in sample_ids)
+        and isinstance(recurrent_ids, list)
+        and len(recurrent_ids) == len(set(recurrent_ids))
+        and all(isinstance(item, str) and FINDING_ID.fullmatch(item) for item in recurrent_ids)
+    )
 
 
 def _load_promotion_state(path: Path, finding_id: str) -> dict[str, Any] | None:
@@ -1478,19 +1603,215 @@ def _load_promotion_state(path: Path, finding_id: str) -> dict[str, Any] | None:
         return None
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("private promotion state is invalid") from exc
-    valid = (
+    common_valid = (
         isinstance(value, dict)
-        and set(value) == PROMOTION_STATE_FIELDS
-        and value.get("schemaVersion") == 1
         and value.get("findingId") == finding_id
         and isinstance(value.get("beadId"), str)
         and bool(BEAD_ID.fullmatch(value["beadId"]))
         and isinstance(value.get("creationPending"), bool)
         and isinstance(value.get("linkRepairNeeded"), bool)
     )
+    valid = common_valid and (
+        (value.get("schemaVersion") == 1 and set(value) == PROMOTION_STATE_FIELDS)
+        or (
+            value.get("schemaVersion") == 2
+            and set(value) == MONITORED_PROMOTION_STATE_FIELDS
+            and _valid_monitoring_state(value.get("monitoring"))
+        )
+    )
     if not valid:
         raise ValueError("private promotion state is invalid")
     return value
+
+
+def _promoted_bead_ids(session: dict[str, Any], state_dir: Path) -> list[str]:
+    bead_ids = []
+    for finding in session["findings"]:
+        finding_id = finding["findingId"]
+        state = _load_promotion_state(_promotion_state_path(state_dir, finding_id), finding_id)
+        if state and not state["creationPending"]:
+            bead_ids.append(state["beadId"])
+    return sorted(set(bead_ids))
+
+
+def _monitored_promotion_states(state_dir: Path) -> dict[str, dict[str, Any]]:
+    states: dict[str, dict[str, Any]] = {}
+    if not state_dir.is_dir():
+        return states
+    for path in sorted(state_dir.glob("promotion-finding-*.json")):
+        finding_id = path.stem.removeprefix("promotion-")
+        if not FINDING_ID.fullmatch(finding_id):
+            raise ValueError("private promotion state is invalid")
+        state = _load_promotion_state(path, finding_id)
+        if state and state.get("schemaVersion") == 2 and not state["creationPending"]:
+            states[finding_id] = state
+    return states
+
+
+def _bead_record(data: Any) -> dict[str, Any] | None:
+    if isinstance(data, list) and data:
+        data = data[0]
+    return data if isinstance(data, dict) else None
+
+
+def _closed_boundary(bead: dict[str, Any]) -> tuple[str, datetime] | None:
+    if str(bead.get("status") or "").lower() != "closed":
+        return None
+    value = bead.get("closed_at") or bead.get("closedAt")
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed = parsed.astimezone(timezone.utc)
+    return parsed.isoformat().replace("+00:00", "Z"), parsed
+
+
+def _monitoring_session_time(session: dict[str, Any]) -> datetime | None:
+    started = _session_start(str(session.get("sessionId") or ""))
+    if started is not None:
+        return started
+    correlation = session.get("correlation") if isinstance(session.get("correlation"), dict) else {}
+    value = correlation.get("startedAt")
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _update_monitoring_states(
+    packet: dict[str, Any],
+    decisions: dict[str, Any],
+    *,
+    state_dir: Path,
+    beads_runner: Any,
+    persist: bool = True,
+) -> dict[str, int]:
+    states = _monitored_promotion_states(state_dir)
+    related_ids = {
+        finding["relatedFindingId"]
+        for session in decisions["sessions"]
+        for finding in session["findings"]
+        if isinstance(finding.get("relatedFindingId"), str)
+    }
+    unknown_related = related_ids - set(states)
+    if unknown_related:
+        raise ValueError("relatedFindingId does not match monitored private state")
+    packet_sessions = {
+        session.get("sessionId"): session
+        for session in packet.get("sessions", [])
+        if isinstance(session, dict) and isinstance(session.get("sessionId"), str)
+    }
+    counts = {"monitoring": 0, "validated": 0, "recurrent": 0}
+    for finding_id, initial_state in states.items():
+        lock = _promotion_lock(state_dir, finding_id) if persist else nullcontext()
+        with lock:
+            state = initial_state
+            if persist:
+                current = _load_promotion_state(_promotion_state_path(state_dir, finding_id), finding_id)
+                if current is None or current.get("schemaVersion") != 2 or current["creationPending"]:
+                    continue
+                state = current
+            before = _canonical(state)
+            code, data, _error = beads_runner(["show", state["beadId"]])
+            bead = _bead_record(data) if code == 0 else None
+            boundary = _closed_boundary(bead) if bead else None
+            monitoring = state["monitoring"]
+            if finding_id in related_ids and not boundary:
+                raise ValueError("related finding implementation boundary is unavailable")
+            if boundary:
+                boundary_text, boundary_time = boundary
+                monitoring["implementedAt"] = monitoring["implementedAt"] or boundary_text
+                if monitoring["status"] == "promoted":
+                    monitoring["status"] = "monitoring"
+                for decision_session in decisions["sessions"]:
+                    packet_session = packet_sessions[decision_session["sessionId"]]
+                    started = _monitoring_session_time(packet_session)
+                    related_findings = [
+                        finding
+                        for finding in decision_session["findings"]
+                        if finding.get("relatedFindingId") == finding_id
+                    ]
+                    matched = (
+                        started is not None
+                        and started > boundary_time
+                        and monitoring["cohortKey"] is not None
+                        and _monitoring_cohort_key(packet_session) == monitoring["cohortKey"]
+                    )
+                    if related_findings and decision_session["decision"] != "actions-created":
+                        raise ValueError("related finding requires an actions-created decision")
+                    if related_findings and not matched:
+                        raise ValueError("related finding is outside matched post-change cohort")
+                    if not matched:
+                        continue
+                    if related_findings:
+                        monitoring["recurrentFindingIds"] = sorted({
+                            *monitoring["recurrentFindingIds"],
+                            *(finding["findingId"] for finding in related_findings),
+                        })
+                    elif decision_session["decision"] in {"no-action", "actions-created"}:
+                        monitoring["sampleIds"] = sorted({
+                            *monitoring["sampleIds"],
+                            _hash({"sessionId": decision_session["sessionId"]}),
+                        })
+                if monitoring["recurrentFindingIds"]:
+                    monitoring["status"] = "recurrent"
+                elif len(monitoring["sampleIds"]) >= monitoring["minimumSamples"]:
+                    monitoring["status"] = "validated"
+            if persist and _canonical(state) != before:
+                _write_private_json(state_dir, _promotion_state_path(state_dir, finding_id).name, state)
+            if monitoring["status"] in counts:
+                counts[monitoring["status"]] += 1
+    return counts
+
+
+def _monitoring_projection(
+    sessions: list[dict[str, Any]],
+    *,
+    state_dir: Path,
+    beads_runner: Any = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    rows: list[dict[str, Any]] = []
+    counts = {"promoted": 0, "monitoring": 0, "validated": 0, "recurrent": 0, "matchedSessions": 0}
+    for finding_id, state in _monitored_promotion_states(state_dir).items():
+        monitoring = state["monitoring"]
+        status = monitoring["status"]
+        boundary = None
+        if beads_runner is not None:
+            code, data, _error = beads_runner(["show", state["beadId"]])
+            bead = _bead_record(data) if code == 0 else None
+            boundary = _closed_boundary(bead) if bead else None
+            if boundary and status == "promoted":
+                status = "monitoring"
+        matched = []
+        if boundary and monitoring["cohortKey"] is not None:
+            _boundary_text, boundary_time = boundary
+            for index, session in enumerate(sessions):
+                started = _monitoring_session_time(session)
+                if (
+                    started is not None
+                    and started > boundary_time
+                    and _monitoring_cohort_key(session) == monitoring["cohortKey"]
+                ):
+                    matched.append(index)
+        counts[status] += 1
+        counts["matchedSessions"] += len(matched)
+        rows.append({
+            "findingId": finding_id,
+            "status": status,
+            "matchedSessionIndexes": matched,
+            "minimumSamples": monitoring["minimumSamples"],
+            "reviewedSamples": len(monitoring["sampleIds"]),
+        })
+    return rows, counts
 
 
 @contextmanager
@@ -1567,12 +1888,16 @@ def _apply_promotion(
     state_dir: Path,
     bead: dict[str, Any],
     session: dict[str, Any],
+    monitoring: dict[str, Any],
     approval: Any,
     approval_preview: dict[str, str],
     beads_runner: Any,
 ) -> dict[str, Any]:
     state_path = _promotion_state_path(state_dir, finding_id)
     state = _load_promotion_state(state_path, finding_id)
+    if state and state.get("schemaVersion") == 1:
+        state = {**state, "schemaVersion": 2, "monitoring": monitoring}
+        _write_private_json(state_dir, state_path.name, state)
     if state and state["creationPending"] and not _repair_creation(beads_runner, state_dir, state_path, state):
         return {"schemaVersion": 1, "status": "creation-repair-needed", "created": False}
     if state and not state["linkRepairNeeded"]:
@@ -1582,11 +1907,12 @@ def _apply_promotion(
         if not _has_exact_human_approval(approval, approval_preview):
             raise ValueError("promotion apply requires exact human approval")
         state = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "findingId": finding_id,
             "beadId": _new_bead_id(),
             "creationPending": True,
             "linkRepairNeeded": True,
+            "monitoring": monitoring,
         }
         _write_private_json(state_dir, state_path.name, state)
         _create_bead(beads_runner, bead, state["beadId"])
@@ -1639,6 +1965,7 @@ def promote_finding(
     if _inside(state_dir, repository_root):
         raise ValueError("private promotion state must be outside repository")
     bead, session = _public_bead(packet, decisions, finding_id, tracked_paths)
+    monitoring = _new_monitoring_state(packet, session)
     approval_preview = _promotion_approval_preview(bead)
     if not apply:
         return {"schemaVersion": 1, "status": "preview", "bead": bead, "approvalPreview": approval_preview}
@@ -1650,6 +1977,7 @@ def promote_finding(
             state_dir=state_dir,
             bead=bead,
             session=session,
+            monitoring=monitoring,
             approval=approval,
             approval_preview=approval_preview,
             beads_runner=beads_runner,
@@ -1705,6 +2033,65 @@ def _is_current_review(scores: list[dict[str, Any]]) -> bool:
     )
 
 
+def _review_eligibility(
+    client: Any,
+    *,
+    since: str,
+    until: str,
+    max_traces: int,
+    recheck: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, list[dict[str, Any]]], dict[str, bool], dict[str, bool]]:
+    discovery = client.list_traces_with_metadata(
+        from_timestamp=since,
+        to_timestamp=until,
+        max_traces=max_traces,
+    )
+    traces = discovery["traces"]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for trace in traces:
+        session_id = trace.get("sessionId")
+        if isinstance(session_id, str) and session_id:
+            groups.setdefault(session_id, []).append(trace)
+    review_cache: dict[str, bool] = {}
+    review_scores_truncated: dict[str, bool] = {}
+    for session_id in groups:
+        scores = [] if recheck else client.list_scores(
+            from_timestamp=_session_score_since(session_id, since),
+            to_timestamp=until,
+            session_id=session_id,
+            name=REVIEW_SCORE,
+            limit=SCORES_PER_QUERY + 1,
+        )
+        review_scores_truncated[session_id] = len(scores) > SCORES_PER_QUERY
+        review_cache[session_id] = _is_current_review(scores[:SCORES_PER_QUERY])
+    return discovery, traces, groups, review_cache, review_scores_truncated
+
+
+def eligible_unreviewed_session_summary(
+    client: Any,
+    *,
+    since: str,
+    until: str,
+    max_traces: int = DEFAULT_MAX_TRACES,
+) -> dict[str, Any]:
+    discovery, _traces, groups, review_cache, truncated = _review_eligibility(
+        client,
+        since=since,
+        until=until,
+        max_traces=max_traces,
+    )
+    eligible = sum(not review_cache[session_id] for session_id in groups)
+    return {
+        "schemaVersion": 1,
+        "status": "ok",
+        "candidateSessions": len(groups),
+        "eligibleSessions": eligible,
+        "reviewedSessionsSkipped": len(groups) - eligible,
+        "traceDiscoveryComplete": discovery.get("complete") is True,
+        "lowerBound": discovery.get("complete") is not True or any(truncated.values()),
+    }
+
+
 def scan_sessions(
     client: Any,
     *,
@@ -1717,6 +2104,7 @@ def scan_sessions(
     max_traces: int = DEFAULT_MAX_TRACES,
     recheck: bool = False,
     dry_run: bool = False,
+    beads_runner: Any = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if limit < 1:
         raise ValueError("scan limit must be positive")
@@ -1725,19 +2113,14 @@ def scan_sessions(
     if _inside(output_dir, repository_root):
         raise ValueError("improvement directory must be outside repository")
 
-    discovery = client.list_traces_with_metadata(
-        from_timestamp=since,
-        to_timestamp=until,
+    discovery, traces, groups, review_cache, review_scores_truncated = _review_eligibility(
+        client,
+        since=since,
+        until=until,
         max_traces=max_traces,
+        recheck=recheck,
     )
-    traces = discovery["traces"]
-    groups: dict[str, list[dict[str, Any]]] = {}
-    attributable = 0
-    for trace in traces:
-        session_id = trace.get("sessionId")
-        if isinstance(session_id, str) and session_id:
-            attributable += 1
-            groups.setdefault(session_id, []).append(trace)
+    attributable = sum(len(items) for items in groups.values())
     trace_discovery = {
         "totalAvailable": discovery.get("totalAvailable"),
         "scanned": len(traces),
@@ -1752,18 +2135,6 @@ def scan_sessions(
         session_id = trace.get("sessionId")
         if trace.get("name") == "pi-agent" and isinstance(session_id, str) and session_id:
             child_trace_roots.setdefault(session_id, []).append(trace)
-    review_cache: dict[str, bool] = {}
-    review_scores_truncated: dict[str, bool] = {}
-    for session_id in groups:
-        scores = [] if recheck else client.list_scores(
-            from_timestamp=_session_score_since(session_id, since),
-            to_timestamp=until,
-            session_id=session_id,
-            name=REVIEW_SCORE,
-            limit=SCORES_PER_QUERY + 1,
-        )
-        review_scores_truncated[session_id] = len(scores) > SCORES_PER_QUERY
-        review_cache[session_id] = _is_current_review(scores[:SCORES_PER_QUERY])
     eligible_groups = [(session_id, items) for session_id, items in groups.items() if not review_cache[session_id]]
     billing_classes = _cohort_billing_classes(repository_root)
 
@@ -1852,6 +2223,11 @@ def scan_sessions(
         allowed_providers=allowed_providers,
         allowed_models=allowed_models,
     )
+    monitoring, monitoring_summary = _monitoring_projection(
+        sessions,
+        state_dir=output_dir,
+        beads_runner=beads_runner,
+    )
     report_id = _hash({"since": since, "until": until, "sessions": [item["sessionId"] for item in sessions]})[:16]
     packet = {
         "schemaVersion": 2,
@@ -1867,6 +2243,7 @@ def scan_sessions(
             "cohortHealth": cohort_health,
         },
         "sessions": sessions,
+        "monitoring": monitoring,
     }
     summary = {
         "schemaVersion": 1,
@@ -1874,6 +2251,7 @@ def scan_sessions(
         "scannedTraces": len(traces),
         "traceDiscovery": trace_discovery,
         "cohortHealth": cohort_health,
+        "monitoring": monitoring_summary,
         "candidateSessions": len(groups),
         "eligibleSessions": len(sessions),
         "reviewedSessionsSkipped": sum(review_cache.get(session_id, False) for session_id in groups),
@@ -2090,7 +2468,14 @@ def cmd_improve(argv: list[str]) -> int:
             repository_root = git_root()
             packet = _load_private_object(args.report, repository_root)
             decisions = _load_private_object(args.decisions, repository_root)
-            summary = review_sessions(_client_from_env() if args.apply else None, packet, decisions, apply=args.apply)
+            summary = review_sessions(
+                _client_from_env() if args.apply else None,
+                packet,
+                decisions,
+                apply=args.apply,
+                state_dir=improvement_dir() if args.apply else None,
+                beads_runner=_beads if args.apply else None,
+            )
         except (LangfuseError, OSError, ValueError, json.JSONDecodeError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement review failed"}))
@@ -2121,6 +2506,7 @@ def cmd_improve(argv: list[str]) -> int:
             max_traces=args.max_traces,
             recheck=args.recheck,
             dry_run=args.dry_run,
+            beads_runner=_beads,
         )
     except (LangfuseError, OSError, ValueError):
         if args.json:
@@ -2135,4 +2521,4 @@ def cmd_improve(argv: list[str]) -> int:
     return 0
 
 
-__all__ = ["cmd_improve", "improvement_dir", "scan_sessions"]
+__all__ = ["cmd_improve", "eligible_unreviewed_session_summary", "improvement_dir", "scan_sessions"]

@@ -59,6 +59,7 @@ def test_maintenance_due_report_derives_signals_and_suppresses_open_duplicates(a
         git_summary={"commitsSinceMaintenance": 6},
         health_report=health,
         context_health_report=context,
+        improvement_review_report={"status": "ok", "eligibleSessions": 0},
         thresholds={
             "closedImplementationBeads": 3,
             "commits": 5,
@@ -74,6 +75,129 @@ def test_maintenance_due_report_derives_signals_and_suppresses_open_duplicates(a
     assert "design-review" in suppressed_modes
     assert due_modes == {"architecture-review", "simplification", "workflow-retro", "context-health"}
     assert report["signals"]["failedOrBlockedRuns"] == 2
+
+
+def test_improvement_review_due_uses_only_safe_eligible_session_count(agnt):
+    report = agnt.maintenance_due_report(
+        beads=[],
+        runs=[],
+        git_summary={"commitsSinceMaintenance": 0},
+        health_report={"summary": {}},
+        context_health_report={"summary": {}},
+        improvement_review_report={"status": "ok", "eligibleSessions": 6},
+        thresholds={
+            "closedImplementationBeads": 99,
+            "commits": 99,
+            "failedOrBlockedRuns": 99,
+            "humanBlockers": 99,
+            "contextWarnings": 99,
+            "healthWarnings": 99,
+            "healthFailures": 99,
+            "eligibleUnreviewedSessions": 5,
+        },
+    )
+
+    assert [item["mode"] for item in report["due"]] == ["improvement-review"]
+    assert report["signals"]["eligibleUnreviewedSessions"] == 6
+    spec = agnt.maintenance_bead_specs(report)[0]
+    assert spec["label"] == "maintenance:improvement-review"
+    assert "Signals:" not in spec["description"]
+    assert "Langfuse" not in spec["description"]
+    assert "private" not in spec["description"].lower()
+    assert json.loads(spec["metadata"])["pi"]["action"] == "review"
+
+
+def test_improvement_review_failure_is_unknown_not_not_due(agnt):
+    report = agnt.maintenance_due_report(
+        beads=[],
+        runs=[],
+        git_summary={"commitsSinceMaintenance": 0},
+        health_report={"summary": {}},
+        context_health_report={"summary": {}},
+        improvement_review_report={"status": "unavailable"},
+    )
+
+    assert report["signals"]["eligibleUnreviewedSessions"] is None
+    assert "improvement-review" not in {item["mode"] for item in report["due"]}
+    assert report["warnings"] == [
+        "private improvement telemetry unavailable; improvement-review due state is unknown"
+    ]
+
+
+def test_incomplete_eligible_count_warns_when_below_threshold(agnt):
+    report = agnt.maintenance_due_report(
+        beads=[],
+        runs=[],
+        git_summary={"commitsSinceMaintenance": 0},
+        health_report={"summary": {}},
+        context_health_report={"summary": {}},
+        improvement_review_report={"status": "ok", "eligibleSessions": 2, "lowerBound": True},
+        thresholds={"eligibleUnreviewedSessions": 5},
+    )
+
+    assert "improvement-review" not in {item["mode"] for item in report["due"]}
+    assert report["warnings"] == [
+        "eligible unreviewed session count is incomplete; improvement-review due state may be understated"
+    ]
+
+
+def test_improvement_checkpoint_does_not_reset_other_maintenance_cadence(agnt):
+    calls = []
+    beads = [
+        {
+            "id": "pi-architecture",
+            "status": "closed",
+            "closed_at": "2026-07-20T00:00:00Z",
+            "labels": ["maintenance:architecture-review"],
+        },
+        {
+            "id": "pi-improvement",
+            "status": "closed",
+            "closed_at": "2026-07-25T00:00:00Z",
+            "labels": ["maintenance:improvement-review"],
+        },
+    ]
+
+    def git_summary(_root, *, since):
+        calls.append(since)
+        return {"commitsSinceMaintenance": 0}
+
+    with patch.dict(agnt.maintenance_due_report.__globals__, {"git_commit_summary": git_summary}):
+        agnt.maintenance_due_report(
+            beads=beads,
+            runs=[],
+            health_report={"summary": {}},
+            context_health_report={"summary": {}},
+            improvement_review_report={"status": "ok", "eligibleSessions": 0},
+        )
+
+    assert calls[0].isoformat().replace("+00:00", "Z") == "2026-07-20T00:00:00Z"
+
+
+def test_closed_legacy_lessons_checkpoint_bounds_improvement_review_query(agnt):
+    calls = []
+
+    def provider(**kwargs):
+        calls.append(kwargs)
+        return {"status": "ok", "eligibleSessions": 0}
+
+    report = agnt.maintenance_due_report(
+        beads=[{
+            "id": "pi-legacy",
+            "status": "closed",
+            "closed_at": "2026-07-20T01:02:03Z",
+            "labels": ["maintenance:lessons-harvest"],
+        }],
+        runs=[],
+        git_summary={"commitsSinceMaintenance": 0},
+        health_report={"summary": {}},
+        context_health_report={"summary": {}},
+        improvement_review_provider=provider,
+    )
+
+    assert calls[0]["since"] == "2026-07-20T01:02:03Z"
+    assert report["lastImprovementReviewAt"] == "2026-07-20T01:02:03Z"
+    assert all(item["label"] != "maintenance:lessons-harvest" for item in report["due"])
 
 
 def test_read_only_maintenance_specs_use_a_dispatchable_review_action(agnt):

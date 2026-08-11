@@ -204,8 +204,10 @@ manually or from a locally installed hook. `agnt route` aggregates outcomes by
 family across pending and consolidated metrics and demotes families with
 negative track records. `agnt work maintenance due` derives self-improvement
 triggers from Beads, git, run artifacts, health reports, context-health warnings,
-and recorded session volume. Git never tracks telemetry; it tracks the policy
-changes and maintenance checkpoint Beads the telemetry justifies.
+and bounded eligible-unreviewed session counts. Promoted findings keep private
+matched post-change state; reviewed cohorts validate them or mark recurrence,
+while public follow-up remains approval-gated. Git never tracks telemetry; it
+tracks the policy changes and maintenance checkpoint Beads the telemetry justifies.
 
 ## Quality gates
 
