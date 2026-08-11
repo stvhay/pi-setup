@@ -40,6 +40,17 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
 
 For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and the selected target as `model`. Use its `tasks` array for parallel peers. Optional single/per-child `outputContract` values are `inline`, `artifact`, `status-only`, and `pass-no-findings`; omitted contracts remain `unknown`. The tracked observer generates one payload-free `invocationId` per child at tool start and reuses it in the projection, metric, and parent-owned result artifact. Before returning, the parent writes full final, partial, and error output under `agnt runtime-path delegated-results`; tool content/details and telemetry gain a bounded `runtime:delegated-results/...` ref plus payload-free persistence status. Failed children also expose bounded termination reason/source/effective deadline even when usable partial output exists. Projections and metrics carry matching provider, model, target, effective thinking level, objective execution outcome, and output contract. Quality evaluators receive only a bounded parent-result view plus contract and artifact persistence/content status/count, never raw refs or filesystem paths. Config-less workers use thinking `default` because Archimedes supplies no thinking override. Parallel indexes are metadata, not identity. Named-profile projections mark provider, target, and thinking unavailable, and their metrics remain skipped because Archimedes does not expose those effective values.
 
+`maxOutputTokens` bounds one provider response, not visible final-answer length; reasoning may consume that allowance before the visible final answer. Do not derive a low token cap from requested characters. Subscription-backed one-shot calls normally omit it, while the tracked wrapper keeps the 16,384-token metered one-shot backstop. An explicit lower cap remains appropriate for a bounded experiment or known spend/risk ceiling. One-shot rejects cumulative `maxTotalTokens` and `maxCostUsd`; they cannot constrain a provider request already in flight. One-shot already has one provider turn, so omit `maxProviderRequests`. Subscription-backed agentic work also omits request/token/cost caps unless an explicit bounded experiment or runaway risk requires one.
+
+| `outputContract` | Use | Low-failure prompt pattern |
+|---|---|---|
+| `inline` | Required result must be visible to parent. | Request schema-valid JSON or concise prose, with both finding/item count and character target. Keep provider allowance above visible target plus reasoning; do not add a low ad hoc cap. |
+| `artifact` | Complete final response may be larger than bounded parent projection; parent persists it. | Ask child to return complete result in final response. Do not ask tool-disabled one-shot child to write a local file. |
+| `status-only` | Parent needs completion state, not full findings. | Request one explicit `OK` or `ERROR` line and use lower thinking when task permits; short final text alone is not reason to lower provider allowance. |
+| `pass-no-findings` | `PASS` is valid when no defect exists, but concrete findings must survive. | Request `PASS` or a small bounded finding list; never force filler when no finding exists. |
+
+Classify failures from explicit evidence. `terminationReason=output-limit` plus `terminationSource=caller` identifies an applied caller ceiling; `wrapper` identifies the configured metered default; `provider` identifies a lower/native provider stop and may have no exact known limit. Provider/context/network failures retain their provider or process evidence and must not be relabeled from output shape. Malformed or incomplete JSON alone proves no failure source; it only makes a structured result invalid. Full partial output remains in parent-owned delegated artifacts.
+
 - `agnt runtime-path KIND`
   - Returns bounded JSON containing safe private directory for runtime kind such as `runs` or `metrics/invocations`. Resolver uses project `.pi/<kind>` only when Git proves path ignored and untracked; otherwise it uses mode-`0700` `~/.pi/runtime/<sha256>/<kind>`. Hash keys canonical Git common directory, including linked worktrees, or canonical working directory outside Git.
 
@@ -72,7 +83,7 @@ agnt route --task review --risk medium --budget balanced --fanout-size 3
 ```
 
 ```json
-{"task":"<complete packet contents>","model":"<selected-provider/model>","mode":"one-shot","thinking":"<routed level>","limits":{"maxProviderRequests":1,"maxDurationMs":300000}}
+{"task":"<complete packet contents>","model":"<selected-provider/model>","mode":"one-shot","thinking":"<routed level>","limits":{"maxDurationMs":300000}}
 ```
 
 For structured review findings:

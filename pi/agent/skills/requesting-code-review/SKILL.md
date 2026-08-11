@@ -114,7 +114,9 @@ The tracked schema and example are:
 
 ## Run cold discovery passes
 
-Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child limit bounds stalled calls without cutting off otherwise-healthy slower reviews; one provider request prevents tool-loop multiplication. Reuse the calibrated response contract in every discovery packet: report at most two concrete findings and return at most 6,000 characters. This keeps final JSON below the deliberate metered output ceiling without weakening review evidence.
+Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child limit bounds stalled calls without cutting off otherwise-healthy slower reviews; one provider request is intrinsic, so do not add a redundant `maxProviderRequests` cap. Reuse the calibrated response contract in every discovery packet: report at most two concrete findings and return at most 6,000 characters. This keeps final JSON below the deliberate 16,384-token metered output ceiling without weakening review evidence.
+
+Do not add a low ad hoc `maxOutputTokens` cap for structured review JSON. Provider output allowance can include reasoning before visible final output, so a 5,000-token ceiling does not safely guarantee a shorter JSON response. Keep subscription-backed discovery uncapped; retain the tracked metered wrapper ceiling. Use an explicit lower cap only for a bounded experiment or known spend/risk boundary, and record any resulting `output-limit` as a caller limit rather than a provider or network failure.
 
 Policy by risk:
 
@@ -130,7 +132,7 @@ Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes
   "model": "<routed-provider/model>",
   "mode": "one-shot",
   "thinking": "<routed-thinking-level>",
-  "limits": {"maxProviderRequests": 1, "maxDurationMs": 300000},
+  "limits": {"maxDurationMs": 300000},
   "outputContract": "inline"
 }
 ```
@@ -157,13 +159,13 @@ Verification statuses:
 - `unresolved` — a concrete serious claim survives inspection but conflicting requirements or unavailable evidence prevent a decision;
 - `unverified` — discovery only; never a promotion gate.
 
-Use agentic mode for each fresh subscription-backed verifier. Keep liveness bounds without cumulative token or cost ceilings:
+Use agentic mode for each fresh subscription-backed verifier. Keep the 300-second liveness bound, but omit request, token, and cost caps: deep repository inspection may require many healthy turns. Add a request cap only for an explicit bounded experiment or identified runaway risk, and record it as a caller limit.
 
 ```json
 {
   "model": "<routed-subscription-provider/model>",
   "mode": "agentic",
-  "limits": {"maxProviderRequests": 30, "maxDurationMs": 300000},
+  "limits": {"maxDurationMs": 300000},
   "outputContract": "inline"
 }
 ```

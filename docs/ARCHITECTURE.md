@@ -80,7 +80,11 @@ automatic token or cost cap. Applied evidence distinguishes that deliberate ceil
 from a lower existing provider/model ceiling, while every provider `length` stop is
 failed `output-limit` termination with usable partial output preserved in parent-owned
 artifacts. Review discovery packets cap contracted JSON at 6,000 characters so valid
-work fits below the deliberate metered ceiling. See the approved [Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).
+work fits below the deliberate metered ceiling. Provider output allowance can include
+reasoning before visible final output, so prompt character targets do not justify a low
+ad hoc token cap. Malformed JSON alone does not identify caller, wrapper, provider,
+context, or network failure; normalized termination evidence does. See the approved
+[Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).
 
 ### Work, tasks, prompts, skills, roles, and tools
 

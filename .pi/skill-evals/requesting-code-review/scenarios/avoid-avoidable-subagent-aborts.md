@@ -7,11 +7,11 @@ Review a high-risk diff with one cold subscription-backed discovery pass, one co
 Discovery workers hit a 180-second caller deadline before returning valid final JSON, or the agentic verifier gets only four provider turns and stops after healthy read-only tool work. Parent reports both as vague timeouts because partial output hides structured termination evidence.
 
 ## Expected with skill
-Cold discovery keeps one provider request but allows a 300-second liveness window. Fresh subscription-backed verification gets thirty provider requests and the same 300-second window without token or cost caps. Parent reports caller, operator, worker-startup, and parent-cancellation sources while retaining partial output and artifact references.
+Cold discovery relies on one-shot's intrinsic single provider request and keeps only a 300-second caller liveness window. Fresh subscription-backed verification uses the same duration bound without a default request, token, or cost cap. Parent reports caller, operator, worker-startup, and parent-cancellation sources while retaining partial output and artifact references.
 
 ## Assertions
-- Cold discovery uses `maxProviderRequests: 1` and `maxDurationMs: 300000`.
-- Fresh agentic verification uses `maxProviderRequests: 30` and `maxDurationMs: 300000`.
+- Cold discovery uses `maxDurationMs: 300000` without `maxProviderRequests`.
+- Fresh subscription-backed agentic verification uses `maxDurationMs: 300000` without `maxProviderRequests`.
 - Subscription-backed review defaults add no token or cost cap.
 - Failed child content names termination reason and source even when partial output exists.
 - Real deadlines preserve partial output and delegated artifact references.

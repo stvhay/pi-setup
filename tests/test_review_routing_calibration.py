@@ -71,6 +71,18 @@ def task(packet_id: str, repetition: int) -> str:
     return f"{prefix} packet={packet_id} repetition={repetition}\n\n{prompt}"
 
 
+def test_validate_output_rejects_truncated_json_without_inventing_failure_source():
+    module = load_module()
+    spec = manifest()
+    packet = spec["packets"][0]
+    truncated = output(packet, expected_ids(packet))[:-1]
+
+    findings, errors = module.validate_output(truncated, packet, spec["execution"])
+
+    assert findings == []
+    assert errors == ["json"]
+
+
 def session_entry(message: dict) -> str:
     return json.dumps({"type": "message", "id": "entry", "message": message})
 
