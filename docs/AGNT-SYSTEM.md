@@ -63,7 +63,8 @@ For direct coding:
 2. Confirm or create a Bead, then link the current session with `agnt work direct-start`.
 3. Inspect, edit, and verify in Pi.
 4. Commit task-owned changes.
-5. Record `agnt improve outcome`, close the Bead, and hand off ready follow-up work in a fresh session when needed.
+5. Record `agnt improve outcome`, then run `agnt work direct-closeout` to close the Bead, explicitly export and verify `.beads/issues.jsonl`, and create its separate portable-state commit.
+6. Hand off ready follow-up work in a fresh session when needed.
 
 For optional orchestration, action templates may create private run bundles containing invocation metadata, live status, result evidence, artifacts, and metric references. The local runner executes those bundles and reports status through the ticket gateway. See [Run Artifacts](RUN-ARTIFACTS.md) and [Project-Local Runner Service](RUNNER-SERVICE.md).
 

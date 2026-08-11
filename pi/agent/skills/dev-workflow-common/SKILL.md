@@ -47,8 +47,9 @@ Hard gates still apply: approval before implementation in design workflows, bran
 
 - Approval to implement includes staging and one local atomic commit of task-owned changes unless the user explicitly narrows that approval. Explicit `do not commit` instructions override this default.
 - Before staging, inspect the diff and status. Never stage unrelated pre-existing changes; if task-owned and unrelated changes cannot be separated safely, preserve the work and ask with exact paths.
-- After verification, commit task-owned changes, then close the Bead. Do not close the Bead or claim completion while task-owned changes remain uncommitted unless committing is explicitly prohibited or blocked; record that blocker and resumption path instead.
-- Push, merge, deploy, history rewrite, branch/worktree deletion, and other remote or destructive actions still require explicit approval. A local commit grants none of those actions.
+- After verification, commit task-owned changes. Do not close the Bead or claim completion while task-owned changes remain uncommitted unless committing is explicitly prohibited or blocked; record that blocker and resumption path instead.
+- For direct work, record `agnt improve outcome <id> <outcome>`, then run `agnt work direct-closeout <id> --reason "<reason>"`. This second local commit records shared portable Beads state separately: explicit export, target closeout parity, and all legitimate `.beads/issues.jsonl` rows. It refuses tracked non-Beads changes and never stages or commits them.
+- Push, merge, deploy, history rewrite, branch/worktree deletion, and other remote or destructive actions still require explicit approval. Local implementation and portable-state commits grant none of those actions; direct closeout never pushes.
 
 ## Plan directory
 

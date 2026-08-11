@@ -129,6 +129,12 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. After current Bead closeout, call `handoff_bead` with the target ready Bead ID; `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
   - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle, runner, or worktree creation.
 
+- `agnt work direct-closeout BEAD --reason REASON`
+  - Runs only after task-owned implementation changes are verified and committed and `agnt improve outcome BEAD OUTCOME` has recorded matching session ownership.
+  - Refuses tracked non-Beads changes, closes the Bead idempotently, explicitly exports canonical regular issues through `bd export --readonly`, and verifies target `status`, `closed_at`, and `close_reason` parity before replacing `.beads/issues.jsonl`.
+  - Stages and creates a second local commit containing only `.beads/issues.jsonl`. The shared portable-state commit preserves all legitimate exported Bead rows; unrelated untracked files remain untouched. It never pushes.
+  - Returns bounded stage JSON. Failure after closure is `partial` and safe to retry; a retry repairs export, staging, or commit without discarding shared rows.
+
 - `agnt work handoff-check BEAD --session-id SESSION`
   - Internal preflight for tracked Bead handoff extension. It requires one linked explicit session outcome, closed source Bead, and existing target in `bd ready` before fresh-session staging or process replacement.
   - Returns bounded JSON containing source/target Bead IDs, status, and outcome; it does not copy transcript content, stage session, or replace process itself.

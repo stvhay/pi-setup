@@ -13,6 +13,15 @@ from unittest.mock import patch
 AGNT = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin" / "agnt"
 
 
+def init_test_git(path):
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.name", "Pi Test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "pi@example.test"],
+        check=True,
+    )
+
+
 def test_tests_use_per_test_provider_circuit_directory(tmp_path):
     assert Path(os.environ["AGNT_PROVIDER_CIRCUIT_DIR"]) == tmp_path / "provider-circuits"
 
@@ -1054,6 +1063,254 @@ def test_direct_start_exists_only_under_work_namespace(agnt, capsys):
 
     assert agnt.cmd_work([]) == 0
     assert "direct-start" in capsys.readouterr().out
+
+
+def test_direct_closeout_exports_parity_and_commits_shared_beads_only(
+    agnt, monkeypatch, tmp_path
+):
+    direct_closeout = getattr(agnt, "direct_closeout", None)
+    assert direct_closeout is not None, "direct_closeout is missing"
+
+    init_test_git(tmp_path)
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    portable = beads / "issues.jsonl"
+    target = {"_type": "issue", "id": "pi-test.close", "status": "open"}
+    shared = {"_type": "issue", "id": "pi-test.shared", "status": "open", "notes": "old"}
+    portable.write_text(
+        "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in (target, shared)),
+        encoding="utf-8",
+    )
+    exporter = tmp_path / "fake-bd"
+    exporter.write_text(
+        """#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"], encoding=\"utf-8\")
+""",
+        encoding="utf-8",
+    )
+    exporter.chmod(0o755)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "baseline"], check=True)
+    (tmp_path / "unrelated.txt").write_text("leave unstaged\n", encoding="utf-8")
+
+    canonical = {
+        "id": target["id"],
+        "status": "open",
+        "closed_at": None,
+        "close_reason": None,
+    }
+    calls = []
+
+    def fake_beads(args):
+        calls.append(args)
+        if args[0] == "close":
+            canonical.update(
+                status="closed",
+                closed_at="2026-08-11T12:00:00Z",
+                close_reason="Verified and complete.",
+            )
+        return 0, [canonical.copy()], ""
+
+    exported = [
+        {"_type": "issue", **canonical, "status": "closed", "closed_at": "2026-08-11T12:00:00Z", "close_reason": "Verified and complete."},
+        {**shared, "notes": "new legitimate shared state"},
+    ]
+    monkeypatch.setenv(
+        "FAKE_EXPORT",
+        "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in exported),
+    )
+    monkeypatch.chdir(tmp_path)
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "beads_bin": lambda: str(exporter),
+            "current_session_id": lambda: "session-closeout",
+            "current_session_handoff_source": lambda _session_id: {
+                "beadId": target["id"],
+                "outcome": "success",
+            },
+            "run_beads_json": fake_beads,
+        },
+    ):
+        result = direct_closeout(target["id"], reason="Verified and complete.")
+        retry = direct_closeout(target["id"], reason="Verified and complete.")
+
+    assert result["status"] == retry["status"] == "closed"
+    assert retry["commit"] is None
+    assert result["commit"] == subprocess.run(
+        ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    rows = {row["id"]: row for row in map(json.loads, portable.read_text().splitlines())}
+    assert rows[target["id"]]["status"] == "closed"
+    assert rows[shared["id"]]["notes"] == "new legitimate shared state"
+    assert calls == [
+        ["close", target["id"], "--reason", "Verified and complete."],
+        ["show", target["id"]],
+        ["close", target["id"], "--reason", "Verified and complete."],
+        ["show", target["id"]],
+    ]
+    assert subprocess.run(
+        ["git", "show", "--pretty=", "--name-only", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines() == [".beads/issues.jsonl"]
+    assert subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout == ""
+    assert subprocess.run(
+        ["git", "log", "-1", "--pretty=%s"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == f"chore(beads): close {target['id']}"
+    assert subprocess.run(
+        ["git", "status", "--short"], check=True, capture_output=True, text=True
+    ).stdout == "?? unrelated.txt\n"
+
+
+def test_direct_closeout_cli_reports_partial_state(agnt, capsys):
+    partial = {
+        "schemaVersion": 1,
+        "status": "partial",
+        "bead": {"id": "pi-test.close"},
+        "stages": {"export": {"status": "failed"}},
+        "commit": None,
+        "repair": {"failedStage": "export", "safeToRetry": True},
+    }
+    with patch.dict(
+        agnt.cmd_work.__globals__,
+        {
+            "direct_closeout": lambda bead_id, reason: partial
+            if (bead_id, reason) == ("pi-test.close", "Done.")
+            else pytest.fail("unexpected closeout arguments")
+        },
+    ):
+        assert agnt.main(
+            ["work", "direct-closeout", "pi-test.close", "--reason", "Done."]
+        ) == 3
+
+    assert json.loads(capsys.readouterr().out) == partial
+
+
+def test_direct_closeout_rejects_tracked_non_beads_changes_before_mutation(
+    agnt, monkeypatch, tmp_path
+):
+    init_test_git(tmp_path)
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    portable = beads / "issues.jsonl"
+    portable.write_text(
+        '{"_type":"issue","id":"pi-test.dirty","status":"open"}\n',
+        encoding="utf-8",
+    )
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("committed\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "baseline"], check=True)
+    tracked.write_text("not committed\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    direct_closeout = agnt.direct_closeout
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "current_session_id": lambda: "session-closeout",
+            "current_session_handoff_source": lambda _session_id: {
+                "beadId": "pi-test.dirty",
+                "outcome": "success",
+            },
+            "run_beads_json": lambda _args: pytest.fail(
+                "dirty implementation state must fail before Beads mutation"
+            ),
+        },
+    ):
+        result = direct_closeout("pi-test.dirty", reason="Done.")
+
+    assert result["status"] == "error"
+    assert result["stages"]["preflight"] == {
+        "status": "failed",
+        "error": "tracked non-Beads changes must be committed first",
+    }
+    assert json.loads(portable.read_text())["status"] == "open"
+
+
+def test_direct_closeout_parity_failure_leaves_previous_export_for_retry(
+    agnt, monkeypatch, tmp_path
+):
+    init_test_git(tmp_path)
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    portable = beads / "issues.jsonl"
+    portable.write_text(
+        '{"_type":"issue","id":"pi-test.parity","status":"open"}\n',
+        encoding="utf-8",
+    )
+    exporter = tmp_path / "fake-bd"
+    exporter.write_text(
+        """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(
+    '{\"_type\":\"issue\",\"id\":\"pi-test.parity\",\"status\":\"closed\",\"closed_at\":\"2026-08-11T12:00:00Z\",\"close_reason\":\"wrong\"}\\n',
+    encoding=\"utf-8\",
+)
+""",
+        encoding="utf-8",
+    )
+    exporter.chmod(0o755)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "baseline"], check=True)
+    baseline = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    canonical = {"id": "pi-test.parity", "status": "open"}
+
+    def fake_beads(args):
+        if args[0] == "close":
+            canonical.update(
+                status="closed",
+                closed_at="2026-08-11T12:00:00Z",
+                close_reason="right",
+            )
+        return 0, [canonical.copy()], ""
+
+    monkeypatch.chdir(tmp_path)
+    direct_closeout = agnt.direct_closeout
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "beads_bin": lambda: str(exporter),
+            "current_session_id": lambda: "session-closeout",
+            "current_session_handoff_source": lambda _session_id: {
+                "beadId": "pi-test.parity",
+                "outcome": "success",
+            },
+            "run_beads_json": fake_beads,
+        },
+    ):
+        result = direct_closeout("pi-test.parity", reason="right")
+
+    assert result["status"] == "partial"
+    assert result["stages"]["parity"]["status"] == "failed"
+    assert json.loads(portable.read_text())["status"] == "open"
+    assert subprocess.run(
+        ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip() == baseline
+    assert subprocess.run(
+        ["git", "status", "--short"], check=True, capture_output=True, text=True
+    ).stdout == ""
 
 
 def test_direct_start_claim_is_explicit_and_idempotent(agnt):

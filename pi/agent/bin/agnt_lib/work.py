@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -15,7 +17,7 @@ from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
-from .improvement import BEAD_ID, SessionWorkItemConflict, current_session_handoff_source, link_current_session
+from .improvement import BEAD_ID, SessionWorkItemConflict, current_session_handoff_source, current_session_id, link_current_session
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .runner_client import RunnerClient, RunnerClientError, daemon_serve, daemon_start, daemon_status, daemon_stop
 from .worktree_policy import worktree_snapshot_for_bead
@@ -871,12 +873,185 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
     return {"schemaVersion": 1, "status": "started", "bead": bead, "stages": stages, "repair": None}
 
 
+def _git(root: Path, args: List[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _portable_issue_rows(path: Path) -> Dict[str, Dict[str, Any]]:
+    rows: Dict[str, Dict[str, Any]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        bead_id = row.get("id") if isinstance(row, dict) else None
+        if not isinstance(bead_id, str) or not bead_id or row.get("_type") not in (None, "issue") or bead_id in rows:
+            raise ValueError("invalid portable Beads export")
+        rows[bead_id] = row
+    if not rows:
+        raise ValueError("portable Beads export is empty")
+    return rows
+
+
+def direct_closeout(bead_id: str, *, reason: str) -> Dict[str, Any]:
+    stages: Dict[str, Any] = {}
+    closed = False
+
+    def failed(stage: str, error: str) -> Dict[str, Any]:
+        stages[stage] = {"status": "failed", "error": error}
+        return {
+            "schemaVersion": 1,
+            "status": "partial" if closed else "error",
+            "bead": {"id": bead_id},
+            "stages": stages,
+            "commit": None,
+            "repair": {"failedStage": stage, "safeToRetry": True},
+        }
+
+    if not BEAD_ID.fullmatch(bead_id):
+        return failed("preflight", "bead ID is malformed")
+    if not reason.strip():
+        return failed("preflight", "close reason is required")
+
+    try:
+        source = current_session_handoff_source(current_session_id())
+    except SessionWorkItemConflict:
+        return failed("ownership", "session belongs to another work item")
+    except (OSError, RuntimeError, ValueError):
+        return failed("ownership", "session closeout outcome is unavailable")
+    if source["beadId"] != bead_id:
+        return failed("ownership", "session belongs to another work item")
+    stages["ownership"] = {"status": "succeeded", "outcome": source["outcome"]}
+
+    root_result = _git(Path.cwd(), ["rev-parse", "--show-toplevel"])
+    if root_result.returncode != 0 or not root_result.stdout.strip():
+        return failed("preflight", "Git repository is unavailable")
+    root = Path(root_result.stdout.strip())
+    portable_path = root / ".beads" / "issues.jsonl"
+    tracked = _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"])
+    if tracked.returncode != 0:
+        return failed("preflight", "portable Beads export is not tracked")
+    dirty = _git(
+        root,
+        [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=no",
+            "--",
+            ".",
+            ":(exclude).beads/issues.jsonl",
+        ],
+    )
+    if dirty.returncode != 0:
+        return failed("preflight", "could not inspect Git state")
+    if dirty.stdout:
+        return failed("preflight", "tracked non-Beads changes must be committed first")
+    stages["preflight"] = {"status": "succeeded"}
+
+    code, _data, _error = run_beads_json(["close", bead_id, "--reason", reason])
+    if code != 0:
+        return failed("close", "bead close failed")
+    closed = True
+    stages["close"] = {"status": "succeeded"}
+
+    exe = beads_bin()
+    if not exe:
+        return failed("export", "beads/bd executable not found")
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="issues-", suffix=".jsonl", dir=portable_path.parent, delete=False
+        ) as temp:
+            temp_path = Path(temp.name)
+        exported = subprocess.run(
+            [exe, "export", "--readonly", "-o", str(temp_path)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if exported.returncode != 0:
+            return failed("export", "portable Beads export failed")
+        rows = _portable_issue_rows(temp_path)
+        stages["export"] = {"status": "succeeded", "rowCount": len(rows)}
+
+        code, data, _error = run_beads_json(["show", bead_id])
+        canonical = normalize_bead(data)
+        portable = rows.get(bead_id)
+        if code != 0 or not canonical or not portable:
+            return failed("parity", "target bead is missing from canonical or portable state")
+        fields = ("status", "closed_at", "close_reason")
+        if not is_closed_status(canonical.get("status")) or any(
+            canonical.get(field) != portable.get(field) for field in fields
+        ):
+            return failed("parity", "target bead canonical and portable closeout state differ")
+        stages["parity"] = {"status": "succeeded", "fields": list(fields)}
+
+        os.chmod(temp_path, portable_path.stat().st_mode & 0o777)
+        os.replace(temp_path, portable_path)
+        temp_path = None
+    except (OSError, json.JSONDecodeError, ValueError):
+        return failed("export", "portable Beads export is invalid")
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+    added = _git(root, ["add", "--", ".beads/issues.jsonl"])
+    if added.returncode != 0:
+        return failed("stage", "portable Beads export could not be staged")
+    staged = _git(root, ["diff", "--cached", "--name-only", "-z"])
+    if staged.returncode != 0:
+        return failed("stage", "staged paths could not be inspected")
+    staged_paths = [path for path in staged.stdout.split("\0") if path]
+    if any(path != ".beads/issues.jsonl" for path in staged_paths):
+        return failed("stage", "unrelated tracked paths are staged")
+    if staged_paths:
+        stages["stage"] = {"status": "succeeded"}
+        committed = _git(
+            root,
+            [
+                "commit",
+                "--only",
+                "-m",
+                f"chore(beads): close {bead_id}",
+                "--",
+                ".beads/issues.jsonl",
+            ],
+        )
+        if committed.returncode != 0:
+            return failed("commit", "portable Beads state commit failed")
+        revision = _git(root, ["rev-parse", "HEAD"])
+        if revision.returncode != 0 or not revision.stdout.strip():
+            return failed("commit", "portable Beads state commit could not be verified")
+        commit = revision.stdout.strip()
+        stages["commit"] = {"status": "succeeded"}
+    else:
+        stages["stage"] = {"status": "skipped", "reason": "already-recorded"}
+        stages["commit"] = {"status": "skipped", "reason": "already-recorded"}
+        commit = None
+    return {
+        "schemaVersion": 1,
+        "status": "closed",
+        "bead": {"id": bead_id, "status": "closed"},
+        "stages": stages,
+        "commit": commit,
+        "repair": None,
+    }
+
+
 def cmd_work(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt work", description="Inspect beads-backed ready work and construct gated dispatch/run artifacts.")
     sub = parser.add_subparsers(dest="command")
     direct_start_cmd = sub.add_parser("direct-start", help="validate a bead, optionally claim it, and link this Pi session")
     direct_start_cmd.add_argument("bead_id")
     direct_start_cmd.add_argument("--claim", action="store_true", help="claim the bead only when it is not already in progress")
+    direct_closeout_cmd = sub.add_parser("direct-closeout", help="close a directly worked bead and commit its portable state")
+    direct_closeout_cmd.add_argument("bead_id")
+    direct_closeout_cmd.add_argument("--reason", required=True)
     handoff_check_cmd = sub.add_parser("handoff-check", help="validate closeout and target readiness before fresh-session handoff")
     handoff_check_cmd.add_argument("bead_id")
     handoff_check_cmd.add_argument("--session-id", required=True)
@@ -996,6 +1171,10 @@ def cmd_work(argv: List[str]) -> int:
         result = direct_start(args.bead_id, claim=args.claim)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
+    if args.command == "direct-closeout":
+        result = direct_closeout(args.bead_id, reason=args.reason)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] == "closed" else 3 if result["status"] == "partial" else 2
     if args.command == "handoff-check":
         result = handoff_check(args.bead_id, session_id=args.session_id)
         print(json.dumps(result, indent=2, sort_keys=True))

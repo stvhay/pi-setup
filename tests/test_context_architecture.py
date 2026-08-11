@@ -154,6 +154,8 @@ def test_approved_implementation_defaults_through_local_commit():
     assert "Explicit `do not commit` instructions override this default" in common
     assert "Never stage unrelated pre-existing changes" in common
     assert "Do not close the Bead or claim completion while task-owned changes remain uncommitted" in common
+    assert "agnt work direct-closeout" in common
+    assert "shared portable Beads state" in common
     assert "Push, merge, deploy" in common and "explicit approval" in common
 
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
@@ -165,9 +167,12 @@ def test_global_instructions_use_direct_lifecycle_start():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
 
     assert "`agnt work direct-start <id> [--claim]`" in instructions
+    assert "`agnt work direct-closeout <id> --reason \"<reason>\"`" in instructions
     assert "`agnt direct start" not in instructions
     assert "run `agnt improve link <id>`" not in instructions
     assert "does not create run bundles, runners, or worktrees" in instructions
+    assert "shared portable Beads state" in instructions
+    assert "never pushes" in instructions
     assert "`handoff_bead`" in instructions
     assert "after current bead closeout" in instructions.lower()
     assert "`/new`" in instructions and "human fallback" in instructions
