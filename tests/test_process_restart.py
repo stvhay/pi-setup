@@ -29,20 +29,80 @@ def loader_prelude(runtime_setup: str = "") -> str:
     """
 
 
-def test_restart_command_and_tool_register_without_installing_exit_listener():
+def test_restart_command_and_tool_share_direct_process_replacement():
     assert EXTENSION.exists(), "tracked process restart extension is required"
     script = loader_prelude(
-        'runtime.sendUserMessage = (message, options) => queued.push([message, options]);\nconst queued = [];'
+        'runtime.sendUserMessage = () => { throw new Error("restart command was queued instead of executed"); };'
     ) + """
       assert.equal(process.listenerCount("exit"), exitListenersBeforeLoad);
       const command = extension.commands.get("restart");
       assert.equal(command.description, "Restart Pi and resume this session");
       const tool = extension.tools.get("restart_pi").definition;
       assert.equal(tool.label, "Restart Pi");
-      const result = await tool.execute();
-      assert.equal(process.listenerCount("exit"), exitListenersBeforeLoad);
-      assert.deepEqual(queued, [["/restart", { deliverAs: "followUp" }]]);
-      assert.equal(result.content[0].text, "Queued /restart as a follow-up command.");
+      let exitHandler;
+      let shutdowns = 0;
+      const original = { argv: process.argv, execve: process.execve, once: process.once };
+      process.argv = [process.execPath, "/opt/pi/dist/cli.js"];
+      process.execve = () => {};
+      process.once = (_name, listener) => { exitHandler = listener; return process; };
+      try {
+        const result = await tool.execute("call", {}, undefined, undefined, {
+          mode: "tui",
+          sessionManager: {
+            getSessionFile: () => "/sessions/session.jsonl",
+            getSessionDir: () => "/sessions",
+            getSessionId: () => "session-uuid",
+          },
+          shutdown() { shutdowns++; },
+        });
+        assert.equal(typeof exitHandler, "function");
+        assert.equal(shutdowns, 1);
+        assert.equal(result.content[0].text, "Restarting Pi; process replacement requested.");
+        assert.equal(result.terminate, true);
+      } finally {
+        process.argv = original.argv;
+        process.execve = original.execve;
+        process.once = original.once;
+      }
+    """
+    run_node(script)
+
+
+def test_restart_rejects_second_pending_replacement_and_resets_after_nonzero_exit():
+    assert EXTENSION.exists(), "tracked process restart extension is required"
+    script = loader_prelude() + """
+      const command = extension.commands.get("restart");
+      const exitHandlers = [];
+      let shutdowns = 0;
+      const original = { argv: process.argv, execve: process.execve, once: process.once };
+      process.argv = [process.execPath, "/opt/pi/dist/cli.js"];
+      process.execve = () => { throw new Error("must not execute"); };
+      process.once = (_name, listener) => { exitHandlers.push(listener); return process; };
+      const ctx = {
+        mode: "tui",
+        sessionManager: {
+          getSessionFile: () => "/sessions/session.jsonl",
+          getSessionDir: () => "/sessions",
+          getSessionId: () => "session-uuid",
+        },
+        shutdown() { shutdowns++; },
+      };
+      try {
+        await command.handler("", ctx);
+        await assert.rejects(() => command.handler("", ctx), /process replacement is already pending/);
+        assert.equal(exitHandlers.length, 1);
+        assert.equal(shutdowns, 1);
+
+        exitHandlers[0](1);
+        await command.handler("", ctx);
+        assert.equal(exitHandlers.length, 2);
+        assert.equal(shutdowns, 2);
+        exitHandlers[1](1);
+      } finally {
+        process.argv = original.argv;
+        process.execve = original.execve;
+        process.once = original.once;
+      }
     """
     run_node(script)
 
@@ -249,7 +309,7 @@ def test_restart_reports_exec_failure_synchronously():
       process.argv = [process.execPath, "/opt/pi/dist/cli.js"];
       process.once = (_name, listener) => { exitHandler = listener; return process; };
       const fakeCredential = ["ghp", "syntheticabcdefghijklmnopqrstuvwxyz1234"].join("_");
-      process.execve = () => { throw new Error(`replacement denied ${fakeCredential}`); };
+      process.execve = () => { throw new Error(`replacement denied ${fakeCredential} ${"x".repeat(5000)}`); };
       try {
         await extension.commands.get("restart").handler("", {
           mode: "tui",
@@ -273,6 +333,7 @@ def test_restart_reports_exec_failure_synchronously():
     result = run_node(script)
     assert "Pi restart failed: replacement denied [REDACTED_CREDENTIAL]" in result.stderr
     assert "ghp_" not in result.stderr
+    assert len(result.stderr) < 1200
 
 
 def test_restart_documentation_states_reload_and_platform_boundary():

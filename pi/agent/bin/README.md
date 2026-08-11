@@ -119,8 +119,8 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle, runner, or worktree creation.
 
 - `agnt work handoff-check BEAD --session-id SESSION`
-  - Internal preflight for the tracked Bead handoff extension. It requires one linked explicit session outcome, a closed source Bead, and an existing target in `bd ready` before session replacement.
-  - Returns bounded JSON containing source/target Bead IDs, status, and outcome; it does not copy transcript content or replace the session itself.
+  - Internal preflight for tracked Bead handoff extension. It requires one linked explicit session outcome, closed source Bead, and existing target in `bd ready` before fresh-session staging or process replacement.
+  - Returns bounded JSON containing source/target Bead IDs, status, and outcome; it does not copy transcript content, stage session, or replace process itself.
 
 - `agnt work next --json`
   - Reads Beads ready work and selects the first non-epic ready bead when available.

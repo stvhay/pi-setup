@@ -58,13 +58,13 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 `/reload` refreshes settings, extensions, skills, prompts, themes, and context files inside the current process. It does not load a new Node runtime.
 
-`/restart` gracefully replaces the Pi process and resumes the same persisted session. Agents can call `restart_pi`, which queues `/restart` after the current turn. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
+`/restart` and agent-callable `restart_pi` share one graceful process-replacement path that resumes same persisted session. Only one process replacement may be pending; duplicate requests fail before adding another exit listener. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
 
 ### Start the next Bead in a fresh session
 
-After recording the current outcome, committing task-owned changes, and closing the current Bead, agents call `handoff_bead` with the next ready Bead ID. The tool queues `/handoff-bead`, whose deterministic preflight requires a linked explicit outcome, a closed source Bead, and a target returned by `bd ready`.
+After recording the current outcome, committing task-owned changes, and closing the current Bead, agents call `handoff_bead` with the next ready Bead ID. Tool and `/handoff-bead` command share one deterministic preflight requiring a linked explicit outcome, a closed source Bead, and a target returned by `bd ready`.
 
-The command calls `ctx.newSession` with parent-session provenance. Its replacement-session callback sends only the target Bead ID and `agnt work direct-start <id>` instruction; it copies no source transcript. This flow is TUI-only and requires a persisted session. If automated handoff is unavailable, `/new` is the human fallback. Fork and clone remain separate exploration features, not work-item transitions.
+Handoff stages one empty parent-linked session, gracefully shuts down current Pi process, then uses Node 24 `process.execve` to start that session with only target Bead ID and `agnt work direct-start <id>` instruction. Source transcript is not copied. Predictable pre-shutdown failures leave current session running. Nonzero shutdown exit removes staged session and reports fresh-session recovery; `execve` failure preserves staged session and reports exact target recovery. Diagnostics are bounded and credential-redacted. Flow is TUI-only, requires persisted session, and has same Node 24 macOS/Linux boundary as `/restart`. If automated handoff is unavailable, `/new` is human fallback. Fork and clone remain separate exploration features, not work-item transitions.
 
 ## Contents
 
