@@ -248,7 +248,8 @@ def test_restart_reports_exec_failure_synchronously():
       const original = { argv: process.argv, execve: process.execve, once: process.once };
       process.argv = [process.execPath, "/opt/pi/dist/cli.js"];
       process.once = (_name, listener) => { exitHandler = listener; return process; };
-      process.execve = () => { throw new Error("replacement denied"); };
+      const fakeCredential = ["ghp", "syntheticabcdefghijklmnopqrstuvwxyz1234"].join("_");
+      process.execve = () => { throw new Error(`replacement denied ${fakeCredential}`); };
       try {
         await extension.commands.get("restart").handler("", {
           mode: "tui",
@@ -270,7 +271,8 @@ def test_restart_reports_exec_failure_synchronously():
       }
     """
     result = run_node(script)
-    assert "Pi restart failed: replacement denied" in result.stderr
+    assert "Pi restart failed: replacement denied [REDACTED_CREDENTIAL]" in result.stderr
+    assert "ghp_" not in result.stderr
 
 
 def test_restart_documentation_states_reload_and_platform_boundary():

@@ -1,6 +1,6 @@
-import { writeSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { redactOutputText } from "./zz-output-redaction.ts";
 
 export default function processRestart(pi: ExtensionAPI): void {
   pi.registerCommand("restart", {
@@ -44,7 +44,7 @@ export default function processRestart(pi: ExtensionAPI): void {
         } catch (error) {
           process.exitCode = 1;
           const message = error instanceof Error ? error.message : String(error);
-          writeSync(process.stderr.fd, `Pi restart failed: ${message}\n`);
+          console.error(`Pi restart failed: ${redactOutputText(message)}`);
         }
       };
       process.once("exit", restartOnExit);
