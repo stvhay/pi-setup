@@ -917,10 +917,10 @@ index 964ea7f..bb41624 100644
 +
 diff --git a/src/limits.ts b/src/limits.ts
 new file mode 100644
-index 0000000..9989c73
+index 0000000..75313eb
 --- /dev/null
 +++ b/src/limits.ts
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,300 @@
 +import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 +import {
 +  MAX_SUBAGENT_DURATION_MS,
@@ -931,7 +931,12 @@ index 0000000..9989c73
 +  applyProviderOutputLimit,
 +  encodeOutputLimitEvidence,
 +} from "./output-limit.js";
-+import type { SubagentLimits, SubagentTermination, SubagentTerminationReason } from "./types.js";
++import type {
++  OutputLimitEvidence,
++  SubagentLimits,
++  SubagentTermination,
++  SubagentTerminationReason,
++} from "./types.js";
 +
 +const LIMIT_KEYS = [
 +  "maxProviderRequests",
@@ -1045,20 +1050,19 @@ index 0000000..9989c73
 +    return true;
 +  }
 +
-+  observeOutputLimit(stopReason: unknown, observed: unknown, applied: boolean): void {
-+    if (
-+      this.termination ||
-+      !applied ||
-+      stopReason !== "length" ||
-+      this.limits.maxOutputTokens === undefined
-+    ) {
-+      return;
-+    }
++  observeOutputLimit(
++    stopReason: unknown,
++    observed: unknown,
++    evidence?: OutputLimitEvidence,
++  ): void {
++    if (this.termination || stopReason !== "length") return;
++    const observedOutput = isNonNegativeFiniteNumber(observed) ? observed : undefined;
++    const appliedCeiling = evidence?.enforcement === "applied" ? evidence.effective : undefined;
 +    this.stop(
 +      "output-limit",
-+      this.limits.maxOutputTokens,
-+      isNonNegativeFiniteNumber(observed) ? observed : undefined,
-+      isNonNegativeFiniteNumber(observed) ? "complete" : "unknown",
++      observedOutput === appliedCeiling ? appliedCeiling : undefined,
++      observedOutput,
++      observedOutput !== undefined ? "complete" : "unknown",
 +      false,
 +    );
 +  }
@@ -1148,7 +1152,7 @@ index 0000000..9989c73
 +  writeStop: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
 +): BudgetTracker {
 +  let activeContext: ExtensionContext | undefined;
-+  let outputLimitApplied = false;
++  let outputLimit: OutputLimitEvidence | undefined;
 +  const tracker = new BudgetTracker(limits, (termination, abort) => {
 +    writeStop(encodeLimitStop(termination));
 +    if (abort) activeContext?.abort();
@@ -1164,15 +1168,15 @@ index 0000000..9989c73
 +    if (limits.maxOutputTokens === undefined) return undefined;
 +    try {
 +      const result = applyProviderOutputLimit(event.payload, limits.maxOutputTokens);
-+      outputLimitApplied = result.evidence.enforcement === "applied";
++      outputLimit = result.evidence;
 +      writeStop(encodeOutputLimitEvidence(result.evidence));
-+      return outputLimitApplied ? result.payload : undefined;
++      return outputLimit.enforcement === "applied" ? result.payload : undefined;
 +    } catch {
-+      outputLimitApplied = false;
-+      writeStop(encodeOutputLimitEvidence({
++      outputLimit = {
 +        requested: limits.maxOutputTokens,
 +        enforcement: "unsupported",
-+      }));
++      };
++      writeStop(encodeOutputLimitEvidence(outputLimit));
 +      return undefined;
 +    }
 +  });
@@ -1187,7 +1191,7 @@ index 0000000..9989c73
 +    if (event.message.role !== "assistant") return;
 +    activeContext = ctx;
 +    tracker.observeAssistantUsage(event.message.usage);
-+    tracker.observeOutputLimit(event.message.stopReason, event.message.usage?.output, outputLimitApplied);
++    tracker.observeOutputLimit(event.message.stopReason, event.message.usage?.output, outputLimit);
 +  });
 +  pi.on("session_before_compact", () => ({ cancel: true }));
 +
@@ -1219,10 +1223,10 @@ index 0000000..9989c73
 +}
 diff --git a/src/output-limit.ts b/src/output-limit.ts
 new file mode 100644
-index 0000000..f45cd7c
+index 0000000..2007a45
 --- /dev/null
 +++ b/src/output-limit.ts
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,102 @@
 +import type { OutputLimitEvidence } from "./types.js";
 +
 +const ROOT_OUTPUT_LIMIT_KEYS = [
@@ -1241,37 +1245,39 @@ index 0000000..f45cd7c
 +  const evidence: OutputLimitEvidence = { requested, enforcement: "unsupported" };
 +  if (!isRecord(payload)) return { payload, evidence };
 +
-+  let rewritten: Record<string, unknown> | undefined;
-+  const output = () => rewritten ??= { ...payload };
-+
-+  for (const key of ROOT_OUTPUT_LIMIT_KEYS) {
-+    if (!(key in payload)) continue;
-+    output()[key] = clamped(payload[key], requested);
-+    evidence.enforcement = "applied";
-+  }
-+
-+  if (
-+    evidence.enforcement === "unsupported" &&
++  const rootKeys = ROOT_OUTPUT_LIMIT_KEYS.filter((key) => key in payload);
++  const nestedKeys = Array.isArray(payload.contents)
++    ? NESTED_OUTPUT_LIMIT_KEYS.filter((key) => isRecord(payload[key]))
++    : [];
++  const addResponsesCap = rootKeys.length === 0 &&
 +    Array.isArray(payload.input) &&
-+    !isCodexResponsesPayload(payload)
-+  ) {
-+    output().max_output_tokens = requested;
-+    evidence.enforcement = "applied";
++    !isCodexResponsesPayload(payload);
++  if (rootKeys.length === 0 && nestedKeys.length === 0 && !addResponsesCap) {
++    return { payload, evidence };
 +  }
 +
-+  if (Array.isArray(payload.contents)) {
-+    for (const key of NESTED_OUTPUT_LIMIT_KEYS) {
-+      const nested = payload[key];
-+      if (!isRecord(nested)) continue;
-+      output()[key] = {
-+        ...nested,
-+        maxOutputTokens: clamped(nested.maxOutputTokens, requested),
-+      };
-+      evidence.enforcement = "applied";
-+    }
++  const existing = [
++    ...rootKeys.map((key) => payload[key]),
++    ...nestedKeys.map((key) => (payload[key] as Record<string, unknown>).maxOutputTokens),
++  ];
++  const effective = existing.reduce<number>(
++    (limit, value) => Math.min(limit, clamped(value, requested)),
++    requested,
++  );
++  const rewritten: Record<string, unknown> = { ...payload };
++  for (const key of rootKeys) rewritten[key] = effective;
++  if (addResponsesCap) rewritten.max_output_tokens = effective;
++  for (const key of nestedKeys) {
++    rewritten[key] = {
++      ...(payload[key] as Record<string, unknown>),
++      maxOutputTokens: effective,
++    };
 +  }
 +
-+  return { payload: rewritten ?? payload, evidence };
++  return {
++    payload: rewritten,
++    evidence: { requested, effective, enforcement: "applied" },
++  };
 +}
 +
 +function isCodexResponsesPayload(payload: Record<string, unknown>): boolean {
@@ -1303,11 +1309,22 @@ index 0000000..f45cd7c
 +      typeof value.requested !== "number" ||
 +      !Number.isSafeInteger(value.requested) ||
 +      value.requested <= 0 ||
-+      (value.enforcement !== "applied" && value.enforcement !== "unsupported")
++      (value.enforcement !== "applied" && value.enforcement !== "unsupported") ||
++      (value.enforcement === "applied" && (
++        typeof value.effective !== "number" ||
++        !Number.isSafeInteger(value.effective) ||
++        value.effective <= 0 ||
++        value.effective > value.requested
++      )) ||
++      (value.enforcement === "unsupported" && value.effective !== undefined)
 +    ) {
 +      return undefined;
 +    }
-+    return { requested: value.requested, enforcement: value.enforcement };
++    return {
++      requested: value.requested,
++      ...(value.effective !== undefined ? { effective: value.effective } : {}),
++      enforcement: value.enforcement,
++    };
 +  } catch {
 +    return undefined;
 +  }
@@ -1813,10 +1830,10 @@ index d3a2524..1b93c34 100644
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index 0217f26..cf050c6 100644
+index 0217f26..e5af217 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,70 @@
 +import type { Usage } from "@earendil-works/pi-ai";
 +
 +export const MAX_SUBAGENT_DURATION_MS = 2_147_483_647;
@@ -1851,6 +1868,8 @@ index 0217f26..cf050c6 100644
 +
 +export interface OutputLimitEvidence {
 +  requested: number;
++  /** Exact provider payload ceiling after clamping; absent when enforcement is unsupported. */
++  effective?: number;
 +  enforcement: "applied" | "unsupported";
 +}
 +
@@ -1885,27 +1904,27 @@ index 0217f26..cf050c6 100644
 +  usageState: SubagentUsageState;
 +}
 +
-@@ -6,0 +75 @@ export interface SubagentUsage {
+@@ -6,0 +77 @@ export interface SubagentUsage {
 +  costBreakdown?: Usage["cost"];
-@@ -23,0 +93,4 @@ export interface SubagentProgress {
+@@ -23,0 +95,4 @@ export interface SubagentProgress {
 +  /** Current provider turn number. Optional for external progress producers. */
 +  turnCount?: number;
 +  /** Tokens observed in the current provider turn. */
 +  turnTokens?: number;
-@@ -25,0 +99,2 @@ export interface SubagentProgress {
+@@ -25,0 +101,2 @@ export interface SubagentProgress {
 +  cacheReadTokens?: number;
 +  cacheWriteTokens?: number;
-@@ -46,0 +122 @@ export interface SubagentResult {
+@@ -46,0 +124 @@ export interface SubagentResult {
 +  provider?: string | undefined;
-@@ -47,0 +124,2 @@ export interface SubagentResult {
+@@ -47,0 +126,2 @@ export interface SubagentResult {
 +  /** Effective child profile, limits, and output-limit enforcement evidence. */
 +  execution?: ResolvedChildExecution;
-@@ -49,0 +128 @@ export interface SubagentResult {
+@@ -49,0 +130 @@ export interface SubagentResult {
 +  termination?: SubagentTermination;
-@@ -57,0 +137,2 @@ export interface SubagentToolResult {
+@@ -57,0 +139,2 @@ export interface SubagentToolResult {
 +  /** Nested child-model usage for Pi versions that support tool-result accounting. */
 +  usage?: Usage;
-@@ -71,5 +152,3 @@ export interface StreamState {
+@@ -71,5 +154,3 @@ export interface StreamState {
 -  totalInput: number;
 -  totalOutput: number;
 -  totalCacheRead: number;
@@ -1914,13 +1933,13 @@ index 0217f26..cf050c6 100644
 +  usage: Usage;
 +  turnUsage: Usage;
 +  partialUsage: Usage;
-@@ -78,0 +158 @@ export interface StreamState {
+@@ -78,0 +160 @@ export interface StreamState {
 +  provider: string | undefined;
-@@ -80,0 +161,3 @@ export interface StreamState {
+@@ -80,0 +163,3 @@ export interface StreamState {
 +  streamingOutput: string | undefined;
 +  streamingParts: Map<number, { type: "text" | "thinking"; content: string }>;
 +  outputLimit: OutputLimitEvidence | undefined;
-@@ -83,0 +167 @@ export interface StreamState {
+@@ -83,0 +169 @@ export interface StreamState {
 +  error?: string | undefined;
 diff --git a/src/usage.ts b/src/usage.ts
 new file mode 100644

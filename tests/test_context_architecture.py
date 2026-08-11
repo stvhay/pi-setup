@@ -320,6 +320,8 @@ def test_review_skill_uses_realistic_liveness_bounds_without_token_cost_caps():
     verification = skill.split("## Fresh adversarial verification", 1)[1].split("## Deterministic K3 escalation gate", 1)[0]
 
     assert "300-second child limit" in discovery
+    assert "at most two concrete findings" in discovery
+    assert "at most 6,000 characters" in discovery
     assert '"limits": {"maxProviderRequests": 1, "maxDurationMs": 300000}' in discovery
     assert "180-second child limit" not in discovery
     assert '"limits": {"maxProviderRequests": 30, "maxDurationMs": 300000}' in verification

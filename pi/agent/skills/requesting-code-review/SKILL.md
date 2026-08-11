@@ -114,7 +114,7 @@ The tracked schema and example are:
 
 ## Run cold discovery passes
 
-Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child limit bounds stalled calls without cutting off otherwise-healthy slower reviews; one provider request prevents tool-loop multiplication.
+Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child limit bounds stalled calls without cutting off otherwise-healthy slower reviews; one provider request prevents tool-loop multiplication. Reuse the calibrated response contract in every discovery packet: report at most two concrete findings and return at most 6,000 characters. This keeps final JSON below the deliberate metered output ceiling without weakening review evidence.
 
 Policy by risk:
 

@@ -62,7 +62,11 @@ type SubagentResult = {
   exitCode?: number;
   task?: string;
   model?: string;
-  execution?: { profile?: { mode?: unknown }; limits?: SubagentLimits };
+  execution?: {
+    profile?: { mode?: unknown };
+    limits?: SubagentLimits;
+    outputLimit?: { requested?: unknown; effective?: unknown; enforcement?: unknown };
+  };
   finalOutput?: string;
   error?: string;
   termination?: {
@@ -242,13 +246,30 @@ function terminationEvidence(
   const requested = key ? callerLimit(input, index, key) : undefined;
   let source: TerminationEvidence["source"];
   if (validReason === "user-abort") source = "parent-cancellation";
+  else if (validReason === "output-limit") {
+    const applied = result.execution?.outputLimit?.enforcement === "applied";
+    const providerCeiling = positiveFinite(result.execution?.outputLimit?.effective);
+    if (
+      requested !== undefined &&
+      applied &&
+      requested === providerCeiling &&
+      limit === providerCeiling
+    ) source = "caller";
+    else if (
+      requested === undefined &&
+      effective !== undefined &&
+      applied &&
+      effective === providerCeiling &&
+      limit === providerCeiling
+    ) source = "wrapper";
+    else source = "provider";
+  }
   else if (requested !== undefined && requested === effective) source = "caller";
   else if (
     validReason === "request-limit" &&
     result.execution?.profile?.mode === "one-shot" &&
     effective === 1
   ) source = "execution-profile";
-  else if (validReason === "output-limit" && effective !== undefined) source = "wrapper";
   else if (effective !== undefined) source = "operator";
   else if (providerFailureClass(result.error)) source = "provider";
   else source = "worker";

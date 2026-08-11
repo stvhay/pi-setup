@@ -76,7 +76,11 @@ continuation model for a long root conversation. The tracked
 Archimedes wrapper uses this catalog's `billingClass`—not provider-name inference—to
 inject a configurable 16,384-token provider output cap only for metered one-shot
 children. Explicit tighter caps win; subscription and agentic children receive no
-automatic token or cost cap. See the approved [Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).
+automatic token or cost cap. Applied evidence distinguishes that deliberate ceiling
+from a lower existing provider/model ceiling, while every provider `length` stop is
+failed `output-limit` termination with usable partial output preserved in parent-owned
+artifacts. Review discovery packets cap contracted JSON at 6,000 characters so valid
+work fits below the deliberate metered ceiling. See the approved [Model Portfolio Decision](MODEL-PORTFOLIO-2026-08.md).
 
 ### Work, tasks, prompts, skills, roles, and tools
 

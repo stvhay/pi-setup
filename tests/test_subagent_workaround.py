@@ -218,6 +218,119 @@ def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
 
 
+def test_output_limit_evidence_distinguishes_provider_and_wrapper_caps(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
+    script = f"""
+      {SUBAGENT_HARNESS}
+      import {{ readFile, readdir }} from "node:fs/promises";
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        observe(_name, attributes) {{ observations.push(attributes); }},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const input = {{ tasks: [
+        {{ task: "Existing lower provider cap", model: "openrouter/minimax/minimax-m3", mode: "one-shot", limits: {{ maxOutputTokens: 16_384 }}, outputContract: "artifact" }},
+        {{ task: "Metered wrapper cap", model: "openrouter/minimax/minimax-m3", mode: "one-shot", outputContract: "artifact" }},
+        {{ task: "Native provider cap", model: "openai-codex/gpt-5.6-luna", mode: "one-shot", outputContract: "artifact" }},
+        {{ task: "Provider stops below wrapper cap", model: "openrouter/minimax/minimax-m3", mode: "one-shot", outputContract: "artifact" }},
+      ] }};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "output-limits", input }}, ctx);
+      const patch = await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "output-limits",
+        input,
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "parallel", results: [
+          {{
+            exitCode: 2,
+            execution: {{
+              profile: {{ mode: "one-shot" }},
+              limits: {{ maxProviderRequests: 1, maxOutputTokens: 16_384 }},
+              outputLimit: {{ requested: 16_384, effective: 8_192, enforcement: "applied" }},
+            }},
+            finalOutput: "usable provider-capped partial",
+            error: "Subagent stopped: output-limit",
+            termination: {{ reason: "output-limit", limit: 8_192, observed: 8_192, usageState: "complete" }},
+          }},
+          {{
+            exitCode: 2,
+            execution: {{
+              profile: {{ mode: "one-shot" }},
+              limits: {{ maxProviderRequests: 1, maxOutputTokens: 16_384 }},
+              outputLimit: {{ requested: 16_384, effective: 16_384, enforcement: "applied" }},
+            }},
+            finalOutput: "usable wrapper-capped partial",
+            error: "Subagent stopped: output-limit",
+            termination: {{ reason: "output-limit", limit: 16_384, observed: 16_384, usageState: "complete" }},
+          }},
+          {{
+            exitCode: 2,
+            execution: {{ profile: {{ mode: "one-shot" }}, limits: {{ maxProviderRequests: 1 }} }},
+            finalOutput: "usable native-capped partial",
+            error: "Subagent stopped: output-limit",
+            termination: {{ reason: "output-limit", observed: 12_000, usageState: "complete" }},
+          }},
+          {{
+            exitCode: 2,
+            execution: {{
+              profile: {{ mode: "one-shot" }},
+              limits: {{ maxProviderRequests: 1, maxOutputTokens: 16_384 }},
+              outputLimit: {{ requested: 16_384, effective: 16_384, enforcement: "applied" }},
+            }},
+            finalOutput: "usable earlier provider-capped partial",
+            error: "Subagent stopped: output-limit",
+            termination: {{ reason: "output-limit", observed: 8_192, usageState: "complete" }},
+          }},
+        ] }},
+        isError: false,
+      }}, ctx);
+
+      const evidence = patch.content.find((part) => part.text.startsWith("Delegated termination evidence:"));
+      assert.match(evidence.text, /Child 1: output-limit; source=provider; limit=8192; observed=8192; output=complete/);
+      assert.match(evidence.text, /Child 2: output-limit; source=wrapper; limit=16384; observed=16384; output=complete/);
+      assert.match(evidence.text, /Child 3: output-limit; source=provider; observed=12000; output=complete/);
+      assert.match(evidence.text, /Child 4: output-limit; source=provider; observed=8192; output=complete/);
+      assert.equal(patch.isError, true);
+      assert.equal(JSON.stringify(patch.content).includes("usable provider-capped partial"), false);
+      assert.deepEqual(patch.details.results.map((result) => result.finalOutput), [
+        "usable provider-capped partial",
+        "usable wrapper-capped partial",
+        "usable native-capped partial",
+        "usable earlier provider-capped partial",
+      ]);
+      assert.equal(patch.details.results.every((result) => result.artifact.status === "persisted"), true);
+      assert.deepEqual(observations.map((item) => [
+        item.metadata.executionOutcome,
+        item.metadata.terminationSource,
+        item.metadata.terminationLimit,
+      ]), [
+        ["failed", "provider", 8_192],
+        ["failed", "wrapper", 16_384],
+        ["failed", "provider", null],
+        ["failed", "provider", null],
+      ]);
+
+      const files = await readdir(`${{cwd}}/.pi/metrics/invocations`);
+      const records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(`${{cwd}}/.pi/metrics/invocations/${{file}}`, "utf8"))));
+      records.sort((left, right) => left.childIndex - right.childIndex);
+      assert.deepEqual(records.map((record) => [record.status, record.terminationSource, record.terminationLimit]), [
+        ["failed", "provider", 8_192],
+        ["failed", "wrapper", 16_384],
+        ["failed", "provider", null],
+        ["failed", "provider", null],
+      ]);
+    """
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
+
+
 def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
     script = f"""
       import assert from "node:assert/strict";
