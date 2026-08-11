@@ -155,8 +155,8 @@ cap, valid API total when available, scanned/attributable/unattributed lower bou
 and explicit completeness/continuation state. Repeated pages stop as incomplete.
 Selected sessions retain 20-trace and 500-observation-per-trace caps with
 capture-gap markers. Private scan packets use schema 2; safe scan summaries and
-review decisions remain schema 1, review policy remains `v1`, and historical
-schema-1 packets remain reviewable. For the exact
+review decisions remain schema 1, current review policy is `v2`, and historical
+schema-1 packets and `v1` decisions remain reviewable. For the exact
 `pi-langfuse-1.5.7-dual-null-dual-26` TOOL fingerprint, scans report both tool
 payload-byte aggregates as unavailable (`null`) and record rule status plus
 matched/examined observation counts under `payloadByteMetadata.toolIo`. Missing

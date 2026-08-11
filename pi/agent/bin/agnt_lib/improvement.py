@@ -27,7 +27,7 @@ REVIEW_SCORE = "improvement_review_status"
 WORK_LINK_SCORE = "improvement_work_item"
 OUTCOME_SCORE = "improvement_task_outcome"
 TASK_OUTCOMES = {"success", "partial", "failure", "unclear"}
-REVIEW_POLICY_VERSION = "v1"
+REVIEW_POLICY_VERSION = "v2"
 TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
@@ -63,7 +63,7 @@ COHORT_CAPTURE_GAPS = (
     "invalid-child-trace-declaration",
 )
 SESSION_DECISIONS = {"no-action", "actions-created", "needs-human", "excluded"}
-FINDING_CATEGORIES = {
+V1_FINDING_CATEGORIES = {
     "coordination-error",
     "expected-error",
     "infrastructure",
@@ -74,6 +74,8 @@ FINDING_CATEGORIES = {
     "unknown",
     "verification-gap",
 }
+FINDING_CATEGORIES = V1_FINDING_CATEGORIES | {"security-boundary"}
+FINDING_CATEGORIES_BY_POLICY = {"v1": V1_FINDING_CATEGORIES, "v2": FINDING_CATEGORIES}
 ERROR_RELEVANCE = {"relevant", "contributing", "expected", "recovered", "infrastructure", "unknown"}
 ERROR_CLASSES = ("expected", "recovered", "provider", "infrastructure", "agent", "unknown")
 ERROR_SOURCES = ("tool", "provider", "process", "artifact", "evaluator", "unknown")
@@ -1289,6 +1291,9 @@ def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dic
         raise ValueError("decision reportId does not match packet")
     if decisions["reviewPolicyVersion"] != packet.get("scan", {}).get("reviewPolicyVersion"):
         raise ValueError("decision reviewPolicyVersion does not match packet")
+    finding_categories = FINDING_CATEGORIES_BY_POLICY.get(decisions["reviewPolicyVersion"])
+    if finding_categories is None:
+        raise ValueError("decision reviewPolicyVersion is unsupported")
     if not isinstance(decisions["reviewedAt"], str):
         raise ValueError("reviewedAt must be an ISO timestamp")
     try:
@@ -1335,7 +1340,7 @@ def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dic
                 or related_finding_id == finding_id
             ):
                 raise ValueError("relatedFindingId must identify a different monitored finding")
-            _require_choice(finding["category"], FINDING_CATEGORIES, "category")
+            _require_choice(finding["category"], finding_categories, "category")
             _require_choice(finding["errorRelevance"], ERROR_RELEVANCE, "errorRelevance")
             _require_choice(finding["impact"], IMPACTS, "impact")
             _require_choice(finding["attribution"], ATTRIBUTIONS, "attribution")

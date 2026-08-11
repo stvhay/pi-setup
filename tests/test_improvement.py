@@ -568,7 +568,11 @@ class FakeScanClient:
     def __init__(self, traces, observations, reviewed=(), trace_scores=None):
         self.traces = traces
         self.observations = observations
-        self.reviewed = dict(reviewed) if isinstance(reviewed, dict) else {item: "v1" for item in reviewed}
+        self.reviewed = (
+            dict(reviewed)
+            if isinstance(reviewed, dict)
+            else {item: improvement.REVIEW_POLICY_VERSION for item in reviewed}
+        )
         self.trace_scores = trace_scores or {}
         self.trace_limits = []
         self.trace_maxima = []
@@ -633,7 +637,7 @@ def test_eligible_unreviewed_summary_is_bounded_and_payload_free():
             _private_trace("session-unreviewed-c", "trace-c"),
         ],
         {},
-        reviewed={"session-reviewed": "v1"},
+        reviewed={"session-reviewed": improvement.REVIEW_POLICY_VERSION},
     )
 
     summary = improvement.eligible_unreviewed_session_summary(
@@ -656,6 +660,24 @@ def test_eligible_unreviewed_summary_is_bounded_and_payload_free():
     assert sorted(client.score_sessions) == ["session-reviewed", "session-unreviewed-a", "session-unreviewed-c"]
     assert client.observation_traces == []
     assert not any(session_id in json.dumps(summary) for session_id in client.score_sessions)
+
+
+def test_policy_v2_rechecks_sessions_reviewed_only_under_v1():
+    client = FakeScanClient(
+        [_private_trace("historical-session", "historical-trace")],
+        {},
+        reviewed={"historical-session": "v1"},
+    )
+
+    summary = improvement.eligible_unreviewed_session_summary(
+        client,
+        since="2026-07-26T00:00:00Z",
+        until="2026-07-27T00:00:00Z",
+    )
+
+    assert improvement.REVIEW_POLICY_VERSION == "v2"
+    assert summary["eligibleSessions"] == 1
+    assert summary["reviewedSessionsSkipped"] == 0
 
 
 def _private_trace(session_id="run-private-run", trace_id="private-trace"):
@@ -1594,7 +1616,7 @@ def test_scan_normalizes_exact_tool_fingerprint_without_copying_payload(tmp_path
 
     assert summary["schemaVersion"] == 1
     assert packet["schemaVersion"] == 2
-    assert packet["scan"]["reviewPolicyVersion"] == "v1"
+    assert packet["scan"]["reviewPolicyVersion"] == improvement.REVIEW_POLICY_VERSION
     features = packet["sessions"][0]["features"]
     assert features["payloadBytes"]["toolInput"] is None
     assert features["payloadBytes"]["toolOutput"] is None
@@ -2174,7 +2196,7 @@ def test_scan_checks_multiple_review_markers_for_current_policy(tmp_path):
             self.marker_limit = kwargs["limit"]
             return [
                 {"value": "no-action", "metadata": {"reviewPolicyVersion": "older-policy"}},
-                {"value": "no-action", "metadata": {"reviewPolicyVersion": "v1"}},
+                {"value": "no-action", "metadata": {"reviewPolicyVersion": improvement.REVIEW_POLICY_VERSION}},
             ][: kwargs["limit"]]
 
     client = MixedMarkerClient([_private_trace("reviewed-session", "reviewed-trace")], {})
@@ -2448,6 +2470,43 @@ def test_review_rubric_requires_unknown_and_evidence_thresholds():
         "Human approval",
     ):
         assert required in rubric
+
+
+def test_human_calibrated_policy_accepts_security_boundary_regression():
+    packet = _review_packet()
+    decisions = _review_decisions()
+    packet["scan"]["reviewPolicyVersion"] = improvement.REVIEW_POLICY_VERSION
+    decisions["reviewPolicyVersion"] = improvement.REVIEW_POLICY_VERSION
+    finding = decisions["sessions"][0]["findings"][0]
+    finding["category"] = "security-boundary"
+    finding["impact"] = "high"
+    finding["attribution"] = "tooling"
+    finding["proposedIntervention"] = "code"
+
+    rubric = (ROOT / "pi" / "agent" / "langfuse" / "improvement-review.md").read_text(encoding="utf-8")
+
+    assert improvement.REVIEW_POLICY_VERSION == "v2"
+    assert improvement.validate_decisions(packet, decisions) == decisions
+    for required in (
+        "`security-boundary`",
+        "confirmed credential exposure",
+        "zero deterministic actionable signals",
+        "workflow stall",
+        "output-limit truncation",
+        "| `security-success` | Successful outcome, zero actionable signals, and separately confirmed credential exposure | `security-boundary`, high impact |",
+        "| `handoff-stall` | Handoff contract does not start the ready target and no infrastructure cause is verified | `coordination-error`, workflow intervention |",
+        "| `one-shot-truncation` | Avoidable configured output cap terminates otherwise usable one-shot work | `token-inefficiency`, routing or workflow intervention |",
+    ):
+        assert required in rubric
+
+
+def test_v1_decision_rejects_v2_only_security_category():
+    packet = _review_packet()
+    decisions = _review_decisions()
+    decisions["sessions"][0]["findings"][0]["category"] = "security-boundary"
+
+    with pytest.raises(ValueError, match="category is unsupported"):
+        improvement.validate_decisions(packet, decisions)
 
 
 def test_historical_schema_1_private_packet_remains_reviewable():
@@ -2908,6 +2967,7 @@ def test_scan_projects_matched_monitoring_privately_but_summary_is_count_only(tm
     )
     decisions = _review_decisions()
     decisions["reportId"] = source_packet["reportId"]
+    decisions["reviewPolicyVersion"] = source_packet["scan"]["reviewPolicyVersion"]
     decisions["reviewedAt"] = source_packet["createdAt"]
     decisions["sessions"][0]["sessionId"] = source_id
 

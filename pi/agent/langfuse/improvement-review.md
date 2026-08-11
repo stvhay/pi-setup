@@ -13,7 +13,7 @@ Return JSON with `schemaVersion`, matching `reportId` and `reviewPolicyVersion`,
 Each finding requires:
 
 - `findingId`: `finding-` plus 12 lowercase hexadecimal characters.
-- `category`: `coordination-error`, `expected-error`, `infrastructure`, `model-mismatch`, `prompt-targeting`, `token-inefficiency`, `tool-use-error`, `verification-gap`, or `unknown`.
+- `category`: `coordination-error`, `expected-error`, `infrastructure`, `model-mismatch`, `prompt-targeting`, `security-boundary`, `token-inefficiency`, `tool-use-error`, `verification-gap`, or `unknown`.
 - `errorRelevance`: `relevant`, `contributing`, `expected`, `recovered`, `infrastructure`, or `unknown`.
 - `impact`: `none`, `low`, `medium`, `high`, `outcome-blocking`, or `unknown`.
 - `attribution`: `agent`, `prompt-system`, `model`, `tooling`, `infrastructure`, `user-input`, or `unknown`.
@@ -42,7 +42,21 @@ Classify raw tool errors as events, not mistakes. Escalate only after evidence s
 3. Pattern: repeated, attributable incidents in a matched cohort.
 4. Change: Human approval of exact sanitized public proposal and regression check.
 
-Default promotion threshold: at least 3 confirmed instances across 2 independent work items, or at least 5 comparable invocations with a materially worse baseline rate. Token inefficiency requires at least 5 comparable invocations and p95 normalized fresh tokens or cost at least 1.5× cohort median. Retry overhead becomes notable near 25% added tokens or latency without improved verified outcome.
+Default promotion threshold: at least 3 confirmed instances across 2 independent work items, or at least 5 comparable invocations with a materially worse baseline rate. One confirmed high-impact or outcome-blocking `security-boundary` finding, including confirmed credential exposure, is immediately eligible for a public-safe proposal. Token inefficiency requires at least 5 comparable invocations and p95 normalized fresh tokens or cost at least 1.5× cohort median. Retry overhead becomes notable near 25% added tokens or latency without improved verified outcome.
+
+Human calibration for policy v2 established three regression rules:
+
+- A successful outcome or zero deterministic actionable signals does not prove `no-action`; inspect human-visible constraint, privacy, and lifecycle failures.
+- Classify a workflow stall as `coordination-error` when a handoff or lifecycle contract fails, `infrastructure` only when that cause is verified, and `unknown` otherwise.
+- Classify avoidable output-limit truncation as `token-inefficiency`; use `infrastructure` only for a verified provider/platform cap and `unknown` when attribution is unresolved.
+
+Synthetic regression cases:
+
+| Case | Evidence | Expected classification |
+|---|---|---|
+| `security-success` | Successful outcome, zero actionable signals, and separately confirmed credential exposure | `security-boundary`, high impact |
+| `handoff-stall` | Handoff contract does not start the ready target and no infrastructure cause is verified | `coordination-error`, workflow intervention |
+| `one-shot-truncation` | Avoidable configured output cap terminates otherwise usable one-shot work | `token-inefficiency`, routing or workflow intervention |
 
 Match cohorts by task, risk, context shape, role, model, and prompt version where available. Separate fresh input, cache-read, and output tokens. Missing samples remain `monitor`; absence of evidence is not success.
 
