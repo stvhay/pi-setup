@@ -15,6 +15,17 @@ Every meaningful change follows this process:
 
 GitHub issues may be used later through an adapter/export workflow, but Beads is the canonical agent-facing work graph.
 
+## Vendor submodule publication
+
+When advancing a `forks/*` gitlink:
+
+1. Publish the vendor commit to the remote branch configured in `.gitmodules`.
+2. Stage the superproject gitlink (and `.gitmodules` when changed).
+3. Run `scripts/check-vendor-pins.sh` (network: fetches each configured vendor branch).
+4. Commit the superproject change only after the preflight passes.
+
+CI runs the same check before submodule initialization and fails closed when a pin is inaccessible. Do not bypass the preflight or weaken vendor-content tests.
+
 ## Test Commands
 
 Install the locked Pi runtime used by Node-backed extension tests:
