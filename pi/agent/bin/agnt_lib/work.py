@@ -17,7 +17,15 @@ from .orchestration import validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
-from .improvement import BEAD_ID, SessionWorkItemConflict, current_session_handoff_source, current_session_id, link_current_session
+from .improvement import (
+    BEAD_ID,
+    SessionOutcomeUnavailable,
+    SessionWorkItemConflict,
+    current_session_closeout_source,
+    current_session_handoff_source,
+    current_session_id,
+    link_current_session,
+)
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .worktree_policy import worktree_snapshot_for_bead
 
@@ -917,11 +925,18 @@ def direct_closeout(bead_id: str, *, reason: str) -> Dict[str, Any]:
         return failed("preflight", "close reason is required")
 
     try:
-        source = current_session_handoff_source(current_session_id())
+        source = current_session_closeout_source(current_session_id())
     except SessionWorkItemConflict:
         return failed("ownership", "session belongs to another work item")
-    except (OSError, RuntimeError, ValueError):
-        return failed("ownership", "session closeout outcome is unavailable")
+    except SessionOutcomeUnavailable:
+        return failed(
+            "ownership",
+            "session closeout outcome remained unavailable after bounded retry",
+        )
+    except (OSError, RuntimeError):
+        return failed("ownership", "session closeout ownership check failed")
+    except ValueError:
+        return failed("ownership", "session closeout outcome was rejected")
     if source["beadId"] != bead_id:
         return failed("ownership", "session belongs to another work item")
     stages["ownership"] = {"status": "succeeded", "outcome": source["outcome"]}

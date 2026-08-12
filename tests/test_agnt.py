@@ -1135,7 +1135,7 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
         {
             "beads_bin": lambda: str(exporter),
             "current_session_id": lambda: "session-closeout",
-            "current_session_handoff_source": lambda _session_id: {
+            "current_session_closeout_source": lambda _session_id: {
                 "beadId": target["id"],
                 "outcome": "success",
             },
@@ -1180,6 +1180,85 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
     assert subprocess.run(
         ["git", "status", "--short"], check=True, capture_output=True, text=True
     ).stdout == "?? unrelated.txt\n"
+
+
+def test_direct_closeout_reports_exhausted_visibility_wait(agnt):
+    direct_closeout = agnt.direct_closeout
+    outcome_unavailable = sys.modules[
+        "agnt_lib.improvement"
+    ].SessionOutcomeUnavailable
+    calls = []
+
+    def unavailable(session_id):
+        calls.append(session_id)
+        raise outcome_unavailable("bounded wait exhausted")
+
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "current_session_id": lambda: "session-closeout",
+            "current_session_closeout_source": unavailable,
+            "_git": lambda *_args: pytest.fail(
+                "unavailable outcome must block before Git inspection"
+            ),
+        },
+    ):
+        result = direct_closeout("pi-test.close", reason="Done.")
+
+    assert result["status"] == "error"
+    assert result["stages"]["ownership"] == {
+        "status": "failed",
+        "error": "session closeout outcome remained unavailable after bounded retry",
+    }
+    assert result["repair"] == {"failedStage": "ownership", "safeToRetry": True}
+    assert calls == ["session-closeout"]
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_error"),
+    [
+        ("rejection", "session closeout outcome was rejected"),
+        ("wrong-owner", "session belongs to another work item"),
+        ("transport", "session closeout ownership check failed"),
+        ("timeout", "session closeout ownership check failed"),
+    ],
+)
+def test_direct_closeout_blocks_non_visibility_ownership_failures(
+    agnt, failure, expected_error
+):
+    direct_closeout = agnt.direct_closeout
+    improvement = sys.modules["agnt_lib.improvement"]
+    errors = {
+        "rejection": ValueError("invalid outcome"),
+        "wrong-owner": improvement.SessionWorkItemConflict("wrong owner"),
+        "transport": RuntimeError("transport failed"),
+        "timeout": TimeoutError("transport timed out"),
+    }
+    calls = []
+
+    def fail(session_id):
+        calls.append(session_id)
+        raise errors[failure]
+
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "current_session_id": lambda: "session-closeout",
+            "current_session_closeout_source": fail,
+            "_git": lambda *_args: pytest.fail(
+                "ownership failure must block before Git inspection"
+            ),
+        },
+    ):
+        result = direct_closeout("pi-test.close", reason="Done.")
+
+    assert result["status"] == "error"
+    assert result["stages"]["ownership"] == {
+        "status": "failed",
+        "error": expected_error,
+    }
+    assert result["repair"]["safeToRetry"] is True
+    assert calls == ["session-closeout"]
 
 
 def test_direct_closeout_cli_reports_partial_state(agnt, capsys):
@@ -1229,7 +1308,7 @@ def test_direct_closeout_rejects_tracked_non_beads_changes_before_mutation(
         direct_closeout.__globals__,
         {
             "current_session_id": lambda: "session-closeout",
-            "current_session_handoff_source": lambda _session_id: {
+            "current_session_closeout_source": lambda _session_id: {
                 "beadId": "pi-test.dirty",
                 "outcome": "success",
             },
@@ -1299,7 +1378,7 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(
         {
             "beads_bin": lambda: str(exporter),
             "current_session_id": lambda: "session-closeout",
-            "current_session_handoff_source": lambda _session_id: {
+            "current_session_closeout_source": lambda _session_id: {
                 "beadId": "pi-test.parity",
                 "outcome": "success",
             },

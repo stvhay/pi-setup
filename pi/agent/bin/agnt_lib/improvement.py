@@ -17,6 +17,7 @@ from collections import Counter
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Any
 
 from .langfuse import DEFAULT_MAX_TRACES, MAX_PAGE_SIZE, LangfuseError, _client_from_env
@@ -32,6 +33,9 @@ TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
 SCORES_PER_QUERY = 100
+CLOSEOUT_OUTCOME_TIMEOUT_SECONDS = 2.0
+CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS = 0.1
+CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS = 0.5
 COHORT_OUTCOMES = ("success", "partial", "failure", "unclear", "unknown")
 CHILD_TRACE_MODES = ("agentic", "one-shot", "unknown")
 CHILD_TRACE_AVAILABILITY = (
@@ -1061,6 +1065,10 @@ class SessionWorkItemConflict(ValueError):
     pass
 
 
+class SessionOutcomeUnavailable(ValueError):
+    pass
+
+
 def _work_link_score_id(session_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"urn:agnt:improvement-work-item:{session_id}"))
 
@@ -1120,16 +1128,38 @@ def session_handoff_source(client: Any, session_id: str) -> dict[str, str]:
     outcomes, mismatched = _correlated_outcome_scores(session_id, correlation, scores)
     if mismatched:
         raise SessionWorkItemConflict("current Pi session closeout ownership conflicts")
+    if not outcomes:
+        raise SessionOutcomeUnavailable("current Pi session closeout outcome is unavailable")
     if len(outcomes) != 1 or outcomes[0].get("value") not in TASK_OUTCOMES:
-        raise ValueError("current Pi session closeout outcome is unavailable")
+        raise ValueError("current Pi session closeout outcome is invalid")
     return {
         "beadId": str(correlation["beadId"]),
         "outcome": str(outcomes[0]["value"]),
     }
 
 
+def closeout_handoff_source(client: Any, session_id: str) -> dict[str, str]:
+    deadline = monotonic() + CLOSEOUT_OUTCOME_TIMEOUT_SECONDS
+    backoff = CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS
+    while True:
+        try:
+            return session_handoff_source(client, session_id)
+        except SessionOutcomeUnavailable:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise SessionOutcomeUnavailable(
+                    "current Pi session closeout outcome remained unavailable after bounded wait"
+                ) from None
+            sleep(min(backoff, remaining))
+            backoff = min(backoff * 2, CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS)
+
+
 def current_session_handoff_source(session_id: str) -> dict[str, str]:
     return session_handoff_source(_client_from_env(), session_id)
+
+
+def current_session_closeout_source(session_id: str) -> dict[str, str]:
+    return closeout_handoff_source(_client_from_env(), session_id)
 
 
 def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: Any) -> dict[str, Any]:

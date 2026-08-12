@@ -3502,6 +3502,121 @@ def test_session_handoff_source_requires_linked_explicit_closeout():
         improvement.session_handoff_source(missing_outcome, session_id)
 
 
+def test_session_handoff_source_rejects_invalid_outcome_without_visibility_retry():
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    invalid = _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1")
+    invalid["value"] = "rejected"
+    client = FakeSessionOwnershipClient([
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
+        invalid,
+    ])
+
+    with pytest.raises(ValueError, match="invalid") as caught:
+        improvement.session_handoff_source(client, session_id)
+
+    assert not isinstance(caught.value, improvement.SessionOutcomeUnavailable)
+
+
+def test_closeout_handoff_source_waits_for_one_written_outcome(monkeypatch):
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    client = FakeSessionOwnershipClient()
+    improvement.record_session_outcome(
+        client,
+        session_id=session_id,
+        bead_id="pi-current.1",
+        outcome="success",
+        beads_runner=lambda _args: (0, {"id": "pi-current.1"}, ""),
+    )
+    client.rows = [
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
+        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1"),
+    ]
+    list_scores = client.list_scores
+    hidden = [True]
+
+    def delayed_list_scores(**kwargs):
+        rows = list_scores(**kwargs)
+        if kwargs["name"] == improvement.OUTCOME_SCORE and hidden[0]:
+            hidden[0] = False
+            return []
+        return rows
+
+    monkeypatch.setattr(client, "list_scores", delayed_list_scores)
+    now = [0.0]
+    sleeps = []
+    monkeypatch.setattr(improvement, "monotonic", lambda: now[0])
+
+    def advance(delay):
+        sleeps.append(delay)
+        now[0] += delay
+
+    monkeypatch.setattr(improvement, "sleep", advance)
+
+    assert improvement.closeout_handoff_source(client, session_id) == {
+        "beadId": "pi-current.1",
+        "outcome": "success",
+    }
+    assert [call["name"] for call in client.put_calls].count(improvement.OUTCOME_SCORE) == 1
+    assert sleeps == [improvement.CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS]
+
+
+def test_closeout_handoff_source_stops_at_monotonic_deadline(monkeypatch):
+    session_id = "018cc251-f400-7000-8000-000000000000"
+    client = FakeSessionOwnershipClient([
+        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
+    ])
+    now = [0.0]
+    sleeps = []
+    monkeypatch.setattr(improvement, "CLOSEOUT_OUTCOME_TIMEOUT_SECONDS", 0.25)
+    monkeypatch.setattr(improvement, "CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS", 0.1)
+    monkeypatch.setattr(improvement, "CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS", 0.2)
+    monkeypatch.setattr(improvement, "monotonic", lambda: now[0])
+
+    def advance(delay):
+        sleeps.append(delay)
+        now[0] += delay
+
+    monkeypatch.setattr(improvement, "sleep", advance)
+
+    with pytest.raises(improvement.SessionOutcomeUnavailable, match="bounded wait"):
+        improvement.closeout_handoff_source(client, session_id)
+
+    assert sleeps == pytest.approx([0.1, 0.15])
+    assert [query["name"] for query in client.score_queries].count(
+        improvement.OUTCOME_SCORE
+    ) == 3
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("outcome rejected"),
+        improvement.SessionWorkItemConflict("wrong owner"),
+        langfuse.LangfuseError("transport failed"),
+        TimeoutError("transport timed out"),
+    ],
+    ids=("rejection", "wrong-owner", "transport", "timeout"),
+)
+def test_closeout_handoff_source_does_not_retry_other_errors(monkeypatch, error):
+    calls = []
+
+    def fail(_client, _session_id):
+        calls.append(error)
+        raise error
+
+    monkeypatch.setattr(improvement, "session_handoff_source", fail)
+    monkeypatch.setattr(
+        improvement,
+        "sleep",
+        lambda _delay: pytest.fail("non-visibility errors must not be retried"),
+    )
+
+    with pytest.raises(type(error), match=re.escape(str(error))):
+        improvement.closeout_handoff_source(object(), "session")
+
+    assert calls == [error]
+
+
 def test_session_handoff_source_uses_only_canonical_score_ownership(monkeypatch):
     session_id = "run-cwd-shadow"
     client = FakeSessionOwnershipClient([
