@@ -1229,6 +1229,79 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
     assert not (tmp_path / "runs").exists()
 
 
+def test_work_status_projects_canonical_in_progress_items_in_priority_id_order(agnt):
+    beads = [
+        {"id": "pi-z.1", "title": "Later ID", "status": "in_progress", "priority": 2},
+        {"id": "pi-b.1", "title": "Lower priority", "status": "in_progress", "priority": 1},
+        {"id": "pi-a.1", "title": "Earlier ID", "status": "in_progress", "priority": 2},
+    ]
+    calls = []
+
+    def fake_beads(args):
+        calls.append(args)
+        return 0, beads, ""
+
+    with patch.dict(
+        agnt.work_status.__globals__,
+        {
+            "run_beads_json": fake_beads,
+            "current_session_work_item": lambda session_id: "pi-a.1"
+            if session_id == "session-1"
+            else pytest.fail("unexpected session"),
+        },
+    ):
+        result = agnt.work_status("session-1")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "ok",
+        "activeBeadId": "pi-a.1",
+        "items": [
+            {"id": "pi-b.1", "priority": 1, "title": "Lower priority"},
+            {"id": "pi-a.1", "priority": 2, "title": "Earlier ID"},
+            {"id": "pi-z.1", "priority": 2, "title": "Later ID"},
+        ],
+    }
+    assert calls == [["list", "--status", "in_progress"]]
+
+
+def test_work_status_empty_state_skips_session_correlation(agnt):
+    with patch.dict(
+        agnt.work_status.__globals__,
+        {
+            "run_beads_json": lambda _args: (0, [], ""),
+            "current_session_work_item": lambda _session_id: pytest.fail(
+                "empty state must not query session correlation"
+            ),
+        },
+    ):
+        result = agnt.work_status("session-1")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "ok",
+        "activeBeadId": None,
+        "items": [],
+    }
+
+
+def test_work_status_cli_bounds_query_failures(agnt, capsys):
+    with patch.dict(
+        agnt.cmd_work.__globals__,
+        {"work_status": lambda _session_id: (_ for _ in ()).throw(RuntimeError("private detail"))},
+    ):
+        assert agnt.main(["work", "status", "--session-id", "session-1"]) == 2
+
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "schemaVersion": 1,
+        "status": "error",
+        "activeBeadId": None,
+        "items": [],
+    }
+    assert "private detail" not in output
+
+
 def test_direct_start_exists_only_under_work_namespace(agnt, capsys):
     assert getattr(agnt, "cmd_direct", None) is None
     assert agnt.main(["direct"]) == 2

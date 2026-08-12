@@ -60,6 +60,10 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 `/restart` and agent-callable `restart_pi` share one graceful process-replacement path that resumes same persisted session. Only one process replacement may be pending; duplicate requests fail before adding another exit listener. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
 
+### Beads work in the footer
+
+`agent/extensions/beads-footer.ts` adds one keyed status line without replacing Pi's built-in footer rows. It lists every canonical `in_progress` Bead as `<id> P<priority> <title>` in priority/ID order and uses the active theme's accent/bold styling for the Bead linked to the current Pi session. The status refreshes on session startup/reload and after tools that can change Beads; empty, malformed, or failed reads clear it. This data remains presentation-only and is not added to model context.
+
 ### Start the next Bead in a fresh session
 
 After recording a successful outcome, committing task-owned changes, and cleanly closing the current Bead, agents call `handoff_bead` without a target. Tool and `/handoff-bead` command share one deterministic preflight requiring a linked successful outcome and closed source Bead. Sole ready non-epic work continues automatically; several ready choices produce one bounded selection and are revalidated before handoff. Non-success outcomes and failed or partial closeout stop.

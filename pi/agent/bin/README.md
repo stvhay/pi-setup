@@ -139,6 +139,10 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. After successful current Bead closeout, call `handoff_bead` without a target; sole ready non-epic work continues automatically, while several choices use one selection. `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
   - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle or worktree creation.
 
+- `agnt work status --session-id SESSION`
+  - Reads canonical `in_progress` Beads and existing session-work correlation without mutation, returning deterministic priority/ID-ordered JSON for presentation adapters.
+  - Returns no private session data beyond the linked public Bead ID. Query or validation failures use a bounded error shape with empty items.
+
 - `agnt work direct-closeout BEAD --reason REASON`
   - Runs only after task-owned implementation changes are verified and committed and `agnt improve outcome BEAD OUTCOME` has recorded matching session ownership.
   - Refuses tracked non-Beads changes, closes the Bead idempotently, explicitly exports canonical regular issues through `bd export --readonly`, and verifies target `status`, `closed_at`, and `close_reason` parity before replacing `.beads/issues.jsonl`.

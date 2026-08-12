@@ -24,6 +24,7 @@ from .improvement import (
     current_session_closeout_source,
     current_session_handoff_source,
     current_session_id,
+    current_session_work_item,
     link_current_session,
 )
 from .maintenance import maintenance_create_beads, maintenance_due_report
@@ -841,6 +842,41 @@ def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, A
     }
 
 
+def work_status(session_id: str) -> Dict[str, Any]:
+    code, data, _error = run_beads_json(["list", "--status", "in_progress"])
+    if code != 0 or not isinstance(data, list):
+        raise RuntimeError("could not load in-progress Beads")
+
+    items = []
+    for bead in data:
+        if not isinstance(bead, dict):
+            raise ValueError("in-progress Bead is malformed")
+        bead_id = bead.get("id")
+        priority = bead.get("priority")
+        title = bead.get("title")
+        status = str(bead.get("status") or "").lower().replace("-", "_")
+        if (
+            not isinstance(bead_id, str)
+            or not BEAD_ID.fullmatch(bead_id)
+            or type(priority) is not int
+            or not 0 <= priority <= 4
+            or not isinstance(title, str)
+            or not title.strip()
+            or any(ord(char) < 32 or ord(char) == 127 for char in title)
+            or status != "in_progress"
+        ):
+            raise ValueError("in-progress Bead is malformed")
+        items.append({"id": bead_id, "priority": priority, "title": title})
+
+    items.sort(key=lambda item: (item["priority"], item["id"]))
+    return {
+        "schemaVersion": 1,
+        "status": "ok",
+        "activeBeadId": current_session_work_item(session_id) if items else None,
+        "items": items,
+    }
+
+
 def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
     bead: Dict[str, Any] = {"id": bead_id}
     stages: Dict[str, Any] = {}
@@ -1113,6 +1149,8 @@ def cmd_work(argv: List[str]) -> int:
     direct_start_cmd = sub.add_parser("direct-start", help="validate a bead, optionally claim it, and link this Pi session")
     direct_start_cmd.add_argument("bead_id")
     direct_start_cmd.add_argument("--claim", action="store_true", help="claim the bead only when it is not already in progress")
+    status_cmd = sub.add_parser("status", help="show in-progress Beads and current session work-item correlation")
+    status_cmd.add_argument("--session-id", required=True)
     direct_closeout_cmd = sub.add_parser("direct-closeout", help="close a directly worked bead and commit its portable state")
     direct_closeout_cmd.add_argument("bead_id")
     direct_closeout_cmd.add_argument("--reason", required=True)
@@ -1198,6 +1236,18 @@ def cmd_work(argv: List[str]) -> int:
         result = direct_start(args.bead_id, claim=args.claim)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
+    if args.command == "status":
+        try:
+            result = work_status(args.session_id)
+        except (OSError, RuntimeError, ValueError):
+            result = {
+                "schemaVersion": 1,
+                "status": "error",
+                "activeBeadId": None,
+                "items": [],
+            }
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] == "ok" else 2
     if args.command == "direct-closeout":
         result = direct_closeout(args.bead_id, reason=args.reason)
         print(json.dumps(result, indent=2, sort_keys=True))

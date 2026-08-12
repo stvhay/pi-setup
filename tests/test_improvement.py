@@ -3881,6 +3881,23 @@ def _ownership_score(session_id, name, bead_id):
     }
 
 
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        ([_ownership_score("session", improvement.WORK_LINK_SCORE, "pi-current.1")], "pi-current.1"),
+        ([], None),
+    ],
+    ids=("linked-without-outcome", "unlinked"),
+)
+def test_session_work_item_uses_existing_canonical_correlation(rows, expected):
+    client = FakeSessionOwnershipClient(rows)
+
+    assert improvement.session_work_item(client, "session") == expected
+    assert [query["name"] for query in client.score_queries] == [
+        improvement.WORK_LINK_SCORE,
+    ]
+
+
 def test_session_handoff_source_requires_linked_explicit_closeout():
     session_id = "018cc251-f400-7000-8000-000000000000"
     client = FakeSessionOwnershipClient([

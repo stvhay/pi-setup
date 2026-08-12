@@ -1223,7 +1223,11 @@ def _correlate(session_id: str, runs_dir: Path, scores: list[dict[str, Any]] | N
                 }
                 correlation.update({key: value for key, value in dimensions.items() if isinstance(value, str) and value})
                 return correlation
-    canonical_scores = _canonical_score_rows(scores or [], _work_link_score_id(session_id))
+    return _score_work_correlation(session_id, scores or [])
+
+
+def _score_work_correlation(session_id: str, scores: list[dict[str, Any]]) -> dict[str, Any]:
+    canonical_scores = _canonical_score_rows(scores, _work_link_score_id(session_id))
     owners = set()
     for score in canonical_scores:
         metadata = score.get("metadata")
@@ -1275,27 +1279,36 @@ def _canonical_score_rows(rows: list[dict[str, Any]], score_id: str) -> list[dic
     return [row for row in identified if row["id"] == score_id] if identified else rows
 
 
-def _session_ownership_scores(client: Any, session_id: str) -> list[dict[str, Any]]:
+def _session_score_rows(
+    client: Any,
+    session_id: str,
+    name: str,
+    score_id: str,
+) -> list[dict[str, Any]]:
     started = _session_start(session_id) or datetime(1970, 1, 1, tzinfo=timezone.utc)
     until = max(datetime.now(timezone.utc), started) + timedelta(minutes=5)
-    bounds = {
-        "from_timestamp": started.isoformat().replace("+00:00", "Z"),
-        "to_timestamp": until.isoformat().replace("+00:00", "Z"),
-        "session_id": session_id,
-        "limit": SCORES_PER_QUERY + 1,
-    }
+    found = client.list_scores(
+        name=name,
+        from_timestamp=started.isoformat().replace("+00:00", "Z"),
+        to_timestamp=until.isoformat().replace("+00:00", "Z"),
+        session_id=session_id,
+        limit=SCORES_PER_QUERY + 1,
+    )
+    if len(found) > SCORES_PER_QUERY:
+        raise SessionWorkItemConflict(
+            "current Pi session ownership is incomplete; "
+            "use handoff_bead or the /new human fallback and retry"
+        )
+    return _canonical_score_rows(found, score_id)
+
+
+def _session_ownership_scores(client: Any, session_id: str) -> list[dict[str, Any]]:
     rows = []
     for name, score_id in (
         (WORK_LINK_SCORE, _work_link_score_id(session_id)),
         (OUTCOME_SCORE, _outcome_score_id(session_id)),
     ):
-        found = client.list_scores(name=name, **bounds)
-        if len(found) > SCORES_PER_QUERY:
-            raise SessionWorkItemConflict(
-                "current Pi session ownership is incomplete; "
-                "use handoff_bead or the /new human fallback and retry"
-            )
-        rows.extend(_canonical_score_rows(found, score_id))
+        rows.extend(_session_score_rows(client, session_id, name, score_id))
     return rows
 
 
@@ -1345,6 +1358,26 @@ def closeout_handoff_source(client: Any, session_id: str) -> dict[str, str]:
                 ) from None
             sleep(min(backoff, remaining))
             backoff = min(backoff * 2, CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS)
+
+
+def session_work_item(client: Any, session_id: str) -> str | None:
+    if not session_id or len(session_id) > 200:
+        raise ValueError("current Pi session is unavailable")
+    correlation = _score_work_correlation(
+        session_id,
+        _session_score_rows(
+            client,
+            session_id,
+            WORK_LINK_SCORE,
+            _work_link_score_id(session_id),
+        ),
+    )
+    bead_id = correlation.get("beadId") if correlation.get("status") == "linked" else None
+    return bead_id if isinstance(bead_id, str) and BEAD_ID.fullmatch(bead_id) else None
+
+
+def current_session_work_item(session_id: str) -> str | None:
+    return session_work_item(_client_from_env(), session_id)
 
 
 def current_session_handoff_source(session_id: str) -> dict[str, str]:
