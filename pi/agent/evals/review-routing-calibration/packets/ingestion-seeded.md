@@ -2,6 +2,30 @@
 
 Review only this packet. Anchors A1–A3 are candidate review locations; an anchor may be defective or safe. Report at most two concrete Critical/Important findings. Use anchor ID as finding `id`. Do not report style or generic hardening.
 
+## Objective
+
+Decide whether changed ingestion behavior violates stated wire-size, ordering, or retry invariants.
+
+## Current decision
+
+No finding is accepted yet; test candidate anchors against primary evidence below.
+
+## Evidence sources
+
+One-shot worker cannot retrieve repository files. Bounded source, contract, tests, and output schema are embedded below; no raw transcript is included.
+
+## Constraints
+
+Review only A1–A3. Return at most two Critical/Important findings and at most 6,000 characters.
+
+## Verification target
+
+Each finding must identify violated contract, concrete failure, and anchor; clean behavior must produce PASS.
+
+## Stop conditions
+
+Stop after deciding all candidate anchors from packet evidence. Do not request unrelated source or infer undeclared behavior.
+
 ## Contract
 
 - Serialized request bodies must remain at or below 3,000,000 UTF-8 bytes.

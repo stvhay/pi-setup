@@ -18,6 +18,18 @@ Prefer durable, greppable artifacts over chat-only state:
 - Keep instructions DRY: reference files and commands by path rather than duplicating long text.
 - Do not leave avoidable generated artifacts (`__pycache__`, temporary logs, build output) unless they are intentionally part of the task.
 
+## Evidence-complete delegated packets
+
+Treat a delegated packet as a retrieval manifest, not conversation replay. State:
+
+- objective and current decision;
+- exact source-of-truth paths, symbols, and commands;
+- external contract evidence the worker cannot retrieve;
+- constraints and output schema;
+- verification target and stop conditions.
+
+For agentic workers with workspace tools, prefer filesystem retrieval and point to exact sources instead of pasting them. For one-shot workers or inaccessible sources, embed only bounded source excerpts needed for the decision. Do not copy a raw transcript by default; it includes stale hypotheses and unrelated chronology.
+
 ## Knowledge graph
 
 If `graphify-out/graph.json` exists, use it to map code structure before broad exploration:

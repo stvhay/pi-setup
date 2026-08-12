@@ -19,6 +19,8 @@ At start, read shared conventions if needed:
 
 Parallel peers may share a checkout only for read-only work. Do not allow parallel writes in one worktree. If the task requires edits, route to `subagent-driven-development` worktree mode or execute serially.
 
+Every peer prompt follows the shared evidence-complete packet contract. Agentic peers retrieve primary evidence from exact filesystem paths and commands instead of receiving pasted source.
+
 ## Use when
 
 - multiple failing test files appear independent
@@ -74,36 +76,39 @@ If independence is unclear, do one serial investigation first.
 
 ### 2. Create focused peer prompts
 
-Each prompt should include:
+Each prompt must keep every labeled template field. Write `unknown` rather than omit a field whose value is unavailable.
 
-- exact scope
-- relevant files/commands
-- read-only constraint
-- expected output
-- severity or confidence format if useful
+- objective and current decision
+- exact source-of-truth paths, symbols, and commands
+- external contract evidence the worker cannot retrieve
+- constraints and read-only scope
+- output schema or exact output shape
+- verification target and stop conditions
 
 Prompt template:
 
 ```text
 You are a read-only peer investigator.
 
-Scope: <one test file/subsystem/problem domain>
-Repository: <path>
-Relevant files/commands:
-- <paths>
-
-Rules:
+Objective: <decision this investigation supports>
+Current decision: <accepted state or unresolved choice>
+Evidence sources:
+- Repository: <path>
+- Exact paths/symbols/commands: <retrieval manifest>
+- External contract evidence: <bounded evidence unavailable to worker, or none>
+Constraints:
 - Do not edit files.
 - Do not commit.
 - Do not run destructive commands.
 - Prefer exact file:line evidence.
 - If you propose a fix, describe it as text or a patch sketch only.
-
-Output:
+Output schema:
 ### Findings
 ### Evidence
 ### Proposed fix or next diagnostic step
 ### Confidence: HIGH | MEDIUM | LOW
+Verification target: <test, command, invariant, or decision evidence>
+Stop conditions: <evidence boundary, blocker, or completion condition>
 ```
 
 ### 3. Dispatch peers

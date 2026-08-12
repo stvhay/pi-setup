@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "review-routing-calibration",
-  "taskPrefix": "review-calibration:v3",
+  "taskPrefix": "review-calibration:v4",
   "models": [
     {
       "name": "terra",
@@ -58,7 +58,7 @@
     },
     {
       "id": "case-02a",
-      "taskPrefix": "review-calibration:v6",
+      "taskPrefix": "review-calibration:v7",
       "kind": "seeded",
       "scope": "boundary",
       "prompt": "packets/deployment-seeded.md",
@@ -71,7 +71,7 @@
     },
     {
       "id": "case-02b",
-      "taskPrefix": "review-calibration:v6",
+      "taskPrefix": "review-calibration:v7",
       "kind": "clean",
       "scope": "boundary",
       "prompt": "packets/deployment-clean.md",

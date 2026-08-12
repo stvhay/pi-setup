@@ -173,6 +173,57 @@ def test_workflow_eval_requires_explicit_skill_provenance():
     assert "provenance.txt" in workflow_eval
 
 
+def test_delegated_packets_are_evidence_complete_and_access_aware():
+    review = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
+    dispatch = (AGENT / "skills" / "dispatching-parallel-agents" / "SKILL.md").read_text(encoding="utf-8")
+    development = (AGENT / "skills" / "subagent-driven-development" / "SKILL.md").read_text(encoding="utf-8")
+    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
+
+    required_fields = (
+        "objective",
+        "current decision",
+        "exact source-of-truth paths, symbols, and commands",
+        "external contract evidence",
+        "constraints",
+        "output schema",
+        "verification target",
+        "stop conditions",
+    )
+    for field in required_fields:
+        assert field in common
+    assert "Do not copy a raw transcript" in common
+    for skill in (review, dispatch, development):
+        assert "evidence-complete packet contract" in skill
+
+    assert "actual caller, loader, and runtime contract" in review
+    assert "paste the useful caller/dependent evidence" not in review
+    assert "bounded source excerpts" in common
+    assert "worker cannot retrieve" in common
+    assert "filesystem" in dispatch
+    assert "filesystem" in development
+    assert "second evidence-finding model call" in review
+    assert "finding yield" in review
+    assert "verifier-call count" in review
+
+    scenarios = ROOT / ".pi" / "skill-evals"
+    investigation = (scenarios / "dispatching-parallel-agents" / "scenarios" / "evidence-complete-investigation.md").read_text(encoding="utf-8")
+    boundary = (scenarios / "requesting-code-review" / "scenarios" / "evidence-complete-boundary-review.md").read_text(encoding="utf-8")
+    assert "without transcript access" in investigation
+    assert "filesystem" in investigation
+    assert "bounded source excerpts" in investigation
+    assert "actual caller, loader, and runtime contract" in boundary
+    assert "second evidence-finding model call" in boundary
+    assert "finding yield" in boundary
+    assert "verifier-call count" in boundary
+
+    result = (ROOT / ".pi" / "skill-evals" / "requesting-code-review" / "results-2026-08-12-evidence-packets.md").read_text(encoding="utf-8")
+    assert "Finding yield" in result
+    assert "Verifier calls" in result
+    assert "1 confirmed" in result
+    assert "deployed baseline" in result
+    assert "candidate" in result
+
+
 def test_executing_plans_isolates_main_orchestration_checkout():
     skill = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
     scenario = (ROOT / ".pi" / "skill-evals" / "executing-plans" / "scenarios" / "isolated-main-orchestration.md").read_text(encoding="utf-8")

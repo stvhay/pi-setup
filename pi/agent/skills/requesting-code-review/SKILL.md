@@ -76,6 +76,8 @@ Large line count is first a segmentation trigger, not proof that a frontier mode
 
 ## Build complete behavior packets
 
+Follow the shared evidence-complete packet contract. A reviewer should decide from primary evidence without transcript access or a second evidence-finding model call.
+
 Create one review directory:
 
 ```bash
@@ -90,20 +92,20 @@ git diff > "$ReviewDir/diff.patch"
 Segment by behavior, not file. Each packet should contain only what its reviewer needs:
 
 1. review ID, scope, reviewer target, and family;
-2. requirement, Bead, design, or plan excerpt;
-3. exact relevant diff hunks;
+2. objective, current decision, and requirement, Bead, design, or plan excerpt;
+3. exact source-of-truth paths, symbols, commands, and relevant diff hunks;
 4. changed function/class context and important callers/dependents;
-5. relevant tests and verification output; and
-6. the compact `finding-discoverer` contract plus required JSON schema path.
+5. relevant external contract evidence, tests, verification target, and verification output;
+6. constraints, stop conditions, and the compact `finding-discoverer` contract plus required output schema path.
 
-If `graphify-out/graph.json` exists, query significant changed symbols before packet assembly and paste the useful caller/dependent evidence into the packet. The graph reflects the last commit, so do not treat absence of newly added symbols as a finding.
+If `graphify-out/graph.json` exists, query significant changed symbols before packet assembly. Give agentic reviewers exact graph/source retrieval commands; embed useful caller/dependent excerpts only for one-shot reviewers. The graph reflects the last commit, so do not treat absence of newly added symbols as a finding.
 
-A one-shot reviewer cannot read artifact paths. **Embed file contents in the packet**; do not merely say `diff: .pi/reviews/.../diff.patch`.
+Agentic reviewers retrieve repository evidence from exact filesystem paths and commands. A one-shot reviewer cannot read artifact paths: embed bounded source excerpts in its packet instead of merely saying `diff: .pi/reviews/.../diff.patch`. Embed external evidence only when the worker cannot retrieve it.
 
 Use two scopes:
 
 - **Behavioral:** requirements, preservation, errors, edge cases, and tests.
-- **Boundary:** callers, dependencies, interfaces, schemas, persistence, concurrency, and security.
+- **Boundary:** actual caller, loader, and runtime contract plus dependencies, interfaces, schemas, persistence, concurrency, and security. Include their primary evidence whenever the conclusion depends on that boundary.
 
 The tracked schema and example are:
 
@@ -204,7 +206,7 @@ Use invocation outcomes consistently:
 - `verified-fail` — verifier confirmed a defect;
 - `escalated` — a concrete unresolved serious item crossed an external gate.
 
-Do not promote a model from SWE-Bench claims or raw agreement. Compare real confirmed unique findings, false positives, verification time, latency, and actual marginal cost. Use synthetic seeded defects only as an executable non-regression eval, not as the sole promotion basis.
+Do not promote a model from SWE-Bench claims or raw agreement. Compare finding yield and verifier-call count with the prior workflow, alongside real confirmed unique findings, false positives, verification time, latency, and actual marginal cost. Use synthetic seeded defects only as an executable non-regression eval, not as the sole promotion basis.
 
 ## Report
 

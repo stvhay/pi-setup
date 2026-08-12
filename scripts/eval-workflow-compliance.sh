@@ -500,6 +500,11 @@ EOF
     if ! grep -Eiq 'alpha|beta|Domain|peer|read-only|ADVISORY' "$RUN_DIR/$name.out"; then
       fail "$name" "dispatching-parallel-agents did not group domains or propose read-only peer work"
     fi
+    for field in 'Objective' 'Current decision' 'Evidence sources' 'Constraints' 'Output schema' 'Verification target' 'Stop conditions'; do
+      if ! grep -Fqi "$field" "$RUN_DIR/$name.out"; then
+        fail "$name" "dispatching packet omitted $field"
+      fi
+    done
   )
   pass "$name"
 }

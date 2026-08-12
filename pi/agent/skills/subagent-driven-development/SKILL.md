@@ -19,6 +19,8 @@ At start, read shared conventions if needed:
 
 Never let multiple workers edit the same checkout in parallel. Read-only/advisory peers may share a checkout. Any peer that writes implementation code must use its own branch/worktree.
 
+Every worker prompt follows the shared evidence-complete packet contract. Agentic workers retrieve primary evidence from exact filesystem paths and commands instead of receiving pasted source.
+
 ## Modes
 
 ### Mode A: Advisory peers — default
@@ -32,7 +34,7 @@ Use this by default for:
 - implementation strategy comparisons
 - code review before the orchestrator edits
 
-Peers are read-only unless the user explicitly approves write/worktree execution. Peer outputs go under `.pi/peer-runs/<topic>/`. The orchestrator verifies claims and applies any changes manually.
+Peers are read-only unless the user explicitly approves write/worktree execution. Peer outputs go under `.pi/peer-runs/<topic>/`. The orchestrator verifies claims and applies any changes manually. Packets state objective, current decision, exact source-of-truth paths/symbols/commands, inaccessible external contract evidence, constraints, output schema, verification target, and stop conditions.
 
 ### Mode B: Worktree implementation — explicit approval required
 
@@ -43,11 +45,12 @@ Each implementation worker gets:
 - role/model context when useful, generated with `agnt instructions --role implementation-worker --context provider/model`
 - its own branch
 - its own worktree under `.worktrees/`
-- exact task text
-- allowed files
-- forbidden files
-- verification commands
-- commit/report requirements
+- objective, current decision, and exact task text
+- exact source-of-truth paths, symbols, and commands
+- external contract evidence the worker cannot retrieve
+- constraints: allowed and forbidden files
+- output schema and commit/report requirements
+- verification target, verification commands, and stop conditions
 
 The orchestrator reviews and integrates task branches one at a time.
 

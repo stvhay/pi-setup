@@ -102,16 +102,22 @@ def test_real_manifest_and_packets_validate():
     checked = module.validate_manifest(manifest(), EVAL_DIR)
 
     assert checked["id"] == "review-routing-calibration"
-    assert checked["taskPrefix"] == "review-calibration:v3"
+    assert checked["taskPrefix"] == "review-calibration:v4"
     assert len(checked["packets"]) == 4
     deployment = {packet["id"]: packet["taskPrefix"] for packet in checked["packets"] if packet["scope"] == "boundary"}
-    assert deployment == {"case-02a": "review-calibration:v6", "case-02b": "review-calibration:v6"}
+    assert deployment == {"case-02a": "review-calibration:v7", "case-02b": "review-calibration:v7"}
     assert {packet["kind"] for packet in checked["packets"]} == {"seeded", "clean"}
     assert checked["execution"]["repetitions"] == 3
     assert checked["thresholds"]["minLatencyAdjustedYieldRatio"] == 1.25
     for packet in checked["packets"]:
         for rubric in packet["expectedFindings"].values():
             assert len(rubric["semanticAlternatives"]) >= 2
+        prompt = (EVAL_DIR / packet["prompt"]).read_text(encoding="utf-8")
+        for heading in ("## Objective", "## Current decision", "## Evidence sources", "## Constraints", "## Verification target", "## Stop conditions"):
+            assert heading in prompt
+        assert "raw transcript" in prompt
+        if packet["scope"] == "boundary":
+            assert "actual caller, loader, and runtime contract" in prompt
 
 
 @pytest.mark.parametrize(("packet_index", "finding_id", "claim"), [
@@ -362,7 +368,7 @@ def test_collect_correlates_subagent_call_and_result_dimensions(tmp_path):
     assert all(record["durationMs"] == 1_000 for record in records)
     assert all(record["responseChars"] <= 6_000 for record in records)
 
-    tasks[0]["task"] = f"review-calibration:v3 packet={packet['id']} repetition=1\n\nwrong packet"
+    tasks[0]["task"] = f"{spec['taskPrefix']} packet={packet['id']} repetition=1\n\nwrong packet"
     results[0]["task"] = tasks[0]["task"]
     session.write_text("\n".join([
         session_entry({
