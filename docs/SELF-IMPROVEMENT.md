@@ -61,9 +61,10 @@ bounded cohorts and writes private packets under `~/.pi/improvement/`.
 Runner sessions correlate from run bundles; interactive work must call
 `agnt improve link <bead>` after claim and `agnt improve outcome <bead> <outcome>`
 at closeout. One logical Pi session belongs to one Bead. After current Bead
-closeout, agents call `handoff_bead` with the next ready Bead ID. Tool validates
-source closeout and target readiness, stages one empty parent-linked session, then
-gracefully replaces Pi process and sends bounded source/target Bead references plus
+successful closeout, agents call `handoff_bead` without a target. Tool validates
+source closeout, continues sole ready non-epic work automatically, or asks once when
+several choices exist and revalidates selection. It then stages one empty parent-linked
+session, gracefully replaces Pi process, and sends bounded source/target Bead references plus
 `bd prime`, `bd ready`, and direct-start instructions. Fresh work retrieves only
 referenced durable state; source transcript is not copied. `/new` remains human
 fallback when automated handoff is unavailable.

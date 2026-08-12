@@ -25,34 +25,53 @@ function targetFromPreflight(result: Record<string, unknown>): string | undefine
   const target = result.target;
   if (!target || typeof target !== "object" || Array.isArray(target)) return undefined;
   const targetRecord = target as Record<string, unknown>;
-  return targetRecord.status === "open" && typeof targetRecord.beadId === "string"
+  return targetRecord.status === "open" &&
+    typeof targetRecord.beadId === "string" &&
+    validBeadId(targetRecord.beadId)
     ? targetRecord.beadId
     : undefined;
+}
+
+function choicesFromPreflight(result: Record<string, unknown>): Array<{ id: string; label: string }> {
+  if (!Array.isArray(result.candidates)) return [];
+  return result.candidates.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+    const { beadId, title } = candidate as Record<string, unknown>;
+    if (typeof beadId !== "string" || !validBeadId(beadId) || typeof title !== "string") return [];
+    return [{ id: beadId, label: `${beadId} — ${title}` }];
+  });
 }
 
 const kickoffFor = (targetBead: string, sourceBead: string): string =>
   `Work ${targetBead} in this fresh Pi session after closed ${sourceBead}. Before code changes run \`bd prime\`, \`bd ready\`, then \`agnt work direct-start ${targetBead}\`. Recover only \`bd show ${sourceBead}\`, \`bd show ${targetBead}\`, and artifacts those Beads reference. No prior transcript was copied.`;
 
-type HandoffContext = Pick<ExtensionContext, "cwd" | "mode" | "sessionManager" | "shutdown">;
+type HandoffContext = Pick<ExtensionContext, "cwd" | "mode" | "sessionManager" | "shutdown" | "ui">;
 
-async function startHandoff(targetBead: string, ctx: HandoffContext, signal?: AbortSignal): Promise<void> {
+async function startHandoff(requestedTarget: string | undefined, ctx: HandoffContext, signal?: AbortSignal): Promise<string> {
   if (ctx.mode !== "tui") throw new Error("/handoff-bead requires interactive TUI mode");
   const parentSession = ctx.sessionManager.getSessionFile();
   if (!parentSession) throw new Error("/handoff-bead requires a persisted session");
 
   const sourceSessionId = ctx.sessionManager.getSessionId();
-  const preflight = await runAgntJson(
-    ["work", "handoff-check", targetBead, "--session-id", sourceSessionId],
+  const preflight = async (target?: string) => runAgntJson(
+    ["work", "handoff-check", ...(target ? [target] : []), "--session-id", sourceSessionId],
     ctx.cwd,
     signal,
     "agnt work handoff-check",
   );
-  const sourceBead = closedSourceFromPreflight(preflight);
-  if (
-    preflight.status !== "ready" ||
-    !sourceBead ||
-    targetFromPreflight(preflight) !== targetBead
-  ) {
+  let result = await preflight(requestedTarget);
+  if (!requestedTarget && result.status === "selection-required") {
+    const choices = choicesFromPreflight(result);
+    if (choices.length < 2) throw new Error("agnt work handoff-check returned invalid ready-work choices");
+    const selected = await ctx.ui.select("Choose next ready Bead", choices.map(({ label }) => label));
+    if (!selected) throw new Error("Bead handoff selection cancelled; current session remains active");
+    requestedTarget = choices.find(({ label }) => label === selected)?.id;
+    if (!requestedTarget) throw new Error("Bead handoff selection was invalid; current session remains active");
+    result = await preflight(requestedTarget);
+  }
+  const sourceBead = closedSourceFromPreflight(result);
+  const targetBead = targetFromPreflight(result);
+  if (result.status !== "ready" || !sourceBead || !targetBead || (requestedTarget && targetBead !== requestedTarget)) {
     throw new Error("agnt work handoff-check did not validate a closed source Bead and ready target Bead");
   }
 
@@ -104,14 +123,15 @@ async function startHandoff(targetBead: string, ctx: HandoffContext, signal?: Ab
     }
     throw error;
   }
+  return targetBead;
 }
 
 export default function beadHandoff(pi: ExtensionAPI): void {
   pi.registerCommand("handoff-bead", {
     description: "Start a ready Bead in a fresh Pi session",
     handler: async (args, ctx) => {
-      const targetBead = args.trim();
-      if (!validBeadId(targetBead)) throw new Error("Usage: /handoff-bead <valid Bead ID>");
+      const targetBead = args.trim() || undefined;
+      if (targetBead && !validBeadId(targetBead)) throw new Error("Usage: /handoff-bead [valid Bead ID]");
       await startHandoff(targetBead, ctx);
     },
   });
@@ -119,19 +139,19 @@ export default function beadHandoff(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "handoff_bead",
     label: "Handoff Bead",
-    description: "After current Bead closeout, start one existing ready Bead in a fresh Pi session without copying the transcript",
-    promptSnippet: "Start the next ready Bead in a fresh Pi session after current Bead closeout",
+    description: "After successful clean closeout, automatically start ready work or ask once when several choices exist",
+    promptSnippet: "Start ready work in a fresh Pi session after successful clean closeout",
     promptGuidelines: [
-      "Use handoff_bead only after recording the current Bead outcome, committing task-owned changes, and closing the current Bead.",
-      "Pass handoff_bead the next existing ready Bead ID; use /new only as a human fallback when the tool is unavailable.",
+      "Call handoff_bead without a target after recording a successful outcome, committing task-owned changes, and cleanly closing the current Bead.",
+      "handoff_bead selects a sole ready Bead automatically, asks once when several are ready, and uses /new only as a human fallback when unavailable.",
     ],
     parameters: Type.Object({
-      targetBead: Type.String({ description: "Existing ready Bead ID" }),
+      targetBead: Type.Optional(Type.String({ description: "Optional existing ready Bead ID" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const targetBead = params.targetBead.trim();
-      if (!validBeadId(targetBead)) throw new Error("targetBead must be a valid Bead ID");
-      await startHandoff(targetBead, ctx, signal);
+      const requestedTarget = params.targetBead?.trim() || undefined;
+      if (requestedTarget && !validBeadId(requestedTarget)) throw new Error("targetBead must be a valid Bead ID");
+      const targetBead = await startHandoff(requestedTarget, ctx, signal);
       return {
         content: [{ type: "text", text: `Starting fresh-session handoff to ${targetBead}; Pi restart requested.` }],
         details: { targetBead },

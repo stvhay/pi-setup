@@ -125,7 +125,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 
 - `agnt work direct-start BEAD [--claim]`
   - Starts ordinary direct work by validating and showing the Bead, optionally claiming it only when `--claim` is explicit and the Bead is not already in progress, then idempotently linking the current Pi session.
-  - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. After current Bead closeout, call `handoff_bead` with the target ready Bead ID; `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
+  - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. After successful current Bead closeout, call `handoff_bead` without a target; sole ready non-epic work continues automatically, while several choices use one selection. `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
   - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle or worktree creation.
 
 - `agnt work direct-closeout BEAD --reason REASON`
@@ -141,9 +141,9 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Conflict runs only `git merge --abort` and verifies exact baseline restoration. Divergence, dirty state, timeout, cancellation, failed abort, or failed verification stops without alternate strategy. Process death or keyboard interruption releases the semaphore; a successor still must pass exact HEAD/clean-state checks, so interrupted mutation cannot silently continue. Exit `0` means integrated/already integrated; `3` means safe stop/conflict; `2` means invalid request or unavailable integration environment.
   - `git worktree lock` is not used: it prevents administrative prune/move/remove but does not serialize commands inside a worktree. Git's index/ref lockfiles protect individual writes, not the full preflight/merge/verification transaction.
 
-- `agnt work handoff-check BEAD --session-id SESSION`
-  - Internal preflight for tracked Bead handoff extension. It requires one linked explicit session outcome, closed source Bead, and existing target in `bd ready` before fresh-session staging or process replacement.
-  - Returns bounded JSON containing source/target Bead IDs, status, and outcome; it does not copy transcript content, stage session, or replace process itself.
+- `agnt work handoff-check [BEAD] --session-id SESSION`
+  - Internal preflight for tracked Bead handoff extension. It requires one linked successful session outcome and closed source Bead. Without `BEAD`, it selects sole ready non-epic work or returns bounded choices; an explicit or selected target must exist in `bd ready` before fresh-session staging or process replacement.
+  - Returns bounded JSON containing source/target Bead IDs or ready choices, status, and outcome; it does not copy transcript content, stage session, or replace process itself.
 
 - `agnt work next --json`
   - Reads Beads ready work and selects the first non-epic ready bead when available.

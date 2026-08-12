@@ -1509,6 +1509,148 @@ def test_direct_start_requires_fresh_session_after_work_item_conflict(agnt, caps
     assert "/clone" not in json.dumps(result)
 
 
+def test_handoff_closeout_clean_requires_committed_portable_parity(agnt, monkeypatch, tmp_path):
+    clean = getattr(agnt, "handoff_closeout_is_clean", None)
+    init_test_git(tmp_path)
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    source = {
+        "_type": "issue",
+        "id": "pi-current.1",
+        "status": "closed",
+        "closed_at": "2026-08-12T12:00:00Z",
+        "close_reason": "Done.",
+    }
+    (beads / "issues.jsonl").write_text(json.dumps(source) + "\n", encoding="utf-8")
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("clean\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "closed"], check=True)
+    monkeypatch.chdir(tmp_path)
+
+    assert clean(source) is True
+    tracked.write_text("dirty\n", encoding="utf-8")
+    assert clean(source) is False
+
+
+def test_handoff_check_selects_only_ready_work_automatically(agnt):
+    handoff_check = getattr(agnt, "handoff_check", None)
+    source = {"id": "pi-current.1", "status": "closed"}
+    target = {
+        "id": "pi-next.1",
+        "title": "Continue workflow",
+        "status": "open",
+        "priority": 1,
+        "issue_type": "task",
+    }
+
+    def fake_beads(args):
+        if args == ["show", source["id"]]:
+            return 0, [source], ""
+        if args == ["ready", "--limit", "0"]:
+            return 0, [target], ""
+        pytest.fail(f"unexpected Beads call: {args}")
+
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": lambda _session_id: {
+            "beadId": source["id"],
+            "outcome": "success",
+        },
+        "run_beads_json": fake_beads,
+        "handoff_closeout_is_clean": lambda _source: True,
+    }):
+        result = handoff_check(None, session_id="old-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "ready",
+        "source": {"beadId": source["id"], "outcome": "success", "status": "closed"},
+        "target": {"beadId": target["id"], "status": "open"},
+    }
+
+
+def test_handoff_check_rejects_incomplete_closeout(agnt):
+    handoff_check = getattr(agnt, "handoff_check", None)
+    source = {"id": "pi-current.1", "status": "closed"}
+
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": lambda _session_id: {
+            "beadId": source["id"],
+            "outcome": "success",
+        },
+        "run_beads_json": lambda args: (0, [source], "")
+        if args == ["show", source["id"]]
+        else pytest.fail("incomplete closeout must block before ready-work inspection"),
+        "handoff_closeout_is_clean": lambda _source: False,
+    }):
+        result = handoff_check(None, session_id="old-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "error",
+        "targetBead": None,
+        "error": "current work item closeout is incomplete",
+    }
+
+
+def test_handoff_check_returns_one_bounded_choice_for_multiple_ready_items(agnt):
+    handoff_check = getattr(agnt, "handoff_check", None)
+    source = {"id": "pi-current.1", "status": "closed"}
+    targets = [
+        {"id": "pi-next.1", "title": "First path", "status": "open", "issue_type": "task"},
+        {"id": "pi-other.1", "title": "Other path", "status": "open", "issue_type": "feature"},
+    ]
+
+    def fake_beads(args):
+        if args == ["show", source["id"]]:
+            return 0, [source], ""
+        if args == ["ready", "--limit", "0"]:
+            return 0, targets, ""
+        pytest.fail(f"unexpected Beads call: {args}")
+
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": lambda _session_id: {
+            "beadId": source["id"],
+            "outcome": "success",
+        },
+        "run_beads_json": fake_beads,
+        "handoff_closeout_is_clean": lambda _source: True,
+    }):
+        result = handoff_check(None, session_id="old-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "selection-required",
+        "source": {"beadId": source["id"], "outcome": "success", "status": "closed"},
+        "candidates": [
+            {"beadId": "pi-next.1", "title": "First path"},
+            {"beadId": "pi-other.1", "title": "Other path"},
+        ],
+    }
+
+
+@pytest.mark.parametrize("outcome", ["partial", "failure", "unclear"])
+def test_handoff_check_rejects_non_success_outcome(agnt, outcome):
+    handoff_check = getattr(agnt, "handoff_check", None)
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": lambda _session_id: {
+            "beadId": "pi-current.1",
+            "outcome": outcome,
+        },
+        "run_beads_json": lambda _args: pytest.fail(
+            "non-success outcome must block before Beads inspection"
+        ),
+    }):
+        result = handoff_check(None, session_id="old-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "error",
+        "targetBead": None,
+        "error": "current session outcome is not successful",
+    }
+
+
 def test_handoff_check_requires_closed_source_and_ready_target(agnt):
     handoff_check = getattr(agnt, "handoff_check", None)
     assert handoff_check is not None, "handoff_check is missing"
@@ -1532,6 +1674,7 @@ def test_handoff_check_requires_closed_source_and_ready_target(agnt):
             "outcome": "success",
         },
         "run_beads_json": fake_beads,
+        "handoff_closeout_is_clean": lambda _source: True,
     }):
         result = handoff_check(target["id"], session_id="old-session")
 
@@ -1579,6 +1722,7 @@ def test_handoff_check_fails_before_session_replacement(
             "outcome": "success",
         },
         "run_beads_json": fake_beads,
+        "handoff_closeout_is_clean": lambda _source: True,
     }):
         result = handoff_check(target["id"], session_id="old-session")
 

@@ -737,7 +737,26 @@ def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str],
     return {"result": result, "beadClose": close_result}
 
 
-def handoff_check(target_bead_id: str, *, session_id: str) -> Dict[str, Any]:
+def handoff_closeout_is_clean(source_bead: Dict[str, Any]) -> bool:
+    root_result = _git(Path.cwd(), ["rev-parse", "--show-toplevel"])
+    if root_result.returncode != 0 or not root_result.stdout.strip():
+        return False
+    root = Path(root_result.stdout.strip())
+    portable_path = root / ".beads" / "issues.jsonl"
+    if _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"]).returncode != 0:
+        return False
+    status = _git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=no"])
+    if status.returncode != 0 or status.stdout:
+        return False
+    try:
+        portable = _portable_issue_rows(portable_path).get(str(source_bead.get("id") or ""))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    fields = ("status", "closed_at", "close_reason")
+    return bool(portable) and all(source_bead.get(field) == portable.get(field) for field in fields)
+
+
+def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, Any]:
     def failed(error: str) -> Dict[str, Any]:
         return {
             "schemaVersion": 1,
@@ -746,7 +765,7 @@ def handoff_check(target_bead_id: str, *, session_id: str) -> Dict[str, Any]:
             "error": error,
         }
 
-    if not BEAD_ID.fullmatch(target_bead_id):
+    if target_bead_id is not None and not BEAD_ID.fullmatch(target_bead_id):
         return failed("target Bead ID is malformed")
     if not session_id or len(session_id) > 200:
         return failed("current Pi session is unavailable")
@@ -754,6 +773,8 @@ def handoff_check(target_bead_id: str, *, session_id: str) -> Dict[str, Any]:
         source = current_session_handoff_source(session_id)
     except (OSError, RuntimeError, ValueError):
         return failed("current session closeout is unavailable")
+    if source["outcome"] != "success":
+        return failed("current session outcome is not successful")
 
     source_bead_id = source["beadId"]
     if source_bead_id == target_bead_id:
@@ -764,27 +785,55 @@ def handoff_check(target_bead_id: str, *, session_id: str) -> Dict[str, Any]:
         return failed("could not load current work item")
     if str(source_bead.get("status") or "").lower() != "closed":
         return failed("current work item is not closed")
+    if not handoff_closeout_is_clean(source_bead):
+        return failed("current work item closeout is incomplete")
 
-    code, data, _error = run_beads_json(["show", target_bead_id])
-    target_bead = normalize_bead(data)
-    if code != 0 or not target_bead:
-        return failed("could not load target work item")
+    target_bead = None
+    if target_bead_id is not None:
+        code, data, _error = run_beads_json(["show", target_bead_id])
+        target_bead = normalize_bead(data)
+        if code != 0 or not target_bead:
+            return failed("could not load target work item")
     code, ready_data, _error = run_beads_json(["ready", "--limit", "0"])
     if code != 0 or not isinstance(ready_data, list):
         return failed("could not load ready work")
-    if target_bead_id not in {
-        str(item.get("id")) for item in ready_data if isinstance(item, dict)
-    }:
+    ready_items = [
+        item for item in ready_data
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and BEAD_ID.fullmatch(item["id"])
+        and item["id"] != source_bead_id
+    ]
+
+    source_result = {
+        "beadId": source_bead_id,
+        "outcome": source["outcome"],
+        "status": "closed",
+    }
+    if target_bead_id is None:
+        non_epics = [item for item in ready_items if item.get("issue_type") != "epic"]
+        candidates = non_epics or ready_items
+        if not candidates:
+            return failed("no ready work is available")
+        if len(candidates) > 1:
+            return {
+                "schemaVersion": 1,
+                "status": "selection-required",
+                "source": source_result,
+                "candidates": [
+                    {"beadId": item["id"], "title": str(item.get("title") or item["id"])}
+                    for item in candidates
+                ],
+            }
+        target_bead = candidates[0]
+        target_bead_id = target_bead["id"]
+    elif target_bead_id not in {item["id"] for item in ready_items}:
         return failed("target work item is not ready")
 
     return {
         "schemaVersion": 1,
         "status": "ready",
-        "source": {
-            "beadId": source_bead_id,
-            "outcome": source["outcome"],
-            "status": "closed",
-        },
+        "source": source_result,
         "target": {
             "beadId": target_bead_id,
             "status": str(target_bead.get("status") or "unknown"),
@@ -1072,8 +1121,8 @@ def cmd_work(argv: List[str]) -> int:
     integrate_cmd.add_argument("--expected-head", required=True)
     integrate_cmd.add_argument("--source-sha", required=True)
     integrate_cmd.add_argument("--timeout-seconds", type=float, default=30)
-    handoff_check_cmd = sub.add_parser("handoff-check", help="validate closeout and target readiness before fresh-session handoff")
-    handoff_check_cmd.add_argument("bead_id")
+    handoff_check_cmd = sub.add_parser("handoff-check", help="validate closeout and select ready work before fresh-session handoff")
+    handoff_check_cmd.add_argument("bead_id", nargs="?")
     handoff_check_cmd.add_argument("--session-id", required=True)
     next_cmd = sub.add_parser("next", help="show the next ready bead")
     next_cmd.add_argument("--json", action="store_true")
@@ -1171,7 +1220,7 @@ def cmd_work(argv: List[str]) -> int:
     if args.command == "handoff-check":
         result = handoff_check(args.bead_id, session_id=args.session_id)
         print(json.dumps(result, indent=2, sort_keys=True))
-        return 0 if result["status"] == "ready" else 2
+        return 0 if result["status"] in {"ready", "selection-required"} else 2
     if args.command == "next":
         code, data, err = run_beads_json(["ready"])
         if code != 0:
