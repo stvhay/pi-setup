@@ -1,11 +1,22 @@
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const agentDir = getAgentDir();
+const PROJECTION_OBSERVE_REQUEST = "pi-setup:langfuse-projection-observe";
 type LangfuseFactory = (pi: ExtensionAPI) => void | Promise<void>;
+type ProjectionObserve = (
+  name: string,
+  attributes: {
+    input?: unknown;
+    output?: unknown;
+    metadata?: Record<string, unknown>;
+    level?: "DEFAULT" | "ERROR";
+  },
+  options: { asType: "agent"; sessionId?: string; flush?: boolean },
+) => void | Promise<void>;
 
 export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
   process.env.LANGFUSE_PRIVACY_PRESET = "conversations";
@@ -61,6 +72,38 @@ export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
     default: LangfuseFactory;
   };
   await registerLangfuse(pi);
+
+  if (pi.events) {
+    const packageRoot = dirname(langfuseEntry);
+    const [{ getRuntime, shutdownRuntime }, { redactValue }, { getCapturePolicy }] = await Promise.all([
+      import(pathToFileURL(resolve(packageRoot, "src", "langfuse.js")).href),
+      import(pathToFileURL(resolve(packageRoot, "src", "redaction.js")).href),
+      import(pathToFileURL(resolve(packageRoot, "src", "utils.js")).href),
+    ]);
+    const observe: ProjectionObserve = async (name, attributes, options) => {
+      const policy = getCapturePolicy();
+      const runtime = await getRuntime();
+      try {
+        const record = () => {
+          const observation = runtime.startObservation(name, {
+            ...attributes,
+            input: policy.captureInputs ? redactValue(attributes.input) : undefined,
+            output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
+            metadata: redactValue(attributes.metadata),
+          }, { asType: options.asType });
+          observation.end();
+        };
+        return options.sessionId
+          ? runtime.propagateAttributes({ sessionId: options.sessionId }, record)
+          : record();
+      } finally {
+        if (options.flush) await shutdownRuntime(options.sessionId);
+      }
+    };
+    pi.events.on(PROJECTION_OBSERVE_REQUEST, (accept) => {
+      if (typeof accept === "function") (accept as (value: ProjectionObserve) => void)(observe);
+    });
+  }
 
   pi.on("message_end", ({ message }) => {
     const originalModel = originalModels.get(message);

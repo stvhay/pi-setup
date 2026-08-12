@@ -1,9 +1,7 @@
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, parse } from "node:path";
-import { pathToFileURL } from "node:url";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
 import {
   persistDelegatedResult as persistRuntimeDelegatedResult,
@@ -18,6 +16,7 @@ type EffectiveMode = "agentic" | "one-shot" | "unknown";
 type ChildTraceAvailability = "expected-available" | "expected-unavailable" | "unknown";
 
 const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
+const PROJECTION_OBSERVE_REQUEST = "pi-setup:langfuse-projection-observe";
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
 const INTERACTIVE_VALUE_MAX_CHARS = 12_000;
 const INLINE_OUTPUT_MAX_CHARS = 12_000;
@@ -103,7 +102,7 @@ type ObservationAttributes = {
 type Observe = (
   name: string,
   attributes: ObservationAttributes,
-  options: { asType: "agent"; sessionId?: string },
+  options: { asType: "agent"; sessionId?: string; flush?: boolean },
 ) => void | Promise<void>;
 
 type ToolErrorSignal = {
@@ -443,46 +442,6 @@ function parallelInlineOutputMessages(
       text: `${header}${value.slice(0, outputChars)}${outputChars ? suffix : ""}`,
     }];
   });
-}
-
-async function loadDefaultObserve(): Promise<Observe> {
-  const modules = join(agentDir, "npm", "node_modules");
-  const [{ getRuntime, shutdownRuntime }, { redactValue }, { createCapturePolicy }] = await Promise.all([
-    import(pathToFileURL(join(modules, "pi-langfuse", "src", "langfuse.ts")).href),
-    import(pathToFileURL(join(modules, "pi-langfuse", "src", "redaction.ts")).href),
-    import(pathToFileURL(join(modules, "pi-langfuse", "src", "capture-policy.ts")).href),
-  ]);
-  return async (name, attributes, options) => {
-    let saved: Record<string, unknown> = {};
-    try {
-      saved = JSON.parse(readFileSync(join(agentDir, "pi-langfuse", "config.json"), "utf8"));
-    } catch {
-      // pi-langfuse owns missing/invalid config handling.
-    }
-    const capture = saved.capture && typeof saved.capture === "object" ? saved.capture as Record<string, string> : {};
-    const policy = createCapturePolicy({
-      ...capture,
-      ...(typeof saved.privacyPreset === "string" ? { LANGFUSE_PRIVACY_PRESET: saved.privacyPreset } : {}),
-      ...process.env,
-    });
-    const runtime = await getRuntime();
-    try {
-      const record = () => {
-        const observation = runtime.startObservation(name, {
-          ...attributes,
-          input: policy.captureInputs ? redactValue(attributes.input) : undefined,
-          output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
-          metadata: redactValue(attributes.metadata),
-        }, { asType: options.asType });
-        observation.end();
-      };
-      return options.sessionId
-        ? runtime.propagateAttributes({ sessionId: options.sessionId }, record)
-        : record();
-    } finally {
-      await shutdownRuntime(options.sessionId);
-    }
-  };
 }
 
 function langfuseSessionId(ctx?: ExtensionContext): string | undefined {
@@ -832,10 +791,14 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     else openProviders.delete(provider);
   };
   let observe = dependencies.observe;
-  let observeLoad: Promise<Observe> | undefined;
+  if (!observe) {
+    pi.events.emit(PROJECTION_OBSERVE_REQUEST, (provided: unknown) => {
+      if (typeof provided === "function") observe = provided as Observe;
+    });
+  }
   const getObserve = () => observe
     ? Promise.resolve(observe)
-    : (observeLoad ??= loadDefaultObserve().then((loaded) => (observe = loaded)));
+    : Promise.reject(new Error("pi-langfuse projection observer is unavailable"));
   let interactivePrompt: unknown;
   let interactiveOutput: unknown;
   let interactiveExecution: Record<string, unknown> = { executionOutcome: "unknown" };
@@ -889,7 +852,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
           ...execution,
           ...(toolErrorSignals.length ? { toolErrorSignals } : {}),
         },
-      }, { asType: "agent", sessionId: langfuseSessionId(ctx) });
+      }, { asType: "agent", sessionId: langfuseSessionId(ctx), flush: true });
     } catch (error) {
       console.error("[langfuse-projection] could not record interactive result:", error);
     }

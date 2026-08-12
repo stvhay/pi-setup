@@ -431,9 +431,7 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
 def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdown(tmp_path):
     agent_dir = tmp_path / "agent"
     npm_dir = agent_dir / "npm"
-    tracing_dir = npm_dir / "node_modules" / "@langfuse" / "tracing" / "dist"
     package_dir = npm_dir / "node_modules" / "pi-langfuse"
-    tracing_dir.mkdir(parents=True)
     (package_dir / "src").mkdir(parents=True)
     (agent_dir / "pi-langfuse").mkdir(parents=True)
     (agent_dir / "bin").mkdir(parents=True)
@@ -444,8 +442,12 @@ def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdo
     )
     (package_dir / "index.ts").write_text(
         """
-import { getRuntime, shutdownRuntime } from "./src/langfuse.ts";
+import { configure, getRuntime, shutdownRuntime } from "./src/langfuse.js";
 export default function register(pi) {
+  configure({
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+    secretKey: process.env.LANGFUSE_SECRET_KEY,
+  });
   pi.on("session_start", async () => { await getRuntime(); });
   pi.on("agent_end", async () => { await shutdownRuntime(); });
 }
@@ -454,6 +456,11 @@ export default function register(pi) {
     )
     (package_dir / "src" / "langfuse.ts").write_text(
         """
+let config;
+let runtime;
+export function configure(value) {
+  config = value;
+}
 function createRuntime() {
   const pending = [];
   return {
@@ -475,25 +482,15 @@ function createRuntime() {
   };
 }
 export async function getRuntime() {
-  return globalThis.__langfuseRuntime ??= createRuntime();
+  if (!config?.publicKey || !config?.secretKey) throw new Error("Langfuse config is not set");
+  return runtime ??= createRuntime();
 }
 export async function shutdownRuntime() {
   globalThis.__langfuseShutdowns++;
-  if (globalThis.__langfuseRuntime) {
-    globalThis.__langfuseObservations.push(...globalThis.__langfuseRuntime.pending);
-    globalThis.__langfuseRuntime = undefined;
+  if (runtime) {
+    globalThis.__langfuseObservations.push(...runtime.pending);
+    runtime = undefined;
   }
-}
-""",
-        encoding="utf-8",
-    )
-    (tracing_dir / "index.mjs").write_text(
-        """
-export function startObservation(name, attributes, options) {
-  return globalThis.__langfuseRuntime?.startObservation(name, attributes, options) ?? { end() {} };
-}
-export function propagateAttributes(attributes, callback) {
-  return globalThis.__langfuseRuntime?.propagateAttributes(attributes, callback) ?? callback();
 }
 """,
         encoding="utf-8",
@@ -502,11 +499,14 @@ export function propagateAttributes(attributes, callback) {
         "export function redactValue(value) { return value; }\n",
         encoding="utf-8",
     )
-    (package_dir / "src" / "capture-policy.ts").write_text(
-        "export function createCapturePolicy() { return { captureInputs: true, captureOutputs: true }; }\n",
+    (package_dir / "src" / "utils.ts").write_text(
+        "export function getCapturePolicy() { return { captureInputs: true, captureOutputs: true }; }\n",
         encoding="utf-8",
     )
-    (agent_dir / "pi-langfuse" / "config.json").write_text("{}\n", encoding="utf-8")
+    (agent_dir / "pi-langfuse" / "config.json").write_text(
+        '{"publicKey":"test-public","secretKey":"test-secret","host":"https://langfuse.test"}\n',
+        encoding="utf-8",
+    )
     agnt = agent_dir / "bin" / "agnt"
     agnt.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"circuits":{}}\'\n', encoding="utf-8")
     agnt.chmod(0o755)
@@ -523,7 +523,6 @@ export function propagateAttributes(attributes, callback) {
       const runtime = loader.createExtensionRuntime();
       globalThis.__langfuseObservations = [];
       globalThis.__langfusePropagation = undefined;
-      globalThis.__langfuseRuntime = undefined;
       globalThis.__langfuseShutdowns = 0;
       const loaded = await loader.loadExtensions(
         [{str(LANGFUSE_CONFIG_EXTENSION)!r}, {str(EXTENSION)!r}],
@@ -564,11 +563,29 @@ export function propagateAttributes(attributes, callback) {
         details: {{ exitCode: 1 }},
         isError: true,
       }});
+      await runner.emitToolResult({{
+        type: "tool_result",
+        toolName: "subagent",
+        toolCallId: "delegated",
+        input: {{ agent: "reviewer", task: "Review change" }},
+        content: [{{ type: "text", text: "Review complete" }}],
+        details: {{ mode: "single", results: [{{
+          agent: "reviewer",
+          task: "Review change",
+          exitCode: 0,
+          finalOutput: "No findings",
+          execution: {{ profile: {{ mode: "agentic" }} }},
+        }}] }},
+        isError: false,
+      }});
+      assert.equal(globalThis.__langfuseObservations.length, 0, "subagent projection must not shut down active runtime");
+      assert.equal(globalThis.__langfuseShutdowns, 0);
       await end([assistant("intermediate")]);
       await end([assistant("N".repeat(13_000))]);
+      assert.equal(globalThis.__langfuseObservations.length, 1, "subagent result must survive agent_end shutdown");
       await settle();
       await settle();
-      assert.equal(globalThis.__langfuseObservations.length, 1, "settled result must reach exporter flush");
+      assert.equal(globalThis.__langfuseObservations.length, 2, "settled result must reach exporter flush");
 
       await start("provider failure");
       await end([assistant("useful partial", "error", "HTTP 503 Service Unavailable")]);
@@ -588,8 +605,12 @@ export function propagateAttributes(attributes, callback) {
 
       assert.deepEqual(errors, []);
       assert.equal(globalThis.__langfuseShutdowns, 10);
-      assert.equal(globalThis.__langfuseObservations.length, 4);
-      const [normal, provider, aborted, length] = globalThis.__langfuseObservations;
+      assert.equal(globalThis.__langfuseObservations.length, 5);
+      const [delegated, normal, provider, aborted, length] = globalThis.__langfuseObservations;
+      assert.equal(delegated.name, "subagent-result");
+      assert.equal(delegated.attributes.input.task, "Review change");
+      assert.equal(delegated.attributes.output, "No findings");
+      assert.equal(delegated.propagated.sessionId, sessionManager.getSessionId());
       assert.equal(normal.name, "interactive-result");
       assert.equal(normal.attributes.input.length <= 12_000, true);
       assert.equal(normal.attributes.output.length <= 12_000, true);
@@ -628,7 +649,7 @@ def test_interactive_results_emit_evaluator_ready_observations():
       assert.deepEqual(observations, [{{
         name: "interactive-result",
         attributes: {{ input: "Fix auth", output: "Auth fixed", metadata: {{ executionOutcome: "succeeded" }} }},
-        options: {{ asType: "agent", sessionId: "2026-07-28T00-00-00Z_private-session" }},
+        options: {{ asType: "agent", sessionId: "2026-07-28T00-00-00Z_private-session", flush: true }},
       }}]);
 
       await handlers.before_agent_start({{ prompt: "Ask for a choice" }});
