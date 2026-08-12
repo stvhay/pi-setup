@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/gooyoung/pi-langfuse
-last_checked_utc: 2026-08-10T03:20:32Z
+last_checked_utc: 2026-08-12T03:32:22Z
 target_ref: v1.5.12
 source_commit: c79c527a7294e1d4b8153525d5218e87354cbcb1
 status: current-for-target-ref
@@ -36,10 +36,24 @@ source_files:
     sha256: 7ebaeb6c574e9ed4cc03e65eb810f87b2a9699c9441916e83196b2ae24c76437
   - path: src/handlers/agent.ts
     sha256: 08ff8c2d3e897c14d1cb616d25dbcfd5c3cbaa1d08324719029625743e5f90bc
+  - path: src/handlers/tool.ts
+    sha256: aef64ed903f1b14de3ff85a8a4836902efe2eac7ecaf6cc48d154a1ecb625293
+  - path: src/capture-policy.ts
+    sha256: 424390f188d75642471260e76055d35af211e8aad1f9ce4fab9858ac318f84ca
+  - path: src/constants.ts
+    sha256: b61cbd789b0461dcc404457960844add968b17ce7d3f08e8342e3ca2ba48c30b
+  - path: src/utils.ts
+    sha256: fc50dab22371592296fa59c3cb33fb98f6ebd3fe8a36cc10c5d5bc2f1b5fde66
   - path: src/types.ts
     sha256: 765ba0e144942793072ead95db235a42fca967548adf22e2633cbe38b32a8c4e
   - path: test/index.test.ts
     sha256: 78871aea43e59a22d4df205b5a25854c1a5c6ef09964649224d8c413d2ebadc8
+  - path: test/capture-policy.test.ts
+    sha256: ef447b6228f3e8ba26fd77c695de606246f65662fae598173ff17886f9669b51a
+  - path: test/limits.test.ts
+    sha256: f272cd452baedeb3f12a1c405f6abb323e77c6bb2f68cd7f2360f8d9f5a2b51a
+  - path: test/utils.test.ts
+    sha256: 130c826de79d0f41d9b90278eff1370ae911e1f78fef9e16ed2da646b4a3b6a9
   - path: test/state.test.ts
     sha256: 471fcaaac505569ad5d1dfaa30d786853a605948661464fc51407a0367e6944b
   - path: test/langfuse.test.ts
@@ -57,7 +71,7 @@ source_files:
 - Required candidate checks: `npm run typecheck`, `npm test`, `npm pack --dry-run`, and diff checks.
 - `AGENTS.md`, `DEVELOPMENT.md`, and `DEVELOPMENT_CN.md` now agree on `npm test`; the older direct `node --test` guidance is gone.
 - No PR template, issue template, CLA/DCO, or repository AI-contribution policy observed at this target.
-- Mutable state checked 2026-08-10T03:20:32Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has open issue #11 and draft PR #6; branch-protection details remain unavailable through the API (HTTP 404).
+- Mutable state checked 2026-08-12T03:32:22Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has open issue #17 and no open PRs; no repository rulesets were present; branch-protection details remain unavailable through the API (HTTP 404).
 - Publish workflow is release/tag driven on Node 24 and runs install, typecheck, tag validation, package inspection, then npm provenance publication. PR approval never authorizes release.
 
 ## Target changes relevant to this contribution
@@ -66,6 +80,7 @@ source_files:
 - v1.5.12 capability-gates legacy trace REST fallback for Langfuse v4 `events_only`, isolates shutdown-step failures, bounds score shutdown independently, and keeps later shutdown steps running after one failure.
 - Logical Pi session correlation and stable score entity/body IDs remain native; retry-stable ingestion envelope IDs are still absent.
 - v1.5.12 still sends each `ingestBatch()` argument as one request and still lacks media-safe finite ordinary-string handling, so reviewed batching/media contributions remain candidates but must be rebuilt around the new fallback and shutdown seams.
+- Tool byte metadata is computed from `captured.toolInput` and `captured.toolOutput` after capture policy replacement. Disabled tool capture therefore measures an unavailable serialization marker rather than the bounded pre-policy representation; any correction must keep exact counts separately controlled and version the metadata semantics.
 
 ## Policy findings
 
