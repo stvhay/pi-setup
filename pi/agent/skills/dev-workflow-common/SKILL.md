@@ -20,7 +20,7 @@ Prefer durable, greppable artifacts over chat-only state:
 
 ## Evidence-complete delegated packets
 
-Treat a delegated packet as a retrieval manifest, not conversation replay. State:
+Treat a delegated packet as a retrieval manifest, not conversation replay. Bound each child investigation to one explicit question and evidence contract. State:
 
 - objective and current decision;
 - exact source-of-truth paths, symbols, and commands;

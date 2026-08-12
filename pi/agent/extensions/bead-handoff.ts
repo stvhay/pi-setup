@@ -10,14 +10,15 @@ function validBeadId(value: string): boolean {
   return value.length <= 200 && BEAD_ID.test(value);
 }
 
-function sourceIsClosed(result: Record<string, unknown>): boolean {
+function closedSourceFromPreflight(result: Record<string, unknown>): string | undefined {
   const source = result.source;
-  return Boolean(
-    source &&
-      typeof source === "object" &&
-      !Array.isArray(source) &&
-      (source as Record<string, unknown>).status === "closed",
-  );
+  if (!source || typeof source !== "object" || Array.isArray(source)) return undefined;
+  const sourceRecord = source as Record<string, unknown>;
+  return sourceRecord.status === "closed" &&
+    typeof sourceRecord.beadId === "string" &&
+    validBeadId(sourceRecord.beadId)
+    ? sourceRecord.beadId
+    : undefined;
 }
 
 function targetFromPreflight(result: Record<string, unknown>): string | undefined {
@@ -29,8 +30,8 @@ function targetFromPreflight(result: Record<string, unknown>): string | undefine
     : undefined;
 }
 
-const kickoffFor = (targetBead: string): string =>
-  `Work ${targetBead} in this fresh Pi session. Run \`agnt work direct-start ${targetBead}\` before code changes, then continue from Beads and tracked repository artifacts only. No prior transcript was copied.`;
+const kickoffFor = (targetBead: string, sourceBead: string): string =>
+  `Work ${targetBead} in this fresh Pi session after closed ${sourceBead}. Before code changes run \`bd prime\`, \`bd ready\`, then \`agnt work direct-start ${targetBead}\`. Recover only \`bd show ${sourceBead}\`, \`bd show ${targetBead}\`, and artifacts those Beads reference. No prior transcript was copied.`;
 
 type HandoffContext = Pick<ExtensionContext, "cwd" | "mode" | "sessionManager" | "shutdown">;
 
@@ -46,9 +47,10 @@ async function startHandoff(targetBead: string, ctx: HandoffContext, signal?: Ab
     signal,
     "agnt work handoff-check",
   );
+  const sourceBead = closedSourceFromPreflight(preflight);
   if (
     preflight.status !== "ready" ||
-    !sourceIsClosed(preflight) ||
+    !sourceBead ||
     targetFromPreflight(preflight) !== targetBead
   ) {
     throw new Error("agnt work handoff-check did not validate a closed source Bead and ready target Bead");
@@ -80,7 +82,7 @@ async function startHandoff(targetBead: string, ctx: HandoffContext, signal?: Ab
         nextSession.getSessionDir(),
         "--session",
         nextSessionFile,
-        kickoffFor(targetBead),
+        kickoffFor(targetBead, sourceBead),
       ],
       () => ctx.shutdown(),
       "Pi handoff",

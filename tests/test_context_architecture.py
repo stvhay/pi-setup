@@ -224,6 +224,28 @@ def test_delegated_packets_are_evidence_complete_and_access_aware():
     assert "candidate" in result
 
 
+def test_bead_handoffs_use_bounded_durable_state():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
+    handoff = (AGENT / "extensions" / "bead-handoff.ts").read_text(encoding="utf-8")
+
+    for field in (
+        "objective",
+        "completed work",
+        "accepted decisions",
+        "constraints",
+        "unresolved blockers",
+        "verification state",
+        "next ready Bead",
+    ):
+        assert field in instructions
+    assert "Bead state or exact tracked/private artifact references" in instructions
+    assert "one explicit question and evidence contract" in common
+    assert "bd prime" in handoff and "bd ready" in handoff
+    assert "artifacts those Beads reference" in handoff
+    assert "No prior transcript was copied" in handoff
+
+
 def test_executing_plans_isolates_main_orchestration_checkout():
     skill = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
     scenario = (ROOT / ".pi" / "skill-evals" / "executing-plans" / "scenarios" / "isolated-main-orchestration.md").read_text(encoding="utf-8")

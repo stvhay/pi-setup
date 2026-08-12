@@ -63,8 +63,10 @@ Runner sessions correlate from run bundles; interactive work must call
 at closeout. One logical Pi session belongs to one Bead. After current Bead
 closeout, agents call `handoff_bead` with the next ready Bead ID. Tool validates
 source closeout and target readiness, stages one empty parent-linked session, then
-graciously replaces Pi process and sends target-only kickoff. Source transcript is
-not copied. `/new` remains human fallback when automated handoff is unavailable.
+gracefully replaces Pi process and sends bounded source/target Bead references plus
+`bd prime`, `bd ready`, and direct-start instructions. Fresh work retrieves only
+referenced durable state; source transcript is not copied. `/new` remains human
+fallback when automated handoff is unavailable.
 Quitting and resuming may retain same session. Link and outcome
 commands fail closed rather than overwrite conflicting canonical ownership. The
 outcome command idempotently backfills the same-Bead
