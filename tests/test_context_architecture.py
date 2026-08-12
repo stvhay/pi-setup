@@ -320,11 +320,60 @@ def test_approved_implementation_defaults_through_local_commit():
     assert "Do not close the Bead or claim completion while task-owned changes remain uncommitted" in common
     assert "agnt work direct-closeout" in common
     assert "shared portable Beads state" in common
-    assert "Push, alternate merge strategies" in common and "explicit approval" in common
+    assert "one ordinary post-closeout push" in common and "explicit approval" in common
 
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
     assert "implementation_commits_task_owned_changes" in workflow_eval
     assert "implementation_honors_no_commit" in workflow_eval
+
+
+def test_initial_approval_can_cover_one_guarded_push_after_closeout():
+    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
+    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
+    system = (ROOT / "docs" / "AGNT-SYSTEM.md").read_text(encoding="utf-8")
+    loop = (ROOT / "docs" / "ORCHESTRATION-LOOP.md").read_text(encoding="utf-8")
+
+    authority = "Initial implementation approval may preauthorize one ordinary branch push after successful Bead closeout"
+    for text in (global_instructions, project_instructions, template_instructions):
+        assert authority in text
+        assert "exact remote and branch identity" in text
+        assert "protected or production branch" in text.lower()
+
+    for phrase in (
+        "approved base commit SHA",
+        "candidate-selection rule limited to the task-owned implementation commit plus portable Beads closeout commit",
+        "expected remote ref state",
+        "clean tracked state",
+        "successful final gate",
+        "portable Beads state",
+        "remote SHA equals push `HEAD`",
+        "atomically mark the exact approval consumed in durable authorization state",
+        "unused-to-consumed transition",
+        "first push mutation attempt consumes the authority",
+        "no automatic retry or rollback mutation",
+    ):
+        assert phrase in common
+    for excluded in (
+        "force",
+        "tag",
+        "release",
+        "merge",
+        "remote deletion",
+        "history rewrite",
+    ):
+        assert excluded in common
+    assert "rejection, cancellation, or timeout" in common.lower()
+    assert "forward correction" in common
+    assert "ordinary branch push" in system
+    assert "ordinary branch push" in loop
+
+    workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
+    assert "push_without_exact_initial_approval_stops" in workflow_eval
+    assert "push_stops_on_remote_divergence" in workflow_eval
+    assert "push_stops_after_consumed_attempt" in workflow_eval
+    assert "push_stops_on_extra_commit" in workflow_eval
 
 
 def test_global_instructions_use_direct_lifecycle_start():
@@ -418,15 +467,15 @@ def test_preparing_upstream_pr_allows_safe_user_fork_staging_drafts():
     skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
     mechanics = (skill_root / "references" / "pr-mechanics.md").read_text(encoding="utf-8")
 
-    assert "creation and iterative updates of draft PRs" in skill
-    assert "create or update a draft in the user's fork without asking again" in skill
-    assert "reviewed predecessor branch for a stacked sequence" in skill
-    assert "does not include fork creation, any upstream-repository branch or PR" in skill
+    assert "approved base and bounded candidate selection" in skill
+    assert "Fork creation and every PR action require their own exact authority" in skill
+    assert "does not include any upstream-repository branch" in skill
+    assert "PR creation/update" in skill
     assert "Never mark any draft ready" in skill
     assert "remote destination is absent or an ancestor of the reviewed head" in mechanics
     assert 'git merge-base --is-ancestor "$remote_sha" HEAD' in mechanics
-    assert "Without another approval, create the staging draft" in mechanics
-    assert "It does not include fork creation, upstream-repository pushes or PRs" in mechanics
+    assert "Creating the staging draft **in the fork** requires separate exact approval" in mechanics
+    assert "does not include fork creation, any PR creation/update, upstream-repository pushes or PRs" in mechanics
 
 
 def test_nested_skill_runtime_references_are_checked(tmp_path):

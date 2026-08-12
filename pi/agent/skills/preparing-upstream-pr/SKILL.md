@@ -21,8 +21,8 @@ At start, read shared conventions if needed:
 - Keep one coherent problem in scope. Do not repair unrelated baseline findings, modernize nearby code, or add speculative architecture.
 - Never claim a required check passed without fresh evidence from the final candidate. For a failure, compare local environment, clean baseline, and candidate before a bounded remedy or truthful caveat. Keep extra advisory checker names, configurations, and counts in the local evidence packet—not the reviewer-facing PR body.
 - Broken upstream guidance stays in a separate issue/PR by default; only a trivial compliance blocker may be a separate commit in the same PR after human agreement.
-- **Standing user-fork staging authorization:** normal new or fast-forward pushes of reviewed task feature branches, plus creation and iterative updates of draft PRs in the user's verified existing fork, need no per-action approval when their sole purpose is revising an upstream PR candidate with the user. Verify fork ownership, clean reviewed scope, exact head, safe destination, draft base/head, files, and public visibility; use no force; add no reviewers or maintainer/team mentions; verify remote SHA and draft state; and return the GitHub URL. A stacked staging draft may target its reviewed predecessor feature branch; otherwise target the fork default branch.
-- That standing authorization does not include fork creation, any upstream-repository branch or PR, Ready state, reviewer requests, merge, release, deletion, or history rewrite. Any non-fast-forward update stops for separate exact approval and, if approved, uses `--force-with-lease`. Never promise a GitHub action is notification-free.
+- **Initial-scope user-fork push authorization:** exact initial implementation approval may cover one normal new or fast-forward push of the reviewed task feature branch after successful Bead closeout. Apply the shared ordinary push approval contract; verify fork ownership, approved base and bounded candidate selection, resolved immutable push head, expected remote state, and safe destination; verify remote SHA; then stop. Fork creation and every PR action require their own exact authority.
+- That initial authorization does not include any upstream-repository branch, protected/production branch, PR creation/update, Ready state, reviewer requests, merge, tag, release, deletion, force, or history rewrite. Any non-fast-forward update stops for separate exact approval and, if approved, uses `--force-with-lease`. Never promise a GitHub action is notification-free.
 - Never mark any draft ready, request reviewers, merge, tag, release, publish packages, delete remote artifacts, or sign a human attestation. Human owns those actions.
 - Final upstream body must disclose AI assistance and full human review. Do not make that claim until the human confirms review. Human edits in GitHub are authoritative; fetch and preserve them before later copyediting.
 
@@ -133,16 +133,13 @@ Never pass the internal packet to `gh pr create --body-file`.
 
 Read [references/pr-mechanics.md](references/pr-mechanics.md).
 
-For standing-authorized fork staging:
+For initially authorized fork push:
 
-- verify the existing fork remote, clean reviewed scope, exact head, and new or fast-forward destination;
+- verify the exact approval, successful Bead closeout, existing fork remote, clean reviewed scope, approved base, bounded candidate selection, resolved immutable push head, and unchanged new or fast-forward destination;
 - push normally without force and verify remote SHA equals reviewed head;
-- create or update a draft in the user's fork without asking again, targeting the fork default branch or the reviewed predecessor branch for a stacked sequence;
-- add no reviewers, team mentions, or maintainer mentions;
-- verify open draft state, base/head, commit IDs, title, body, files, and empty review requests;
-- return the draft URL and iterate there with the user.
+- stop and return the exact remote branch and SHA.
 
-Stop instead of overwriting an unexpected ref or body. Fork creation, history rewrite, and every upstream-repository mutation still require separate informed approval.
+Fork creation, draft creation/update, history rewrite, and every upstream-repository mutation require separate informed approval.
 
 A public-fork staging draft is public, but it does not create an upstream PR or automatically notify upstream CODEOWNERS. Treat staging text as review material, not final proof of human review.
 

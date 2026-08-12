@@ -259,10 +259,13 @@ only): a Bead before every code-changing task, approval before implementation in
 design workflows, fresh shell evidence before completion claims, read-only-by-
 default peer work, and the suspicious-phrase scan on composed instructions.
 Exact initial scope may include reversible local Git setup/cleanup, tracked
-asset deletion previews, and one local integration bound to target
-checkout/branch, expected target HEAD, and source commit SHA through the guarded
-semaphore. Push, alternate merge/integration strategies, remote deletion/ref
-mutation, force/reset/clean, and history rewrite remain separately gated. When
+asset deletion previews, one local integration bound to target checkout/branch,
+expected target HEAD, and source commit SHA through the guarded semaphore, and
+one ordinary branch push after successful Bead closeout under shared approved-base, bounded-candidate, identity, remote-state, final-gate,
+single-attempt, and post-push checks. PR actions, protected/production branches, unexpected divergence,
+alternate merge/integration strategies, remote
+deletion/ref mutation, force/reset/clean, tags/releases, and history rewrite
+remain separately gated or prohibited. When
 orchestration is explicitly selected, Beads-backed human decisions, recorded
 worker sessions, one worktree per epic, and run health/closeout checks add
 stricter optional gates.
