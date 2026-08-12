@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/gooyoung/pi-langfuse
-last_checked_utc: 2026-08-12T03:32:22Z
+last_checked_utc: 2026-08-12T08:49:25Z
 target_ref: v1.5.12
 source_commit: c79c527a7294e1d4b8153525d5218e87354cbcb1
 status: current-for-target-ref
@@ -71,7 +71,7 @@ source_files:
 - Required candidate checks: `npm run typecheck`, `npm test`, `npm pack --dry-run`, and diff checks.
 - `AGENTS.md`, `DEVELOPMENT.md`, and `DEVELOPMENT_CN.md` now agree on `npm test`; the older direct `node --test` guidance is gone.
 - No PR template, issue template, CLA/DCO, or repository AI-contribution policy observed at this target.
-- Mutable state checked 2026-08-12T03:32:22Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has open issue #17 and no open PRs; no repository rulesets were present; branch-protection details remain unavailable through the API (HTTP 404).
+- Mutable state checked 2026-08-12T08:49:25Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has open issue #17 and draft PR #18; no repository rulesets were present; branch-protection details remain unavailable through the API (HTTP 404).
 - Publish workflow is release/tag driven on Node 24 and runs install, typecheck, tag validation, package inspection, then npm provenance publication. PR approval never authorizes release.
 
 ## Target changes relevant to this contribution
@@ -103,4 +103,5 @@ source_files:
 - Rebuild against v1.5.12; never replay the 1.5.10 `src/langfuse.ts` wholesale.
 - Preserve capability detection and `runShutdownStep()` behavior while adding bounded ingestion.
 - Keep media handling separate from batching in fork-local review candidates; combine only in the vendor/runtime lineage.
+- Source-metadata privacy candidate: fork draft [stvhay/pi-langfuse#5](https://github.com/stvhay/pi-langfuse/pull/5) and upstream draft [gooyoung/pi-langfuse#18](https://github.com/gooyoung/pi-langfuse/pull/18), both at `90ce2d8c87cc6f12407fd445b8baabeecb9be456`.
 - Reviewer prose should list repository-required checks and behavior evidence, not private workflow artifacts.
