@@ -658,6 +658,20 @@ def test_review_skill_uses_liveness_bounds_without_default_request_token_cost_ca
     assert "maxCostUsd" not in discovery + verification
 
 
+def test_repository_delegation_guidance_is_access_and_billing_aware():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    review = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
+    reference = (AGENT / "bin" / "README.md").read_text(encoding="utf-8")
+
+    assert "--access repository" in instructions + review + reference
+    assert "--access self-contained" in instructions + review + reference
+    assert "repository access requires agentic" in (instructions + review + reference).lower()
+    assert "quality-benefit" in reference
+    assert "missing-capability" in reference
+    assert "estimated-input-tokens" in reference
+    assert "max-marginal-usd" in reference
+
+
 def test_subagent_guidance_calibrates_output_contracts_and_failure_evidence():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     reference = (AGENT / "bin" / "README.md").read_text(encoding="utf-8")

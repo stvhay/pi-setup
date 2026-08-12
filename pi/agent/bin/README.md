@@ -30,14 +30,15 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
 
 ## Model orchestration
 
-- `agnt route --task TASK [--risk low|medium|high] [--budget cheap|balanced|quality] [--context-tokens N] [--modality text|image|audio|video] [--monthly-paid-spend USD] [--ignore-history]`
-  - Recommends a model, fallback models, thinking level, context policy, and whether fanout is useful. Subscription-backed models rank before metered models when capability is comparable.
+- `agnt route --task TASK [--risk low|medium|high] [--budget cheap|balanced|quality] [--access auto|self-contained|repository] [--context-tokens N] [--modality text|image|audio|video] [--estimated-input-tokens N --estimated-output-tokens N --max-marginal-usd USD --metered-justification quality-benefit|missing-capability] [--monthly-paid-spend USD] [--ignore-history]`
+  - Recommends a model, fallback models, thinking level, execution mode, context policy, and whether fanout is useful. Subscription-backed models rank before metered models when capability is comparable.
+  - `--access repository` means repository access requires agentic execution. Metered repository candidates are excluded unless positive token estimates, aggregate `--max-marginal-usd`, and `quality-benefit` or `missing-capability` justification are all supplied. Catalog rates estimate marginal cost; fanout cannot exceed the aggregate estimate budget; each admitted metered child receives route-generated request, token, cost, and duration limits. `--access self-contained` keeps cold packet work tool-disabled and one-shot.
   - Uses the existing task files as policy, filters by `agent/settings.json` `enabledModels` plus runtime constraints, and includes metrics hints when available. `contextPolicy: fresh` means a selected metered OpenRouter model must run through a new `subagent`, not as a root-conversation continuation.
   - For `review`, emits the approved risk-specific `reviewPolicyTargets` fanout and a deterministic monthly spend state: Terra at high thinking by default, Kimi K2.7 Code for medium-risk diversity, and Opus 5 for high-risk independent review. It counts OpenRouter, configured metered venues, and positive provider-reported spend from retired venues while excluding configured subscription targets. It uses `AGNT_REVIEW_PAID_SPEND_USD` as an operator floor, accepts an authoritative `--monthly-paid-spend` override, and keeps only subscription-backed Terra at the `$18` reserve and `$20` hard-cap thresholds. K3 is escalation-only.
   - `--ignore-history` is reserved for deterministic policy evaluation; normal routing uses outcome history.
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason.
 
-For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and the selected target as `model`. Use its `tasks` array for parallel peers. Optional single/per-child `outputContract` values are `inline`, `artifact`, `status-only`, and `pass-no-findings`; omitted contracts remain `unknown`. The tracked observer generates one payload-free `invocationId` per child at tool start and reuses it in the projection, metric, and parent-owned result artifact. Before returning, the parent writes full final, partial, and error output under `agnt runtime-path delegated-results`; tool content/details and telemetry gain a bounded `runtime:delegated-results/...` ref plus payload-free persistence status. Failed children also expose bounded termination reason/source/effective deadline even when usable partial output exists. Projections and metrics carry matching provider, model, target, effective thinking level, objective execution outcome, and output contract. Quality evaluators receive only a bounded parent-result view plus contract and artifact persistence/content status/count, never raw refs or filesystem paths. Config-less workers use thinking `default` because Archimedes supplies no thinking override. Parallel indexes are metadata, not identity. Named-profile projections mark provider, target, and thinking unavailable, and their metrics remain skipped because Archimedes does not expose those effective values.
+For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and copy the route-generated model, mode, access, and any metered evidence/limits. Use its `tasks` array for parallel peers. The wrapper rejects `sourceAccess: repository` with one-shot mode and rejects metered agentic repository work whose justification, positive estimate, or request/token/cost/duration bounds are incomplete or inconsistent. Parallel metered repository calls also require top-level `maxMarginalUsd`; summed child estimates may not exceed it. Optional single/per-child `outputContract` values are `inline`, `artifact`, `status-only`, and `pass-no-findings`; omitted contracts remain `unknown`. The tracked observer generates one payload-free `invocationId` per child at tool start and reuses it in the projection, metric, and parent-owned result artifact. Before returning, the parent writes full final, partial, and error output under `agnt runtime-path delegated-results`; tool content/details and telemetry gain a bounded `runtime:delegated-results/...` ref plus payload-free persistence status. Failed children also expose bounded termination reason/source/effective deadline even when usable partial output exists. Projections and metrics carry matching provider, model, target, effective thinking level, objective execution outcome, and output contract. Quality evaluators receive only a bounded parent-result view plus contract and artifact persistence/content status/count, never raw refs or filesystem paths. Config-less workers use thinking `default` because Archimedes supplies no thinking override. Parallel indexes are metadata, not identity. Named-profile projections mark provider, target, and thinking unavailable, and their metrics remain skipped because Archimedes does not expose those effective values.
 
 `maxOutputTokens` bounds one provider response, not visible final-answer length; reasoning may consume that allowance before the visible final answer. Do not derive a low token cap from requested characters. Subscription-backed one-shot calls normally omit it, while the tracked wrapper keeps the 16,384-token metered one-shot backstop. An explicit lower cap remains appropriate for a bounded experiment or known spend/risk ceiling. One-shot rejects cumulative `maxTotalTokens` and `maxCostUsd`; they cannot constrain a provider request already in flight. One-shot already has one provider turn, so omit `maxProviderRequests`. Subscription-backed agentic work also omits request/token/cost caps unless an explicit bounded experiment or runaway risk requires one.
 
@@ -65,24 +66,34 @@ Use routed unnamed `subagent` calls for peers. Set `mode: "one-shot"` for cold c
 
 ## Common routing flow
 
-Interactive example:
+Repository inspection example (subscription default, no request/token/cost caps):
 
 ```bash
-agnt route --task research --risk medium --budget balanced
+agnt route --task research --risk medium --budget balanced --access repository
 ```
 
 ```json
-{ "task": "<focused prompt>", "model": "<selected-provider/model>" }
+{ "task": "<focused prompt>", "model": "<selected-provider/model>", "mode": "agentic", "sourceAccess": "repository" }
 ```
+
+Bounded metered repository fanout adds explicit evidence:
+
+```bash
+agnt route --task research --risk high --budget quality --access repository \
+  --estimated-input-tokens 50000 --estimated-output-tokens 10000 \
+  --max-marginal-usd 0.10 --metered-justification quality-benefit --fanout-size 2
+```
+
+Copy each route-generated `estimatedCostUsd`, `meteredJustification`, and `limits` into its subagent task; do not widen them. For parallel calls, copy `meteredBudget.maxMarginalUsd` to top-level `maxMarginalUsd`.
 
 Cold review example:
 
 ```bash
-agnt route --task review --risk medium --budget balanced --fanout-size 3
+agnt route --task review --risk medium --budget balanced --access self-contained --fanout-size 3
 ```
 
 ```json
-{"task":"<complete packet contents>","model":"<selected-provider/model>","mode":"one-shot","thinking":"<routed level>","limits":{"maxDurationMs":300000}}
+{"task":"<complete packet contents>","model":"<selected-provider/model>","mode":"one-shot","sourceAccess":"self-contained","thinking":"<routed level>","limits":{"maxDurationMs":300000}}
 ```
 
 For structured review findings:

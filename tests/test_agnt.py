@@ -898,6 +898,119 @@ def test_select_model_review_cheap_prefers_subscription_without_metrics(agnt):
     assert result["selection"]["contextPolicy"] == "reuse-ok"
 
 
+def test_repository_access_routes_subscription_agentic_without_default_limits(agnt):
+    result = agnt.select_model(
+        "review",
+        risk="medium",
+        paid_review_spend_usd=0.0,
+        fanout_size=3,
+        source_access="repository",
+        use_history=False,
+    )
+
+    assert result["sourceAccess"] == "repository"
+    assert result["executionMode"] == "agentic"
+    assert result["selected"] == "openai-codex/gpt-5.6-terra"
+    assert result["selection"]["billingClass"] == "subscription"
+    assert result["selection"]["estimatedCostUsd"] == 0.0
+    assert result["selection"]["limits"] == {}
+    assert result["subagentExample"] == {
+        "task": "<review-task>",
+        "model": "openai-codex/gpt-5.6-terra",
+        "mode": "agentic",
+        "thinking": "high",
+        "sourceAccess": "repository",
+    }
+    assert all(not target.startswith("openrouter/") for target in result["candidateOrder"])
+    assert any("metered repository inspection requires" in item["reason"] for item in result["rejectedCandidates"])
+
+
+def test_self_contained_review_keeps_one_shot_metered_candidates(agnt):
+    result = agnt.select_model(
+        "review",
+        risk="medium",
+        paid_review_spend_usd=0.0,
+        source_access="self-contained",
+        use_history=False,
+    )
+
+    assert result["executionMode"] == "one-shot"
+    assert "openrouter/moonshotai/kimi-k2.7-code" in result["candidateOrder"]
+    assert result["subagentExample"]["sourceAccess"] == "self-contained"
+    assert result["subagentExample"]["mode"] == "one-shot"
+
+
+def test_metered_repository_fanout_requires_complete_evidence_and_budget(agnt):
+    missing = agnt.select_model(
+        "review",
+        risk="medium",
+        paid_review_spend_usd=0.0,
+        source_access="repository",
+        fanout_size=3,
+        use_history=False,
+    )
+    bounded = agnt.select_model(
+        "review",
+        risk="medium",
+        paid_review_spend_usd=0.0,
+        source_access="repository",
+        estimated_input_tokens=50_000,
+        estimated_output_tokens=10_000,
+        max_marginal_usd=0.10,
+        metered_justification="quality-benefit",
+        fanout_size=3,
+        use_history=False,
+    )
+
+    assert [item["target"] for item in missing["fanout"]] == ["openai-codex/gpt-5.6-terra"]
+    assert [item["target"] for item in bounded["fanout"]] == [
+        "openai-codex/gpt-5.6-terra",
+        "openrouter/moonshotai/kimi-k2.7-code",
+    ]
+    metered = bounded["fanout"][1]
+    assert metered["estimatedCostUsd"] == pytest.approx(0.0715)
+    assert "estimatedMarginalUsd" not in metered
+    assert metered["meteredJustification"] == "quality-benefit"
+    assert metered["limits"] == {
+        "maxProviderRequests": 6,
+        "maxTotalTokens": 60_000,
+        "maxCostUsd": pytest.approx(0.0715),
+        "maxDurationMs": 300_000,
+    }
+    assert bounded["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.0715)
+    assert bounded["meteredBudget"]["maxMarginalUsd"] == 0.10
+
+
+def test_metered_repository_fanout_omits_candidates_over_aggregate_budget(agnt):
+    result = agnt.select_model(
+        "research",
+        source_access="repository",
+        estimated_input_tokens=10_000,
+        estimated_output_tokens=10_000,
+        max_marginal_usd=0.05,
+        metered_justification="quality-benefit",
+        fanout_size=3,
+        use_history=False,
+    )
+
+    assert [item["target"] for item in result["fanout"]] == [
+        "openai-codex/gpt-5.6-luna",
+        "openrouter/minimax/minimax-m3",
+    ]
+    assert result["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.015)
+    assert result["meteredBudget"]["omittedTargets"] == ["openrouter/moonshotai/kimi-k2.7-code"]
+
+
+def test_quality_rank_prefers_subscription_within_same_cost_class(agnt):
+    info = agnt.configured_model_info()
+
+    assert agnt.route_cost_rank(
+        "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "quality"
+    ) < agnt.route_cost_rank(
+        "openrouter/anthropic/claude-opus-5", info["openrouter/anthropic/claude-opus-5"], "quality"
+    )
+
+
 def test_select_model_review_hard_cap_keeps_subscription_only(agnt):
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
         result = agnt.select_model(

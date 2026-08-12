@@ -48,9 +48,9 @@ catalog.json      model families -> venues, cost classes, watt/rate facts
       │
 tasks/*.md        routing policy per task (preferred/qualified/avoid targets)
       │
-agnt route        constraint filter (enabledModels, modality, context window)
+agnt route        constraint filter (enabledModels, modality, context, access)
       │           + billing/risk gates + outcome-history demotion
-      │           (subscription before metered; metered contextPolicy=fresh)
+      │           (repository=agentic; subscription default; metered=budgeted fresh worker)
       │
       ├─ Archimedes `subagent` for interactive, one-shot, and parallel peers
       └─ internal headless worker for evals and run artifacts
@@ -72,11 +72,16 @@ single source for routing facts: cost class, billing class, modalities, context
 window, reasoning capability, and rates. `agnt` and `agent-instructions` read it
 via shared `bin/_agnt_common.py`; no model facts live in code.
 Every metered OpenRouter model runs only in a fresh subagent, never as a
-continuation model for a long root conversation. The tracked
-Archimedes wrapper uses this catalog's `billingClass`—not provider-name inference—to
-inject a configurable 16,384-token provider output cap only for metered one-shot
-children. Explicit tighter caps win; subscription and agentic children receive no
-automatic token or cost cap. Applied evidence distinguishes that deliberate ceiling
+continuation model for a long root conversation. Repository routes use agentic mode
+and prefer qualified subscription venues at zero marginal cost. Metered agentic
+repository candidates require catalog-rate estimates, `quality-benefit` or
+`missing-capability` justification, an aggregate marginal budget, and per-child
+request/token/cost/duration limits. The tracked Archimedes wrapper rejects repository
+one-shot calls and incomplete metered repository evidence. It also uses this catalog's
+`billingClass`—not provider-name inference—to inject a configurable 16,384-token
+provider output cap only for metered one-shot children. Explicit tighter caps win;
+subscription and other agentic children receive no automatic token or cost cap.
+Applied evidence distinguishes that deliberate ceiling
 from a lower existing provider/model ceiling, while every provider `length` stop is
 failed `output-limit` termination with usable partial output preserved in parent-owned
 artifacts. Review discovery packets cap contracted JSON at 6,000 characters so valid

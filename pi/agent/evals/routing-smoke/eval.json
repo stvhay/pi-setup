@@ -20,6 +20,11 @@
       "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-luna"}
     },
     {
+      "name": "review-repository-subscription-agentic",
+      "args": ["--task", "review", "--risk", "medium", "--access", "repository", "--fanout-size", "3", "--monthly-paid-spend", "0", "--ignore-history"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-terra", "sourceAccess": "repository", "executionMode": "agentic"}
+    },
+    {
       "name": "review-impossible-video-context",
       "args": ["--task", "review", "--context-tokens", "999999999", "--modality", "video", "--ignore-history"],
       "assert": {"exitCode": 1, "routeStatus": "no_candidate", "selected": false}

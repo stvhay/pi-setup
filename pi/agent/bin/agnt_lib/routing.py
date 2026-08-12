@@ -51,7 +51,8 @@ def route_cost_rank(target: str, info: Dict[str, Any], budget: str) -> Tuple[int
     total_rate = float(costs.get("input") or 0.0) + float(costs.get("output") or 0.0)
     if budget == "quality":
         quality_rank = 0 if cost_class == "frontier" else 1 if cost_class == "balanced" else 2 if cost_class == "cheap" else 3
-        return quality_rank, target
+        billing_rank = 0 if billing_class == "subscription" else 1 if billing_class == "metered" else 2
+        return quality_rank * 3 + billing_rank, target
     if billing_class == "subscription":
         return 1, target
     if billing_class == "metered":
@@ -65,6 +66,34 @@ def route_cost_rank(target: str, info: Dict[str, Any], budget: str) -> Tuple[int
     if cost_class == "frontier":
         return 5, target
     return 6, target
+
+
+METERED_REPOSITORY_MAX_PROVIDER_REQUESTS = 6
+METERED_REPOSITORY_MAX_DURATION_MS = 300_000
+
+
+def repository_execution_mode(task: str, source_access: str) -> str:
+    if source_access == "repository":
+        return "agentic"
+    if source_access == "self-contained":
+        return "one-shot"
+    return "one-shot" if task == "review" else "agentic"
+
+
+def estimated_marginal_usd(
+    info: Dict[str, Any], estimated_input_tokens: int, estimated_output_tokens: int
+) -> float | None:
+    costs = info.get("cost") if isinstance(info.get("cost"), dict) else None
+    if not costs or "input" not in costs or "output" not in costs:
+        return None
+    return round(
+        (
+            estimated_input_tokens * float(costs["input"])
+            + estimated_output_tokens * float(costs["output"])
+        )
+        / 1_000_000,
+        8,
+    )
 
 
 def load_consolidated_records(path: Path | None = None) -> List[Dict[str, Any]]:
@@ -318,6 +347,12 @@ def selection_contract(candidate: Dict[str, Any], rejected: List[Dict[str, str]]
         "target": candidate["target"],
         "thinkingLevel": candidate["thinkingLevel"],
         "contextPolicy": candidate["contextPolicy"],
+        "sourceAccess": candidate["sourceAccess"],
+        "executionMode": candidate["executionMode"],
+        "billingClass": candidate["billingClass"],
+        "estimatedCostUsd": candidate["estimatedMarginalUsd"],
+        "meteredJustification": candidate["meteredJustification"],
+        "limits": candidate["limits"],
         "reasons": [*reasons, *candidate.get("scoreReasons", [])],
         "rejected": rejected,
         "diversityGroup": candidate["diversityGroup"],
@@ -338,8 +373,14 @@ def select_model(
     diversity: str | None = None,
     paid_review_spend_usd: float | None = None,
     use_history: bool = True,
+    source_access: str = "auto",
+    estimated_input_tokens: int = 0,
+    estimated_output_tokens: int = 0,
+    max_marginal_usd: float | None = None,
+    metered_justification: str | None = None,
 ) -> Dict[str, Any]:
     meta, _body = task_meta(task)
+    execution_mode = repository_execution_mode(task, source_access)
     review_budget_state: str | None = None
     review_policy: List[str] = []
     if task == "review":
@@ -375,6 +416,8 @@ def select_model(
         if provider in candidate_providers
     }
     reasons: List[str] = [f"task policy loaded from {task}"]
+    if source_access != "auto":
+        reasons.append(f"source access {source_access} requires {execution_mode} execution")
     if task == "review":
         reasons.append(
             f"review paid-spend gate: {review_budget_state} at ${float(paid_review_spend_usd or 0.0):.2f} month-to-date"
@@ -419,8 +462,50 @@ def select_model(
         if context_tokens and context_window and context_window < context_tokens:
             rejected.append({"target": target, "diversityGroup": group, "reason": f"context window {context_window} < {context_tokens}"})
             continue
+        billing_class = str(info.get("billingClass") or "unknown")
+        estimate = 0.0 if billing_class == "subscription" else None
+        limits: Dict[str, Any] = {}
+        if source_access == "repository" and billing_class == "metered":
+            complete_evidence = (
+                estimated_input_tokens > 0
+                and estimated_output_tokens > 0
+                and max_marginal_usd is not None
+                and max_marginal_usd > 0
+                and metered_justification in {"quality-benefit", "missing-capability"}
+            )
+            if not complete_evidence:
+                rejected.append({
+                    "target": target,
+                    "diversityGroup": group,
+                    "reason": (
+                        "metered repository inspection requires estimated input/output tokens, "
+                        "max marginal USD, and quality-benefit or missing-capability justification"
+                    ),
+                })
+                continue
+            estimate = estimated_marginal_usd(info, estimated_input_tokens, estimated_output_tokens)
+            if estimate is None:
+                rejected.append({
+                    "target": target,
+                    "diversityGroup": group,
+                    "reason": "metered repository inspection requires catalog input/output rates",
+                })
+                continue
+            if estimate > float(max_marginal_usd):
+                rejected.append({
+                    "target": target,
+                    "diversityGroup": group,
+                    "reason": f"estimated marginal cost ${estimate:.6f} exceeds budget ${max_marginal_usd:.6f}",
+                })
+                continue
+            limits = {
+                "maxProviderRequests": METERED_REPOSITORY_MAX_PROVIDER_REQUESTS,
+                "maxTotalTokens": estimated_input_tokens + estimated_output_tokens,
+                "maxCostUsd": estimate,
+                "maxDurationMs": METERED_REPOSITORY_MAX_DURATION_MS,
+            }
         family = common.family_for_target(target) or target
-        scored.append(score_candidate(
+        candidate = score_candidate(
             task=task,
             risk=risk,
             budget=budget,
@@ -430,7 +515,16 @@ def select_model(
             preferred=target in preferred,
             metrics_hint=stats.get(family),
             requested_thinking=requested_thinking,
-        ))
+        )
+        candidate.update({
+            "sourceAccess": source_access,
+            "executionMode": execution_mode,
+            "billingClass": billing_class,
+            "estimatedMarginalUsd": estimate,
+            "meteredJustification": metered_justification if billing_class == "metered" else None,
+            "limits": limits,
+        })
+        scored.append(candidate)
 
     if budget in {"cheap", "quality"}:
         reasons.append(f"{budget} budget sorted candidates by cost class")
@@ -454,6 +548,9 @@ def select_model(
             "budget": budget,
             "modality": modality,
             "contextTokens": context_tokens,
+            "sourceAccess": source_access,
+            "executionMode": execution_mode,
+            "meteredBudget": None,
             "routeStatus": "no_candidate",
             "selected": None,
             "selection": None,
@@ -480,10 +577,48 @@ def select_model(
     if task == "review":
         by_target = {item["target"]: item for item in scored}
         fanout_candidates = [by_target[target] for target in review_policy if target in by_target]
-    fanout = [
-        selection_contract(item, rejected, reasons)
-        for item in diverse_fanout(fanout_candidates, fanout_size, diversity)
-    ]
+    proposed_fanout = diverse_fanout(fanout_candidates, fanout_size, diversity)
+    fanout_items: List[Dict[str, Any]] = []
+    estimated_fanout_usd = 0.0
+    omitted_targets: List[str] = []
+    for item in proposed_fanout:
+        estimate = float(item.get("estimatedMarginalUsd") or 0.0)
+        if (
+            source_access == "repository"
+            and item.get("billingClass") == "metered"
+            and max_marginal_usd is not None
+            and estimated_fanout_usd + estimate > max_marginal_usd
+        ):
+            omitted_targets.append(item["target"])
+            continue
+        fanout_items.append(item)
+        if item.get("billingClass") == "metered":
+            estimated_fanout_usd += estimate
+    fanout = [selection_contract(item, rejected, reasons) for item in fanout_items]
+    metered_budget = None
+    if source_access == "repository":
+        metered_budget = {
+            "justification": metered_justification,
+            "estimatedInputTokens": estimated_input_tokens or None,
+            "estimatedOutputTokens": estimated_output_tokens or None,
+            "maxMarginalUsd": max_marginal_usd,
+            "estimatedFanoutUsd": round(estimated_fanout_usd, 8),
+            "omittedTargets": omitted_targets,
+        }
+    subagent_example: Dict[str, Any] = {
+        "task": f"<{task}-task>",
+        "model": selected["target"],
+        "mode": execution_mode,
+        "thinking": selected["thinkingLevel"],
+    }
+    if source_access != "auto":
+        subagent_example["sourceAccess"] = source_access
+    if selected["limits"]:
+        subagent_example.update({
+            "meteredJustification": selected["meteredJustification"],
+            "estimatedCostUsd": selected["estimatedMarginalUsd"],
+            "limits": selected["limits"],
+        })
     return {
         "schemaVersion": 1,
         "task": task,
@@ -491,6 +626,9 @@ def select_model(
         "budget": budget,
         "modality": modality,
         "contextTokens": context_tokens,
+        "sourceAccess": source_access,
+        "executionMode": execution_mode,
+        "meteredBudget": metered_budget,
         "routeStatus": "selected",
         "selected": selected["target"],
         "selection": selection,
@@ -507,12 +645,7 @@ def select_model(
         "reviewBudgetState": review_budget_state,
         "reviewPolicyTargets": review_policy,
         "reasons": reasons,
-        "subagentExample": {
-            "task": f"<{task}-task>",
-            "model": selected["target"],
-            "mode": "one-shot" if task == "review" else "agentic",
-            "thinking": selected["thinkingLevel"],
-        },
+        "subagentExample": subagent_example,
     }
 
 
@@ -523,6 +656,19 @@ def cmd_route(argv: List[str]) -> int:
     parser.add_argument("--context-tokens", type=int, default=0)
     parser.add_argument("--modality", choices=["text", "image", "audio", "video"], default="text")
     parser.add_argument("--budget", choices=["cheap", "balanced", "quality"], default="balanced")
+    parser.add_argument(
+        "--access",
+        choices=["auto", "self-contained", "repository"],
+        default="auto",
+        help="source access required by the delegated worker",
+    )
+    parser.add_argument("--estimated-input-tokens", type=int, default=0)
+    parser.add_argument("--estimated-output-tokens", type=int, default=0)
+    parser.add_argument("--max-marginal-usd", type=float)
+    parser.add_argument(
+        "--metered-justification",
+        choices=["quality-benefit", "missing-capability"],
+    )
     parser.add_argument("--fanout-size", type=int, default=0, help="include N scored diverse fanout selections")
     parser.add_argument("--ignore-history", action="store_true", help="ignore outcome history for deterministic evaluation")
     parser.add_argument("--diversity", choices=["none", "normal", "high"], default="normal")
@@ -543,6 +689,11 @@ def cmd_route(argv: List[str]) -> int:
         diversity=args.diversity,
         paid_review_spend_usd=args.monthly_paid_spend,
         use_history=not args.ignore_history,
+        source_access=args.access,
+        estimated_input_tokens=args.estimated_input_tokens,
+        estimated_output_tokens=args.estimated_output_tokens,
+        max_marginal_usd=args.max_marginal_usd,
+        metered_justification=args.metered_justification,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get("routeStatus") == "selected" else 1

@@ -356,6 +356,11 @@ export function findAgent(agents, name) { return agents.find((agent) => agent.na
         assert.equal(subagent.prepareArguments({{ task: "prepared" }}).task, "prepared");
         assert.deepEqual(subagent.parameters.properties.outputContract.enum, ["inline", "artifact", "status-only", "pass-no-findings"]);
         assert.deepEqual(subagent.parameters.properties.tasks.items.properties.outputContract.enum, ["inline", "artifact", "status-only", "pass-no-findings"]);
+        assert.deepEqual(subagent.parameters.properties.sourceAccess.enum, ["self-contained", "repository"]);
+        assert.deepEqual(subagent.parameters.properties.tasks.items.properties.sourceAccess.enum, ["self-contained", "repository"]);
+        assert.deepEqual(subagent.parameters.properties.meteredJustification.enum, ["quality-benefit", "missing-capability"]);
+        assert.equal(subagent.parameters.properties.estimatedCostUsd.type, "number");
+        assert.equal(subagent.parameters.properties.maxMarginalUsd.type, "number");
         assert.equal(subagent.parameters.properties.async.type, "boolean");
         assert.equal(subagent.parameters.properties.cwd.type, "string");
         assert.equal(subagent.parameters.properties.tasks.items.properties.cwd.type, "string");
@@ -378,51 +383,79 @@ export function findAgent(agents, name) { return agents.find((agent) => agent.na
           tasks: [{{ task: "Review auth" }}, {{ task: "Check tests" }}],
         }});
 
-        for (const [params, context] of [
-          [
-            {{ task: "High-risk final review", model: "openrouter/anthropic/claude-opus-5" }},
-            {{ mode }},
+        const callsBeforeRepositoryRejection = globalThis.__upstreamSubagentCalls.length;
+        const repositoryOneShot = await subagent.execute("repository-one-shot", {{
+          task: "Inspect auth callers",
+          model: "openai-codex/gpt-5.6-terra",
+          mode: "one-shot",
+          sourceAccess: "repository",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(repositoryOneShot.isError, true);
+        assert.match(repositoryOneShot.content[0].text, /repository access requires agentic/i);
+        assert.equal(globalThis.__upstreamSubagentCalls.length, callsBeforeRepositoryRejection);
+
+        const incompleteMeteredRepository = await subagent.execute("metered-repository-incomplete", {{
+          task: "Inspect auth callers",
+          model: "openrouter/anthropic/claude-opus-5",
+          mode: "agentic",
+          sourceAccess: "repository",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(incompleteMeteredRepository.isError, true);
+        assert.match(incompleteMeteredRepository.content[0].text, /justification, estimated cost, and bounded limits/i);
+
+        const overBudgetMeteredRepository = await subagent.execute("metered-repository-over-budget", {{
+          task: "Inspect auth callers",
+          model: "openrouter/anthropic/claude-opus-5",
+          mode: "agentic",
+          sourceAccess: "repository",
+          meteredJustification: "quality-benefit",
+          estimatedCostUsd: 0.06,
+          limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.05, maxDurationMs: 300000 }},
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(overBudgetMeteredRepository.isError, true);
+        assert.match(overBudgetMeteredRepository.content[0].text, /estimated cost exceeds/i);
+
+        const allowedMeteredRepository = await subagent.execute("metered-repository-bounded", {{
+          task: "Inspect auth callers",
+          model: "openrouter/anthropic/claude-opus-5",
+          mode: "agentic",
+          sourceAccess: "repository",
+          meteredJustification: "quality-benefit",
+          estimatedCostUsd: 0.04,
+          limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.05, maxDurationMs: 300000 }},
+          outputContract: "inline",
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(allowedMeteredRepository.details.upstream, true);
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          task: "Inspect auth callers",
+          model: "openrouter/anthropic/claude-opus-5",
+          mode: "agentic",
+          limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.05, maxDurationMs: 300000 }},
+        }});
+
+        const aggregateMeteredRepository = await subagent.execute("metered-repository-aggregate", {{
+          sourceAccess: "repository",
+          maxMarginalUsd: 0.05,
+          tasks: [
+            {{ task: "Inspect auth", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+            {{ task: "Inspect tests", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
           ],
-          [
-            {{ task: "Review auth", model: " OpenRouter/Anthropic/Claude-Opus-5 " }},
-            {{ mode }},
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(aggregateMeteredRepository.isError, true);
+        assert.match(aggregateMeteredRepository.content[0].text, /aggregate estimated cost exceeds/i);
+
+        const allowedMeteredFanout = await subagent.execute("metered-repository-fanout", {{
+          sourceAccess: "repository",
+          maxMarginalUsd: 0.06,
+          tasks: [
+            {{ task: "Inspect auth", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+            {{ task: "Inspect tests", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
           ],
-          [
-            {{ task: "Review the public API" }},
-            {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }},
-          ],
-          [
-            {{ task: "Please review auth", model: "openrouter/anthropic/claude-opus-5" }},
-            {{ mode }},
-          ],
-          [
-            {{ task: "Code review auth", model: "openrouter/anthropic/claude-opus-5" }},
-            {{ mode }},
-          ],
-          [
-            {{ agent: "reviewer", task: "Review auth" }},
-            {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }},
-          ],
-          [
-            {{ task: "Review auth", model: "anthropic/claude-opus-5" }},
-            {{ mode, modelRegistry: {{ getAll: () => [
-              {{ provider: "openrouter", id: "anthropic/claude-opus-5" }},
-            ] }} }},
-          ],
-          [
-            {{ tasks: [
-              {{ task: "Check tests", model: "openai-codex/gpt-5.6-terra" }},
-              {{ task: "Boundary review", model: "openrouter/anthropic/claude-opus-5" }},
-            ] }},
-            {{ mode }},
-          ],
-        ]) {{
-          const callsBeforeRejection = globalThis.__upstreamSubagentCalls.length;
-          const rejected = await subagent.execute("metered-review", params, undefined, undefined, context);
-          assert.equal(rejected.isError, true);
-          assert.match(rejected.content[0].text, /require subagent mode one-shot/);
-          assert.equal(globalThis.__upstreamSubagentCalls.length, callsBeforeRejection);
-        }}
+        }}, undefined, undefined, {{ mode }});
+        assert.equal(allowedMeteredFanout.details.upstream, true);
+        assert.equal("sourceAccess" in globalThis.__upstreamSubagentCalls.at(-1), false);
+        assert.equal("maxMarginalUsd" in globalThis.__upstreamSubagentCalls.at(-1), false);
+        assert.equal("estimatedCostUsd" in globalThis.__upstreamSubagentCalls.at(-1).tasks[0], false);
 
         const allowedMeteredReview = await subagent.execute("metered-review-one-shot", {{
           task: "Review auth",

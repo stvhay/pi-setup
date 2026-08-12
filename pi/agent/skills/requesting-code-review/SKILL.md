@@ -25,7 +25,7 @@ At start, read shared conventions if needed:
 
 ## Models and measured cost policy
 
-Use `agnt route --task review` rather than inventing a fanout. Review task policy uses:
+Use `agnt route --task review --access self-contained` for complete discovery packets. Use `--access repository` for filesystem verifiers rather than inventing mode or fanout policy. Review task policy uses:
 
 - **Subscription-backed default:** `openai-codex/gpt-5.6-terra` at high thinking.
 - **Medium-risk diversity:** `openrouter/moonshotai/kimi-k2.7-code`, scoped and one-shot.
@@ -33,13 +33,13 @@ Use `agnt route --task review` rather than inventing a fanout. Review task polic
 - **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3`.
 - **Canary only:** `openrouter/minimax/minimax-m3` until accepted-output evidence supports promotion.
 
-Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker with a bounded complete packet; never switch a long-running root conversation to it. Only tracked Codex and OpenRouter routes are configured.
+Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker; never switch a long-running root conversation to it. Self-contained discovery uses a bounded complete packet. Repository access requires agentic mode and route-generated justification, estimate, budget, and limits. Only tracked Codex and OpenRouter routes are configured.
 
 `agnt route` measures month-to-date marginal review spend from OpenRouter, configured metered venues, and positive provider-reported retired venues; it excludes configured subscription targets. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
 
 ```bash
 agnt route --task review --risk medium --budget balanced \
-  --fanout-size 3 --monthly-paid-spend 7.40
+  --access self-contained --fanout-size 3 --monthly-paid-spend 7.40
 ```
 
 Budget states:
@@ -134,12 +134,13 @@ Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes
   "model": "<routed-provider/model>",
   "mode": "one-shot",
   "thinking": "<routed-thinking-level>",
+  "sourceAccess": "self-contained",
   "limits": {"maxDurationMs": 300000},
   "outputContract": "inline"
 }
 ```
 
-Save each returned child output under `$ReviewDir` before validation. Metered review tasks must use one-shot mode; the Archimedes wrapper applies the configured provider output cap.
+Save each returned child output under `$ReviewDir` before validation. Metered self-contained discovery must use one-shot mode; the Archimedes wrapper applies the configured provider output cap.
 
 Validate every output before counting it:
 
@@ -161,12 +162,13 @@ Verification statuses:
 - `unresolved` — a concrete serious claim survives inspection but conflicting requirements or unavailable evidence prevent a decision;
 - `unverified` — discovery only; never a promotion gate.
 
-Use agentic mode for each fresh subscription-backed verifier. Keep the 300-second liveness bound, but omit request, token, and cost caps: deep repository inspection may require many healthy turns. Add a request cap only for an explicit bounded experiment or identified runaway risk, and record it as a caller limit.
+Route fresh filesystem verifiers with `agnt route --task review --access repository`. Repository access requires agentic mode. Prefer the qualified subscription-backed target and keep the 300-second liveness bound, but omit request, token, and cost caps: deep repository inspection may require many healthy turns. Add a request cap only for an explicit bounded experiment or identified runaway risk, and record it as a caller limit. A metered repository verifier is exceptional: use only route-emitted `quality-benefit` or `missing-capability` evidence and copy its estimate plus bounded limits exactly; parallel calls also copy the top-level aggregate budget.
 
 ```json
 {
   "model": "<routed-subscription-provider/model>",
   "mode": "agentic",
+  "sourceAccess": "repository",
   "limits": {"maxDurationMs": 300000},
   "outputContract": "inline"
 }

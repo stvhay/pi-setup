@@ -47,6 +47,26 @@ const outputContractParameter = {
   enum: outputContracts,
   description: "Expected result shape used for parent artifact persistence and quality evaluation.",
 };
+const sourceAccessParameter = {
+  type: "string",
+  enum: ["self-contained", "repository"],
+  description: "Evidence access required by the child; repository access requires agentic mode.",
+};
+const meteredJustificationParameter = {
+  type: "string",
+  enum: ["quality-benefit", "missing-capability"],
+  description: "Why bounded metered agentic repository access is justified.",
+};
+const estimatedCostParameter = {
+  type: "number",
+  exclusiveMinimum: 0,
+  description: "Estimated marginal USD for bounded metered agentic repository access.",
+};
+const maxMarginalParameter = {
+  type: "number",
+  exclusiveMinimum: 0,
+  description: "Aggregate marginal USD budget for parallel metered repository work.",
+};
 
 const askParameters = {
   type: "object",
@@ -192,11 +212,21 @@ function subagentParameters(parameters: any): any {
     properties: {
       ...properties,
       outputContract: outputContractParameter,
+      sourceAccess: sourceAccessParameter,
+      meteredJustification: meteredJustificationParameter,
+      estimatedCostUsd: estimatedCostParameter,
+      maxMarginalUsd: maxMarginalParameter,
       tasks: {
         ...properties.tasks,
         items: {
           ...taskItems,
-          properties: { ...taskItems.properties, outputContract: outputContractParameter },
+          properties: {
+            ...taskItems.properties,
+            outputContract: outputContractParameter,
+            sourceAccess: sourceAccessParameter,
+            meteredJustification: meteredJustificationParameter,
+            estimatedCostUsd: estimatedCostParameter,
+          },
         },
       },
     },
@@ -204,12 +234,25 @@ function subagentParameters(parameters: any): any {
 }
 
 function upstreamSubagentArguments(params: any): any {
-  const { outputContract: _outputContract, ...upstream } = params;
+  const {
+    outputContract: _outputContract,
+    sourceAccess: _sourceAccess,
+    meteredJustification: _meteredJustification,
+    estimatedCostUsd: _estimatedCostUsd,
+    maxMarginalUsd: _maxMarginalUsd,
+    ...upstream
+  } = params;
   if (!Array.isArray(upstream.tasks)) return upstream;
   return {
     ...upstream,
     tasks: upstream.tasks.map((value: any) => {
-      const { outputContract: _taskOutputContract, ...task } = value;
+      const {
+        outputContract: _taskOutputContract,
+        sourceAccess: _taskSourceAccess,
+        meteredJustification: _taskMeteredJustification,
+        estimatedCostUsd: _taskEstimatedCostUsd,
+        ...task
+      } = value;
       return task;
     }),
   };
@@ -315,28 +358,53 @@ function withMeteredOneShotCaps(
   return apply(params, {});
 }
 
-function isOpenRouterModel(model: string | undefined, ctx: any): boolean {
-  const ref = model?.trim().replace(/:(?:off|minimal|low|medium|high|xhigh|max)$/i, "").toLowerCase();
-  if (!ref) return false;
-  if (ref.startsWith("openrouter/")) return true;
-  const matches = (ctx?.modelRegistry?.getAll?.() ?? []).filter((candidate: any) =>
-    candidate.id.toLowerCase() === ref || `${candidate.provider}/${candidate.id}`.toLowerCase() === ref
-  );
-  return matches.length === 1 && matches[0].provider.toLowerCase() === "openrouter";
+function positiveFinite(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-function isAgenticMeteredReviewSubagent(params: any, ctx: any): boolean {
+function delegationPolicyError(
+  params: any,
+  ctx: any,
+  classes: ReadonlyMap<string, BillingClass>,
+  resolveAgentModel: AgentModelResolver,
+): string | undefined {
   const inheritedModel = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-  const tasks = Array.isArray(params.tasks)
-    ? params.tasks.map((task: any) => ({
-        prompt: task.task,
-        model: task.model ?? inheritedModel,
-        mode: task.mode ?? params.mode ?? "agentic",
-      }))
-    : [{ prompt: params.task, model: params.model ?? inheritedModel, mode: params.mode ?? "agentic" }];
-  return tasks.some(({ prompt, model, mode }: { prompt?: string; model?: string; mode: string }) =>
-    mode !== "one-shot" && /\breview(?:ed|ing)?\b/i.test(prompt ?? "") && isOpenRouterModel(model, ctx)
-  );
+  const cwd = ctx?.cwd ?? process.cwd();
+  const tasks = Array.isArray(params.tasks) ? params.tasks : [params];
+  let aggregateEstimatedCost = 0;
+  for (const task of tasks) {
+    const mode = task.mode ?? params.mode ?? "agentic";
+    const sourceAccess = task.sourceAccess ?? params.sourceAccess;
+    if (sourceAccess !== "repository") continue;
+    if (mode === "one-shot") return "Repository access requires agentic subagent mode.";
+    const agentModel = typeof task.agent === "string" ? resolveAgentModel(task.agent, cwd) : undefined;
+    const model = agentModel ?? task.model ?? params.model ?? inheritedModel;
+    if (modelBillingClass(model, ctx, classes) !== "metered") continue;
+    const justification = task.meteredJustification ?? params.meteredJustification;
+    const estimatedCost = positiveFinite(task.estimatedCostUsd ?? params.estimatedCostUsd);
+    const limits = { ...(params.limits ?? {}), ...(task.limits ?? {}) };
+    const maxCost = positiveFinite(limits.maxCostUsd);
+    if (
+      !["quality-benefit", "missing-capability"].includes(justification)
+      || estimatedCost === undefined
+      || positiveOutputLimit(limits.maxProviderRequests) === undefined
+      || positiveOutputLimit(limits.maxTotalTokens) === undefined
+      || maxCost === undefined
+      || positiveOutputLimit(limits.maxDurationMs) === undefined
+    ) {
+      return "Metered repository access requires justification, estimated cost, and bounded limits.";
+    }
+    if (estimatedCost > maxCost) return "Metered repository estimated cost exceeds maxCostUsd.";
+    aggregateEstimatedCost += estimatedCost;
+  }
+  if (Array.isArray(params.tasks) && aggregateEstimatedCost > 0) {
+    const aggregateBudget = positiveFinite(params.maxMarginalUsd);
+    if (aggregateBudget === undefined) return "Metered repository fanout requires aggregate maxMarginalUsd.";
+    if (aggregateEstimatedCost > aggregateBudget) {
+      return "Metered repository aggregate estimated cost exceeds maxMarginalUsd.";
+    }
+  }
+  return undefined;
 }
 
 function registerContractAwareSubagent(
@@ -353,12 +421,10 @@ function registerContractAwareSubagent(
     ...upstreamSubagent,
     parameters: subagentParameters(upstreamSubagent.parameters),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      if (isAgenticMeteredReviewSubagent(params, ctx)) {
+      const policyError = delegationPolicyError(params, ctx, classes, resolveAgentModel);
+      if (policyError) {
         return {
-          content: [{
-            type: "text",
-            text: "Metered OpenRouter reviews require subagent mode one-shot.",
-          }],
+          content: [{ type: "text", text: policyError }],
           details: {
             mode: Array.isArray(params.tasks) ? "parallel" : "single",
             results: [],
@@ -439,7 +505,7 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
     }>,
   ]);
   const defaultCap = meteredOneShotMaxOutputTokens();
-  const billingClasses = defaultCap ? loadBillingClasses() : new Map<string, BillingClass>();
+  const billingClasses = loadBillingClasses();
   const resolveAgentModel: AgentModelResolver = (name, cwd) =>
     agentsModule.findAgent(agentsModule.discoverAgents(cwd), name)?.model;
   let upstreamAsk: ToolDefinition | undefined;
