@@ -46,10 +46,46 @@ Hard gates still apply: approval before implementation in design workflows, bran
 ## Development completion contract
 
 - Approval to implement includes staging and one local atomic commit of task-owned changes unless the user explicitly narrows that approval. Explicit `do not commit` instructions override this default.
+- Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees and their post-integration removal. Tracked/config-controlled deletions included in that scope may be staged without another approval.
 - Before staging, inspect the diff and status. Never stage unrelated pre-existing changes; if task-owned and unrelated changes cannot be separated safely, preserve the work and ask with exact paths.
+- Stop instead of acting on ambiguous ownership, unrelated changes, untracked runtime data, backups, unknown/non-config-controlled data, active worktrees, remote refs, remote deletion, force/reset/clean, or history rewrite. These are outside reversible local authority.
+- Deletion preview (not a second approval): before committing, show each exact staged deletion and its recovery source. Fail if any deleted path was not tracked at the recovery commit.
+
+```bash
+git status --short --untracked-files=all
+recovery_sha=$(git rev-parse HEAD)
+git diff --cached --name-status --diff-filter=D --no-renames
+git diff --cached --name-only --diff-filter=D --no-renames -z |
+  while IFS= read -r -d '' path; do
+    git cat-file -e "$recovery_sha:$path" || exit 1
+    printf '%s <- %s:%s\n' "$path" "$recovery_sha" "$path"
+  done
+```
+
+- For preauthorized post-integration cleanup, take `worktree_path`, `branch`, and `integration_target` only from exact approved scope. Verify repository identity, path/branch association, task ownership, inactive ownership, clean status including untracked files, and integrated recovery SHA. Run the guarded non-force block as one unit; any mismatch or command refusal stops before later mutations. Preview precedes removal.
+
+```bash
+(
+  set -euo pipefail
+  : "${worktree_path:?approved worktree path is required}"
+  : "${branch:?approved local branch is required}"
+  : "${integration_target:?approved integration target is required}"
+  test "$(git -C "$worktree_path" rev-parse --path-format=absolute --git-common-dir)" = \
+    "$(git rev-parse --path-format=absolute --git-common-dir)"
+  actual_branch=$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD)
+  test "$actual_branch" = "$branch"
+  test -z "$(git -C "$worktree_path" status --short --untracked-files=all)"
+  recovery_sha=$(git -C "$worktree_path" rev-parse HEAD)
+  git merge-base --is-ancestor "$recovery_sha" "$integration_target"
+  printf '%s %s <- %s\n' "$worktree_path" "$branch" "$recovery_sha"
+  git worktree remove "$worktree_path"
+  git branch -d "$branch"
+)
+```
+
 - After verification, commit task-owned changes. Do not close the Bead or claim completion while task-owned changes remain uncommitted unless committing is explicitly prohibited or blocked; record that blocker and resumption path instead.
 - For direct work, record `agnt improve outcome <id> <outcome>`, then run `agnt work direct-closeout <id> --reason "<reason>"`. This second local commit records shared portable Beads state separately: explicit export, target closeout parity, and all legitimate `.beads/issues.jsonl` rows. It refuses tracked non-Beads changes and never stages or commits them.
-- Push, merge, deploy, history rewrite, branch/worktree deletion, and other remote or destructive actions still require explicit approval. Local implementation and portable-state commits grant none of those actions; direct closeout never pushes.
+- Outside exact preauthorized cleanup, branch/worktree deletion requires explicit approval. Push, merge, deploy, remote deletion, history rewrite, Beads deletion/remote/history changes, hooks, and force/reset/clean remain explicitly gated; direct closeout never pushes.
 
 ## Plan directory
 

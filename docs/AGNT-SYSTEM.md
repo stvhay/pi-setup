@@ -80,7 +80,7 @@ Consequential actions use dedicated Beads-backed tools:
 - `ticket_approval` for informed approval gates; and
 - `ticket_decision_resolve` for recording human outcomes.
 
-The generic ticket gateway lists and inspects work, creates drafts, and shows trees; it does not duplicate human decision flows. Approval records do not grant push, merge, deployment, history rewrite, hook installation, or other separately gated actions.
+The generic ticket gateway lists and inspects work, creates drafts, and shows trees; it does not duplicate human decision flows. An exact initial implementation approval may cover reversible local branch/worktree setup, task-owned commits, verified cleanup, and tracked/config-controlled deletions under project policy. Approval records do not grant push, merge, deployment, remote deletion, force/reset/clean, history rewrite, hook installation, or other separately gated actions.
 
 ## Feedback loop
 

@@ -183,7 +183,7 @@ def test_executing_plans_isolates_main_orchestration_checkout():
     assert "Never switch the orchestration checkout to a feature branch" in skill
     assert "generic implementation or commit authority is not same-checkout authority" in skill
     assert "Load `using-git-worktrees`" in skill
-    assert "Prune the worktree only after integration" in skill
+    assert "Prune only after integration" in skill
     assert "git branch -M main" in case
     assert ".worktrees/" in case
     assert "git branch --show-current" in case
@@ -195,7 +195,46 @@ def test_executing_plans_isolates_main_orchestration_checkout():
     assert "isolated execution worktree was not created" in case
     assert "execution neither stopped safely nor completed in isolated worktree" in case
     assert "Must keep the orchestration checkout on `main`" in scenario
-    assert "Must not merge, delete the branch, or remove the worktree without approval" in scenario
+    assert "Must not merge; cleanup needs separate approval because initial scope excludes it" in scenario
+
+
+def test_initial_scope_covers_reversible_local_git_and_tracked_deletions():
+    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
+    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
+    worktrees = (AGENT / "skills" / "using-git-worktrees" / "SKILL.md").read_text(encoding="utf-8")
+    subagents = (AGENT / "skills" / "subagent-driven-development" / "SKILL.md").read_text(encoding="utf-8")
+    executing = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
+    finishing = (AGENT / "skills" / "finishing-a-development-branch" / "SKILL.md").read_text(encoding="utf-8")
+
+    authority = "Initial implementation approval may preauthorize exact reversible local Git setup and cleanup"
+    for text in (global_instructions, project_instructions, template_instructions, common):
+        assert authority in text
+        assert "untracked runtime data" in text
+        assert "backups" in text
+        assert "remote deletion" in text
+        assert "history rewrite" in text
+
+    assert "Tracked/config-controlled deletions included in that scope may be staged without another approval" in common
+    assert "Deletion preview (not a second approval)" in common
+    assert "git status --short --untracked-files=all" in common
+    assert "git diff --cached --name-status --diff-filter=D --no-renames" in common
+    assert "git cat-file -e \"$recovery_sha:$path\"" in common
+    assert "git worktree remove \"$worktree_path\"" in common
+    assert "git branch -d \"$branch\"" in common
+    assert "set -euo pipefail" in common
+    assert ': "${integration_target:?approved integration target is required}"' in common
+    assert 'actual_branch=$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD)' in common
+    assert 'test "$actual_branch" = "$branch"' in common
+    assert 'test -z "$(git -C "$worktree_path" status --short --untracked-files=all)"' in common
+
+    for text in (worktrees, subagents, executing, finishing):
+        assert "initial approved scope" in text
+        assert "exact path" in text
+        assert "recovery" in text
+        assert "untracked" in text
+        assert "without another approval" in text
 
 
 def test_approved_implementation_defaults_through_local_commit():

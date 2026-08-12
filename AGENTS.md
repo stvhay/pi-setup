@@ -8,8 +8,9 @@
 - Work directly in the current Pi session by default. Run artifacts and orchestrated worktrees are optional paths selected explicitly for work that benefits from them.
 - GitHub issues, if used, are an external adapter/export surface rather than a second source of truth for agents.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
+- Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees, post-integration removal, and staged deletion of tracked/config-controlled assets. Before cleanup or deletion, show exact paths/branches and commit-SHA recovery sources. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs, remote deletion, force/reset/clean, or history rewrite.
 - Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.
-- Do not push, merge, delete branches, rewrite history, remove worktrees, delete beads, change Beads remotes, rewrite Beads/Dolt history, or install Beads hooks without explicit approval.
+- Outside that exact initial scope, branch/worktree deletion requires explicit approval. Do not push, merge, force/reset/clean, delete beads, change Beads remotes, rewrite Beads/Dolt history, or install Beads hooks without explicit approval. Remote deletion and history rewrite remain explicitly gated.
 
 ## Repository and deployment policy
 

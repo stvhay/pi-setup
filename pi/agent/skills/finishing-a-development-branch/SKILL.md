@@ -17,7 +17,7 @@ At start, read shared conventions if needed:
 
 ## Safety gates
 
-Do not push, create a PR, merge, delete branches, remove worktrees, force-clean files, or create persistent artifacts unless the user explicitly asks/approves that action in the current conversation.
+Do not push, create a PR, merge, force-clean files, or create persistent artifacts unless the user explicitly asks/approves that action. Delete a local task branch or remove its worktree without another approval only when initial approved scope names the exact path/branch cleanup and shared completion checks prove task ownership, clean tracked/untracked state, integration, inactive ownership, and recovery SHA.
 
 Default behavior: verify, validate, optionally review, prepare a PR body, and present next-step commands/options. If the user says not to edit/create files, do not create `.pi/reviews`, `.pi/pr-body.md`, or other artifacts; keep outputs in the response or use temporary files under `/tmp` only when necessary.
 
@@ -145,7 +145,7 @@ Flag:
 - untracked files that should be ignored or removed
 - large diffs outside the stated task
 
-Do not delete artifacts unless the user approves, but recommend cleanup commands when appropriate.
+Do not delete untracked artifacts, runtime data, or backups without separate approval. For tracked/config-controlled deletions already included in initial approved scope, use the shared deletion preview: exact path plus commit-SHA recovery source. Any ownership/scope mismatch stops closeout.
 
 ## Step 7: Run the final candidate gate once
 
@@ -211,7 +211,7 @@ At substantial non-trivial wrap-up or Bead close, load `session-to-skill-extract
 
 ## Step 10: Optional actions after approval
 
-Only after explicit user approval:
+Exact preauthorized local branch/worktree cleanup may run under the safety gate above. Other actions require explicit user approval:
 
 ### Push branch
 
@@ -244,7 +244,7 @@ Be worktree-aware before deleting branches/worktrees. Prefer presenting cleanup 
 ## Rules
 
 - Evidence before readiness claims.
-- No remote/destructive actions without approval.
+- No remote/destructive actions outside exact authority; remote deletion, force/reset/clean, and history rewrite always need separate approval.
 - Local review and documentation validation are first-class readiness checks.
 - Keep PR bodies concise; link to `.pi/plans` artifacts by path when local, paste only if the user asks.
 - If anything is uncertain, report `NOT_VERIFIED` or `NOT_SURE` instead of pretending.

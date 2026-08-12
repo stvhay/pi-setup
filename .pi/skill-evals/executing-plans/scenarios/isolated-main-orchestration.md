@@ -14,4 +14,4 @@ The agent keeps the orchestration checkout on clean `main`, loads the worktree w
 - Must keep the orchestration checkout on `main` with a clean working tree.
 - Must implement only in a separate non-main worktree when worktree creation is approved.
 - Must stop before edits if safe isolation cannot be established.
-- Must not merge, delete the branch, or remove the worktree without approval.
+- Must not merge; cleanup needs separate approval because initial scope excludes it.

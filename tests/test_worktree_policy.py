@@ -22,6 +22,61 @@ def test_missing_epic_worktree_requires_explicit_creation_approval(agnt, tmp_pat
     assert "explicit approval" in result["reason"]
 
 
+def test_missing_epic_worktree_uses_initial_approval_without_second_gate(agnt, tmp_path):
+    spec = agnt.epic_worktree_spec("pi-6yg", "Beads-first autonomous orchestration", repo_root=tmp_path)
+
+    result = agnt.resolve_epic_worktree(
+        spec,
+        worktrees=[],
+        status_runner=lambda _path: (0, "", ""),
+        creation_approval={"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
+    )
+
+    assert result["status"] == "needs-creation"
+    assert result["dispatchable"] is False
+    assert result["creationAuthorized"] is True
+    assert result["approvalRef"] == "pi-approval.1"
+    assert "without another approval" in result["reason"]
+
+
+def test_missing_worktree_rejects_unproven_creation_authority(agnt, tmp_path):
+    spec = agnt.epic_worktree_spec("pi-6yg", repo_root=tmp_path)
+
+    result = agnt.resolve_epic_worktree(
+        spec,
+        worktrees=[],
+        creation_approval={"decisionBead": "pi-approval.1", "resolver": {"kind": "caller"}},
+    )
+
+    assert result["status"] == "needs-approval"
+    assert result["dispatchable"] is False
+    assert "creationAuthorized" not in result
+
+
+def test_worktree_snapshot_carries_initial_human_approval_to_creation(agnt, tmp_path):
+    spec = agnt.epic_worktree_spec("pi-6yg", repo_root=tmp_path)
+    validation = {
+        "normalized": {
+            "action": "implement",
+            "approved": True,
+            "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
+            "epicId": "pi-6yg",
+            "worktreePolicy": "epic-worktree",
+        }
+    }
+
+    result = agnt.worktree_snapshot_for_bead(
+        {},
+        validation,
+        repo_root=tmp_path,
+        worktrees=[],
+    )
+
+    assert result["path"] == spec["path"]
+    assert result["status"] == "needs-creation"
+    assert result["approvalRef"] == "pi-approval.1"
+
+
 def test_existing_main_or_dirty_worktree_blocks_dispatch(agnt, tmp_path):
     spec = agnt.epic_worktree_spec("pi-6yg", "Beads-first autonomous orchestration", repo_root=tmp_path)
     existing_main = [{"path": spec["path"], "branch": "main"}]

@@ -242,7 +242,10 @@ state is checked separately with `agnt work audit|health` when that path is used
 Layered gates, none overridable by overlays or `SOUL.md` (communication style
 only): a Bead before every code-changing task, approval before implementation in
 design workflows, fresh shell evidence before completion claims, read-only-by-
-default peer work, explicit approval for destructive/remote git actions, and the
-suspicious-phrase scan on composed instructions. When orchestration is explicitly
-selected, Beads-backed human decisions, recorded worker sessions, one worktree
-per epic, and run health/closeout checks add stricter optional gates.
+default peer work, and the suspicious-phrase scan on composed instructions.
+Exact initial scope may include reversible local Git setup/cleanup and tracked
+asset deletion previews; push, merge, remote deletion/ref mutation,
+force/reset/clean, and history rewrite remain separately gated. When
+orchestration is explicitly selected, Beads-backed human decisions, recorded
+worker sessions, one worktree per epic, and run health/closeout checks add
+stricter optional gates.

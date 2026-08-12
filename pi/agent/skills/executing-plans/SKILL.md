@@ -41,7 +41,7 @@ When starting from `main` or `master`:
 
 A branch switch in the same checkout is not isolation because untracked and ignored filesystem state stays shared. If neither a safe execution worktree nor explicit same-checkout authority is available, stop before edits.
 
-Same-checkout execution remains allowed when project instructions or the current user specifically authorize it. Record that authority; it does not authorize remote, destructive, or unrelated-work operations. Prune the worktree only after integration is verified and applicable cleanup authority explicitly permits removal; otherwise leave it intact.
+Same-checkout execution remains allowed when project instructions or the current user specifically authorize it. Record that authority; it does not authorize remote or unrelated-work operations. Prune only after integration is verified. When initial approved scope names the exact path/branch cleanup, show clean tracked/untracked status and recovery SHA, then remove with non-force Git commands without another approval; otherwise leave the worktree intact pending later approval.
 
 When unrelated changes exist:
 
@@ -115,7 +115,7 @@ Stop immediately on:
 - unclear requirement
 - unexpected dirty-tree change
 - broader design requirement
-- destructive or remote operation without explicit approval
+- remote operation or destructive action outside exact preauthorized reversible-local scope
 
 Report exact task, command/evidence, and safe options. Do not guess around the blocker.
 
@@ -152,7 +152,7 @@ No completion claim without fresh evidence.
 
 ## Git boundary
 
-Do not push, create a PR, merge, delete branches, remove worktrees, reset, clean, rewrite history, or commit unless explicitly approved. Plan execution authority alone does not grant those actions.
+Plan execution authority alone grants no Git mutation. Initial approved scope may include the task-owned commit plus exact local branch/worktree creation and post-integration cleanup defined by the shared completion contract. Run that cleanup without another approval only after ownership, exact path/branch, clean tracked/untracked state, integration, and recovery checks pass. Push, PR creation, merge, remote deletion, force/reset/clean, and history rewrite remain separately gated.
 
 ## Final states
 

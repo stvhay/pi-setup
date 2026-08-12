@@ -36,7 +36,7 @@ Peers are read-only unless the user explicitly approves write/worktree execution
 
 ### Mode B: Worktree implementation — explicit approval required
 
-Use this only when the user explicitly approves parallel implementation in isolated worktrees.
+Use this only when the user explicitly approves parallel implementation in isolated worktrees. An initial approved scope is sufficient when it names parallel mode plus each exact path, branch, base, worker/write set, and cleanup boundary.
 
 Each implementation worker gets:
 
@@ -84,7 +84,7 @@ Before any parallel run, explicitly check whether tasks share mutable resources 
 
 If tasks share mutable external state, do not parallelize them unless each worker gets an isolated test environment or the user approves a specific coordination plan.
 
-Do not push, merge, reset, clean, remove worktrees, delete branches, or commit in the orchestrator branch without explicit approval.
+Do not push, merge, reset, clean, or commit in the orchestrator branch without explicit approval. Remove worktrees or delete local task branches without another approval only when the initial approved scope names exact cleanup and the shared completion contract proves ownership, clean tracked/untracked state, integration, and recovery SHA.
 
 ## Step 1: Load plan or problem statement
 
@@ -263,14 +263,14 @@ If either review finds real blockers, fix within that task worktree or stop for 
 
 ### 4. Cleanup plan
 
-Worktrees and branches are durable until the user approves cleanup. When a task branch is integrated or abandoned, propose exact cleanup commands but do not run them without approval:
+Worktrees and branches remain durable unless the initial approved scope names their exact post-integration cleanup or later approval does. For preauthorized cleanup, show exact path, local branch, integrated recovery SHA, and full tracked/untracked status; confirm no active owner; then run without another approval:
 
 ```bash
 git worktree remove .worktrees/<topic>-task-N
 git branch -d parallel/<topic>/task-N
 ```
 
-If cleanup is unsafe because of uncommitted work, stop and report the path and status. Do not force-remove worktrees or force-delete branches unless the user explicitly approves the exact destructive command.
+If cleanup is unsafe because of uncommitted or untracked work, ambiguous ownership, missing integration proof, or missing recovery evidence, stop and report path/status. Never force-remove worktrees or force-delete branches under this authority; force, remote deletion, backups/runtime data, and history rewrite require separate approval.
 
 ### 5. Integrate one branch at a time
 

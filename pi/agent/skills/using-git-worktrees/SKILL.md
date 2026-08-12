@@ -18,7 +18,9 @@ At start, read shared conventions if needed:
 ## Core rules
 
 - Do not create worktrees from a dirty or ambiguous base unless the user approves the exact base.
-- Do not remove worktrees, delete branches, push, merge, reset, clean, or rewrite history without explicit approval.
+- An initial approved scope may name the exact base, branch, path, and task ownership for reversible local creation. When it does, create that worktree without another approval after deterministic checks pass.
+- That same initial approved scope may cover post-integration removal without another approval only for the exact path and local branch after capturing the recovery SHA, proving integration, confirming no active owner, and finding no tracked or untracked changes.
+- Push, merge, remote-ref mutation/deletion, force/reset/clean, and history rewrite remain separately gated. Unknown ownership, runtime data, backups, or failed checks stop cleanup.
 - Prefer project-local `.worktrees/` and ensure it is ignored by git.
 - Use worktrees for implementation isolation; read-only advisory peers do not require a separate worktree.
 
@@ -37,10 +39,11 @@ If the working tree has unrelated uncommitted changes, stop and ask how to proce
 
 Priority order:
 
-1. Existing `.worktrees/`
-2. Existing `worktrees/`
-3. Project instruction preference in `AGENTS.md`
-4. Ask the user
+1. Exact path named by approved scope
+2. Existing `.worktrees/`
+3. Existing `worktrees/`
+4. Project instruction preference in `AGENTS.md`
+5. Ask the user
 
 Inspection commands:
 
@@ -62,9 +65,9 @@ git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/d
 
 If the chosen directory is not ignored:
 
-1. Add it to `.gitignore`.
+1. Add it to `.gitignore` only when that path is inside approved write scope; otherwise stop and ask.
 2. Show the diff.
-3. Commit only if implementation approval includes committing, or ask for approval.
+3. Commit under the implementation approval's task-owned atomic-commit authority.
 4. Proceed after the ignore rule is in place.
 
 Global directories outside the project do not need project `.gitignore` coverage.
@@ -117,16 +120,18 @@ If no remote exists, use a local base explicitly:
 git show-ref --verify --quiet refs/heads/main && DEFAULT_BRANCH=main || DEFAULT_BRANCH=master
 ```
 
-For work that must branch from current `HEAD`, state that assumption and ask for approval if it is not obvious.
+For work that must branch from current `HEAD`, require that exact base in the initial approved scope or ask before creation.
 
 ## Step 6: Create the worktree
 
-Remote-backed default branch:
+Existing remote-tracking default branch:
 
 ```bash
-git fetch origin "$DEFAULT_BRANCH" --quiet
+git show-ref --verify --quiet "refs/remotes/origin/$DEFAULT_BRANCH"
 git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME" "origin/$DEFAULT_BRANCH"
 ```
+
+Do not fetch or otherwise mutate remote-tracking refs unless separately authorized; use the already-inspected exact base from approved scope.
 
 Local-only default branch:
 
@@ -186,7 +191,7 @@ If baseline verification fails, stop and report:
 - whether the failure appears pre-existing
 - options: investigate, proceed under an already-approved exception, or remove the worktree
 
-A new or unclassified failure blocks edits. An unchanged baseline failure may proceed only under explicit plan/user authority and never makes a required final gate pass. Do not remove the worktree without approval.
+A new or unclassified failure blocks edits. An unchanged baseline failure may proceed only under explicit plan/user authority and never makes a required final gate pass. Do not remove the worktree unless the initial approved scope covers exact cleanup or later approval does.
 
 ### Focused repair
 
@@ -195,6 +200,10 @@ During implementation, run focused tests for changed behavior and repaired findi
 ### Final candidate gate
 
 At closeout, run every required complete release command once after tracked changes stabilize. Any tracked candidate change invalidates that gate and requires a new complete run.
+
+## Step 9: Preauthorized cleanup
+
+After verified integration, use the shared completion contract's deletion preview. Recheck exact path/branch, task ownership, active-owner state, full status with untracked files, integration ancestry, and recovery SHA. Then use only non-force `git worktree remove` and `git branch -d`. Run without another approval only when initial approved scope names this cleanup; any mismatch or refusal stops.
 
 ## Report format
 

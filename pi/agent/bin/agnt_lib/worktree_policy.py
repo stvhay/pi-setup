@@ -175,6 +175,7 @@ def resolve_epic_worktree(
     worktrees: List[Dict[str, str]] | None = None,
     status_runner: StatusRunner = default_status_runner,
     continuation: Dict[str, Any] | None = None,
+    creation_approval: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     expected_path = str(Path(str(spec.get("path"))).expanduser())
     expected_branch = str(spec.get("branch") or "")
@@ -182,6 +183,16 @@ def resolve_epic_worktree(
     match = next((item for item in entries if str(Path(item.get("path", "")).expanduser()) == expected_path), None)
     base = {"schemaVersion": 1, **spec, "dispatchable": False}
     if not match:
+        approval_ref = creation_approval.get("decisionBead") if isinstance(creation_approval, dict) and creation_approval.get("resolver") == {"kind": "human-ui"} else None
+        if isinstance(approval_ref, str) and approval_ref.strip():
+            return {
+                **base,
+                "status": "needs-creation",
+                "requiresCreationApproval": False,
+                "creationAuthorized": True,
+                "approvalRef": approval_ref.strip(),
+                "reason": "initial implementation approval authorizes exact worktree creation without another approval; deterministic creation checks remain required",
+            }
         return {**base, "status": "needs-approval", "reason": "epic worktree does not exist; explicit approval is required before creating it"}
     branch = str(match.get("branch") or "")
     if branch in {"main", "master"}:
@@ -205,7 +216,13 @@ def resolve_epic_worktree(
     return {**base, "status": "ready", "dispatchable": True, "reason": "epic worktree exists on expected clean branch", "actualBranch": branch}
 
 
-def worktree_snapshot_for_bead(bead: Dict[str, Any], validation: Dict[str, Any], *, repo_root: Path | str | None = None) -> Dict[str, Any]:
+def worktree_snapshot_for_bead(
+    bead: Dict[str, Any],
+    validation: Dict[str, Any],
+    *,
+    repo_root: Path | str | None = None,
+    worktrees: List[Dict[str, str]] | None = None,
+) -> Dict[str, Any]:
     normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
     policy = normalized.get("worktreePolicy") or "none"
     if normalized.get("action") != "implement" or policy == "none":
@@ -217,7 +234,13 @@ def worktree_snapshot_for_bead(bead: Dict[str, Any], validation: Dict[str, Any],
     title = str(bead.get("epicTitle") or bead.get("parentTitle") or "")
     spec = epic_worktree_spec(epic_id, title, repo_root=repo_root)
     continuation = normalized.get("continuation") if isinstance(normalized.get("continuation"), dict) else None
-    return resolve_epic_worktree(spec, continuation=continuation)
+    human_approval = normalized.get("humanApproval") if isinstance(normalized.get("humanApproval"), dict) else None
+    return resolve_epic_worktree(
+        spec,
+        worktrees=worktrees,
+        continuation=continuation,
+        creation_approval=human_approval if normalized.get("approved") is True else None,
+    )
 
 
 def write_sets_overlap(first: List[str], second: List[str]) -> List[str]:

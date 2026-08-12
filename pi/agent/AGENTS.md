@@ -46,9 +46,10 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Metered `openrouter` models must run in fresh workers through `subagent`; never switch a long-running root conversation to them. Use `mode: "one-shot"` for reviews and pass a bounded task packet, not ambient conversation history. Only tracked Codex and OpenRouter routes are configured.
 - Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
+- Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees, post-integration removal, and staged deletion of tracked/config-controlled assets. Before cleanup or deletion, show exact paths/branches and commit-SHA recovery sources. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs, remote deletion, force/reset/clean, or history rewrite.
 - Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.
 
-Do not push, merge, delete branches or beads, remove worktrees, rewrite history, change Beads remotes/history, or install hooks without explicit approval.
+Outside that exact initial scope, branch/worktree deletion requires explicit approval. Do not push, merge, force/reset/clean, delete branches or beads, rewrite history, change Beads remotes/history, or install hooks without explicit approval. Remote deletion and history rewrite remain explicitly gated.
 
 # Human questions and approvals
 

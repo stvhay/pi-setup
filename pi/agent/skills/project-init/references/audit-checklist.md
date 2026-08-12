@@ -68,8 +68,8 @@ Only audit if the project has opted into generated release automation.
 
 ## Branch/PR safety
 
-### SAFE-1: No automatic destructive actions
-- **Check:** project docs do not instruct agents to push, merge, delete branches/worktrees, or configure branch protection without explicit approval
+### SAFE-1: Bounded reversible local Git authority
+- **Check:** project docs permit exact initially approved local branch/worktree creation and verified post-integration cleanup, but stop on ambiguous ownership, unrelated or untracked data, missing recovery proof, remote deletion, force, or history rewrite; push, merge, and branch protection remain separately gated
 - **Severity:** DRIFT
 
 ### SAFE-2: Verification commands documented
