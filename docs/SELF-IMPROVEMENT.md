@@ -259,6 +259,18 @@ per query. Aggregate provider/model rows are restricted to the tracked
 unconfigured, malformed, URL/path/hash/secret-shaped, and raw-ID labels count
 only as unknown and never enter the safe summary. Existing private per-session
 model evidence remains unchanged.
+Safe `cohortHealth` also exposes count-only monitoring coverage without copying
+raw provenance or termination values. `lifecycleCoverage` separates known
+objective execution from missing outcomes. Each `usageCoverage` dimension counts
+available, missing, and present-zero sessions independently; a session without a
+generation is missing, not zero. `provenanceCoverage` counts release and source
+revision availability without emitting either value. `payloadByteCoverage` keeps
+available, unavailable, inferred-unavailable, and not-observed states separate
+and counts zero only when byte metadata is available. `limitTerminations` counts
+allowlisted limit reasons and whether source, limit, observed value, and usage
+state form complete evidence. These aggregates use already-fetched traces and
+observations and add no telemetry calls.
+
 Scans skip sessions already reviewed under the current policy. Promoting a
 finding stores a private cohort fingerprint derived from available task, risk,
 role, model, and prompt dimensions. Later scan packets list monitored finding
@@ -276,7 +288,66 @@ It never updates public work. Recurrent follow-up uses the new finding's normal
 approval of the exact preview before creating a committed Bead. Private trace
 IDs, URLs, user content, excerpts, and absolute paths never enter the Bead.
 
-### 6. Maintenance cadence from durable signals
+### 6. Settled-cohort and upstream monitor
+
+Run this check at each `maintenance:improvement-review` checkpoint, at most once
+per seven-day window unless a deployment or upstream release changes monitored
+behavior. Keep each pass bounded to 20 selected root sessions and 500 discovered
+traces:
+
+```bash
+agnt improve scan --since <last-check-ISO> --until <now-ISO> \
+  --limit 20 --max-traces 500 --dry-run --json
+agnt improve scan --since <last-check-ISO> --until <now-ISO> \
+  --limit 20 --max-traces 500 --json
+```
+
+Inspect safe `cohortHealth` first: lifecycle coverage, child linkage, error
+classification, per-dimension usage availability/missing/zero counts, provenance
+coverage, payload-byte state, limit-termination evidence, capture gaps, and
+`completeness.lowerBound`. Absence is not success when discovery is incomplete,
+a value is missing, or sample count is zero. Keep packet-level evidence under
+`~/.pi/improvement/`; never paste private IDs, values, paths, prompts, outputs, or
+telemetry URLs into Git or Beads.
+
+Before recording a sanitized recurrent defect, search title, description, and
+notes across open and closed Beads, then inspect the union:
+
+```bash
+bd search "<public-safe signature>" --status all
+bd search --desc-contains "<public-safe signature>" --status all
+bd search --notes-contains "<public-safe signature>" --status all
+```
+
+Link recurrence to matching work instead of creating a duplicate; create new work
+only when all three searches and inspection show no existing owner. Scans and
+reviews never change policy or code automatically, and public promotion still
+requires exact approval.
+
+Check upstream adoption separately from telemetry using primary package/PR state:
+
+```bash
+npm view pi-langfuse version --json
+npm view pi-archimedes version --json
+for repo in gooyoung/pi-langfuse stvhay/pi-langfuse \
+  danielcherubini/pi-archimedes stvhay/pi-archimedes; do
+  gh pr list --repo "$repo" --state all --limit 100 \
+    --json number,title,state,isDraft,mergedAt,mergeCommit,headRefOid
+done
+```
+
+Compare published versions with exact pins in `pi/agent/settings.json` and source
+commits in `.pi/upstream-profiles/`. Personal-fork PR state is staging evidence
+only and never counts as upstream adoption. For each projection, match its tracked
+candidate head/feature to an actual upstream PR and merge commit; no match means
+not adopted. Merge alone does not retire a local projection. When an upstream fix
+is merged, released, and the pinned package can supply equivalent behavior, open
+or link a projection-removal review Bead. That review owns patch, wrapper,
+documentation, and regression-test removal after verified package gates; the
+monitor never edits or removes them itself. Record only sanitized package,
+version, PR, and commit facts.
+
+### 7. Maintenance cadence from durable signals
 
 Use maintenance commands to decide when self-improvement work is due:
 
@@ -315,7 +386,7 @@ Simplification/refactor implementation beads use
 authorize edits. Close maintenance checkpoints like normal Beads: record evidence,
 represent follow-ups as Beads, and pass closeout checks.
 
-### 7. Prompt feedback (deliberate, eval-gated)
+### 8. Prompt feedback (deliberate, eval-gated)
 
 When a model family shows a repeatable behavioral failure:
 

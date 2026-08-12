@@ -47,6 +47,15 @@ CHILD_TRACE_AVAILABILITY = (
     "incomplete",
     "unknown",
 )
+LIMIT_TERMINATION_REASONS = (
+    "request-limit",
+    "tool-limit",
+    "token-limit",
+    "output-limit",
+    "cost-limit",
+    "time-limit",
+)
+PAYLOAD_BYTE_STATUSES = ("available", "inferred-unavailable", "not-observed", "unavailable")
 COHORT_CAPTURE_GAPS = (
     "no-generations",
     "missing-usage",
@@ -153,6 +162,10 @@ def _bytes(value: Any) -> int:
         return 0
     text = value if isinstance(value, str) else _canonical(value)
     return len(text.encode())
+
+
+def _nonempty_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _number(value: Any) -> float:
@@ -513,6 +526,43 @@ def _child_trace_health(
     }
 
 
+def _limit_termination_health(observations: list[dict[str, Any]]) -> dict[str, Any]:
+    reasons = Counter({key: 0 for key in LIMIT_TERMINATION_REASONS})
+    projections = observed = complete = 0
+    for observation in observations:
+        if observation.get("name") != "subagent-result":
+            continue
+        projections += 1
+        metadata = observation.get("metadata") if isinstance(observation.get("metadata"), dict) else {}
+        reason = metadata.get("terminationReason")
+        if not isinstance(reason, str) or reason not in reasons:
+            continue
+        observed += 1
+        reasons[reason] += 1
+        source = metadata.get("terminationSource")
+        limit = metadata.get("terminationLimit")
+        measured = metadata.get("terminationObserved")
+        usage_state = metadata.get("terminationUsageState")
+        if (
+            _nonempty_text(source)
+            and type(limit) in {int, float}
+            and math.isfinite(limit)
+            and limit >= 0
+            and type(measured) in {int, float}
+            and math.isfinite(measured)
+            and measured >= 0
+            and usage_state in {"complete", "partial"}
+        ):
+            complete += 1
+    return {
+        "projections": projections,
+        "observed": observed,
+        "completeEvidence": complete,
+        "incompleteEvidence": observed - complete,
+        "byReason": {key: reasons[key] for key in LIMIT_TERMINATION_REASONS},
+    }
+
+
 def _projection_records(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     records = []
     for observation in observations:
@@ -797,6 +847,23 @@ def _features(
     if child_trace_health["declarationMismatches"]:
         capture_gaps.append("invalid-child-trace-declaration")
 
+    release_available = any(
+        _nonempty_text(trace.get("release"))
+        or (
+            isinstance(trace.get("metadata"), dict)
+            and _nonempty_text(trace["metadata"].get("release"))
+        )
+        for trace in traces
+    )
+    source_revision_available = any(
+        isinstance(trace.get("metadata"), dict)
+        and any(
+            _nonempty_text(trace["metadata"].get(key))
+            for key in ("vcs.ref.head.revision", "git_commit")
+        )
+        for trace in traces
+    )
+
     return {
         "executionOutcome": execution_outcome,
         "apparentOutcome": apparent_outcome,
@@ -838,6 +905,11 @@ def _features(
         "errorTaxonomy": _error_taxonomy(observations),
         "childTraceHealth": child_trace_health,
         "projections": _projection_records(observations),
+        "provenanceCoverage": {
+            "releaseAvailable": release_available,
+            "sourceRevisionAvailable": source_revision_available,
+        },
+        "limitTerminations": _limit_termination_health(observations),
         "captureGaps": capture_gaps,
     }
 
@@ -1009,6 +1081,51 @@ def _cohort_health(
             for key in keys:
                 target[key] += max(0, _int(values.get(key)))
 
+    lifecycle_outcomes = Counter({key: 0 for key in ("succeeded", "failed", "unavailable", "unknown")})
+    usage_coverage = {
+        key: {"availableSessions": 0, "missingSessions": 0, "zeroSessions": 0}
+        for key in ("freshInput", "cacheRead", "output")
+    }
+    provenance_coverage = {
+        key: {"availableSessions": 0, "missingSessions": 0}
+        for key in ("release", "sourceRevision")
+    }
+    payload_statuses = Counter({key: 0 for key in PAYLOAD_BYTE_STATUSES})
+    tool_input_zero = tool_output_zero = 0
+    limit_terminations = {
+        "projections": 0,
+        "observed": 0,
+        "completeEvidence": 0,
+        "incompleteEvidence": 0,
+        "byReason": Counter({key: 0 for key in LIMIT_TERMINATION_REASONS}),
+    }
+    for feature in features:
+        execution = feature.get("executionOutcome")
+        lifecycle_outcomes[execution if execution in lifecycle_outcomes else "unknown"] += 1
+        gaps = feature.get("captureGaps") if isinstance(feature.get("captureGaps"), list) else []
+        tokens = feature.get("tokens") if isinstance(feature.get("tokens"), dict) else {}
+        for key, counts in usage_coverage.items():
+            value = tokens.get(key)
+            available = "no-generations" not in gaps and type(value) is int and value >= 0
+            counts["availableSessions" if available else "missingSessions"] += 1
+            counts["zeroSessions"] += int(available and value == 0)
+        provenance = feature.get("provenanceCoverage") if isinstance(feature.get("provenanceCoverage"), dict) else {}
+        for key, source_key in (("release", "releaseAvailable"), ("sourceRevision", "sourceRevisionAvailable")):
+            provenance_coverage[key]["availableSessions" if provenance.get(source_key) is True else "missingSessions"] += 1
+        payload_metadata = feature.get("payloadByteMetadata") if isinstance(feature.get("payloadByteMetadata"), dict) else {}
+        tool_io = payload_metadata.get("toolIo") if isinstance(payload_metadata.get("toolIo"), dict) else {}
+        status = tool_io.get("status")
+        payload_statuses[status if status in payload_statuses else "unavailable"] += 1
+        payload_bytes = feature.get("payloadBytes") if isinstance(feature.get("payloadBytes"), dict) else {}
+        tool_input_zero += int(status == "available" and payload_bytes.get("toolInput") == 0)
+        tool_output_zero += int(status == "available" and payload_bytes.get("toolOutput") == 0)
+        termination = feature.get("limitTerminations") if isinstance(feature.get("limitTerminations"), dict) else {}
+        for key in ("projections", "observed", "completeEvidence", "incompleteEvidence"):
+            limit_terminations[key] += max(0, _int(termination.get(key)))
+        reasons = termination.get("byReason") if isinstance(termination.get("byReason"), dict) else {}
+        for key in LIMIT_TERMINATION_REASONS:
+            limit_terminations["byReason"][key] += max(0, _int(reasons.get(key)))
+
     continuation = trace_discovery.get("continuation") if isinstance(trace_discovery.get("continuation"), dict) else {}
     discovery_complete = trace_discovery.get("complete") is True
     discovery_has_more = continuation.get("hasMore") is True
@@ -1031,6 +1148,22 @@ def _cohort_health(
         "modelOutcomes": model_outcomes,
         "unknownModelSessions": unknown_model_sessions,
         "costs": _cohort_costs(features, cohort_lower_bound=lower_bound),
+        "lifecycleCoverage": {
+            "availableSessions": len(features) - lifecycle_outcomes["unknown"],
+            "missingSessions": lifecycle_outcomes["unknown"],
+            "byExecutionOutcome": {key: lifecycle_outcomes[key] for key in lifecycle_outcomes},
+        },
+        "usageCoverage": usage_coverage,
+        "provenanceCoverage": provenance_coverage,
+        "payloadByteCoverage": {
+            "byStatus": {key: payload_statuses[key] for key in PAYLOAD_BYTE_STATUSES},
+            "toolInputZeroSessions": tool_input_zero,
+            "toolOutputZeroSessions": tool_output_zero,
+        },
+        "limitTerminations": {
+            **{key: limit_terminations[key] for key in ("projections", "observed", "completeEvidence", "incompleteEvidence")},
+            "byReason": {key: limit_terminations["byReason"][key] for key in LIMIT_TERMINATION_REASONS},
+        },
         "evaluatorCoverage": {
             "sessionsWithOutcomes": sessions_with_outcomes,
             "sessionsWithoutOutcomes": len(sessions) - sessions_with_outcomes,

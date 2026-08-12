@@ -1464,6 +1464,141 @@ def test_cohort_health_handles_zero_sessions():
     assert health["completeness"]["lowerBound"] is False
 
 
+def test_cohort_health_separates_monitoring_coverage_missingness_and_zero_values():
+    complete = improvement._features(
+        [{"release": "private-release", "metadata": {"git_commit": "private-commit"}}],
+        [
+            {
+                "type": "GENERATION",
+                "usageDetails": {"input": 0, "cacheRead": 0, "output": 0},
+            },
+            {
+                "type": "TOOL",
+                "metadata": {"inputBytes": 0, "outputBytes": 0},
+            },
+            {
+                "type": "AGENT",
+                "name": "subagent-result",
+                "metadata": {
+                    "terminationReason": "request-limit",
+                    "terminationSource": "archimedes",
+                    "terminationLimit": 10,
+                    "terminationObserved": 10,
+                    "terminationUsageState": "complete",
+                },
+            },
+            {
+                "type": "AGENT",
+                "name": "interactive-result",
+                "metadata": {"executionOutcome": "succeeded"},
+            },
+        ],
+        [],
+    )
+    partial = improvement._features(
+        [{}],
+        [
+            {
+                "type": "GENERATION",
+                "usageDetails": {"input": 4, "output": 2},
+            },
+            {
+                "type": "TOOL",
+                "input": None,
+                "output": None,
+                "metadata": {"inputBytes": 26, "outputBytes": 26},
+            },
+            {
+                "type": "AGENT",
+                "name": "subagent-result",
+                "metadata": {"terminationReason": "request-limit"},
+            },
+        ],
+        [],
+    )
+    absent = improvement._features([], [], [])
+
+    health = improvement._cohort_health(
+        [{"features": value} for value in (complete, partial, absent)],
+        trace_discovery={"maxTraces": 10, "complete": True, "continuation": {"hasMore": False}},
+        scan_limit=3,
+        eligible_session_count=3,
+        allowed_providers=set(),
+        allowed_models=set(),
+    )
+
+    assert health["lifecycleCoverage"] == {
+        "availableSessions": 1,
+        "missingSessions": 2,
+        "byExecutionOutcome": {"succeeded": 1, "failed": 0, "unavailable": 0, "unknown": 2},
+    }
+    assert health["usageCoverage"] == {
+        "freshInput": {"availableSessions": 2, "missingSessions": 1, "zeroSessions": 1},
+        "cacheRead": {"availableSessions": 1, "missingSessions": 2, "zeroSessions": 1},
+        "output": {"availableSessions": 2, "missingSessions": 1, "zeroSessions": 1},
+    }
+    assert health["provenanceCoverage"] == {
+        "release": {"availableSessions": 1, "missingSessions": 2},
+        "sourceRevision": {"availableSessions": 1, "missingSessions": 2},
+    }
+    assert health["payloadByteCoverage"] == {
+        "byStatus": {"available": 1, "inferred-unavailable": 1, "not-observed": 1, "unavailable": 0},
+        "toolInputZeroSessions": 1,
+        "toolOutputZeroSessions": 1,
+    }
+    assert health["limitTerminations"] == {
+        "projections": 2,
+        "observed": 2,
+        "completeEvidence": 1,
+        "incompleteEvidence": 1,
+        "byReason": {
+            "request-limit": 2,
+            "tool-limit": 0,
+            "token-limit": 0,
+            "output-limit": 0,
+            "cost-limit": 0,
+            "time-limit": 0,
+        },
+    }
+    assert "private-release" not in json.dumps(health)
+    assert "private-commit" not in json.dumps(health)
+
+
+def test_limit_termination_evidence_rejects_blank_source():
+    health = improvement._limit_termination_health([{
+        "name": "subagent-result",
+        "metadata": {
+            "terminationReason": "time-limit",
+            "terminationSource": "   ",
+            "terminationLimit": 100,
+            "terminationObserved": 100,
+            "terminationUsageState": "complete",
+        },
+    }])
+
+    assert health["completeEvidence"] == 0
+    assert health["incompleteEvidence"] == 1
+
+
+@pytest.mark.parametrize("invalid", [{}, [], False, 0, "   "])
+def test_monitoring_coverage_rejects_malformed_provenance_and_termination_values(invalid):
+    features = improvement._features(
+        [{"release": invalid, "metadata": {"git_commit": invalid}}],
+        [{
+            "type": "AGENT",
+            "name": "subagent-result",
+            "metadata": {"terminationReason": invalid},
+        }],
+        [],
+    )
+
+    assert features["provenanceCoverage"] == {
+        "releaseAvailable": False,
+        "sourceRevisionAvailable": False,
+    }
+    assert features["limitTerminations"]["observed"] == 0
+
+
 def _tool_observation(*, input_marker=..., output_marker=..., metadata=None):
     observation = {
         "id": "private-tool-observation",
