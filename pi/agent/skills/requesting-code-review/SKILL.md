@@ -142,6 +142,17 @@ Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes
 
 Save each returned child output under `$ReviewDir` before validation. Metered self-contained discovery must use one-shot mode; the Archimedes wrapper applies the configured provider output cap.
 
+### Recover persisted output before retrying
+
+When inline output is truncated or malformed and the tool result reports a persisted `runtime:delegated-results/<invocation-id>/child-<index>.json` reference, inspect that artifact before another provider call:
+
+1. Run `agnt runtime-path delegated-results` to resolve the existing private root.
+2. Use the read tool on the exact referenced invocation and child suffix under that root; do not invent another URI or storage path.
+3. Require a JSON object with `schemaVersion: 1`, an invocation ID and child index match the reference, and a non-empty `finalOutput`.
+4. Save recovered `finalOutput` under `$ReviewDir`, then validate it normally.
+
+Complete valid persisted output finishes that pass with zero reviewer retries. Only resolution, read, schema, identity, or usable-output failure permits the one concise format-repair retry below; missing or unavailable artifact metadata is such a failure.
+
 Validate every output before counting it:
 
 ```bash

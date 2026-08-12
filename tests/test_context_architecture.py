@@ -225,6 +225,44 @@ def test_delegated_packets_are_evidence_complete_and_access_aware():
     assert "candidate" in result
 
 
+def test_review_recovers_persisted_output_before_retrying():
+    review = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
+    scenario = (
+        ROOT
+        / ".pi"
+        / "skill-evals"
+        / "requesting-code-review"
+        / "scenarios"
+        / "recover-persisted-review-before-retry.md"
+    ).read_text(encoding="utf-8")
+
+    required_recovery_contract = (
+        "`agnt runtime-path delegated-results`",
+        "`runtime:delegated-results/<invocation-id>/child-<index>.json`",
+        "read tool",
+        "`schemaVersion: 1`",
+        "invocation ID and child index match the reference",
+        "non-empty `finalOutput`",
+        "zero reviewer retries",
+        "resolution, read, schema, identity, or usable-output failure",
+        "one concise format-repair retry",
+    )
+    for requirement in required_recovery_contract:
+        assert requirement in review
+    assert review.index("`agnt runtime-path delegated-results`") < review.index("zero reviewer retries")
+
+    required_scenario_contract = (
+        "before any reviewer retry",
+        "child-0.json",
+        "schema 1 artifact matching referenced invocation and child index",
+        "run `agnt review validate`",
+        "Complete valid persisted output means zero reviewer retries",
+        "permits at most one concise format-repair retry",
+    )
+    for requirement in required_scenario_contract:
+        assert requirement in scenario
+
+
 def test_bead_handoffs_use_bounded_durable_state():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
