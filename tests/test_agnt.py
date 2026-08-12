@@ -117,6 +117,51 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     )
 
 
+def test_task_thinking_rubric_allows_only_predefined_mechanical_profiles(agnt):
+    common = {
+        "effect_severity": "low",
+        "ambiguity": "low",
+        "novelty": "low",
+        "reversibility": "easy",
+        "testability": "deterministic",
+        "source_breadth": "narrow",
+    }
+
+    assert agnt.task_thinking_level(phase="mechanical-inventory", **common) == "low"
+    assert agnt.task_thinking_level(phase="formatting", **common) == "low"
+    assert agnt.task_thinking_level(
+        phase="documentation", **{**common, "testability": "review"}
+    ) == "medium"
+    assert agnt.task_thinking_level(phase="planning", **common) == "high"
+
+
+def test_task_thinking_rubric_preserves_consequential_and_unknown_work(agnt):
+    safe = {
+        "effect_severity": "low",
+        "ambiguity": "low",
+        "novelty": "low",
+        "reversibility": "easy",
+        "testability": "deterministic",
+        "source_breadth": "narrow",
+    }
+
+    assert agnt.task_thinking_level(phase="implementation", **safe) == "high"
+    assert agnt.task_thinking_level(phase="architecture", **safe) == "xhigh"
+    assert agnt.task_thinking_level(phase="security", **safe) == "xhigh"
+    assert agnt.task_thinking_level(phase="final-verification", **safe) == "xhigh"
+    assert agnt.task_thinking_level(
+        phase="mechanical-inventory", **{**safe, "ambiguity": "unknown"}
+    ) == "xhigh"
+    assert agnt.task_thinking_level(
+        phase="mechanical-inventory", **{**safe, "effect_severity": "high"}
+    ) == "xhigh"
+    assert agnt.task_thinking_level(phase="typo", **safe) == "xhigh"
+    assert agnt.task_thinking_level(
+        phase="mechanical-inventory", **{**safe, "testability": "typo"}
+    ) == "xhigh"
+    assert agnt.task_thinking_level(phase=[], **safe) == "xhigh"
+
+
 def test_unknown_task_has_no_legacy_provider_fallback(agnt):
     with pytest.raises(SystemExit):
         agnt.preferred_models("typo-task")

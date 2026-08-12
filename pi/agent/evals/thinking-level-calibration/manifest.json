@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "thinking-level-calibration",
+  "taskPrefix": "thinking-calibration:v1",
+  "model": "openai-codex/gpt-5.6-sol",
+  "thinkingLevels": ["low", "medium", "high", "xhigh"],
+  "execution": {
+    "mode": "one-shot",
+    "maxProviderRequests": 1,
+    "maxDurationMs": 180000,
+    "outputContract": "inline"
+  },
+  "thresholds": {
+    "minLatencyReductionFraction": 0.1
+  },
+  "cases": [
+    {
+      "id": "mechanical-inventory",
+      "prompt": "packets/mechanical-inventory.md",
+      "features": {"phase": "mechanical-inventory", "effect_severity": "low", "ambiguity": "low", "novelty": "low", "reversibility": "easy", "testability": "deterministic", "source_breadth": "narrow"},
+      "proposedLevel": "low",
+      "expectedResult": "alpha.py,mu.py,zeta.py",
+      "expectedFindings": []
+    },
+    {
+      "id": "documentation",
+      "prompt": "packets/documentation.md",
+      "features": {"phase": "documentation", "effect_severity": "low", "ambiguity": "low", "novelty": "low", "reversibility": "easy", "testability": "review", "source_breadth": "narrow"},
+      "proposedLevel": "medium",
+      "expectedResult": "Run agnt route before delegating repository inspection.",
+      "expectedFindings": []
+    },
+    {
+      "id": "formatting",
+      "prompt": "packets/formatting.md",
+      "features": {"phase": "formatting", "effect_severity": "low", "ambiguity": "low", "novelty": "low", "reversibility": "easy", "testability": "deterministic", "source_breadth": "narrow"},
+      "proposedLevel": "low",
+      "expectedResult": "alpha\nbeta\ngamma",
+      "expectedFindings": []
+    },
+    {
+      "id": "architecture",
+      "prompt": "packets/architecture.md",
+      "features": {"phase": "architecture", "effect_severity": "medium", "ambiguity": "medium", "novelty": "medium", "reversibility": "moderate", "testability": "review", "source_breadth": "broad"},
+      "proposedLevel": "xhigh",
+      "expectedResult": "FAIL",
+      "expectedFindings": ["A1"]
+    },
+    {
+      "id": "implementation",
+      "prompt": "packets/implementation.md",
+      "features": {"phase": "implementation", "effect_severity": "medium", "ambiguity": "low", "novelty": "medium", "reversibility": "easy", "testability": "deterministic", "source_breadth": "moderate"},
+      "proposedLevel": "high",
+      "expectedResult": "B",
+      "expectedFindings": []
+    },
+    {
+      "id": "security",
+      "prompt": "packets/security.md",
+      "features": {"phase": "security", "effect_severity": "high", "ambiguity": "medium", "novelty": "medium", "reversibility": "hard", "testability": "weak", "source_breadth": "broad"},
+      "proposedLevel": "xhigh",
+      "expectedResult": "FAIL",
+      "expectedFindings": ["S1"]
+    },
+    {
+      "id": "final-verification",
+      "prompt": "packets/final-verification.md",
+      "features": {"phase": "final-verification", "effect_severity": "medium", "ambiguity": "low", "novelty": "low", "reversibility": "moderate", "testability": "deterministic", "source_breadth": "broad"},
+      "proposedLevel": "xhigh",
+      "expectedResult": "FAIL",
+      "expectedFindings": ["V1"]
+    }
+  ]
+}

@@ -212,6 +212,63 @@ ROUTE_DEMOTION_MIN_INVOCATIONS = 5
 REVIEW_POLICY_TIER_WEIGHT = 6_000
 
 
+LOW_THINKING_PROFILES = {
+    (
+        "mechanical-inventory", "low", "low", "low", "easy", "deterministic", "narrow"
+    ): "low",
+    (
+        "formatting", "low", "low", "low", "easy", "deterministic", "narrow"
+    ): "low",
+    (
+        "documentation", "low", "low", "low", "easy", "review", "narrow"
+    ): "medium",
+}
+THINKING_FEATURE_VALUES = (
+    {
+        "mechanical-inventory", "formatting", "documentation", "planning", "research",
+        "review", "implementation", "architecture", "security", "final-verification",
+        "orchestration",
+    },
+    {"low", "medium", "high"},
+    {"low", "medium", "high"},
+    {"low", "medium", "high"},
+    {"easy", "moderate", "hard"},
+    {"deterministic", "review", "weak"},
+    {"narrow", "moderate", "broad"},
+)
+
+
+def task_thinking_level(
+    *,
+    phase: str,
+    effect_severity: str,
+    ambiguity: str,
+    novelty: str,
+    reversibility: str,
+    testability: str,
+    source_breadth: str,
+) -> str:
+    """Conservative observable-feature rubric; not a model self-assessment."""
+    features = (
+        phase,
+        effect_severity,
+        ambiguity,
+        novelty,
+        reversibility,
+        testability,
+        source_breadth,
+    )
+    if not all(isinstance(value, str) for value in features):
+        return "xhigh"
+    if any(value not in allowed for value, allowed in zip(features, THINKING_FEATURE_VALUES)):
+        return "xhigh"
+    if effect_severity == "high":
+        return "xhigh"
+    if phase in {"architecture", "security", "final-verification", "orchestration"}:
+        return "xhigh"
+    return LOW_THINKING_PROFILES.get(features, "high")
+
+
 def choose_thinking_level(
     risk: str,
     budget: str,

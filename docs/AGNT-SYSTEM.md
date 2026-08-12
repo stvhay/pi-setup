@@ -71,6 +71,8 @@ For direct coding:
 
 For optional orchestration, action templates may create private run bundles containing invocation metadata, result evidence, artifacts, and metric references. `agnt runs invoke` and `agnt work run` execute those bundles through the internal headless worker. See [Run Artifacts](RUN-ARTIFACTS.md).
 
+Thinking calibration uses observable task features, never model self-confidence: phase, effect severity, ambiguity, novelty, reversibility, testability, and source breadth. Unknown, consequential, architecture, implementation, security, and final-verification work stays high/xhigh. Only exact mechanical inventory, formatting, and documentation profiles may be replayed below high. The tracked [thinking-level calibration](../pi/agent/evals/thinking-level-calibration/README.md) requires quality parity and measured latency benefit before task defaults change; current evidence changed no defaults.
+
 ## Human decisions and safety
 
 Direct Pi work uses normal workspace tools. Structured orchestration remains opt-in.
