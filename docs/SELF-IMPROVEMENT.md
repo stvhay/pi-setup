@@ -132,8 +132,8 @@ commit with the evidence summarized in the message
 ```bash
 agnt improve link <bead>                                  # claim-time correlation
 agnt improve outcome <bead> <success|partial|failure|unclear> # closeout correlation + outcome
-agnt improve scan --since <ISO> --limit 5 --max-traces 500 --dry-run --json
-agnt improve scan --since <ISO> --limit 5 --max-traces 500 --json
+agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --dry-run --json
+agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --json
 agnt improve review <report> <decisions>          # preview
 agnt improve review <report> <decisions> --apply  # private session markers
 agnt improve promote <report> <decisions> --finding <id>          # preview
@@ -153,14 +153,27 @@ session correlation; historical mismatches are ignored as outcomes and counted a
 final outcome to `failure` and unavailable execution maps it to `unclear` before
 sampled apparent judgment is considered.
 Useful partial output remains visible as apparent quality, but cannot turn failed
-execution into successful final outcome. `scan` traverses pages
-in its bounded time window up to the operator trace cap (default 500) and reports that
-cap, valid API total when available, scanned/attributable/unattributed lower bounds,
-and explicit completeness/continuation state. Repeated pages stop as incomplete.
-Selected sessions retain 20-trace and 500-observation-per-trace caps with
-capture-gap markers. Private scan packets use schema 2; safe scan summaries and
-review decisions remain schema 1, current review policy is `v2`, and historical
-schema-1 packets and `v1` decisions remain reviewable. For the exact
+execution into successful final outcome. `scan` traverses pages up to the operator
+trace cap (default 500). A fixed five-minute settlement lag moves a requested active
+end time back to an ingestion watermark. Discovery reads through at most one lag
+interval after that watermark to join later parent projections, but only traces at
+or before the watermark enter root selection. Private packets retain requested end,
+watermark, and read cutoff; safe output exposes only lag and active-window-excluded
+state. Reuse the packet's `scan.until` as `--until` to replay the same settled cohort.
+Empty settled windows fail closed.
+
+Discovery reports valid API totals, scanned/attributable/unattributed counts, root
+and excluded-child session counts, classification completeness, and continuation
+state. Exact agentic child sessions declared by bounded discovered projections are
+removed before review-score coverage and root selection. Classification reads are
+cached when their root is selected. Incomplete discovery, truncated observations,
+and malformed declarations make cohort health a lower bound rather than forcing a
+root/child guess. Repeated pages stop as incomplete. Selected root sessions retain
+20-trace and 500-observation-per-trace caps with capture-gap markers. Private scan
+packets use schema 2; safe scan summaries and review decisions remain schema 1,
+current review policy is `v2`, and historical schema-1 packets and `v1` decisions
+remain reviewable. Safe output reports write status but not private packet paths.
+For the exact
 `pi-langfuse-1.5.7-dual-null-dual-26` TOOL fingerprint, scans report both tool
 payload-byte aggregates as unavailable (`null`) and record rule status plus
 matched/examined observation counts under `payloadByteMetadata.toolIo`. Missing
@@ -169,8 +182,14 @@ no TOOL observations still report zero. Gaps distinguish
 `inferred-tool-payload-bytes`, `missing-tool-payload-bytes`, and the preserved
 `observation-limit`. Non-null payload-byte values are bounded-preview estimates,
 not raw payload sizes. Raw Langfuse records remain unchanged, and packets never
-copy tool payloads. Scans use exact links and payload-free tool-error signals.
-Each private session feature also includes schema-1 `errorTaxonomy`: count-only
+copy tool payloads. Generation token aggregates require non-negative integral
+`input`, `cacheRead`, and `output` fields. Present zero remains available; a missing,
+Boolean, fractional, negative, or non-finite field nulls only its affected private
+aggregate and adds `missing-usage`. A present empty `usageDetails` object is not
+replaced by legacy `usage` fallback data.
+
+Scans use exact links and payload-free tool-error signals. Each private session
+feature also includes schema-1 `errorTaxonomy`: count-only
 raw and unclassified-raw error health plus classified/actionable/non-actionable/
 unknown signal totals,
 primary classes (`expected`, `recovered`, `provider`, `infrastructure`, `agent`,
@@ -207,9 +226,13 @@ incomplete. No discovered root is expected for an isolated one-shot child; it is
 missing gap only for a successful agentic child under complete discovery.
 Malformed declarations, missing foreign keys, failed children without roots,
 out-of-window child starts, and incomplete discovery remain unknown rather than
-guessed. The same count-only
-health appears per private session; safe cohort summaries never include child
-session IDs and scanning adds no per-child Langfuse calls.
+guessed. Private session features also retain allowlisted `subagent-result` projection
+lineage and timing already supplied by Langfuse and Archimedes: observation, trace,
+parent-observation, invocation, and child-session IDs; child index/mode/availability;
+and start/end/latency. Parent identity remains the enclosing session ID. No second
+lineage key is invented. Raw projection input/output is never copied. Safe cohort
+summaries contain none of these IDs or times, and classification adds no per-child
+Langfuse lookup.
 
 Per-session `cost` remains the historical Langfuse nominal USD value. Additive
 schema-1 `costAccounting` classifies each observed generation from enabled

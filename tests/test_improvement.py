@@ -653,6 +653,11 @@ def test_eligible_unreviewed_summary_is_bounded_and_payload_free():
         "candidateSessions": 3,
         "eligibleSessions": 2,
         "reviewedSessionsSkipped": 1,
+        "childSessionsExcluded": 0,
+        "unclassifiedProjectionTraces": 0,
+        "sessionClassificationComplete": True,
+        "settlementLagSeconds": 300,
+        "activeWindowExcluded": False,
         "traceDiscoveryComplete": True,
         "lowerBound": False,
     }
@@ -988,7 +993,7 @@ def test_scan_separates_nominal_and_catalog_derived_marginal_cost(tmp_path):
     }
     assert packet["schemaVersion"] == 2
     assert summary["schemaVersion"] == 1
-    assert client.observation_traces == [
+    assert sorted(client.observation_traces) == sorted([
         "subscription-trace",
         "metered-trace",
         "unknown-trace",
@@ -996,7 +1001,7 @@ def test_scan_separates_nominal_and_catalog_derived_marginal_cost(tmp_path):
         "conflict-trace",
         "missing-price-trace",
         "malformed-price-trace",
-    ]
+    ])
     safe_costs = json.dumps(summary["cohortHealth"]["costs"])
     assert "subscription-session" not in safe_costs
     assert "gpt-5.6-terra" not in safe_costs
@@ -1155,6 +1160,7 @@ def test_cohort_health_aggregates_memberships_unknowns_errors_and_limits():
 
 def test_scan_emits_identical_cohort_health_without_extra_api_calls(tmp_path):
     first = _private_trace("session-one", "trace-one")
+    first["timestamp"] = "2026-07-26T13:00:00Z"
     first["metadata"]["provider"] = "openai-codex"
     second = _private_trace("session-two", "trace-two")
     client = FakeScanClient(
@@ -1196,6 +1202,45 @@ def test_scan_emits_identical_cohort_health_without_extra_api_calls(tmp_path):
     assert "session-one" not in json.dumps(summary)
     assert "trace-one" not in json.dumps(summary)
     assert client.observation_traces == ["trace-one"]
+
+
+def test_scan_excludes_exact_agentic_child_sessions_before_root_limit(tmp_path):
+    child_root = _private_trace("agentic-child", "agentic-child-root")
+    child_root.update({"name": "pi-agent"})
+    child_root["metadata"]["completed"] = True
+    parent_projection = _private_trace("parent-session", "parent-projection")
+    parent_projection.update({"name": "subagent-result"})
+    client = FakeScanClient(
+        [child_root, parent_projection],
+        {
+            "agentic-child-root": [],
+            "parent-projection": [_child_projection("agentic", "agentic-child")],
+        },
+    )
+
+    summary, packet = _scan_sessions(client, tmp_path, limit=1)
+
+    assert [session["sessionId"] for session in packet["sessions"]] == ["parent-session"]
+    assert summary["candidateSessions"] == 1
+    assert summary["traceDiscovery"]["childSessionsExcluded"] == 1
+    assert "agentic-child" not in client.score_sessions
+    assert client.observation_traces == ["parent-projection"]
+    assert "agentic-child" not in json.dumps(summary)
+
+
+def test_scan_keeps_malformed_child_declarations_as_unclassified_roots(tmp_path):
+    projection = _private_trace("parent-session", "parent-projection")
+    projection.update({"name": "subagent-result"})
+    malformed = _child_projection("agentic", None)
+    malformed["metadata"]["childTraceAvailability"] = "expected-available"
+    client = FakeScanClient([projection], {"parent-projection": [malformed]})
+
+    summary, packet = _scan_sessions(client, tmp_path)
+
+    assert [session["sessionId"] for session in packet["sessions"]] == ["parent-session"]
+    assert summary["traceDiscovery"]["childSessionsExcluded"] == 0
+    assert summary["traceDiscovery"]["sessionClassificationComplete"] is False
+    assert summary["cohortHealth"]["completeness"]["lowerBound"] is True
 
 
 def test_scan_classifies_child_traces_from_bounded_discovery_without_extra_api_calls(tmp_path):
@@ -1245,11 +1290,12 @@ def test_scan_classifies_child_traces_from_bounded_discovery_without_extra_api_c
     }
     assert summary["cohortHealth"]["childTraces"] == parent["features"]["childTraceHealth"]
     assert client.observation_traces == [
-        "parent-root",
         "agentic-projection",
         "one-shot-projection",
-        "agentic-child-root",
+        "parent-root",
     ]
+    assert [session["sessionId"] for session in packet["sessions"]] == ["parent-session"]
+    assert summary["traceDiscovery"]["childSessionsExcluded"] == 1
     assert "parent-session" not in json.dumps(summary)
     assert "agentic-child" not in json.dumps(summary)
     assert "019f9e82-cc80-7000-8000-000000000000" not in json.dumps(summary)
@@ -1502,6 +1548,46 @@ def test_tool_payload_byte_aggregation_is_availability_aware(observations, expec
     }.intersection(features["captureGaps"])
 
 
+def test_usage_validation_preserves_present_zero_and_nulls_only_missing_dimensions():
+    present_zero = improvement._features([], [{
+        "type": "GENERATION",
+        "usageDetails": {"input": 0, "cacheRead": 0, "output": 0, "total": 0},
+    }], [])
+    missing_cache = improvement._features([], [{
+        "type": "GENERATION",
+        "usageDetails": {"input": 7, "output": 3, "total": 10},
+        "usage": {"input": 70, "cacheRead": 60, "output": 30},
+    }], [])
+
+    assert present_zero["tokens"] == {"freshInput": 0, "cacheRead": 0, "output": 0}
+    assert "missing-usage" not in present_zero["captureGaps"]
+    assert missing_cache["tokens"] == {"freshInput": 7, "cacheRead": None, "output": 3}
+    assert "missing-usage" in missing_cache["captureGaps"]
+
+
+@pytest.mark.parametrize("invalid_primary", [None, []])
+def test_usage_validation_falls_back_from_unusable_primary_shape(invalid_primary):
+    features = improvement._features([], [{
+        "type": "GENERATION",
+        "usageDetails": invalid_primary,
+        "usage": {"input": 7, "cacheRead": 2, "output": 3},
+    }], [])
+
+    assert features["tokens"] == {"freshInput": 7, "cacheRead": 2, "output": 3}
+    assert "missing-usage" not in features["captureGaps"]
+
+
+@pytest.mark.parametrize("invalid", [True, -1, float("nan"), "0"])
+def test_usage_validation_rejects_invalid_required_values(invalid):
+    features = improvement._features([], [{
+        "type": "GENERATION",
+        "usageDetails": {"input": invalid, "cacheRead": 0, "output": 0, "total": 0},
+    }], [])
+
+    assert features["tokens"] == {"freshInput": None, "cacheRead": 0, "output": 0}
+    assert "missing-usage" in features["captureGaps"]
+
+
 @pytest.mark.parametrize(
     ("execution", "apparent", "explicit", "expected_final", "expected_source"),
     [
@@ -1631,6 +1717,171 @@ def test_scan_normalizes_exact_tool_fingerprint_without_copying_payload(tmp_path
     assert "PRIVATE TOOL OUTPUT" not in json.dumps(packet)
 
 
+def test_settlement_rejects_zero_length_window():
+    with pytest.raises(ValueError, match="no settled time window"):
+        improvement._settled_window(
+            "2026-07-27T11:00:00Z",
+            "2026-07-27T11:05:00Z",
+            "2026-07-27T11:05:00Z",
+        )
+
+
+def test_settlement_lookahead_classifies_children_across_watermark(tmp_path):
+    child_root = _private_trace("agentic-child", "child-root")
+    child_root.update({"name": "pi-agent", "timestamp": "2026-07-27T11:56:00Z"})
+    child_root["metadata"]["completed"] = True
+    parent_projection = _private_trace("parent-session", "parent-projection")
+    parent_projection.update({"name": "subagent-result", "timestamp": "2026-07-27T11:58:00Z"})
+
+    class TimeFilteringClient(FakeScanClient):
+        def list_traces_with_metadata(self, **kwargs):
+            self.trace_bounds = kwargs
+            traces = [trace for trace in self.traces if trace["timestamp"] <= kwargs["to_timestamp"]]
+            return {
+                "traces": traces,
+                "totalAvailable": len(traces),
+                "scanned": len(traces),
+                "maxTraces": kwargs.get("max_traces"),
+                "complete": True,
+                "continuation": {"hasMore": False, "nextPage": None, "reason": "api-end"},
+            }
+
+    client = TimeFilteringClient(
+        [child_root, parent_projection],
+        {"child-root": [], "parent-projection": [_child_projection("agentic", "agentic-child")]},
+    )
+
+    summary, packet = _scan_sessions(
+        client,
+        tmp_path,
+        since="2026-07-27T11:00:00Z",
+        until="2026-07-27T12:00:00Z",
+        observed_at="2026-07-27T12:02:00Z",
+    )
+
+    assert client.trace_bounds["to_timestamp"] == "2026-07-27T12:02:00Z"
+    assert packet["sessions"] == []
+    assert summary["traceDiscovery"]["childSessionsExcluded"] == 1
+    assert client.score_sessions == []
+
+
+def test_scan_settlement_watermark_excludes_active_data_and_is_replayable(tmp_path):
+    active_trace = _private_trace("active-session", "active-trace")
+    active_trace["timestamp"] = "2026-07-27T11:58:00Z"
+
+    class TimeFilteringClient(FakeScanClient):
+        def list_traces_with_metadata(self, **kwargs):
+            self.trace_bounds = kwargs
+            traces = [trace for trace in self.traces if trace["timestamp"] <= kwargs["to_timestamp"]]
+            return {
+                "traces": traces,
+                "totalAvailable": len(traces),
+                "scanned": len(traces),
+                "maxTraces": kwargs.get("max_traces"),
+                "complete": True,
+                "continuation": {"hasMore": False, "nextPage": None, "reason": "api-end"},
+            }
+
+    first_client = TimeFilteringClient([active_trace], {"active-trace": []})
+    first_summary, first_packet = _scan_sessions(
+        first_client,
+        tmp_path,
+        since="2026-07-27T11:00:00Z",
+        until="2026-07-27T12:00:00Z",
+        observed_at="2026-07-27T12:02:00Z",
+    )
+
+    assert first_client.trace_bounds["to_timestamp"] == "2026-07-27T12:02:00Z"
+    assert first_packet["scan"]["settlement"] == {
+        "schemaVersion": 1,
+        "requestedUntil": "2026-07-27T12:00:00Z",
+        "watermark": "2026-07-27T11:57:00Z",
+        "readUntil": "2026-07-27T12:02:00Z",
+        "lagSeconds": 300,
+        "activeWindowExcluded": True,
+    }
+    assert first_summary["settlement"] == {"lagSeconds": 300, "activeWindowExcluded": True}
+    assert first_packet["sessions"] == []
+
+    replay_client = TimeFilteringClient([active_trace], {"active-trace": []})
+    replay_summary, replay_packet = _scan_sessions(
+        replay_client,
+        tmp_path,
+        since="2026-07-27T11:00:00Z",
+        until=first_packet["scan"]["until"],
+        observed_at="2026-07-27T13:00:00Z",
+    )
+
+    assert replay_packet["reportId"] == first_packet["reportId"]
+    assert replay_packet["sessions"] == first_packet["sessions"]
+    assert replay_summary["cohortHealth"] == first_summary["cohortHealth"]
+
+
+def test_settled_scan_selection_is_stable_when_api_trace_order_changes(tmp_path):
+    traces = [
+        _private_trace("2026-07-26T12-00-00-000Z_root-a", "trace-a"),
+        _private_trace("2026-07-26T13-00-00-000Z_root-b", "trace-b"),
+    ]
+    observations = {"trace-a": [], "trace-b": []}
+
+    first_summary, first_packet = _scan_sessions(FakeScanClient(traces, observations), tmp_path)
+    second_summary, second_packet = _scan_sessions(FakeScanClient(list(reversed(traces)), observations), tmp_path)
+
+    assert first_packet["reportId"] == second_packet["reportId"]
+    assert first_packet["sessions"] == second_packet["sessions"]
+    assert first_summary["cohortHealth"] == second_summary["cohortHealth"]
+
+
+def test_scan_retains_private_projection_timing_and_lineage_across_projects(tmp_path):
+    projection = _private_trace("parent-session", "parent-trace")
+    projection.update({"name": "subagent-result"})
+    observation = _child_projection("agentic", "child-session")
+    observation.update({
+        "id": "private-observation-id",
+        "traceId": "parent-trace",
+        "parentObservationId": "private-parent-observation-id",
+        "startTime": "2026-07-26T12:00:01Z",
+        "endTime": "2026-07-26T12:00:03Z",
+        "latency": 2.0,
+        "input": "PRIVATE INPUT",
+        "output": "PRIVATE OUTPUT",
+    })
+    observation["metadata"].update({"invocationId": "private-invocation-id", "index": 2})
+    client = FakeScanClient([projection], {"parent-trace": [observation]})
+
+    summary, packet = _scan_sessions(
+        client,
+        tmp_path,
+        repository_root=tmp_path / "different-project",
+    )
+
+    assert packet["sessions"][0]["features"]["projections"] == [{
+        "observationId": "private-observation-id",
+        "traceId": "parent-trace",
+        "parentObservationId": "private-parent-observation-id",
+        "invocationId": "private-invocation-id",
+        "childSessionId": "child-session",
+        "index": 2,
+        "effectiveMode": "agentic",
+        "childTraceAvailability": "expected-available",
+        "startTime": "2026-07-26T12:00:01Z",
+        "endTime": "2026-07-26T12:00:03Z",
+        "latencySeconds": 2.0,
+    }]
+    serialized_summary = json.dumps(summary)
+    for private in (
+        "private-observation-id",
+        "private-parent-observation-id",
+        "private-invocation-id",
+        "child-session",
+        "parent-trace",
+        "PRIVATE INPUT",
+        "PRIVATE OUTPUT",
+        str(tmp_path),
+    ):
+        assert private not in serialized_summary
+
+
 def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path):
     output_dir = tmp_path / "private-runtime"
     repo_root = tmp_path / "repo"
@@ -1682,9 +1933,11 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
     assert summary["status"] == "ok"
     assert summary["eligibleSessions"] == 1
     assert summary["reportWritten"] is True
+    assert summary["reportPath"] is None
     assert "private-trace" not in json.dumps(summary)
     assert "run-private-run" not in json.dumps(summary)
-    report_path = Path(summary["reportPath"])
+    assert str(output_dir) not in json.dumps(summary)
+    report_path, = output_dir.glob("scan-*.json")
     assert report_path.parent == output_dir
     assert stat.S_IMODE(output_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(report_path.stat().st_mode) == 0o600
@@ -2105,6 +2358,10 @@ def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
             "maxTraces": 500,
             "attributable": 2,
             "unattributed": 0,
+            "rootSessions": 2,
+            "childSessionsExcluded": 0,
+            "unclassifiedProjectionTraces": 0,
+            "sessionClassificationComplete": True,
             "complete": True,
             "continuation": {"hasMore": False, "nextPage": None, "reason": "api-end"},
         },
@@ -2160,8 +2417,10 @@ def test_scan_score_markers_are_bounded_from_session_start(tmp_path, session_id,
             self.score_queries.append(kwargs)
             return super().list_scores(**kwargs)
 
+    trace = _private_trace(session_id, "private-trace")
+    trace["timestamp"] = since
     client = QueryClient(
-        [_private_trace(session_id, "private-trace")],
+        [trace],
         {"private-trace": _private_observations()},
     )
 
@@ -2251,6 +2510,10 @@ def test_trace_discovery_reports_lower_bounds_and_unattributed_traces(tmp_path):
         "maxTraces": 500,
         "attributable": 1,
         "unattributed": 1,
+        "rootSessions": 1,
+        "childSessionsExcluded": 0,
+        "unclassifiedProjectionTraces": 0,
+        "sessionClassificationComplete": False,
         "complete": False,
         "continuation": {"hasMore": True, "nextPage": 3, "reason": "api-incomplete"},
     }

@@ -36,6 +36,7 @@ SCORES_PER_QUERY = 100
 CLOSEOUT_OUTCOME_TIMEOUT_SECONDS = 2.0
 CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS = 0.1
 CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS = 0.5
+SETTLEMENT_LAG_SECONDS = 300
 COHORT_OUTCOMES = ("success", "partial", "failure", "unclear", "unknown")
 CHILD_TRACE_MODES = ("agentic", "one-shot", "unknown")
 CHILD_TRACE_AVAILABILITY = (
@@ -163,6 +164,21 @@ def _number(value: Any) -> float:
 
 def _int(value: Any) -> int:
     return int(_number(value))
+
+
+def _usage_details(generation: dict[str, Any]) -> dict[str, Any] | None:
+    primary = generation.get("usageDetails")
+    if isinstance(primary, dict):
+        return primary
+    fallback = generation.get("usage")
+    return fallback if isinstance(fallback, dict) else None
+
+
+def _usage_count(usage: dict[str, Any] | None, key: str) -> int | None:
+    value = usage.get(key) if usage is not None else None
+    if type(value) not in {int, float} or not math.isfinite(value) or value < 0 or int(value) != value:
+        return None
+    return int(value)
 
 
 def _cohort_dimension(value: Any) -> str | None:
@@ -497,6 +513,45 @@ def _child_trace_health(
     }
 
 
+def _projection_records(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    records = []
+    for observation in observations:
+        if observation.get("name") != "subagent-result":
+            continue
+        metadata = observation.get("metadata") if isinstance(observation.get("metadata"), dict) else {}
+        record: dict[str, Any] = {}
+        for source, target in (
+            ("id", "observationId"),
+            ("traceId", "traceId"),
+            ("parentObservationId", "parentObservationId"),
+        ):
+            value = observation.get(source)
+            if isinstance(value, str) and 0 < len(value) <= 200:
+                record[target] = value
+        for key in ("invocationId", "childSessionId"):
+            value = metadata.get(key)
+            if isinstance(value, str) and 0 < len(value) <= 200:
+                record[key] = value
+        index = metadata.get("index")
+        if type(index) is int and index >= 0:
+            record["index"] = index
+        mode = metadata.get("effectiveMode")
+        if mode in {"agentic", "one-shot", "unknown"}:
+            record["effectiveMode"] = mode
+        availability = metadata.get("childTraceAvailability")
+        if availability in {"expected-available", "expected-unavailable", "unknown"}:
+            record["childTraceAvailability"] = availability
+        for key in ("startTime", "endTime"):
+            value = observation.get(key)
+            if isinstance(value, str) and 0 < len(value) <= 64:
+                record[key] = value
+        latency = observation.get("latency")
+        if type(latency) in {int, float} and math.isfinite(latency) and latency >= 0:
+            record["latencySeconds"] = float(latency)
+        records.append(record)
+    return records
+
+
 def _generation_billing_class(generation: dict[str, Any], billing_classes: dict[str, str]) -> str:
     metadata = generation.get("metadata") if isinstance(generation.get("metadata"), dict) else {}
 
@@ -536,11 +591,9 @@ def _generation_price_known(generation: dict[str, Any], billing_class: str) -> b
         return False
     if any(values):
         return True
-    usage = generation.get("usageDetails") or generation.get("usage")
-    if not isinstance(usage, dict) or not usage:
-        return False
-    counts = [usage.get(key) for key in ("input", "cacheRead", "cacheWrite", "output", "total") if key in usage]
-    return bool(counts) and all(type(value) in {int, float} and math.isfinite(value) and value == 0 for value in counts)
+    usage = _usage_details(generation)
+    counts = [_usage_count(usage, key) for key in ("input", "cacheRead", "output")]
+    return all(value == 0 for value in counts)
 
 
 def _features(
@@ -569,7 +622,8 @@ def _features(
     if not has_turns:
         turns = sum(item.get("name") == "turn" for item in observations)
 
-    fresh_input = cache_read = output = 0
+    token_totals = {"freshInput": 0, "cacheRead": 0, "output": 0}
+    token_available = {key: True for key in token_totals}
     cost = marginal_cost = 0.0
     billing_counts = Counter({key: 0 for key in ("subscription", "metered", "unknown")})
     unknown_cost_generations = 0
@@ -602,13 +656,14 @@ def _features(
             invalid_model = True
 
     for generation in generations:
-        usage = generation.get("usageDetails") or generation.get("usage") or {}
-        input_tokens = _int(usage.get("input"))
-        cached = _int(usage.get("cacheRead"))
-        fresh_input += input_tokens
-        cache_read += cached
-        output += _int(usage.get("output"))
-        missing_usage = missing_usage or not bool(usage)
+        usage = _usage_details(generation)
+        for source, target in (("input", "freshInput"), ("cacheRead", "cacheRead"), ("output", "output")):
+            value = _usage_count(usage, source)
+            if value is None:
+                token_available[target] = False
+                missing_usage = True
+            else:
+                token_totals[target] += value
         nominal = _number(generation.get("calculatedTotalCost") or generation.get("totalPrice"))
         cost += nominal
         billing_class = _generation_billing_class(generation, billing_classes or {})
@@ -751,7 +806,10 @@ def _features(
         "toolErrors": tool_errors,
         "turns": turns,
         "latencySeconds": sum(_number(trace.get("latency")) for trace in traces),
-        "tokens": {"freshInput": fresh_input, "cacheRead": cache_read, "output": output},
+        "tokens": {
+            key: value if token_available[key] or not generations else None
+            for key, value in token_totals.items()
+        },
         "cost": round(cost, 10),
         "costAccounting": {
             "schemaVersion": 1,
@@ -779,6 +837,7 @@ def _features(
         "toolErrorSignals": _tool_error_signals(observations),
         "errorTaxonomy": _error_taxonomy(observations),
         "childTraceHealth": child_trace_health,
+        "projections": _projection_records(observations),
         "captureGaps": capture_gaps,
     }
 
@@ -957,6 +1016,7 @@ def _cohort_health(
     session_limit_reached = eligible_available > len(sessions)
     lower_bound = (
         not discovery_complete
+        or trace_discovery.get("sessionClassificationComplete", True) is not True
         or session_limit_reached
         or capture_gaps["trace-limit"] > 0
         or capture_gaps["observation-limit"] > 0
@@ -2068,25 +2128,129 @@ def _is_current_review(scores: list[dict[str, Any]]) -> bool:
     )
 
 
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _iso_utc(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def _settled_window(
+    since: str,
+    until: str,
+    observed_at: str | datetime | None = None,
+) -> tuple[str, str, dict[str, Any]]:
+    lower = _parse_utc(since)
+    requested = _parse_utc(until)
+    observed = _parse_utc(observed_at) if isinstance(observed_at, str) else observed_at or datetime.now(timezone.utc)
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=timezone.utc)
+    observed = observed.astimezone(timezone.utc)
+    watermark = min(requested, observed - timedelta(seconds=SETTLEMENT_LAG_SECONDS))
+    if lower >= watermark:
+        raise ValueError("scan has no settled time window")
+    read_until = min(observed, watermark + timedelta(seconds=SETTLEMENT_LAG_SECONDS))
+    watermark_text = _iso_utc(watermark)
+    read_until_text = _iso_utc(read_until)
+    return watermark_text, read_until_text, {
+        "schemaVersion": 1,
+        "requestedUntil": _iso_utc(requested),
+        "watermark": watermark_text,
+        "readUntil": read_until_text,
+        "lagSeconds": SETTLEMENT_LAG_SECONDS,
+        "activeWindowExcluded": watermark < requested,
+    }
+
+
+def _trace_is_settled(trace: dict[str, Any], watermark: str) -> bool:
+    timestamp = trace.get("timestamp")
+    if not isinstance(timestamp, str):
+        return True
+    try:
+        return _parse_utc(timestamp) <= _parse_utc(watermark)
+    except ValueError:
+        return True
+
+
 def _review_eligibility(
     client: Any,
     *,
     since: str,
     until: str,
+    cohort_until: str,
     max_traces: int,
     recheck: bool = False,
-) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, list[dict[str, Any]]], dict[str, bool], dict[str, bool]]:
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, Any]],
+    dict[str, list[dict[str, Any]]],
+    dict[str, bool],
+    dict[str, bool],
+    dict[str, list[dict[str, Any]]],
+    set[str],
+    dict[str, Any],
+]:
     discovery = client.list_traces_with_metadata(
         from_timestamp=since,
         to_timestamp=until,
         max_traces=max_traces,
     )
     traces = discovery["traces"]
-    groups: dict[str, list[dict[str, Any]]] = {}
+    all_groups: dict[str, list[dict[str, Any]]] = {}
     for trace in traces:
         session_id = trace.get("sessionId")
-        if isinstance(session_id, str) and session_id:
-            groups.setdefault(session_id, []).append(trace)
+        if isinstance(session_id, str) and session_id and _trace_is_settled(trace, cohort_until):
+            all_groups.setdefault(session_id, []).append(trace)
+    for session_traces in all_groups.values():
+        session_traces.sort(
+            key=lambda trace: (str(trace.get("timestamp") or ""), str(trace.get("id") or "")),
+            reverse=True,
+        )
+
+    observation_cache: dict[str, list[dict[str, Any]]] = {}
+    observation_limits: set[str] = set()
+    unclassified_projection_traces: set[str] = set()
+    child_session_ids: set[str] = set()
+    for trace in traces:
+        if trace.get("name") != "subagent-result":
+            continue
+        trace_id = trace.get("id")
+        parent_session_id = trace.get("sessionId")
+        if not isinstance(trace_id, str) or not trace_id:
+            continue
+        rows = client.list_observations(
+            from_start_time=since,
+            to_start_time=until,
+            trace_id=trace_id,
+            limit=OBSERVATIONS_PER_TRACE + 1,
+        )
+        if len(rows) > OBSERVATIONS_PER_TRACE:
+            observation_limits.add(trace_id)
+        observation_cache[trace_id] = rows[:OBSERVATIONS_PER_TRACE]
+        declarations = [
+            observation
+            for observation in observation_cache[trace_id]
+            if observation.get("name") == "subagent-result"
+        ]
+        if not declarations:
+            unclassified_projection_traces.add(trace_id)
+        for observation in declarations:
+            metadata = observation.get("metadata") if isinstance(observation.get("metadata"), dict) else {}
+            mode = metadata.get("effectiveMode")
+            declared = metadata.get("childTraceAvailability")
+            child_id = metadata.get("childSessionId")
+            valid_child = isinstance(child_id, str) and 0 < len(child_id) <= 200 and child_id != parent_session_id
+            if mode == "agentic" and declared == "expected-available" and valid_child:
+                child_session_ids.add(child_id)
+            elif mode != "one-shot" or declared != "expected-unavailable":
+                unclassified_projection_traces.add(trace_id)
+
+    excluded = child_session_ids.intersection(all_groups)
+    groups = {session_id: items for session_id, items in all_groups.items() if session_id not in excluded}
     review_cache: dict[str, bool] = {}
     review_scores_truncated: dict[str, bool] = {}
     for session_id in groups:
@@ -2099,7 +2263,26 @@ def _review_eligibility(
         )
         review_scores_truncated[session_id] = len(scores) > SCORES_PER_QUERY
         review_cache[session_id] = _is_current_review(scores[:SCORES_PER_QUERY])
-    return discovery, traces, groups, review_cache, review_scores_truncated
+    classification = {
+        "rootSessions": len(groups),
+        "childSessionsExcluded": len(excluded),
+        "unclassifiedProjectionTraces": len(unclassified_projection_traces),
+        "complete": (
+            discovery.get("complete") is True
+            and not observation_limits
+            and not unclassified_projection_traces
+        ),
+    }
+    return (
+        discovery,
+        traces,
+        groups,
+        review_cache,
+        review_scores_truncated,
+        observation_cache,
+        observation_limits,
+        classification,
+    )
 
 
 def eligible_unreviewed_session_summary(
@@ -2108,11 +2291,14 @@ def eligible_unreviewed_session_summary(
     since: str,
     until: str,
     max_traces: int = DEFAULT_MAX_TRACES,
+    observed_at: str | datetime | None = None,
 ) -> dict[str, Any]:
-    discovery, _traces, groups, review_cache, truncated = _review_eligibility(
+    settled_until, read_until, settlement = _settled_window(since, until, observed_at)
+    discovery, _traces, groups, review_cache, truncated, _cache, limits, classification = _review_eligibility(
         client,
         since=since,
-        until=until,
+        until=read_until,
+        cohort_until=settled_until,
         max_traces=max_traces,
     )
     eligible = sum(not review_cache[session_id] for session_id in groups)
@@ -2122,8 +2308,13 @@ def eligible_unreviewed_session_summary(
         "candidateSessions": len(groups),
         "eligibleSessions": eligible,
         "reviewedSessionsSkipped": len(groups) - eligible,
+        "childSessionsExcluded": classification["childSessionsExcluded"],
+        "unclassifiedProjectionTraces": classification["unclassifiedProjectionTraces"],
+        "sessionClassificationComplete": classification["complete"],
+        "settlementLagSeconds": settlement["lagSeconds"],
+        "activeWindowExcluded": settlement["activeWindowExcluded"],
         "traceDiscoveryComplete": discovery.get("complete") is True,
-        "lowerBound": discovery.get("complete") is not True or any(truncated.values()),
+        "lowerBound": not classification["complete"] or bool(limits) or any(truncated.values()),
     }
 
 
@@ -2140,6 +2331,7 @@ def scan_sessions(
     recheck: bool = False,
     dry_run: bool = False,
     beads_runner: Any = None,
+    observed_at: str | datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if limit < 1:
         raise ValueError("scan limit must be positive")
@@ -2148,20 +2340,38 @@ def scan_sessions(
     if _inside(output_dir, repository_root):
         raise ValueError("improvement directory must be outside repository")
 
-    discovery, traces, groups, review_cache, review_scores_truncated = _review_eligibility(
+    settled_until, read_until, settlement = _settled_window(since, until, observed_at)
+    (
+        discovery,
+        traces,
+        groups,
+        review_cache,
+        review_scores_truncated,
+        observation_cache,
+        prefetch_observation_limits,
+        classification,
+    ) = _review_eligibility(
         client,
         since=since,
-        until=until,
+        until=read_until,
+        cohort_until=settled_until,
         max_traces=max_traces,
         recheck=recheck,
     )
-    attributable = sum(len(items) for items in groups.values())
+    attributable = sum(
+        isinstance(trace.get("sessionId"), str) and bool(trace.get("sessionId"))
+        for trace in traces
+    )
     trace_discovery = {
         "totalAvailable": discovery.get("totalAvailable"),
         "scanned": len(traces),
         "maxTraces": max_traces,
         "attributable": attributable,
         "unattributed": len(traces) - attributable,
+        "rootSessions": classification["rootSessions"],
+        "childSessionsExcluded": classification["childSessionsExcluded"],
+        "unclassifiedProjectionTraces": classification["unclassifiedProjectionTraces"],
+        "sessionClassificationComplete": classification["complete"],
         "complete": discovery["complete"],
         "continuation": discovery["continuation"],
     }
@@ -2170,7 +2380,11 @@ def scan_sessions(
         session_id = trace.get("sessionId")
         if trace.get("name") == "pi-agent" and isinstance(session_id, str) and session_id:
             child_trace_roots.setdefault(session_id, []).append(trace)
-    eligible_groups = [(session_id, items) for session_id, items in groups.items() if not review_cache[session_id]]
+    eligible_groups = sorted(
+        ((session_id, items) for session_id, items in groups.items() if not review_cache[session_id]),
+        key=lambda item: (str(item[1][0].get("timestamp") or ""), item[0]),
+        reverse=True,
+    )
     billing_classes = _cohort_billing_classes(repository_root)
 
     sessions = []
@@ -2181,18 +2395,23 @@ def scan_sessions(
         observations_truncated = False
         scores_truncated = review_scores_truncated[session_id]
         for trace in selected_traces:
-            rows = client.list_observations(
-                from_start_time=since,
-                to_start_time=until,
-                trace_id=str(trace["id"]),
-                limit=OBSERVATIONS_PER_TRACE + 1,
-            )
-            observations_truncated = observations_truncated or len(rows) > OBSERVATIONS_PER_TRACE
+            trace_id = str(trace["id"])
+            if trace_id in observation_cache:
+                rows = observation_cache[trace_id]
+                observations_truncated = observations_truncated or trace_id in prefetch_observation_limits
+            else:
+                rows = client.list_observations(
+                    from_start_time=since,
+                    to_start_time=read_until,
+                    trace_id=trace_id,
+                    limit=OBSERVATIONS_PER_TRACE + 1,
+                )
+                observations_truncated = observations_truncated or len(rows) > OBSERVATIONS_PER_TRACE
             observations.extend(rows[:OBSERVATIONS_PER_TRACE])
             rows = client.list_scores(
                 from_timestamp=since,
-                to_timestamp=until,
-                trace_id=str(trace["id"]),
+                to_timestamp=read_until,
+                trace_id=trace_id,
                 limit=SCORES_PER_QUERY + 1,
             )
             scores_truncated = scores_truncated or len(rows) > SCORES_PER_QUERY
@@ -2200,14 +2419,14 @@ def scan_sessions(
         score_since = _session_score_since(session_id, since)
         link_score_rows = client.list_scores(
             from_timestamp=score_since,
-            to_timestamp=until,
+            to_timestamp=read_until,
             session_id=session_id,
             name=WORK_LINK_SCORE,
             limit=SCORES_PER_QUERY + 1,
         )
         outcome_score_rows = client.list_scores(
             from_timestamp=score_since,
-            to_timestamp=until,
+            to_timestamp=read_until,
             session_id=session_id,
             name=OUTCOME_SCORE,
             limit=SCORES_PER_QUERY + 1,
@@ -2231,7 +2450,7 @@ def scan_sessions(
             child_trace_roots=child_trace_roots,
             trace_discovery_complete=trace_discovery["complete"] is True,
             trace_discovery_since=since,
-            trace_discovery_until=until,
+            trace_discovery_until=settled_until,
             billing_classes=billing_classes,
         )
         if outcome_mismatch:
@@ -2263,14 +2482,15 @@ def scan_sessions(
         state_dir=output_dir,
         beads_runner=beads_runner,
     )
-    report_id = _hash({"since": since, "until": until, "sessions": [item["sessionId"] for item in sessions]})[:16]
+    report_id = _hash({"since": since, "until": settled_until, "sessions": [item["sessionId"] for item in sessions]})[:16]
     packet = {
         "schemaVersion": 2,
         "reportId": report_id,
-        "createdAt": until,
+        "createdAt": settled_until,
         "scan": {
             "since": since,
-            "until": until,
+            "until": settled_until,
+            "settlement": settlement,
             "limit": limit,
             "recheck": recheck,
             "reviewPolicyVersion": REVIEW_POLICY_VERSION,
@@ -2285,6 +2505,10 @@ def scan_sessions(
         "status": "ok",
         "scannedTraces": len(traces),
         "traceDiscovery": trace_discovery,
+        "settlement": {
+            "lagSeconds": settlement["lagSeconds"],
+            "activeWindowExcluded": settlement["activeWindowExcluded"],
+        },
         "cohortHealth": cohort_health,
         "monitoring": monitoring_summary,
         "candidateSessions": len(groups),
@@ -2295,7 +2519,7 @@ def scan_sessions(
         "reportPath": None,
     }
     if not dry_run:
-        summary["reportPath"] = str(_write_packet(output_dir, packet))
+        _write_packet(output_dir, packet)
     return summary, packet
 
 
@@ -2398,6 +2622,7 @@ def cmd_improve(argv: list[str]) -> int:
     sub = parser.add_subparsers(dest="action")
     scan = sub.add_parser("scan", help="write a bounded private review packet")
     scan.add_argument("--since", type=_timestamp)
+    scan.add_argument("--until", type=_timestamp)
     scan.add_argument("--limit", type=_scan_limit, default=20)
     scan.add_argument("--max-traces", type=_max_traces, default=DEFAULT_MAX_TRACES)
     scan.add_argument("--recheck", action="store_true")
@@ -2527,7 +2752,7 @@ def cmd_improve(argv: list[str]) -> int:
         return 0
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    until = now.isoformat().replace("+00:00", "Z")
+    until = args.until or now.isoformat().replace("+00:00", "Z")
     since = args.since or (now - timedelta(days=7)).isoformat().replace("+00:00", "Z")
     try:
         summary, _ = scan_sessions(
@@ -2542,6 +2767,7 @@ def cmd_improve(argv: list[str]) -> int:
             recheck=args.recheck,
             dry_run=args.dry_run,
             beads_runner=_beads,
+            observed_at=now,
         )
     except (LangfuseError, OSError, ValueError):
         if args.json:
@@ -2552,7 +2778,7 @@ def cmd_improve(argv: list[str]) -> int:
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
-        print(f"Eligible sessions: {summary['eligibleSessions']}; report: {summary['reportPath'] or 'not written'}")
+        print(f"Eligible sessions: {summary['eligibleSessions']}; report written: {summary['reportWritten']}")
     return 0
 
 
