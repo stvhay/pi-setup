@@ -198,9 +198,9 @@ A new or unclassified failure blocks edits. An unchanged baseline failure may pr
 
 During implementation, run focused tests for changed behavior and repaired findings. Do not rerun the complete baseline merely to rediscover a recorded failure.
 
-### Final candidate gate
+### Stable candidate boundary and final candidate gate
 
-At closeout, run every required complete release command once after tracked changes stabilize. Any tracked candidate change invalidates that gate and requires a new complete run.
+At closeout, load `verification-before-completion`. After focused checks pass, apply its stable candidate boundary: refresh stale focused evidence, stage every task-owned path state, inspect cached and untracked scope, and run diff/format checks. Then run every required complete release command once. Any candidate change after that gate invalidates it and requires a new complete run.
 
 ## Step 9: Preauthorized cleanup
 
@@ -222,6 +222,7 @@ After verified integration, use the shared completion contract's deletion previe
 ### Baseline verification
 - Baseline once: `<command>` → PASS/FAIL/NOT_VERIFIED
 - Focused repair plan: `<commands or NOT_VERIFIED>`
+- Stable candidate boundary: `<staged scope and pre-gate checks or NOT_VERIFIED>`
 - Final candidate gate: `<commands reserved for stable candidate>`
 - Unchanged baseline failures: `<none or exact signatures>`
 

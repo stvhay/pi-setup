@@ -716,6 +716,43 @@ def test_workflow_skills_share_baseline_repair_final_gate_contract():
     assert "If release verdict is not PASS, do not claim release readiness" in verification
 
 
+def test_workflow_skills_stabilize_candidate_before_complete_gate():
+    verification = (AGENT / "skills" / "verification-before-completion" / "SKILL.md").read_text(encoding="utf-8")
+    finishing = (AGENT / "skills" / "finishing-a-development-branch" / "SKILL.md").read_text(encoding="utf-8")
+    executing = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
+    worktrees = (AGENT / "skills" / "using-git-worktrees" / "SKILL.md").read_text(encoding="utf-8")
+    scenario = (
+        ROOT
+        / ".pi"
+        / "skill-evals"
+        / "verification-before-completion"
+        / "scenarios"
+        / "stable-candidate-boundary.md"
+    ).read_text(encoding="utf-8")
+
+    assert verification.index("### Baseline once") < verification.index("### Focused repair")
+    assert verification.index("### Focused repair") < verification.index("### Stable candidate boundary")
+    assert verification.index("### Stable candidate boundary") < verification.index("### Final candidate gate")
+    boundary = verification.split("### Stable candidate boundary", 1)[1].split("### Final candidate gate", 1)[0]
+    assert "expected output, eval assertion" in boundary
+    assert "Stage every task-owned addition, modification, rename, and deletion" in boundary
+    for command in (
+        "git status --short --untracked-files=all",
+        "git diff --cached --name-status --find-renames",
+        "git diff --check",
+        "git diff --cached --check",
+        "git ls-files --others --exclude-standard",
+    ):
+        assert command in boundary
+    assert "No task-owned path may remain unstaged or untracked" in verification
+    assert "Unrelated untracked files remain excluded and untouched" in verification
+    assert "Any candidate change after this gate invalidates it" in verification
+    for skill in (finishing, executing, worktrees):
+        assert "stable candidate boundary" in skill.lower()
+    assert "Nominal stable candidate runs one complete gate" in scenario
+    assert "Post-gate task-owned mutation invalidates gate" in scenario
+
+
 def test_action_templates_reference_existing_architecture(common):
     task_ids = {path.stem for path in (AGENT / "tasks").glob("*.md")}
     skill_ids = {path.parent.name for path in (AGENT / "skills").glob("*/SKILL.md")}

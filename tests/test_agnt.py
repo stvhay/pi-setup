@@ -566,10 +566,19 @@ def test_verification_phases_eval_preserves_final_gate_and_baseline_truth():
         "FINAL_GATE_FAILURE: UNCHANGED_BASELINE",
         "TASK_REGRESSION: PASS",
         "RELEASE_VERDICT: NOT_VERIFIED",
+        "STALE_FOCUSED_EVAL: RERUN",
+        "TASK_PATHS: STAGE_ALL",
+        "CACHED_BOUNDARY: INSPECT",
+        "UNTRACKED_BOUNDARY: INSPECT",
+        "DIFF_FORMAT: RUN_BEFORE_GATE",
+        "NOMINAL_COMPLETE_GATES: 1",
+        "POST_GATE_MUTATION: INVALIDATE_AND_RERUN",
     ]
     assert spec["assert"]["contains"] == expected
     assert all(answer not in prompt for answer in expected)
     assert "same command, test identity, and failure signature" in prompt
+    assert "stale because its expected assertion changed" in prompt
+    assert "tracked deletion plus an untracked addition" in prompt
     assert "Do not weaken or skip the required final gate" in prompt
 
 

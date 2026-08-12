@@ -76,7 +76,8 @@ Inspect relevant files and nearest `SPEC.md`. Stop if observed code conflicts wi
 
 - **Baseline once:** establish or inherit one relevant work-item/worktree matrix before edits; record exact failures.
 - **Focused repair:** use the smallest runnable proof during implementation and after fixes. Do not repeat an unchanged broad baseline.
-- **Final candidate gate:** after all plan tasks stabilize, run every required full release command once; rerun only when the tracked candidate changes.
+- **Stable candidate boundary:** after focused checks pass, refresh stale focused evidence, stage every task-owned path state, inspect cached and untracked scope, and run diff/format checks.
+- **Final candidate gate:** only after the stable candidate boundary passes, run every required full release command once; rerun only when the candidate changes.
 
 An unchanged baseline failure is not a task regression, but it cannot turn a red required release gate into PASS.
 
@@ -142,11 +143,12 @@ After all tasks:
 
 1. Re-read plan acceptance criteria.
 2. Confirm focused repair evidence for every changed behavior.
-3. Run the complete final candidate gate once.
-4. Compare any failure to the recorded baseline command, test identity, and signature.
-5. Check documentation impact.
-6. Run `git diff --check`, `git diff --stat`, and `git status --short`.
-7. Mark each criterion PASS, FAIL, or NOT_VERIFIED with evidence.
+3. Apply `verification-before-completion`'s stable candidate boundary: stage all task-owned path states, inspect cached and untracked scope, and run diff/format checks.
+4. Run the complete final candidate gate once.
+5. Compare any failure to the recorded baseline command, test identity, and signature.
+6. Check documentation impact.
+7. Recheck status and cached diff; any candidate change invalidates the gate.
+8. Mark each criterion PASS, FAIL, or NOT_VERIFIED with evidence.
 
 No completion claim without fresh evidence.
 

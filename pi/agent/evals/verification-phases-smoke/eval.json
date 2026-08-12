@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "verification-phases-smoke",
-  "summary": "Verify baseline-once, focused-repair, and final-gate decisions without hiding pre-existing failures.",
+  "summary": "Verify baseline, stable-candidate, focused-repair, and final-gate decisions without hiding failures or rerunning complete gates early.",
   "kind": "invoke",
   "task": "review",
   "defaultModels": ["openai-codex/gpt-5.6-luna"],
@@ -17,12 +17,26 @@
       "FINAL_GATE: RUN_ONCE",
       "FINAL_GATE_FAILURE: UNCHANGED_BASELINE",
       "TASK_REGRESSION: PASS",
-      "RELEASE_VERDICT: NOT_VERIFIED"
+      "RELEASE_VERDICT: NOT_VERIFIED",
+      "STALE_FOCUSED_EVAL: RERUN",
+      "TASK_PATHS: STAGE_ALL",
+      "CACHED_BOUNDARY: INSPECT",
+      "UNTRACKED_BOUNDARY: INSPECT",
+      "DIFF_FORMAT: RUN_BEFORE_GATE",
+      "NOMINAL_COMPLETE_GATES: 1",
+      "POST_GATE_MUTATION: INVALIDATE_AND_RERUN"
     ],
     "notContains": [
       "BROAD_REPAIR_RERUN: RUN",
       "FINAL_GATE: SKIP",
-      "RELEASE_VERDICT: PASS"
+      "RELEASE_VERDICT: PASS",
+      "STALE_FOCUSED_EVAL: KEEP",
+      "TASK_PATHS: LEAVE_UNSTAGED",
+      "CACHED_BOUNDARY: SKIP",
+      "UNTRACKED_BOUNDARY: SKIP",
+      "DIFF_FORMAT: RUN_AFTER_GATE",
+      "NOMINAL_COMPLETE_GATES: 2",
+      "POST_GATE_MUTATION: KEEP_GATE"
     ]
   }
 }

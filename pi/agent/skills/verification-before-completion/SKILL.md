@@ -31,9 +31,28 @@ At work-item or worktree start, run the documented relevant matrix once and reco
 
 After a test, review, simplification, or documentation fix, run the smallest executable check that proves the repaired behavior and affected neighbors. A failed focused check permits one focused repair and rerun. Widen checks only when the change widens or evidence points outside the original surface.
 
+### Stable candidate boundary
+
+After focused repairs pass and before the complete gate:
+
+1. Refresh stale focused evidence. If proved code, fixture, expected output, eval assertion, or configuration changed after its focused check passed, rerun that check.
+2. Stage every task-owned addition, modification, rename, and deletion with explicit pathspecs under the development completion contract. Never stage unrelated paths.
+3. Inspect both cached and untracked boundaries:
+
+   ```bash
+   git status --short --untracked-files=all
+   git diff --cached --name-status --find-renames
+   git diff --cached
+   git diff
+   git ls-files --others --exclude-standard
+   ```
+
+4. Confirm the cached diff is the intended candidate. No task-owned path may remain unstaged or untracked. Unrelated untracked files remain excluded and untouched.
+5. Preserve both working-tree and cached validation: run `git diff --check`, `git diff --cached --check`, and every project-required formatting or static diff check. If any check rewrites the candidate, stage the result, refresh affected focused evidence, and repeat this boundary before the complete gate.
+
 ### Final candidate gate
 
-When tracked task changes are stable, run every required full release command once. A tracked final-candidate change invalidates the final gate and requires one new complete gate for that new candidate. Do not substitute focused checks for this gate.
+Only after the stable candidate boundary passes, run every required full release command once. Any candidate change after this gate invalidates it and requires one new complete gate for the new candidate. Do not substitute focused checks for this gate.
 
 ### Unchanged baseline failures
 
@@ -46,10 +65,11 @@ Before claiming success:
 1. **Identify phase and proof** — baseline, focused repair, or final candidate gate; find commands that prove that phase's claim.
    - Check `CONTRIBUTING.md`, `README.md`, `package.json`, `pyproject.toml`, `Makefile`, CI config.
    - Use `rg -n "test|lint|typecheck|quality|verify|ci" README.md CONTRIBUTING.md docs package.json pyproject.toml Makefile .github 2>/dev/null || true`.
-2. **Run fresh** — execute the selected command with `bash`; use the complete required matrix for the final candidate gate.
-3. **Read output** — check exit code, failures, warnings, skipped tests, and baseline signatures.
-4. **Compare to claim** — separate task regressions from unchanged baseline failures; state actual status and gaps.
-5. **Only then claim** — include phase, command, and result in the response.
+2. **Stabilize when final** — apply the stable candidate boundary before the final candidate gate.
+3. **Run fresh** — execute the selected command with `bash`; use the complete required matrix for the final candidate gate.
+4. **Read output** — check exit code, failures, warnings, skipped tests, and baseline signatures.
+5. **Compare to claim** — separate task regressions from unchanged baseline failures; state actual status and gaps.
+6. **Only then claim** — include phase, command, and result in the response.
 
 ## Common proof commands
 
@@ -68,12 +88,13 @@ make test
 
 ## Diff and requirement check
 
-Fresh verification also includes checking what changed:
+Fresh verification also includes checking what changed. For a final candidate, perform these checks before the complete gate through the stable candidate boundary; afterward, confirm the candidate did not change:
 
 ```bash
-git status --short
-git diff --stat
+git status --short --untracked-files=all
+git diff --cached --stat
 git diff --check
+git diff --cached --check
 ```
 
 Then map changes to requirements/plan:

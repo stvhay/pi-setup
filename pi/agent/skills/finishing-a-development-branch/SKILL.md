@@ -46,7 +46,7 @@ Reuse or establish one relevant baseline before optional closeout phases. Do not
 3. **Optionally simplify**
 4. **Validate documentation**
 5. **Request code review**
-6. **Run focused repair checks and inspect scope**
+6. **Run focused repair checks and establish the stable candidate boundary**
 7. **Run the final candidate gate once**
 8. **Prepare PR/merge or local project summary**
 9. **Run substantial-wrap-up extraction when triggered**
@@ -128,13 +128,13 @@ Review status can be:
 
 Verify serious review findings against the code before treating them as blockers.
 
-## Step 6: Run focused repair checks and inspect scope
+## Step 6: Run focused repair checks and establish the stable candidate boundary
 
-After any simplification, review, or documentation fix, run the smallest executable checks proving the repaired behavior and affected neighbors. Do not rerun the broad matrix unless the change widens to that scope. Then inspect scope coherence:
+After any simplification, review, or documentation fix, run the smallest executable checks proving the repaired behavior and affected neighbors. Do not rerun the broad matrix unless the change widens to that scope. Then apply `verification-before-completion`'s stable candidate boundary: refresh stale focused evidence, stage every task-owned path state, inspect cached and untracked scope, and run diff/format checks before the complete gate. Inspect scope coherence:
 
 ```bash
-git diff --stat
-git status --short
+git diff --cached --stat
+git status --short --untracked-files=all
 find . -name '__pycache__' -o -name '*.pyc' -o -name '.DS_Store' -o -name '*.log'
 ```
 
@@ -149,7 +149,7 @@ Do not delete untracked artifacts, runtime data, or backups without separate app
 
 ## Step 7: Run the final candidate gate once
 
-After all tracked candidate changes stabilize, run every required release command once. Compare failures to recorded baseline evidence. A tracked change after this gate creates a new final candidate and requires a new complete gate. If any required gate remains red, report `NOT_VERIFIED` even when the task-specific regression status is PASS.
+After the stable candidate boundary passes, run every required release command once. Compare failures to recorded baseline evidence. Any candidate change after this gate creates a new final candidate and requires a new complete gate. If any required gate remains red, report `NOT_VERIFIED` even when the task-specific regression status is PASS.
 
 ## Step 8: Prepare PR / project summary
 
