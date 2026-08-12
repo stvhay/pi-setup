@@ -27,6 +27,7 @@ from .improvement import (
     link_current_session,
 )
 from .maintenance import maintenance_create_beads, maintenance_due_report
+from .integration import integrate_local_commit
 from .worktree_policy import worktree_snapshot_for_bead
 
 
@@ -1066,6 +1067,11 @@ def cmd_work(argv: List[str]) -> int:
     direct_closeout_cmd = sub.add_parser("direct-closeout", help="close a directly worked bead and commit its portable state")
     direct_closeout_cmd.add_argument("bead_id")
     direct_closeout_cmd.add_argument("--reason", required=True)
+    integrate_cmd = sub.add_parser("integrate", help="serialize and verify one preapproved local merge")
+    integrate_cmd.add_argument("--target-branch", required=True)
+    integrate_cmd.add_argument("--expected-head", required=True)
+    integrate_cmd.add_argument("--source-sha", required=True)
+    integrate_cmd.add_argument("--timeout-seconds", type=float, default=30)
     handoff_check_cmd = sub.add_parser("handoff-check", help="validate closeout and target readiness before fresh-session handoff")
     handoff_check_cmd.add_argument("bead_id")
     handoff_check_cmd.add_argument("--session-id", required=True)
@@ -1147,6 +1153,21 @@ def cmd_work(argv: List[str]) -> int:
         result = direct_closeout(args.bead_id, reason=args.reason)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "closed" else 3 if result["status"] == "partial" else 2
+    if args.command == "integrate":
+        try:
+            result = integrate_local_commit(
+                Path.cwd(),
+                target_branch=args.target_branch,
+                expected_head=args.expected_head,
+                source_sha=args.source_sha,
+                timeout_seconds=args.timeout_seconds,
+            )
+        except KeyboardInterrupt:
+            result = {"schemaVersion": 1, "status": "cancelled"}
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if result["status"] in {"integrated", "already-integrated"}:
+            return 0
+        return 2 if result["status"] in {"invalid-request", "integration-unavailable"} else 3
     if args.command == "handoff-check":
         result = handoff_check(args.bead_id, session_id=args.session_id)
         print(json.dumps(result, indent=2, sort_keys=True))

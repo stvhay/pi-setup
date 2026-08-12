@@ -47,9 +47,10 @@ Use its report to separate environment failure from task failure. `agnt doctor` 
 - Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 - Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees, post-integration removal, and staged deletion of tracked/config-controlled assets. Before cleanup or deletion, show exact paths/branches and commit-SHA recovery sources. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs, remote deletion, force/reset/clean, or history rewrite.
+- Initial implementation approval may preauthorize one exact local integration through `agnt work integrate` when it names target checkout/branch, expected target HEAD, and source commit SHA. The helper serializes the target, rechecks scope under lock, aborts conflicts, and stops on divergence; any alternate integration strategy requires explicit approval.
 - Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.
 
-Outside that exact initial scope, branch/worktree deletion requires explicit approval. Do not push, merge, force/reset/clean, delete branches or beads, rewrite history, change Beads remotes/history, or install hooks without explicit approval. Remote deletion and history rewrite remain explicitly gated.
+Outside that exact initial scope, branch/worktree deletion and local merge require explicit approval. Do not push, merge outside the guarded integration above, force/reset/clean, delete branches or beads, rewrite history, change Beads remotes/history, or install hooks without explicit approval. Remote deletion and history rewrite remain explicitly gated.
 
 # Human questions and approvals
 

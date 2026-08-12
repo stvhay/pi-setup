@@ -143,8 +143,8 @@ task/risk/budget, JSON with explicit reasons and rejected candidates),
 `review` (validate/summarize structured findings), `metrics`
 (status/annotate/consolidate), `eval`
 (filesystem-defined deterministic evals), `instructions`, `prompt`, `action`,
-`runs`, `work`, `approvals`, `gateway`, `web-search`/`web-fetch`, and
-`plans-dir`.
+`runs`, `work` (including guarded local integration), `approvals`, `gateway`,
+`web-search`/`web-fetch`, and `plans-dir`.
 
 Design constraint: `agnt` is a front controller, not the home for subsystem
 logic. Command implementations live under `pi/agent/bin/agnt_lib/` (`routing`,
@@ -159,9 +159,24 @@ Concern seams are explicit: `agnt_lib` owns deterministic domain logic; the
 lifecycle, UI, session, and provider integration; typed tools are thin
 agent-facing adapters. Metadata validation lives in `orchestration.py`, approval
 flow in `approvals.py`, ticket operations in `gateway.py`, worktree policy in
-`worktree_policy.py`, health checks in `health.py`, and maintenance cadence in
+`worktree_policy.py`, target-ref integration semaphore and merge transaction in
+`integration.py`, health checks in `health.py`, and maintenance cadence in
 `maintenance.py`. Long-lived Pi process automation and scheduling live outside
 this repository.
+
+Local integration uses POSIX `fcntl.flock` under Git's common directory, keyed
+by opaque target-ref identity. This serializes preflight, one merge, conflict
+abort, and post-merge verification across linked worktrees. Kernel ownership
+ends on descriptor close or process death; persistent owner metadata is advisory
+stale-recovery evidence and contains no paths, refs, arguments, or content.
+`git worktree lock` cannot provide this transaction because it protects a
+worktree from administrative prune/move/remove, not commands executed inside it.
+Git's own index/ref lockfiles cover individual writes rather than the complete
+integration invariant. Helper Git calls clear ambient `GIT_*` overrides, pin
+approved worktree, disable hooks/fsmonitor/signing/signature enforcement, and
+reject command-bearing custom merge/filter/branch-options config. Timeout,
+cancellation, conflict, divergence, dirty state, unsafe config, or uncertain
+recovery stops without a daemon or destructive reset.
 
 ### Inspectable work backbone
 
@@ -243,9 +258,11 @@ Layered gates, none overridable by overlays or `SOUL.md` (communication style
 only): a Bead before every code-changing task, approval before implementation in
 design workflows, fresh shell evidence before completion claims, read-only-by-
 default peer work, and the suspicious-phrase scan on composed instructions.
-Exact initial scope may include reversible local Git setup/cleanup and tracked
-asset deletion previews; push, merge, remote deletion/ref mutation,
-force/reset/clean, and history rewrite remain separately gated. When
+Exact initial scope may include reversible local Git setup/cleanup, tracked
+asset deletion previews, and one local integration bound to target
+checkout/branch, expected target HEAD, and source commit SHA through the guarded
+semaphore. Push, alternate merge/integration strategies, remote deletion/ref
+mutation, force/reset/clean, and history rewrite remain separately gated. When
 orchestration is explicitly selected, Beads-backed human decisions, recorded
 worker sessions, one worktree per epic, and run health/closeout checks add
 stricter optional gates.

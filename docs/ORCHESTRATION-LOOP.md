@@ -31,7 +31,7 @@ Do not add a background daemon, scheduler, service protocol, or TUI lifecycle ma
 - Direct work stays lightweight while retaining the Bead requirement.
 - Strict dispatch can preserve policy, approvals, worker sessions, evidence, and closeout state in inspectable artifacts.
 - This repository avoids owning long-lived process, retry, scheduling, lease, and recovery state.
-- Exact initial scope may preauthorize reversible local branch/worktree setup, verified post-integration cleanup, task-owned commits, and tracked/config-controlled deletion previews. Push, merge, remote deletion/ref mutation, force/reset/clean, deployments, hook installs, Beads deletion/remote changes, and Git/Dolt history rewrites still require separate explicit approval.
+- Exact initial scope may preauthorize reversible local branch/worktree setup, one guarded local integration bound to target checkout/branch plus expected target HEAD/source SHA, verified post-integration cleanup, task-owned commits, and tracked/config-controlled deletion previews. The local merge must use `agnt work integrate` and stops on conflict or divergence. Push, alternate integration strategies, remote deletion/ref mutation, force/reset/clean, deployments, hook installs, Beads deletion/remote changes, and Git/Dolt history rewrites still require separate explicit approval.
 
 ## Canonical details
 

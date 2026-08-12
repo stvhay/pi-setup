@@ -20,7 +20,8 @@ At start, read shared conventions if needed:
 - Do not create worktrees from a dirty or ambiguous base unless the user approves the exact base.
 - An initial approved scope may name the exact base, branch, path, and task ownership for reversible local creation. When it does, create that worktree without another approval after deterministic checks pass.
 - That same initial approved scope may cover post-integration removal without another approval only for the exact path and local branch after capturing the recovery SHA, proving integration, confirming no active owner, and finding no tracked or untracked changes.
-- Push, merge, remote-ref mutation/deletion, force/reset/clean, and history rewrite remain separately gated. Unknown ownership, runtime data, backups, or failed checks stop cleanup.
+- Initial approved scope may also name one exact local integration through `agnt work integrate`, binding target checkout/branch, expected target HEAD, and source commit SHA. Any other merge or integration strategy remains separately gated.
+- Push, remote-ref mutation/deletion, force/reset/clean, and history rewrite remain separately gated. Unknown ownership, runtime data, backups, or failed checks stop cleanup or integration.
 - Prefer project-local `.worktrees/` and ensure it is ignored by git.
 - Use worktrees for implementation isolation; read-only advisory peers do not require a separate worktree.
 

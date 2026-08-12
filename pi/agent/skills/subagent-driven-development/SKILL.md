@@ -84,7 +84,7 @@ Before any parallel run, explicitly check whether tasks share mutable resources 
 
 If tasks share mutable external state, do not parallelize them unless each worker gets an isolated test environment or the user approves a specific coordination plan.
 
-Do not push, merge, reset, clean, or commit in the orchestrator branch without explicit approval. Remove worktrees or delete local task branches without another approval only when the initial approved scope names exact cleanup and the shared completion contract proves ownership, clean tracked/untracked state, integration, and recovery SHA.
+Do not push, reset, clean, or commit in the orchestrator branch without explicit approval. Merge only through `agnt work integrate` when initial approved scope names exact target checkout/branch, expected target HEAD, and source commit SHA; any other merge or integration strategy needs explicit approval. Remove worktrees or delete local task branches without another approval only when the initial approved scope names exact cleanup and the shared completion contract proves ownership, clean tracked/untracked state, integration, and recovery SHA.
 
 ## Step 1: Load plan or problem statement
 
@@ -274,14 +274,16 @@ If cleanup is unsafe because of uncommitted or untracked work, ambiguous ownersh
 
 ### 5. Integrate one branch at a time
 
-Integration is an orchestrator action. Before each integration:
+Integration is an orchestrator action. Before each integration, inspect exact source and target:
 
 ```bash
 git status --short
 git diff --stat <base>..parallel/<topic>/task-N
+git rev-parse HEAD
+git rev-parse parallel/<topic>/task-N^{commit}
 ```
 
-Use merge or cherry-pick only with explicit user approval if the workflow has not already approved integration. After each integration, run focused verification. After all integrations, run full verification and use `finishing-a-development-branch`.
+When initial approved scope binds target checkout/branch, expected target HEAD, and source commit SHA, run that merge only through `agnt work integrate`; its common-directory semaphore serializes the shared target and rechecks those values under lock. Conflict, timeout, cancellation, divergence, dirty state, or failed verification stops; do not try cherry-pick, rebase, reset, clean, or another strategy under the original approval. Otherwise obtain explicit integration approval. After each successful integration, run focused verification. After all integrations, run full verification and use `finishing-a-development-branch`.
 
 ## When to choose serial execution instead
 

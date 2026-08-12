@@ -69,7 +69,7 @@ Only audit if the project has opted into generated release automation.
 ## Branch/PR safety
 
 ### SAFE-1: Bounded reversible local Git authority
-- **Check:** project docs permit exact initially approved local branch/worktree creation and verified post-integration cleanup, but stop on ambiguous ownership, unrelated or untracked data, missing recovery proof, remote deletion, force, or history rewrite; push, merge, and branch protection remain separately gated
+- **Check:** project docs permit exact initially approved local branch/worktree creation, one guarded local integration bound to target checkout/branch plus expected target HEAD/source SHA, and verified post-integration cleanup; they stop on ambiguity, unrelated or untracked data, conflict/divergence, missing recovery proof, remote deletion, force, or history rewrite; push, alternate merge strategies, and branch protection remain separately gated
 - **Severity:** DRIFT
 
 ### SAFE-2: Verification commands documented

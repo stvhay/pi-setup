@@ -83,9 +83,19 @@ git diff --cached --name-only --diff-filter=D --no-renames -z |
 )
 ```
 
+- Initial implementation approval may preauthorize one exact local integration when it names target checkout/branch, expected target HEAD, and source commit SHA. Run only the guarded helper from that target checkout:
+
+```bash
+agnt work integrate \
+  --target-branch "$target_branch" \
+  --expected-head "$expected_head" \
+  --source-sha "$source_sha"
+```
+
+- The helper takes a target-ref-scoped OS lock shared through Git's common directory, clears ambient `GIT_*` overrides, pins the approved worktree, disables hooks/signing/fsmonitor/signature enforcement, rejects command-bearing custom merge/filter/branch-options config, then rechecks branch, exact HEAD/source, and clean status before one local merge. Timeout, cancellation, target divergence, source mismatch, unsafe config, or dirty state stops without mutation. Conflict runs only `git merge --abort` and verifies exact clean baseline restoration; failed recovery stops. Do not attempt another merge, cherry-pick, rebase, reset, clean, or alternate integration strategy under the original approval.
 - After verification, commit task-owned changes. Do not close the Bead or claim completion while task-owned changes remain uncommitted unless committing is explicitly prohibited or blocked; record that blocker and resumption path instead.
 - For direct work, record `agnt improve outcome <id> <outcome>`, then run `agnt work direct-closeout <id> --reason "<reason>"`. This second local commit records shared portable Beads state separately: explicit export, target closeout parity, and all legitimate `.beads/issues.jsonl` rows. It refuses tracked non-Beads changes and never stages or commits them.
-- Outside exact preauthorized cleanup, branch/worktree deletion requires explicit approval. Push, merge, deploy, remote deletion, history rewrite, Beads deletion/remote/history changes, hooks, and force/reset/clean remain explicitly gated; direct closeout never pushes.
+- Outside exact preauthorized setup, integration, and cleanup, branch/worktree deletion and local merge require explicit approval. Push, merge, deploy, remote deletion, history rewrite, Beads deletion/remote/history changes, hooks, and force/reset/clean remain explicitly gated; the sole inherited merge authority is the exact guarded local integration above, and direct closeout never pushes.
 
 ## Plan directory
 

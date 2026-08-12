@@ -237,6 +237,39 @@ def test_initial_scope_covers_reversible_local_git_and_tracked_deletions():
         assert "without another approval" in text
 
 
+def test_preapproved_local_integration_uses_guarded_semaphore():
+    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
+    subagents = (AGENT / "skills" / "subagent-driven-development" / "SKILL.md").read_text(encoding="utf-8")
+    command_reference = (AGENT / "bin" / "README.md").read_text(encoding="utf-8")
+    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    integration = (AGENT / "bin" / "agnt_lib" / "integration.py").read_text(encoding="utf-8")
+
+    authority = "Initial implementation approval may preauthorize one exact local integration"
+    for text in (global_instructions, project_instructions, common):
+        assert authority in text
+        assert "agnt work integrate" in text
+        assert "expected target HEAD" in text
+        assert "source commit SHA" in text
+
+    assert "--target-branch" in common
+    assert "--expected-head" in common
+    assert "--source-sha" in common
+    assert "conflict" in common.lower() and "merge --abort" in common
+    assert "alternate integration strategy" in common
+    assert "one branch at a time" in subagents.lower()
+    assert "agnt work integrate" in subagents
+    assert "agnt work integrate" in command_reference
+    assert "target-ref-scoped" in command_reference
+    assert "process death" in command_reference
+    assert "integration semaphore" in architecture.lower()
+    assert "fcntl.flock" in architecture
+    assert "fcntl.flock" in integration
+    assert '"merge", "--no-edit", "--no-verify"' in integration
+    assert '"merge", "--abort"' in integration
+
+
 def test_approved_implementation_defaults_through_local_commit():
     global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")

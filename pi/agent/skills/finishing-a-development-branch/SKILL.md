@@ -17,7 +17,7 @@ At start, read shared conventions if needed:
 
 ## Safety gates
 
-Do not push, create a PR, merge, force-clean files, or create persistent artifacts unless the user explicitly asks/approves that action. Delete a local task branch or remove its worktree without another approval only when initial approved scope names the exact path/branch cleanup and shared completion checks prove task ownership, clean tracked/untracked state, integration, inactive ownership, and recovery SHA.
+Do not push, create a PR, force-clean files, or create persistent artifacts unless the user explicitly asks/approves that action. Merge without another approval only through `agnt work integrate` when initial approved scope binds exact target checkout/branch, expected target HEAD, and source commit SHA; any alternate integration strategy needs approval. Delete a local task branch or remove its worktree without another approval only when initial approved scope names the exact path/branch cleanup and shared completion checks prove task ownership, clean tracked/untracked state, integration, inactive ownership, and recovery SHA.
 
 Default behavior: verify, validate, optionally review, prepare a PR body, and present next-step commands/options. If the user says not to edit/create files, do not create `.pi/reviews`, `.pi/pr-body.md`, or other artifacts; keep outputs in the response or use temporary files under `/tmp` only when necessary.
 
