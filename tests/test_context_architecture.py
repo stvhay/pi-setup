@@ -270,6 +270,41 @@ def test_preapproved_local_integration_uses_guarded_semaphore():
     assert '"merge", "--abort"' in integration
 
 
+def test_initial_scope_covers_known_nonproduction_deployments_only():
+    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
+    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
+    system = (ROOT / "docs" / "AGNT-SYSTEM.md").read_text(encoding="utf-8")
+    loop = (ROOT / "docs" / "ORCHESTRATION-LOOP.md").read_text(encoding="utf-8")
+
+    authority = "Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments"
+    for text in (global_instructions, project_instructions, template_instructions, common):
+        assert authority in text
+        assert "production" in text
+        assert "unknown" in text
+
+    for field in ("Action", "Scope", "Consequences", "Reversibility", "Closeout"):
+        assert f"**{field}:**" in common
+    assert "Bead ID" in common
+    assert "exact preview command/options" in common
+    assert "approved expected-effect bounds" in common
+    assert "canonical environment identifier" in common
+    assert "resolved absolute destination" in common
+    assert "host, account, and user identity" in common
+    assert "post-symlink resolution" in common
+    assert "dry-run or equivalent preview" in common
+    assert "post-deploy verification" in common
+    assert "rollback" in common
+    assert "rejection, cancellation, or timeout" in common.lower()
+    assert "fails closed" in common
+    assert "no deadline that permits automatic deployment" in common
+    assert "single-use" in common
+    assert "Bead closes" in common
+    assert "production and unknown targets require a new explicit approval" in system.lower()
+    assert "production and unknown targets require separate explicit approval" in loop.lower()
+
+
 def test_approved_implementation_defaults_through_local_commit():
     global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -285,7 +320,7 @@ def test_approved_implementation_defaults_through_local_commit():
     assert "Do not close the Bead or claim completion while task-owned changes remain uncommitted" in common
     assert "agnt work direct-closeout" in common
     assert "shared portable Beads state" in common
-    assert "Push, merge, deploy" in common and "explicit approval" in common
+    assert "Push, alternate merge strategies" in common and "explicit approval" in common
 
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
     assert "implementation_commits_task_owned_changes" in workflow_eval

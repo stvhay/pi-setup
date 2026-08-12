@@ -10,8 +10,9 @@
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 - Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees, post-integration removal, and staged deletion of tracked/config-controlled assets. Before cleanup or deletion, show exact paths/branches and commit-SHA recovery sources. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs, remote deletion, force/reset/clean, or history rewrite.
 - Initial implementation approval may preauthorize one exact local integration through `agnt work integrate` when it names target checkout/branch, expected target HEAD, and source commit SHA. The helper serializes the target, rechecks scope under lock, aborts conflicts, and stops on divergence; any alternate integration strategy requires explicit approval.
+- Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments as one single-use action when it binds the Bead, source-selection rule, resolved target identity, exact preview and effect bounds, verification, rollback, and stop conditions. Production, unknown/mismatched targets, secrets changes, destructive rollback, and scope/preview changes require new explicit approval; rejection, cancellation, or timeout fails closed.
 - Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.
-- Outside that exact initial scope, branch/worktree deletion and local merge require explicit approval. Do not push, merge outside the guarded integration above, force/reset/clean, delete beads, change Beads remotes, rewrite Beads/Dolt history, or install Beads hooks without explicit approval. Remote deletion and history rewrite remain explicitly gated.
+- Outside that exact initial scope, branch/worktree deletion, local merge, and deployment require explicit approval. Do not push, merge outside the guarded integration above, deploy outside the verified non-production boundary above, force/reset/clean, delete beads, change Beads remotes, rewrite Beads/Dolt history, or install Beads hooks without explicit approval. Remote deletion and history rewrite remain explicitly gated.
 
 ## Repository and deployment policy
 
@@ -24,7 +25,7 @@ When changing Pi config:
 
 1. Edit files under tracked `pi/`.
 2. Verify with the project checks.
-3. Deploy to `~/.pi` only when requested or needed for verification, using `scripts/update-pi-config.sh`.
+3. Deploy to verified local-live `~/.pi` only when the initial approved scope names that exact deployment or later approval does, using `scripts/update-pi-config.sh`; dry-run and verify first, retain rollback evidence, and stop if canonical source/destination identity differs.
 4. Never commit runtime secrets, sessions, caches, onboarding state, trust state, or API keys.
 
 Track `flake.lock` for reproducible Nix/direnv environments.

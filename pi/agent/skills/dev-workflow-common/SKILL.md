@@ -93,9 +93,26 @@ agnt work integrate \
 ```
 
 - The helper takes a target-ref-scoped OS lock shared through Git's common directory, clears ambient `GIT_*` overrides, pins the approved worktree, disables hooks/signing/fsmonitor/signature enforcement, rejects command-bearing custom merge/filter/branch-options config, then rechecks branch, exact HEAD/source, and clean status before one local merge. Timeout, cancellation, target divergence, source mismatch, unsafe config, or dirty state stops without mutation. Conflict runs only `git merge --abort` and verifies exact clean baseline restoration; failed recovery stops. Do not attempt another merge, cherry-pick, rebase, reset, clean, or alternate integration strategy under the original approval.
+
+## Deployment approval contract
+
+Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments. Approval must contain:
+
+- **Action:** Bead ID, exact deployment command, source-selection rule restricted to that Bead's task-owned verified candidate commit/artifact, exact preview command/options, and approved expected-effect bounds.
+- **Scope:** canonical environment identifier, class (`local-live`, `test`, or `staging`), resolved absolute destination, host, account, and user identity plus project/cluster/region/namespace as applicable, managed writes/deletions, and exclusions.
+- **Consequences:** runtime/users affected and downstream operations triggered.
+- **Reversibility:** known-good revision/artifact, preserved state or backup, exact rollback command, limits, and rollback verification. Destructive rollback is outside this authority.
+- **Closeout:** required prechecks, dry-run or equivalent preview, post-deploy verification/health check, evidence location, and stop conditions.
+
+Before mutation, independently read target identity from deployment tooling and compare every approved identity field. Local-live Pi config means canonical tracked `pi/` source to the approved resolved absolute destination after post-symlink resolution, on the approved host/account/user, without `PI_CONFIG_DEST_UNSAFE_OK`; a `$HOME/.pi` expression alone is mutable-only and insufficient. Test/staging must be explicitly classified in tracked project policy and have a stable unique identity. Production labels/signals override lower-risk labels. Missing, conflicting, mutable-only, or mismatched identity is unknown and fails closed.
+
+Resolve the approved source-selection rule to one immutable candidate revision/artifact belonging only to the named Bead. Run documented repository checks and the exact preview command/options; capture dry-run or equivalent preview including managed deletions, then prove every effect is within approved expected-effect bounds. After deployment, run named health/smoke checks and compare desired revision/artifact with observed state. Retain preview, identity, verification, and rollback evidence. Failure, drift, broader deletion, unavailable rollback, secrets change, or changed Bead/command/source/destination stops; do not retry mutation or improvise rollback under original authority.
+
+Production and unknown targets require a new explicit approval with elevated stakes; never batch them with local-live/test/staging. Deployment authority is single-use for one named environment and is consumed by the first mutation attempt; it expires unused when the Bead closes or approved scope changes. Rejection, cancellation, or timeout leaves deployment blocked. There is no deadline that permits automatic deployment and no proceed-by-default behavior; any modified or expired scope requires a new preview and approval.
+
 - After verification, commit task-owned changes. Do not close the Bead or claim completion while task-owned changes remain uncommitted unless committing is explicitly prohibited or blocked; record that blocker and resumption path instead.
 - For direct work, record `agnt improve outcome <id> <outcome>`, then run `agnt work direct-closeout <id> --reason "<reason>"`. This second local commit records shared portable Beads state separately: explicit export, target closeout parity, and all legitimate `.beads/issues.jsonl` rows. It refuses tracked non-Beads changes and never stages or commits them.
-- Outside exact preauthorized setup, integration, and cleanup, branch/worktree deletion and local merge require explicit approval. Push, merge, deploy, remote deletion, history rewrite, Beads deletion/remote/history changes, hooks, and force/reset/clean remain explicitly gated; the sole inherited merge authority is the exact guarded local integration above, and direct closeout never pushes.
+- Outside exact preauthorized setup, integration, cleanup, and verified non-production deployment, branch/worktree deletion, local merge, and deployment require explicit approval. Push, alternate merge strategies, production/unknown deployment, remote deletion, history rewrite, Beads deletion/remote/history changes, hooks, and force/reset/clean remain explicitly gated; direct closeout never pushes.
 
 ## Plan directory
 
