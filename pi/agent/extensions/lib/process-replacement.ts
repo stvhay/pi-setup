@@ -45,15 +45,18 @@ export function requestProcessReplacement(
   if (replacementPending) throw new Error(`${failureLabel} process replacement is already pending`);
   replacementPending = true;
 
-  const reportFailure = (label: string, message: string): void => {
-    console.error(`${label}: ${redactOutputText(message).slice(0, 1000)}`);
+  const reportFailure = (label: string, message: string, hint = ""): void => {
+    const safeHint = redactOutputText(hint).slice(0, 1000);
+    const safeMessage = redactOutputText(message).slice(0, 1000 - safeHint.length);
+    console.error(`${label}: ${safeMessage}${safeHint}`);
   };
   const replaceOnExit = (code: number): void => {
     replacementPending = false;
     if (code !== 0) {
       reportFailure(
         `${failureLabel} cancelled`,
-        `shutdown exited with code ${code}.${onNonzeroExit?.(code) ?? failureHint}`,
+        `shutdown exited with code ${code}.`,
+        onNonzeroExit?.(code) ?? failureHint,
       );
       return;
     }
@@ -62,7 +65,7 @@ export function requestProcessReplacement(
     } catch (error) {
       process.exitCode = 1;
       const message = error instanceof Error ? error.message : String(error);
-      reportFailure(`${failureLabel} failed`, `${message}${failureHint}`);
+      reportFailure(`${failureLabel} failed`, message, failureHint);
     }
   };
 

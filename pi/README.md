@@ -58,7 +58,11 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 `/reload` refreshes settings, extensions, skills, prompts, themes, and context files inside the current process. It does not load a new Node runtime.
 
-`/restart` and agent-callable `restart_pi` share one graceful process-replacement path that resumes same persisted session by its exact file path, avoiding session-ID lookup after replacement. Only one process replacement may be pending; duplicate requests fail before adding another exit listener. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
+`/restart` and agent-callable `restart_pi` share one graceful process-replacement path that resumes same persisted session by its exact file path, avoiding session-ID lookup after replacement. With no command they restart directly. `/restart <shell command>` or `restart_pi.command` runs command from Pi session cwd before resuming after status 0, nonzero, or child-only SIGINT-style status; this command capability is equivalent to `bash` for authorization and approval. Shell output inherits terminal directly and has same disclosure boundary as `bash`. Explicit whitespace-only commands and NUL are rejected, as are sessions whose exact recovery command exceeds the 1,000-character diagnostic bound. Only one process replacement may be pending; duplicate requests fail before adding another exit listener.
+
+`/nvim` and agent-callable `nvim` use same path to open Nvim in foreground, then resume exact persisted session after exit. They accept zero paths or one relative path; slash-command spaces belong to path. Paths are trimmed and normalized, receive `--` before path, and reject absolute paths, NUL/newlines, or lexical traversal outside session cwd. Validation is lexical rather than symlink sandboxing, and missing paths remain valid so Nvim can create files.
+
+Both flows require interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown. Relay or terminal termination cannot guarantee automatic resume; diagnostics retain exact session-file recovery guidance.
 
 ### Beads work in the footer
 
