@@ -1,3 +1,6 @@
+# MacOS
+.DS_Store
+
 # Local worktrees and environment state
 .worktrees/
 .envrc.local.d/
@@ -11,6 +14,9 @@ __pycache__/
 
 # Generated knowledge-graph artifacts
 graphify-out/
+
+# ignored reference docs
+references/
 
 # Local Claude/Pi scratch state
 .claude/
