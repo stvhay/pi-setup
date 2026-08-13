@@ -7,7 +7,8 @@ type RestartContext = Pick<ExtensionContext, "mode" | "sessionManager" | "shutdo
 function restartPi(ctx: RestartContext): void {
   if (ctx.mode !== "tui") throw new Error("/restart requires interactive TUI mode");
   const replacement = requireProcessReplacement("/restart");
-  if (!ctx.sessionManager.getSessionFile()) {
+  const sessionFile = ctx.sessionManager.getSessionFile();
+  if (!sessionFile) {
     throw new Error("/restart requires a persisted session; restart Pi without --no-session");
   }
 
@@ -18,7 +19,7 @@ function restartPi(ctx: RestartContext): void {
       "--session-dir",
       ctx.sessionManager.getSessionDir(),
       "--session",
-      ctx.sessionManager.getSessionId(),
+      sessionFile,
     ],
     () => ctx.shutdown(),
     "Pi restart",

@@ -58,7 +58,7 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 `/reload` refreshes settings, extensions, skills, prompts, themes, and context files inside the current process. It does not load a new Node runtime.
 
-`/restart` and agent-callable `restart_pi` share one graceful process-replacement path that resumes same persisted session. Only one process replacement may be pending; duplicate requests fail before adding another exit listener. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
+`/restart` and agent-callable `restart_pi` share one graceful process-replacement path that resumes same persisted session by its exact file path, avoiding session-ID lookup after replacement. Only one process replacement may be pending; duplicate requests fail before adding another exit listener. Restart requires interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown.
 
 ### Beads work in the footer
 

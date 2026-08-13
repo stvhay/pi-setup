@@ -107,7 +107,7 @@ def test_restart_rejects_second_pending_replacement_and_resets_after_nonzero_exi
     run_node(script)
 
 
-def test_restart_orders_graceful_shutdown_before_exact_same_session_exec():
+def test_restart_orders_graceful_shutdown_before_exact_session_file_exec():
     assert EXTENSION.exists(), "tracked process restart extension is required"
     script = loader_prelude() + """
       for (const sessionDir of [
@@ -159,7 +159,7 @@ def test_restart_orders_graceful_shutdown_before_exact_same_session_exec():
             "--session-dir",
             sessionDir,
             "--session",
-            "session-uuid",
+            `${sessionDir}/session.jsonl`,
           ]);
           assert.equal(execCall.env, process.env);
         } finally {
