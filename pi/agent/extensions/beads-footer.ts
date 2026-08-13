@@ -42,11 +42,12 @@ function workStatus(result: Record<string, unknown>): WorkStatus | undefined {
 
 function statusText(state: WorkStatus, ctx: ExtensionContext): string | undefined {
   if (state.items.length === 0) return undefined;
+  const idWidth = Math.max(...state.items.map((item) => item.id.length));
   return state.items.map((item) => {
-    const text = `${item.id} P${item.priority} ${item.title}`;
+    const text = `◐ ${item.id.padEnd(idWidth)}  P${item.priority}  ${item.title}`;
     return item.id === state.activeBeadId
-      ? ctx.ui.theme.fg("accent", ctx.ui.theme.bold(text))
-      : text;
+      ? ctx.ui.theme.fg("mdHeading", ctx.ui.theme.bold(text))
+      : ctx.ui.theme.fg("syntaxString", text);
   }).join("\n");
 }
 

@@ -1,13 +1,16 @@
 diff --git a/src/index.ts b/src/index.ts
-index ee1200a..b4286ee 100644
+index ee1200a..6b474f0 100644
 --- a/src/index.ts
 +++ b/src/index.ts
 @@ -17,0 +18,2 @@ import { footerIcons } from "./utils/icons.js";
 +const INLINE_STATUS_KEYS = new Set(["caveman", "ponytail"]);
 +
-@@ -70,0 +73,15 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -70,0 +73,19 @@ export function registerFooter(pi: ExtensionAPI): void {
 +            const separator = theme.fg("dim", " · ");
-+            const sanitizeStatus = (text: string) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
++            const sanitizeStatus = (text: string, collapseSpaces = true) => {
++              const oneLine = text.replace(/[\r\n\t]/g, " ");
++              return (collapseSpaces ? oneLine.replace(/ +/g, " ") : oneLine).trim();
++            };
 +            const extensionStatuses = Array.from(footerData.getExtensionStatuses().entries())
 +              .sort(([a], [b]) => a.localeCompare(b));
 +            const compactStatusStr = extensionStatuses
@@ -17,33 +20,36 @@ index ee1200a..b4286ee 100644
 +              .join(separator);
 +            const extensionLines = extensionStatuses
 +              .filter(([key]) => !INLINE_STATUS_KEYS.has(key))
-+              .flatMap(([key, text]) => key === "beads-work" ? text.split(/\r?\n/) : [text])
-+              .map((text) => sanitizeStatus(text))
++              .flatMap(([key, text]) => key === "beads-work"
++                ? text.split(/\r?\n/).map((line) => sanitizeStatus(line, false))
++                : [sanitizeStatus(text)])
 +              .filter(Boolean)
 +              .map((text) => truncateToWidth(text, width, theme.fg("dim", "...")));
-@@ -87 +103,0 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -87 +107,0 @@ export function registerFooter(pi: ExtensionAPI): void {
 -            const separator = theme.fg("dim", " · ");
-@@ -112,0 +129,9 @@ export function registerFooter(pi: ExtensionAPI): void {
-+            const showCompactStatusesInline = Boolean(compactStatusStr) && !shouldSplit
-+              && visibleWidth(leftSectionStr) + visibleWidth(compactStatusStr) + visibleWidth(statsSectionStr)
+@@ -112,0 +133,11 @@ export function registerFooter(pi: ExtensionAPI): void {
++            const compactStatusesFit = shouldSplit
++              ? visibleWidth(leftSectionStr) + visibleWidth(compactStatusStr) + visibleWidth(separator) <= width
++              : visibleWidth(leftSectionStr) + visibleWidth(compactStatusStr) + visibleWidth(statsSectionStr)
 +                + 2 * visibleWidth(separator) + 13 <= width;
++            const showCompactStatusesInline = Boolean(compactStatusStr) && compactStatusesFit;
 +            const displayedLeftSectionStr = showCompactStatusesInline
 +              ? leftSectionStr + separator + compactStatusStr
 +              : leftSectionStr;
 +            const statusLines = compactStatusStr && !showCompactStatusesInline
 +              ? [truncateToWidth(compactStatusStr, width, theme.fg("dim", "...")), ...extensionLines]
 +              : extensionLines;
-@@ -131 +156 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -131 +162 @@ export function registerFooter(pi: ExtensionAPI): void {
 -                return [clampLine(leftSectionStr, width)];
 +                return [clampLine(displayedLeftSectionStr, width), ...statusLines];
-@@ -135 +160 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -135 +166 @@ export function registerFooter(pi: ExtensionAPI): void {
 -                clampLine(leftSectionStr, width),
 +                clampLine(displayedLeftSectionStr, width),
-@@ -136,0 +162 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -136,0 +168 @@ export function registerFooter(pi: ExtensionAPI): void {
 +                ...statusLines,
-@@ -148 +174 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -148 +180 @@ export function registerFooter(pi: ExtensionAPI): void {
 -              width - visibleWidth(leftSectionStr) - 1 - visibleWidth(sectionSeparator) - visibleWidth(statsSectionStr) - 10,
 +              width - visibleWidth(displayedLeftSectionStr) - 1 - visibleWidth(sectionSeparator) - visibleWidth(statsSectionStr) - 10,
-@@ -160 +186 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -160 +192 @@ export function registerFooter(pi: ExtensionAPI): void {
 -            return [clampLine(leftSectionStr + sectionSeparator + rightSectionStr, width)];
 +            return [clampLine(displayedLeftSectionStr + sectionSeparator + rightSectionStr, width), ...statusLines];

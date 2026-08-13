@@ -85,16 +85,16 @@ def status(items: list[dict], active: str | None = None) -> dict:
 def test_session_start_lists_multiple_issues_and_highlights_active(tmp_path):
     items = [
         {"id": "pi-a.1", "priority": 1, "title": "First"},
-        {"id": "pi-b.1", "priority": 2, "title": "Second"},
+        {"id": "pi-long.1", "priority": 2, "title": "Second"},
     ]
     agent_dir, response, exit_path, args_path = fake_agent_dir(
-        tmp_path, status(items, "pi-b.1")
+        tmp_path, status(items, "pi-long.1")
     )
     script = extension_prelude(tmp_path) + """
       await handlers.get("session_start")({ reason: "startup" }, ctx);
       assert.deepEqual(statuses, [[
         "beads-work",
-        "pi-a.1 P1 First\\n[accent:<b>pi-b.1 P2 Second</b>]",
+        "[syntaxString:◐ pi-a.1     P1  First]\\n[mdHeading:<b>◐ pi-long.1  P2  Second</b>]",
       ]]);
     """
 
@@ -107,12 +107,12 @@ def test_session_start_lists_multiple_issues_and_highlights_active(tmp_path):
 def test_absent_active_link_renders_plain_and_empty_state_clears(tmp_path):
     items = [
         {"id": "pi-a.1", "priority": 1, "title": "First"},
-        {"id": "pi-b.1", "priority": 2, "title": "Second"},
+        {"id": "pi-long.1", "priority": 2, "title": "Second"},
     ]
     agent_dir, response, exit_path, args_path = fake_agent_dir(tmp_path, status(items))
     script = extension_prelude(tmp_path) + f"""
       await handlers.get("session_start")({{ reason: "startup" }}, ctx);
-      assert.deepEqual(statuses.at(-1), ["beads-work", "pi-a.1 P1 First\\npi-b.1 P2 Second"]);
+      assert.deepEqual(statuses.at(-1), ["beads-work", "[syntaxString:◐ pi-a.1     P1  First]\\n[syntaxString:◐ pi-long.1  P2  Second]"]);
       writeFileSync({str(response)!r}, {json.dumps(status([]))!r});
       await handlers.get("tool_execution_end")({{ toolName: "ticket_gateway" }}, ctx);
       assert.deepEqual(statuses.at(-1), ["beads-work", undefined]);
@@ -147,7 +147,7 @@ def test_reload_and_work_mutating_tools_refresh_but_read_does_not(tmp_path):
       await handlers.get("tool_execution_end")({ toolName: "ticket_question" }, ctx);
       await handlers.get("session_start")({ reason: "reload" }, ctx);
       assert.equal(statuses.length, 4);
-      assert.ok(statuses.every(([key, value]) => key === "beads-work" && value === "pi-a.1 P1 First"));
+      assert.ok(statuses.every(([key, value]) => key === "beads-work" && value === "[syntaxString:◐ pi-a.1  P1  First]"));
     """
 
     run_node(script, extension_env(agent_dir, response, exit_path, args_path))
