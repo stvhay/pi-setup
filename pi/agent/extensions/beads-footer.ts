@@ -47,7 +47,7 @@ function statusText(state: WorkStatus, ctx: ExtensionContext): string | undefine
     return item.id === state.activeBeadId
       ? ctx.ui.theme.fg("accent", ctx.ui.theme.bold(text))
       : text;
-  }).join(" · ");
+  }).join("\n");
 }
 
 export default function beadsFooter(pi: ExtensionAPI): void {

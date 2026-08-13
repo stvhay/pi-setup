@@ -94,7 +94,7 @@ def test_session_start_lists_multiple_issues_and_highlights_active(tmp_path):
       await handlers.get("session_start")({ reason: "startup" }, ctx);
       assert.deepEqual(statuses, [[
         "beads-work",
-        "pi-a.1 P1 First · [accent:<b>pi-b.1 P2 Second</b>]",
+        "pi-a.1 P1 First\\n[accent:<b>pi-b.1 P2 Second</b>]",
       ]]);
     """
 
@@ -112,7 +112,7 @@ def test_absent_active_link_renders_plain_and_empty_state_clears(tmp_path):
     agent_dir, response, exit_path, args_path = fake_agent_dir(tmp_path, status(items))
     script = extension_prelude(tmp_path) + f"""
       await handlers.get("session_start")({{ reason: "startup" }}, ctx);
-      assert.deepEqual(statuses.at(-1), ["beads-work", "pi-a.1 P1 First · pi-b.1 P2 Second"]);
+      assert.deepEqual(statuses.at(-1), ["beads-work", "pi-a.1 P1 First\\npi-b.1 P2 Second"]);
       writeFileSync({str(response)!r}, {json.dumps(status([]))!r});
       await handlers.get("tool_execution_end")({{ toolName: "ticket_gateway" }}, ctx);
       assert.deepEqual(statuses.at(-1), ["beads-work", undefined]);
