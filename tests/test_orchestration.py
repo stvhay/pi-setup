@@ -67,7 +67,7 @@ def test_valid_approved_implement_metadata_is_dispatchable(agnt):
     ]
 
 
-def test_implement_continuation_checkpoint_metadata_is_normalized(agnt):
+def test_legacy_checkpoint_continuation_metadata_is_ignored(agnt):
     metadata = valid_implement_metadata()
     metadata["pi"]["continuation"] = {
         "mode": "checkpoint",
@@ -78,7 +78,7 @@ def test_implement_continuation_checkpoint_metadata_is_normalized(agnt):
     result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
 
     assert result["dispatchable"] is True
-    assert result["normalized"]["continuation"] == metadata["pi"]["continuation"]
+    assert "continuation" not in result["normalized"]
 
 
 def test_orchestration_reference_metadata_is_normalized(agnt):

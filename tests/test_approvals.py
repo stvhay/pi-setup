@@ -64,7 +64,6 @@ def test_create_approval_request_creates_decision_blocks_target_and_updates_run_
         context="Implementation needs explicit approval before mutating code.",
         options=["approve", "reject"],
         default="reject",
-        requesting_run="approval-run",
         preview=approval_preview(),
         run_bundle=bundle,
         beads_runner=fake,
@@ -110,7 +109,6 @@ def test_create_question_request_records_decision_ref_without_approval_ref(agnt,
         context="Need a durable human preference before proceeding.",
         options=["CLI core", "Pi extension", "Both"],
         default="Both",
-        requesting_run="question-run",
         preview=approval_preview(),
         run_bundle=bundle,
         beads_runner=fake,
@@ -136,7 +134,6 @@ def test_question_selection_mode_is_required_and_validated(agnt):
         "context": "Need a durable human preference before proceeding.",
         "options": ["CLI core", "Pi extension"],
         "default": "CLI core",
-        "requesting_run": None,
         "preview": approval_preview(),
     }
 
@@ -162,9 +159,29 @@ def test_approval_preview_requires_informed_consent_fields(agnt):
             context="Need approval.",
             options=["approve", "reject"],
             default="reject",
-            requesting_run="run-1",
             preview=preview,
         )
+
+
+def test_requesting_run_input_is_removed(agnt):
+    with pytest.raises(TypeError, match="requesting_run"):
+        agnt.approval_request_payload(
+            kind="approval",
+            target_bead="pi-work.1",
+            question="Approve?",
+            context="Need approval.",
+            options=["approve", "reject"],
+            default="reject",
+            requesting_run="obsolete-run",
+            preview=approval_preview(),
+        )
+
+
+def test_approvals_request_help_omits_requesting_run(agnt, capsys):
+    with pytest.raises(SystemExit) as exc:
+        agnt.cmd_approvals(["request", "--help"])
+    assert exc.value.code == 0
+    assert "--requesting-run" not in capsys.readouterr().out
 
 
 def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_path):
@@ -471,6 +488,7 @@ fi
       const tool = loaded.extensions[0].tools.get("ticket_question").definition;
       const resolveTool = loaded.extensions[0].tools.get("ticket_decision_resolve").definition;
       assert(tool.parameters.required.includes("selectionMode"));
+      assert.equal("requestingRun" in tool.parameters.properties, false);
       await assert.rejects(() => resolveTool.execute("unsafe", {{
         decisionBead: "pi-decision.unsafe",
         outcome: "approved",

@@ -92,30 +92,6 @@ def _validate_model_policy(pi_meta: Mapping[str, Any], failures: List[str]) -> D
     return {"mode": mode, "diversity": diversity, "avoidFamilies": list(avoid_families)}
 
 
-def _validate_continuation(pi_meta: Mapping[str, Any], failures: List[str], *, action: str | None) -> Dict[str, str] | None:
-    raw = pi_meta.get("continuation")
-    if raw is None:
-        return None
-    if action != "implement":
-        failures.append("metadata.pi.continuation is allowed only for implement actions")
-        return None
-    if not isinstance(raw, dict):
-        failures.append("metadata.pi.continuation must be an object")
-        return None
-    mode = raw.get("mode")
-    predecessor = raw.get("predecessor")
-    approval_ref = raw.get("approvalRef")
-    if mode != "checkpoint":
-        failures.append("metadata.pi.continuation.mode must be 'checkpoint'")
-    if not isinstance(predecessor, str) or not predecessor:
-        failures.append("metadata.pi.continuation.predecessor must be a non-empty string")
-    if not isinstance(approval_ref, str) or not approval_ref:
-        failures.append("metadata.pi.continuation.approvalRef must be a non-empty string")
-    if mode != "checkpoint" or not isinstance(predecessor, str) or not predecessor or not isinstance(approval_ref, str) or not approval_ref:
-        return None
-    return {"mode": mode, "predecessor": predecessor, "approvalRef": approval_ref}
-
-
 def _validate_closeout(pi_meta: Mapping[str, Any], blockers: List[str], *, required: bool) -> Dict[str, Any]:
     raw = pi_meta.get("closeout")
     if raw is None and not required:
@@ -277,7 +253,6 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
     worktree_policy = pi_meta.get("worktreePolicy")
     write_set = _string_list(pi_meta.get("writeSet"))
     closeout = _validate_closeout(pi_meta, blockers, required=action == "implement")
-    continuation = _validate_continuation(pi_meta, failures, action=action)
 
     if action == "implement":
         if approved is not True:
@@ -323,7 +298,6 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         "worktreePolicy": worktree_policy,
         "writeSet": write_set or [],
         "closeout": closeout,
-        "continuation": continuation,
         "sessionPolicy": session_policy,
         "memoryPolicy": memory_policy,
     }

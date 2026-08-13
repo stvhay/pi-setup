@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -18,6 +19,12 @@ def test_improve_command_is_advertised_and_dispatched(agnt, monkeypatch, capsys)
     monkeypatch.setattr(agnt, "cmd_improve", lambda args: seen.append(args) or 7)
     assert agnt.main(["improve", "scan", "--dry-run"]) == 7
     assert seen == [["scan", "--dry-run"]]
+
+
+def test_route_eval_omits_unused_output_directory():
+    from agnt_lib import evals
+
+    assert list(inspect.signature(evals.run_route_eval).parameters) == ["eval_path", "spec", "dry_run"]
 
 
 def test_invoke_eval_records_metrics_without_nameerror(monkeypatch, tmp_path):

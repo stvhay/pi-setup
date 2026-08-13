@@ -583,7 +583,6 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         approval_refs=[str(item) for item in normalized.get("approvalRefs") or []],
         decision_refs=[str(item) for item in normalized.get("decisionRefs") or []],
         human_approval=normalized.get("humanApproval") if isinstance(normalized.get("humanApproval"), dict) else None,
-        continuation=normalized.get("continuation") if isinstance(normalized.get("continuation"), dict) else None,
         runs_dir=runs_dir,
         id_value=id_value,
     )

@@ -524,6 +524,13 @@ def test_restart_reports_exec_failure_synchronously():
     assert len(result.stderr) < 1200
 
 
+def test_nvim_reuses_restart_shell_quoting():
+    source = NVIM_EXTENSION.read_text(encoding="utf-8")
+
+    assert 'import { restartPi, shellQuote } from "./process-restart.ts";' in source
+    assert "function shellQuote" not in source
+
+
 def test_nvim_slash_and_tool_generate_safe_restart_commands():
     script = loader_prelude(extension_path=NVIM_EXTENSION) + """
       const command = extension.commands.get("nvim");

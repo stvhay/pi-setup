@@ -272,7 +272,6 @@ def task_thinking_level(
 def choose_thinking_level(
     risk: str,
     budget: str,
-    target: str,
     model_info: Dict[str, Any],
     requested: str | None = None,
 ) -> str:
@@ -366,7 +365,7 @@ def score_candidate(
         ],
         "costSortKey": list(cost_key),
         "thinkingLevel": choose_thinking_level(
-            risk, budget, target, info, requested=requested_thinking
+            risk, budget, info, requested=requested_thinking
         ),
         "contextPolicy": context_policy,
         "diversityGroup": diversity_group_for_target(target, info),

@@ -66,7 +66,7 @@ def assert_eval_fields(case_name: str, result: Dict[str, Any], assertions: Dict[
     return failures
 
 
-def run_route_eval(eval_path: Path, spec: Dict[str, Any], out_dir: Path, dry_run: bool) -> Dict[str, Any]:
+def run_route_eval(eval_path: Path, spec: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
     results: List[Dict[str, Any]] = []
     failures: List[str] = []
     for case in spec.get("cases") or []:
@@ -214,7 +214,7 @@ def cmd_eval(argv: List[str]) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         kind = str(spec.get("kind") or "")
         if kind == "route":
-            result = run_route_eval(eval_path, spec, out_dir, args.dry_run)
+            result = run_route_eval(eval_path, spec, args.dry_run)
         elif kind == "instructions":
             result = run_instructions_eval(eval_path, spec, out_dir, args.dry_run)
         elif kind == "invoke":

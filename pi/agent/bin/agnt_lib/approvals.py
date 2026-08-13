@@ -57,7 +57,6 @@ def approval_request_payload(
     context: str,
     options: List[str],
     default: str | None,
-    requesting_run: str | None,
     preview: Dict[str, Any],
     created_at: str | None = None,
 ) -> Dict[str, Any]:
@@ -165,7 +164,6 @@ def create_beads_approval_request(
     context: str,
     options: List[str],
     default: str | None = None,
-    requesting_run: str | None = None,
     preview: Dict[str, Any],
     run_bundle: Path | None = None,
     beads_runner: BeadsRunner = run_beads_json,
@@ -178,7 +176,6 @@ def create_beads_approval_request(
         context=context,
         options=options,
         default=default,
-        requesting_run=requesting_run,
         preview=preview,
     )
     metadata_arg = _json_arg(payload["metadata"])
@@ -413,7 +410,6 @@ def cmd_approvals(argv: List[str]) -> int:
     request.add_argument("--context", required=True)
     request.add_argument("--option", action="append", required=True)
     request.add_argument("--default")
-    request.add_argument("--requesting-run")
     request.add_argument("--run-bundle", type=Path)
     request.add_argument("--preview-action", required=True)
     request.add_argument("--preview-scope", required=True)
@@ -447,7 +443,6 @@ def cmd_approvals(argv: List[str]) -> int:
                 context=args.context,
                 options=args.option,
                 default=args.default,
-                requesting_run=args.requesting_run,
                 preview=_preview_from_args(args),
                 run_bundle=args.run_bundle,
             )

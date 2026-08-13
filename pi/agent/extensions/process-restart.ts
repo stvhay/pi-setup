@@ -19,7 +19,7 @@ fi
 printf 'Command exited with status %d; resuming Pi.\n' "$status" >&2
 exec "$@"`;
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 

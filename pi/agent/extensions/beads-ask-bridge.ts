@@ -26,7 +26,6 @@ const RequestProperties = {
 	context: Type.String({ description: "Decision context sufficient for handoff" }),
 	options: Type.Array(Type.String(), { description: "Available answers/options" }),
 	default: Type.Optional(Type.String({ description: "Requested default option" })),
-	requestingRun: Type.Optional(Type.String({ description: "Run id requesting the decision" })),
 	runBundle: Type.Optional(Type.String({ description: "Path to .pi/runs/<id> bundle to update" })),
 	preview: PreviewSchema,
 };
@@ -56,7 +55,6 @@ interface RequestParams {
 	context: string;
 	options: string[];
 	default?: string;
-	requestingRun?: string;
 	runBundle?: string;
 	preview: {
 		action: string;
@@ -115,7 +113,6 @@ function requestArgs(kind: "question" | "approval", params: RequestParams): stri
 		args.push("--selection-mode", params.selectionMode);
 	}
 	if (params.default) args.push("--default", params.default);
-	if (params.requestingRun) args.push("--requesting-run", params.requestingRun);
 	if (params.runBundle) args.push("--run-bundle", params.runBundle);
 	return args;
 }

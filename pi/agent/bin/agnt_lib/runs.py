@@ -94,7 +94,6 @@ def create_run_bundle(
     approval_refs: List[str] | None = None,
     decision_refs: List[str] | None = None,
     human_approval: Dict[str, Any] | None = None,
-    continuation: Dict[str, Any] | None = None,
     parent_session_id: str | None = None,
     runs_dir: Path | None = None,
     id_value: str | None = None,
@@ -112,11 +111,9 @@ def create_run_bundle(
     handoff_path = artifacts / "handoff.md"
     normalized_input_refs = _deduplicated_refs(input_refs)
     human_decision_ref = human_approval.get("decisionBead") if isinstance(human_approval, dict) else None
-    continuation_approval_ref = continuation.get("approvalRef") if isinstance(continuation, dict) else None
     normalized_approval_refs = _deduplicated_refs(
         approval_refs,
         [human_decision_ref] if isinstance(human_decision_ref, str) else None,
-        [continuation_approval_ref] if isinstance(continuation_approval_ref, str) else None,
     )
     normalized_decision_refs = _deduplicated_refs(decision_refs)
     provenance = {
@@ -129,7 +126,6 @@ def create_run_bundle(
         "approvalRefs": normalized_approval_refs,
         "decisionRefs": normalized_decision_refs,
         "humanApproval": copy.deepcopy(human_approval),
-        "continuation": copy.deepcopy(continuation),
         "requestedWorkerContext": {
             "role": requested_role,
             "skills": list(requested_skills or []),

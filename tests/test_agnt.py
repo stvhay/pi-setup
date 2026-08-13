@@ -93,7 +93,7 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     info = agnt.configured_model_info()
     assert (
         agnt.choose_thinking_level(
-            "high", "balanced", "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"]
+            "high", "balanced", info["openai-codex/gpt-5.6-sol"]
         )
         == "high"
     )
@@ -101,7 +101,6 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
         agnt.choose_thinking_level(
             "medium",
             "balanced",
-            "openai-codex/gpt-5.6-luna",
             info["openai-codex/gpt-5.6-luna"],
         )
         == "medium"
@@ -110,7 +109,6 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
         agnt.choose_thinking_level(
             "medium",
             "balanced",
-            "openrouter/moonshotai/kimi-k3",
             info["openrouter/moonshotai/kimi-k3"],
         )
         == "high"
@@ -2356,11 +2354,6 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
                 "inputRefs": ["pi-predecessor.1", "shared-ref"],
                 "approvalRefs": ["pi-declared-approval.1"],
                 "decisionRefs": ["pi-decision.1"],
-                "continuation": {
-                    "mode": "checkpoint",
-                    "predecessor": "pi-predecessor.1",
-                    "approvalRef": "pi-checkpoint-approval.1",
-                },
                 "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
                 "risk": "high",
                 "budget": "quality",
@@ -2391,17 +2384,13 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
     provenance = invocation["provenance"]
     assert invocation["inputRefs"] == ["pi-predecessor.1", "shared-ref", "cli-plan-ref"]
     assert provenance["inputRefs"] == invocation["inputRefs"]
-    assert provenance["approvalRefs"] == [
-        "pi-declared-approval.1",
-        "pi-human.1",
-        "pi-checkpoint-approval.1",
-    ]
+    assert provenance["approvalRefs"] == ["pi-declared-approval.1", "pi-human.1"]
     assert provenance["decisionRefs"] == ["pi-decision.1"]
     assert provenance["humanApproval"] == {
         "decisionBead": "pi-human.1",
         "resolver": {"kind": "human-ui"},
     }
-    assert provenance["continuation"]["predecessor"] == "pi-predecessor.1"
+    assert "continuation" not in provenance
     assert provenance["requestedWorkerContext"]["role"] == "implementation-worker"
     assert provenance["effectiveWorkerContext"]["role"] == "implementation-worker"
     assert provenance["selectedModel"] == invocation["selectedModel"]

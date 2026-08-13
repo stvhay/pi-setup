@@ -1,13 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 import { Type } from "typebox";
-import { restartPi } from "./process-restart.ts";
+import { restartPi, shellQuote } from "./process-restart.ts";
 
 type NvimContext = Pick<ExtensionContext, "cwd" | "mode" | "sessionManager" | "shutdown">;
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 
 function nvimCommand(input: string | undefined, cwd: string): string {
   if (input === undefined) return "nvim";
