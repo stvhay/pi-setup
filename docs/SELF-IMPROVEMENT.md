@@ -15,7 +15,8 @@ the metrics justify changing:
 - `pi/agent/tasks/*.md` — preferred/qualified/avoid model lists per task
 - `pi/agent/catalog.json` — model families, venues, cost facts
 - `pi/agent/AGENTS.d/models/<family>.md` — per-model prompt overlays
-- `pi/agent/evals/` and `scripts/eval-workflow-compliance.sh` — the gates
+- `pi/agent/evals/` — deterministic gates
+- `scripts/eval-workflow-compliance.sh` — opt-in model-backed behavioral canary
 
 ## The loop
 
@@ -398,14 +399,15 @@ When a model family shows a repeatable behavioral failure:
 2. Add a `contains` assertion for the overlay to
    `pi/agent/evals/role-context-smoke/eval.json` (or a new instructions
    eval) so composition is regression-tested.
-3. Re-run the gates:
+3. Re-run deterministic gates. When this observed prompt failure needs direct
+   behavior evidence beyond routine telemetry, also run the narrow manual canary:
 
    ```bash
    pi/agent/bin/agnt eval run role-context-smoke
    .venv/bin/python -m pytest tests/
-   # behavioral, costs model calls — tracked candidate before deployment:
+   # manual behavioral canary; costs model calls:
    ./scripts/eval-workflow-compliance.sh --skill-mode candidate --case <case>
-   # post-deployment smoke uses live skills explicitly:
+   # optional post-deployment comparison against live skills:
    ./scripts/eval-workflow-compliance.sh --skill-mode deployed --case <case>
    ```
 

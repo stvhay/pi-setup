@@ -174,6 +174,18 @@ def test_workflow_eval_requires_explicit_skill_provenance():
     assert "provenance.txt" in workflow_eval
 
 
+def test_model_backed_workflow_eval_is_an_explicit_canary_not_a_routine_gate():
+    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+    for text in (project_instructions, contributing):
+        normalized = " ".join(text.lower().split())
+        assert "manual behavioral canary" in normalized
+        assert "user requests it" in normalized
+        assert "routine telemetry" in normalized
+        assert "not a routine completion gate" in normalized
+
+
 def test_delegated_packets_are_evidence_complete_and_access_aware():
     review = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
     dispatch = (AGENT / "skills" / "dispatching-parallel-agents" / "SKILL.md").read_text(encoding="utf-8")

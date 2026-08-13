@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Repeatable smoke/eval checks for Pi workflow skills.
-# These are behavioral checks, not unit tests: model outputs vary, so assertions
-# focus on observable filesystem effects and key evidence strings.
+# Opt-in behavioral canary for Pi workflow skills. This runs real models; it is
+# not a unit test or routine completion gate. Use only for a user-requested run
+# or a specific behavior question that routine telemetry cannot answer.
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
@@ -12,13 +12,17 @@ MODEL=${MODEL:-gpt-5.6-luna}
 OUT_ROOT=${OUT_ROOT:-/tmp/pi-workflow-evals}
 RUN_STAMP=$(date +%Y%m%d-%H%M%S)
 RUN_ID=""
-RUN_DIR=""
+RUN_DIR=${WORKFLOW_EVAL_RUN_DIR:-}
 MODE=smoke
-PARALLEL=1
+PARALLEL=4
 SELECTED_CASES=""
-SKILL_MODE=""
-SKILL_ROOT=""
+SKILL_MODE=${WORKFLOW_EVAL_SKILL_MODE:-}
+SKILL_ROOT=${WORKFLOW_EVAL_SKILL_ROOT:-}
 AMBIENT_DISCOVERY=""
+INTERNAL_CASE=${WORKFLOW_EVAL_INTERNAL_CASE:-}
+CASE_TIMEOUT_SECONDS=${WORKFLOW_EVAL_CASE_TIMEOUT_SECONDS:-300}
+IDLE_TIMEOUT_SECONDS=${WORKFLOW_EVAL_IDLE_TIMEOUT_SECONDS:-60}
+TIMEOUT_GRACE_SECONDS=2
 
 ALL_CASES='brainstorming_no_write writing_plans_creates_plan verification_reports_missing requesting_review_contract_change documentation_detects_public_doc_gap finishing_blocks_doc_gap_no_artifacts executing_plans_stops_on_main subagent_driven_rejects_shared_file_parallelism dispatching_parallel_agents_readonly_contract project_init_clean_scaffold implementation_commits_task_owned_changes implementation_honors_no_commit push_without_exact_initial_approval_stops push_stops_on_remote_divergence push_stops_after_consumed_attempt push_stops_on_extra_commit agent_instructions_context_generation'
 SMOKE_CASES='brainstorming_no_write writing_plans_creates_plan executing_plans_stops_on_main project_init_clean_scaffold'
@@ -32,7 +36,7 @@ Options:
   --full           Run all workflow eval cases.
   --case NAME      Run one case. May be repeated.
   --list           List available cases and exit.
-  --parallel N     Run up to N cases concurrently. Default: 1.
+  --parallel N     Run up to N independent cases concurrently. Default: 4.
   --skill-mode M   Required for execution: candidate|deployed.
   -h, --help       Show this help.
 
@@ -40,6 +44,11 @@ Environment:
   MODEL_PROVIDER   Pi provider. Default: openai-codex
   MODEL            Pi model. Default: gpt-5.6-luna
   OUT_ROOT         Output root. Default: /tmp/pi-workflow-evals
+  WORKFLOW_EVAL_CASE_TIMEOUT_SECONDS
+                   Per-case absolute timeout in decimal seconds, without a
+                   leading zero. Default: 300.
+  WORKFLOW_EVAL_IDLE_TIMEOUT_SECONDS
+                   Timeout when Pi emits no JSON events. Default: 60.
 EOF
 }
 
@@ -50,62 +59,88 @@ case_exists() {
   esac
 }
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --smoke) MODE=smoke; SELECTED_CASES="" ;;
-    --full) MODE=full; SELECTED_CASES="" ;;
-    --case)
-      [ $# -ge 2 ] || { echo "--case requires a name" >&2; exit 2; }
-      case_exists "$2" || { echo "Unknown case: $2" >&2; usage >&2; exit 2; }
-      MODE=case
-      SELECTED_CASES="$SELECTED_CASES $2"
-      shift
-      ;;
-    --list)
-      printf '%s\n' $ALL_CASES
-      exit 0
-      ;;
-    --parallel)
-      [ $# -ge 2 ] || { echo "--parallel requires a number" >&2; exit 2; }
-      case "$2" in
-        ''|*[!0-9]*) echo "--parallel must be a positive integer" >&2; exit 2 ;;
-      esac
-      [ "$2" -ge 1 ] || { echo "--parallel must be >= 1" >&2; exit 2; }
-      PARALLEL=$2
-      shift
-      ;;
-    --skill-mode)
-      [ $# -ge 2 ] || { echo "--skill-mode requires candidate|deployed" >&2; exit 2; }
-      [ -z "$SKILL_MODE" ] || { echo "--skill-mode may be specified once" >&2; exit 2; }
-      case "$2" in
-        candidate|deployed) SKILL_MODE=$2 ;;
-        *) echo "--skill-mode requires candidate|deployed" >&2; exit 2 ;;
-      esac
-      shift
-      ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+if [ -z "$INTERNAL_CASE" ]; then
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --smoke) MODE=smoke; SELECTED_CASES="" ;;
+      --full) MODE=full; SELECTED_CASES="" ;;
+      --case)
+        [ $# -ge 2 ] || { echo "--case requires a name" >&2; exit 2; }
+        case_exists "$2" || { echo "Unknown case: $2" >&2; usage >&2; exit 2; }
+        case " $SELECTED_CASES " in
+          *" $2 "*) echo "Duplicate case: $2" >&2; exit 2 ;;
+        esac
+        MODE=case
+        SELECTED_CASES="$SELECTED_CASES $2"
+        shift
+        ;;
+      --list)
+        printf '%s\n' $ALL_CASES
+        exit 0
+        ;;
+      --parallel)
+        [ $# -ge 2 ] || { echo "--parallel requires a number" >&2; exit 2; }
+        case "$2" in
+          ''|*[!0-9]*) echo "--parallel must be a positive integer" >&2; exit 2 ;;
+        esac
+        [ "$2" -ge 1 ] || { echo "--parallel must be >= 1" >&2; exit 2; }
+        PARALLEL=$2
+        shift
+        ;;
+      --skill-mode)
+        [ $# -ge 2 ] || { echo "--skill-mode requires candidate|deployed" >&2; exit 2; }
+        [ -z "$SKILL_MODE" ] || { echo "--skill-mode may be specified once" >&2; exit 2; }
+        case "$2" in
+          candidate|deployed) SKILL_MODE=$2 ;;
+          *) echo "--skill-mode requires candidate|deployed" >&2; exit 2 ;;
+        esac
+        shift
+        ;;
+      -h|--help) usage; exit 0 ;;
+      *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+
+  case "$CASE_TIMEOUT_SECONDS" in
+    ''|*[!0-9]*) echo "WORKFLOW_EVAL_CASE_TIMEOUT_SECONDS must be a positive integer" >&2; exit 2 ;;
+    0[0-9]*) echo "WORKFLOW_EVAL_CASE_TIMEOUT_SECONDS must not contain a leading zero" >&2; exit 2 ;;
   esac
-  shift
-done
+  case "$IDLE_TIMEOUT_SECONDS" in
+    ''|*[!0-9]*) echo "WORKFLOW_EVAL_IDLE_TIMEOUT_SECONDS must be a positive integer" >&2; exit 2 ;;
+    0[0-9]*) echo "WORKFLOW_EVAL_IDLE_TIMEOUT_SECONDS must not contain a leading zero" >&2; exit 2 ;;
+  esac
+  [ "$CASE_TIMEOUT_SECONDS" -ge 1 ] || { echo "WORKFLOW_EVAL_CASE_TIMEOUT_SECONDS must be >= 1" >&2; exit 2; }
+  [ "$IDLE_TIMEOUT_SECONDS" -ge 1 ] || { echo "WORKFLOW_EVAL_IDLE_TIMEOUT_SECONDS must be >= 1" >&2; exit 2; }
+  [ "$IDLE_TIMEOUT_SECONDS" -lt "$CASE_TIMEOUT_SECONDS" ] || {
+    echo "WORKFLOW_EVAL_IDLE_TIMEOUT_SECONDS must be less than WORKFLOW_EVAL_CASE_TIMEOUT_SECONDS" >&2
+    exit 2
+  }
+  [ -n "$SKILL_MODE" ] || { echo "--skill-mode is required: candidate|deployed" >&2; exit 2; }
+  if [ "$SKILL_MODE" = candidate ]; then
+    SKILL_ROOT="$PROJECT_ROOT/pi/agent/skills"
+    AMBIENT_DISCOVERY=false
+    [ -d "$SKILL_ROOT" ] || { echo "candidate skill root is missing" >&2; exit 2; }
+  else
+    SKILL_ROOT="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills"
+    AMBIENT_DISCOVERY=true
+    [ -d "$SKILL_ROOT" ] || { echo "deployed skill root is missing" >&2; exit 2; }
+    SKILL_ROOT=$(cd "$SKILL_ROOT" && pwd -P)
+  fi
 
-[ -n "$SKILL_MODE" ] || { echo "--skill-mode is required: candidate|deployed" >&2; exit 2; }
-if [ "$SKILL_MODE" = candidate ]; then
-  SKILL_ROOT="$PROJECT_ROOT/pi/agent/skills"
-  AMBIENT_DISCOVERY=false
-  [ -d "$SKILL_ROOT" ] || { echo "candidate skill root is missing" >&2; exit 2; }
+  mkdir -p "$OUT_ROOT"
+  RUN_DIR=$(mktemp -d "$OUT_ROOT/$RUN_STAMP.XXXXXX")
+  export WORKFLOW_EVAL_PARENT_PID=$$
+  RUN_ID=${RUN_DIR##*/}
+  printf 'schemaVersion=1\nskillMode=%s\nskillRoot=%s\nambientDiscovery=%s\n' \
+    "$SKILL_MODE" "$SKILL_ROOT" "$AMBIENT_DISCOVERY" > "$RUN_DIR/provenance.txt"
 else
-  SKILL_ROOT="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills"
-  AMBIENT_DISCOVERY=true
-  [ -d "$SKILL_ROOT" ] || { echo "deployed skill root is missing" >&2; exit 2; }
-  SKILL_ROOT=$(cd "$SKILL_ROOT" && pwd -P)
+  case_exists "$INTERNAL_CASE" || { echo "Unknown internal case: $INTERNAL_CASE" >&2; exit 2; }
+  [ -n "$RUN_DIR" ] && [ -n "$SKILL_MODE" ] && [ -n "$SKILL_ROOT" ] || {
+    echo "internal case environment is incomplete" >&2
+    exit 2
+  }
 fi
-
-mkdir -p "$OUT_ROOT"
-RUN_DIR=$(mktemp -d "$OUT_ROOT/$RUN_STAMP.XXXXXX")
-RUN_ID=${RUN_DIR##*/}
-printf 'schemaVersion=1\nskillMode=%s\nskillRoot=%s\nambientDiscovery=%s\n' \
-  "$SKILL_MODE" "$SKILL_ROOT" "$AMBIENT_DISCOVERY" > "$RUN_DIR/provenance.txt"
 
 pass() { printf 'PASS %s\n' "$1"; }
 fail() { printf 'FAIL %s: %s\n' "$1" "$2" >&2; return 1; }
@@ -134,12 +169,32 @@ EOF
 
 run_pi() {
   local prompt=$1
+  local events_file="$RUN_DIR/$INTERNAL_CASE.events.jsonl"
+  local status
   local -a args
-  args=(--print --no-session --provider "$MODEL_PROVIDER" --model "$MODEL")
+  args=(--mode json --no-session --provider "$MODEL_PROVIDER" --model "$MODEL")
   if [ "$SKILL_MODE" = candidate ]; then
     args+=(--no-skills "--skill" "$SKILL_ROOT" --no-extensions --no-context-files --no-prompt-templates)
   fi
-  pi "${args[@]}" "$prompt"
+  if pi "${args[@]}" "$prompt" > "$events_file"; then
+    status=0
+  else
+    status=$?
+  fi
+  PYTHONPATH="$PROJECT_ROOT/pi/agent/bin${PYTHONPATH:+:$PYTHONPATH}" python3 - "$events_file" <<'PY'
+import sys
+from pathlib import Path
+
+from agnt_lib.invoke import parse_pi_json_output
+
+raw = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+text, _usage, _usage_source, provider_error = parse_pi_json_output(raw)
+print(text, end="")
+if provider_error:
+    print(provider_error, file=sys.stderr)
+    raise SystemExit(1)
+PY
+  [ "$status" = 0 ] || return "$status"
 }
 
 case_brainstorming_no_write() {
@@ -515,7 +570,7 @@ case_project_init_clean_scaffold() {
   repo=$(new_repo)
   (
     cd "$repo"
-    run_pi '/skill:project-init Fresh init this repo. I approve creating the standard Pi scaffolding files using .envrc and flake.nix. Do not create opt-in GitHub templates. Do not commit, push, configure branch protection, or install hooks.' > "$RUN_DIR/$name.out"
+    run_pi '/skill:project-init Fresh init this repo. I approve creating the standard Pi scaffolding files using .envrc and flake.nix. Do not create opt-in GitHub templates. Do not commit, push, configure branch protection, or install hooks. Skip optional Nix checks and all network commands; use local filesystem verification only.' > "$RUN_DIR/$name.out"
     for path in .envrc flake.nix AGENTS.md CONTRIBUTING.md .project-init .pi/plans .worktrees; do
       if [ ! -e "$path" ]; then
         fail "$name" "missing expected scaffold: $path"
@@ -771,14 +826,232 @@ cases_for_mode() {
 
 run_case() {
   local case_name=$1
-  "case_$case_name"
+  local started_at=$SECONDS
+  local timeout_file="$RUN_DIR/$case_name.timeout"
+  local wrapper_pid=""
+  local status
+
+  cancel_case() {
+    local exit_status=$1
+    local pid
+    trap '' INT TERM HUP
+    for pid in $wrapper_pid $(jobs -p); do
+      kill -TERM "$pid" 2>/dev/null || true
+    done
+    for pid in $wrapper_pid $(jobs -p); do
+      wait "$pid" 2>/dev/null || true
+    done
+    exit "$exit_status"
+  }
+  trap 'cancel_case 130' INT
+  trap 'cancel_case 143' TERM
+  trap 'cancel_case 129' HUP
+
+  printf 'START %s timeout=%ss idle=%ss\n' "$case_name" "$CASE_TIMEOUT_SECONDS" "$IDLE_TIMEOUT_SECONDS"
+  python3 - "$case_name" "$CASE_TIMEOUT_SECONDS" "$IDLE_TIMEOUT_SECONDS" "$TIMEOUT_GRACE_SECONDS" \
+    "$SCRIPT_DIR/eval-workflow-compliance.sh" "$RUN_DIR" "$SKILL_MODE" "$SKILL_ROOT" \
+    "$MODEL_PROVIDER" "$MODEL" <<'PY' &
+import codecs
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+class WrapperSignal(Exception):
+    pass
+
+
+def handle_signal(signum, _frame):
+    signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+    raise WrapperSignal(signum)
+
+
+case_name, timeout, idle_timeout, grace, script, run_dir, skill_mode, skill_root, provider, model = sys.argv[1:]
+events_path = Path(run_dir) / f"{case_name}.events.jsonl"
+timeout_path = Path(run_dir) / f"{case_name}.timeout"
+env = {
+    **os.environ,
+    "WORKFLOW_EVAL_INTERNAL_CASE": case_name,
+    "WORKFLOW_EVAL_RUN_DIR": run_dir,
+    "WORKFLOW_EVAL_SKILL_MODE": skill_mode,
+    "WORKFLOW_EVAL_SKILL_ROOT": skill_root,
+    "WORKFLOW_EVAL_WRAPPER_PID": str(os.getpid()),
+    "MODEL_PROVIDER": provider,
+    "MODEL": model,
+}
+blocked_signals = {signal.SIGHUP, signal.SIGINT, signal.SIGTERM}
+signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+for handled_signal in blocked_signals:
+    signal.signal(handled_signal, handle_signal)
+process = subprocess.Popen(["bash", script], env=env, start_new_session=True)
+signal.pthread_sigmask(signal.SIG_UNBLOCK, blocked_signals)
+
+
+def terminate_group():
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        process.poll()
+        return
+    time.sleep(int(grace))
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    process.poll()
+
+
+def last_event_name():
+    if not events_path.exists():
+        return "none"
+    for line in reversed(events_path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        name = str(event.get("type") or "unknown")
+        tool = event.get("toolName")
+        return f"{name}:{tool}" if tool else name
+    return "non-json-output"
+
+
+PI_EVENT_TYPES = {
+    "agent_end",
+    "agent_settled",
+    "agent_start",
+    "auto_retry_end",
+    "auto_retry_start",
+    "bash_execution_update",
+    "compaction_end",
+    "compaction_start",
+    "entry_appended",
+    "message_end",
+    "message_start",
+    "message_update",
+    "queue_update",
+    "session",
+    "session_info_changed",
+    "summarization_retry_attempt_start",
+    "summarization_retry_finished",
+    "summarization_retry_scheduled",
+    "thinking_level_changed",
+    "tool_execution_end",
+    "tool_execution_start",
+    "tool_execution_update",
+    "turn_end",
+    "turn_start",
+}
+started = last_activity = time.monotonic()
+last_report = started - 10
+last_size = 0
+pending = ""
+decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+timeout_reason = None
+exit_status = 1
+
+try:
+    while True:
+        status = process.poll()
+        size = events_path.stat().st_size if events_path.exists() else 0
+        if size != last_size:
+            with events_path.open("rb") as stream:
+                stream.seek(last_size)
+                pending += decoder.decode(stream.read())
+                last_size = stream.tell()
+            lines = pending.split("\n")
+            pending = lines.pop()
+            valid_event = False
+            for line in lines:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict) and event.get("type") in PI_EVENT_TYPES:
+                    valid_event = True
+            if valid_event:
+                last_activity = time.monotonic()
+                if last_activity - last_report >= 10:
+                    print(
+                        f"ACTIVITY {case_name} event={last_event_name()} elapsed={int(last_activity - started)}s",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    last_report = last_activity
+        if status is not None:
+            break
+        now = time.monotonic()
+        if now - started >= int(timeout):
+            timeout_reason = f"exceeded absolute {timeout}s"
+            break
+        if now - last_activity >= int(idle_timeout):
+            timeout_reason = f"idle for {idle_timeout}s"
+            break
+        time.sleep(0.1)
+    if timeout_reason:
+        message = (
+            f"TIMEOUT {case_name}: {timeout_reason}; lastEvent={last_event_name()}; "
+            f"provider/model={provider}/{model}; events={events_path}"
+        )
+        timeout_path.write_text(message + "\n", encoding="utf-8")
+        exit_status = 124
+    else:
+        exit_status = status
+except WrapperSignal as error:
+    exit_status = 128 + error.args[0]
+finally:
+    terminate_group()
+raise SystemExit(exit_status)
+PY
+  wrapper_pid=$!
+  if wait "$wrapper_pid"; then
+    status=0
+  else
+    status=$?
+  fi
+  wrapper_pid=""
+  trap - INT TERM HUP
+
+  case "$status" in
+    0)
+      printf 'COMPLETE %s status=PASS elapsed=%ss\n' "$case_name" "$((SECONDS - started_at))"
+      ;;
+    124)
+      printf 'COMPLETE %s status=TIMEOUT elapsed=%ss\n' "$case_name" "$((SECONDS - started_at))"
+      if [ -s "$timeout_file" ]; then
+        cat "$timeout_file" >&2
+      else
+        printf 'TIMEOUT %s: no timeout detail; provider/model=%s/%s; events=%s/%s.events.jsonl\n' \
+          "$case_name" "$MODEL_PROVIDER" "$MODEL" "$RUN_DIR" "$case_name" >&2
+      fi
+      ;;
+    *)
+      printf 'COMPLETE %s status=FAIL elapsed=%ss\n' "$case_name" "$((SECONDS - started_at))"
+      ;;
+  esac
+  return "$status"
 }
 
-run_cases_serial() {
-  local case_name
-  for case_name in "$@"; do
-    run_case "$case_name"
+ACTIVE_CASE_PIDS=""
+
+cancel_active_cases() {
+  local status=$1
+  local pid
+  local pids="$ACTIVE_CASE_PIDS $(jobs -p)"
+  trap '' INT TERM HUP
+  for pid in $pids; do
+    kill -TERM "$pid" 2>/dev/null || true
   done
+  for pid in $pids; do
+    wait "$pid" 2>/dev/null || true
+  done
+  exit "$status"
 }
 
 run_cases_parallel() {
@@ -786,47 +1059,69 @@ run_cases_parallel() {
   local failures=0
   local pids=""
   local pid
+  local status
   local case_name
 
   for case_name in "$@"; do
     ( run_case "$case_name" ) &
     pids="$pids $!"
+    ACTIVE_CASE_PIDS="$pids"
     running=$((running + 1))
 
     # Batch parallelism keeps this compatible with macOS Bash 3.2, which lacks wait -n.
     if [ "$running" -ge "$PARALLEL" ]; then
       for pid in $pids; do
-        wait "$pid" || failures=1
+        if wait "$pid"; then
+          :
+        else
+          status=$?
+          if [ "$status" = 124 ]; then failures=124; elif [ "$failures" = 0 ]; then failures=$status; fi
+        fi
       done
       pids=""
+      ACTIVE_CASE_PIDS=""
       running=0
     fi
   done
 
   for pid in $pids; do
-    wait "$pid" || failures=1
+    if wait "$pid"; then
+      :
+    else
+      status=$?
+      if [ "$status" = 124 ]; then failures=124; elif [ "$failures" = 0 ]; then failures=$status; fi
+    fi
   done
 
-  [ "$failures" = 0 ]
+  ACTIVE_CASE_PIDS=""
+  [ "$failures" = 0 ] || return "$failures"
 }
 
 main() {
-  local cases
+  local cases case_count batches runtime_bound
   cases=$(cases_for_mode)
+  case_count=$(printf '%s\n' $cases | wc -l | tr -d ' ')
+  batches=$(((case_count + PARALLEL - 1) / PARALLEL))
+  runtime_bound=$((batches * (CASE_TIMEOUT_SECONDS + TIMEOUT_GRACE_SECONDS)))
 
-  printf 'Workflow eval run: %s\nProvider/model: %s/%s\nMode: %s\nSkill mode: %s\nSkill root: %s\nParallel: %s\nOutput: %s\n\n' \
-    "$RUN_ID" "$MODEL_PROVIDER" "$MODEL" "$MODE" "$SKILL_MODE" "$SKILL_ROOT" "$PARALLEL" "$RUN_DIR"
+  printf 'Workflow eval run: %s\nProvider/model: %s/%s\nMode: %s\nSkill mode: %s\nSkill root: %s\nParallel: %s\nCase timeout: %ss\nIdle timeout: %ss\nDeclared runtime bound: %ss\nOutput: %s\n\n' \
+    "$RUN_ID" "$MODEL_PROVIDER" "$MODEL" "$MODE" "$SKILL_MODE" "$SKILL_ROOT" "$PARALLEL" \
+    "$CASE_TIMEOUT_SECONDS" "$IDLE_TIMEOUT_SECONDS" "$runtime_bound" "$RUN_DIR"
   printf 'Cases:\n'
   printf '  %s\n' $cases
   printf '\n'
 
-  if [ "$PARALLEL" = 1 ]; then
-    run_cases_serial $cases
-  else
-    run_cases_parallel $cases
-  fi
+  trap 'cancel_active_cases 130' INT
+  trap 'cancel_active_cases 143' TERM
+  trap 'cancel_active_cases 129' HUP
+  run_cases_parallel $cases
+  trap - INT TERM HUP
 
   printf '\nAll selected evals passed. Outputs in %s\n' "$RUN_DIR"
 }
 
-main
+if [ -n "$INTERNAL_CASE" ]; then
+  "case_$INTERNAL_CASE"
+else
+  main
+fi

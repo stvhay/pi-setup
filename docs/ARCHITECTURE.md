@@ -245,12 +245,13 @@ Three test tiers, cheapest first:
 2. `agnt eval run routing-smoke|role-context-smoke` — deterministic CLI-level
    checks of routing policy and instruction composition. Free, instant.
 3. `scripts/eval-workflow-compliance.sh --skill-mode candidate|deployed` —
-   behavioral cases running real models in throwaway git repos, asserting
-   filesystem effects (no writes before approval, plans actually created,
-   stops on main, …). Candidate mode isolates and explicitly loads tracked
-   skills; deployed mode tests live skills. Each atomically unique run writes
-   `provenance.txt` with mode and physical skill root. Costs model calls; smoke
-   subset by default.
+   opt-in manual behavioral canary running real models in throwaway git repos,
+   asserting filesystem effects (no writes before approval, plans actually
+   created, stops on main, …). It is not a routine completion gate: run it only
+   on user request or for a stated behavior question routine telemetry cannot
+   answer. Candidate mode isolates tracked skills; deployed mode tests live
+   skills. Independent cases run concurrently, Pi JSON events reset an idle
+   timeout, and each run retains event/provenance artifacts.
 
 Layout/safety checks: `scripts/check-pi-config.sh` (required files present,
 no secrets/submodule regression, action validation, context-health strict check,

@@ -50,10 +50,12 @@ bash -n scripts/*.sh
 # deterministic agnt evals (no model calls)
 pi/agent/bin/agnt eval run routing-smoke
 pi/agent/bin/agnt eval run role-context-smoke
-
-# workflow compliance against tracked candidate skills (runs real models)
-./scripts/eval-workflow-compliance.sh --skill-mode candidate
 ```
+
+Manual behavioral canary (runs real models; not a routine completion gate): run
+`scripts/eval-workflow-compliance.sh --skill-mode candidate` only when user
+requests it or the agent recommends it for a specific behavior question that
+routine telemetry cannot answer.
 
 ## Environment
 
