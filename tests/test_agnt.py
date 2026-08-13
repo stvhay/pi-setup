@@ -1291,6 +1291,23 @@ def test_work_status_orders_parent_before_children(agnt):
     ]
 
 
+def test_work_status_parent_edge_overrides_priority_and_id_order(agnt):
+    beads = [
+        {"id": "pi-a-child", "title": "Child", "status": "in_progress", "priority": 0, "issue_type": "task", "parent": "pi-z-parent"},
+        {"id": "pi-z-parent", "title": "Parent Epic", "status": "in_progress", "priority": 4, "issue_type": "epic"},
+    ]
+    with patch.dict(
+        agnt.work_status.__globals__,
+        {
+            "run_beads_json": lambda _args: (0, beads, ""),
+            "current_session_work_item": lambda _session_id: None,
+        },
+    ):
+        result = agnt.work_status("session-1")
+
+    assert [item["id"] for item in result["items"]] == ["pi-z-parent", "pi-a-child"]
+
+
 def test_work_status_does_not_infer_parent_from_id(agnt):
     beads = [
         {"id": "pi-demo-4.1", "title": "Unrelated root", "status": "in_progress", "priority": 1, "issue_type": "task"},
