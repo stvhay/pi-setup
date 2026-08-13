@@ -3,6 +3,7 @@ import { runAgntJson } from "./lib/run-agnt-json.ts";
 
 const STATUS_KEY = "beads-work";
 const BEAD_ID = /^[a-z][a-z0-9]*-[A-Za-z0-9._-]+$/;
+const ISSUE_TYPES = new Set(["bug", "feature", "task", "epic", "chore", "decision"]);
 const WORK_MUTATING_TOOLS = new Set([
   "bash",
   "handoff_bead",
@@ -12,7 +13,7 @@ const WORK_MUTATING_TOOLS = new Set([
   "ticket_question",
 ]);
 
-type WorkItem = { id: string; priority: number; title: string };
+type WorkItem = { id: string; priority: number; title: string; issueType: string };
 type WorkStatus = { activeBeadId?: string; items: WorkItem[] };
 
 function workStatus(result: Record<string, unknown>): WorkStatus | undefined {
@@ -23,7 +24,7 @@ function workStatus(result: Record<string, unknown>): WorkStatus | undefined {
   const items: WorkItem[] = [];
   for (const value of result.items) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const { id, priority, title } = value as Record<string, unknown>;
+    const { id, priority, title, issueType } = value as Record<string, unknown>;
     if (
       typeof id !== "string" ||
       !BEAD_ID.test(id) ||
@@ -33,9 +34,10 @@ function workStatus(result: Record<string, unknown>): WorkStatus | undefined {
       priority > 4 ||
       typeof title !== "string" ||
       !title.trim() ||
-      /[\x00-\x1f\x7f]/.test(title)
+      /[\x00-\x1f\x7f]/.test(title) ||
+      (issueType !== undefined && (typeof issueType !== "string" || !ISSUE_TYPES.has(issueType)))
     ) return undefined;
-    items.push({ id, priority, title });
+    items.push({ id, priority, title, issueType: typeof issueType === "string" ? issueType : "task" });
   }
   return { activeBeadId: typeof active === "string" ? active : undefined, items };
 }
@@ -46,7 +48,8 @@ function statusText(state: WorkStatus, ctx: ExtensionContext): string | undefine
   return state.items.map((item) => {
     const current = item.id === state.activeBeadId;
     const marker = ctx.ui.theme.fg(current ? "mdHeading" : "syntaxString", "◐");
-    const text = `${item.id.padEnd(idWidth)}  P${item.priority}  ${item.title}`;
+    const typeSlot = item.issueType === "epic" ? "◆ " : "  ";
+    const text = `${typeSlot}${item.id.padEnd(idWidth)}  P${item.priority}  ${item.title}`;
     return `${marker} ${current ? ctx.ui.theme.bold(text) : ctx.ui.theme.fg("muted", text)}`;
   }).join("\n");
 }

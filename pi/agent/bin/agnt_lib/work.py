@@ -32,6 +32,8 @@ from .maintenance import maintenance_create_beads, maintenance_due_report
 from .integration import integrate_local_commit
 from .worktree_policy import worktree_snapshot_for_bead
 
+VALID_ISSUE_TYPES = frozenset({"bug", "feature", "task", "epic", "chore", "decision"})
+
 
 def beads_bin() -> str | None:
     return shutil.which("beads") or shutil.which("bd")
@@ -858,6 +860,11 @@ def work_status(session_id: str) -> Dict[str, Any]:
         bead_id = bead.get("id")
         priority = bead.get("priority")
         title = bead.get("title")
+        issue_type = bead.get("issue_type")
+        if issue_type is None:
+            issue_type = bead.get("type")
+        if issue_type is None:
+            issue_type = "task"
         status = str(bead.get("status") or "").lower().replace("-", "_")
         if (
             not isinstance(bead_id, str)
@@ -867,10 +874,12 @@ def work_status(session_id: str) -> Dict[str, Any]:
             or not isinstance(title, str)
             or not title.strip()
             or any(ord(char) < 32 or ord(char) == 127 for char in title)
+            or not isinstance(issue_type, str)
+            or issue_type not in VALID_ISSUE_TYPES
             or status != "in_progress"
         ):
             raise ValueError("in-progress Bead is malformed")
-        items.append({"id": bead_id, "priority": priority, "title": title})
+        items.append({"id": bead_id, "priority": priority, "title": title, "issueType": issue_type})
 
     items.sort(key=lambda item: (item["priority"], item["id"]))
     return {

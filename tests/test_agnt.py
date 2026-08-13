@@ -1231,9 +1231,9 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
 
 def test_work_status_projects_canonical_in_progress_items_in_priority_id_order(agnt):
     beads = [
-        {"id": "pi-z.1", "title": "Later ID", "status": "in_progress", "priority": 2},
-        {"id": "pi-b.1", "title": "Lower priority", "status": "in_progress", "priority": 1},
-        {"id": "pi-a.1", "title": "Earlier ID", "status": "in_progress", "priority": 2},
+        {"id": "pi-z.1", "title": "Later ID", "status": "in_progress", "priority": 2, "issue_type": "task"},
+        {"id": "pi-b.1", "title": "Lower priority", "status": "in_progress", "priority": 1, "issue_type": "epic"},
+        {"id": "pi-a.1", "title": "Earlier ID", "status": "in_progress", "priority": 2, "issue_type": "feature"},
     ]
     calls = []
 
@@ -1257,12 +1257,28 @@ def test_work_status_projects_canonical_in_progress_items_in_priority_id_order(a
         "status": "ok",
         "activeBeadId": "pi-a.1",
         "items": [
-            {"id": "pi-b.1", "priority": 1, "title": "Lower priority"},
-            {"id": "pi-a.1", "priority": 2, "title": "Earlier ID"},
-            {"id": "pi-z.1", "priority": 2, "title": "Later ID"},
+            {"id": "pi-b.1", "priority": 1, "title": "Lower priority", "issueType": "epic"},
+            {"id": "pi-a.1", "priority": 2, "title": "Earlier ID", "issueType": "feature"},
+            {"id": "pi-z.1", "priority": 2, "title": "Later ID", "issueType": "task"},
         ],
     }
     assert calls == [["list", "--status", "in_progress"]]
+
+
+def test_work_status_rejects_unknown_issue_type(agnt):
+    beads = [{
+        "id": "pi-a.1",
+        "title": "Unknown type",
+        "status": "in_progress",
+        "priority": 2,
+        "issue_type": "initiative",
+    }]
+    with patch.dict(
+        agnt.work_status.__globals__,
+        {"run_beads_json": lambda _args: (0, beads, "")},
+    ):
+        with pytest.raises(ValueError, match="in-progress Bead is malformed"):
+            agnt.work_status("session-1")
 
 
 def test_work_status_empty_state_skips_session_correlation(agnt):
