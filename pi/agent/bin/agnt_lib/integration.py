@@ -247,11 +247,19 @@ def _merge_in_progress(cwd: Path | str) -> bool:
 
 
 def _has_command_config(cwd: Path | str) -> bool | None:
-    result = _git(cwd, "config", "--null", "--list")
+    result = _git(cwd, "config", "--show-scope", "--null", "--name-only", "--list")
     if result.returncode != 0:
         return None
-    keys = (entry.partition("\n")[0].lower() for entry in result.stdout.split("\0") if entry)
-    return any(re.fullmatch(pattern, key) for key in keys for pattern in _COMMAND_CONFIG_PATTERNS)
+    fields = result.stdout.split("\0")
+    if fields[-1:] == [""]:
+        fields.pop()
+    if len(fields) % 2:
+        return None
+    return any(
+        scope not in {"system", "global"}
+        and any(re.fullmatch(pattern, key.lower()) for pattern in _COMMAND_CONFIG_PATTERNS)
+        for scope, key in zip(fields[::2], fields[1::2])
+    )
 
 
 def integrate_local_commit(

@@ -344,6 +344,52 @@ def test_integration_disables_signature_verification_config(tmp_path):
     assert json.loads(result.stdout)["status"] == "integrated"
 
 
+def test_integration_allows_global_git_lfs_filter_config(tmp_path):
+    repo = tmp_path / "repo"
+    base = init_repo(repo)
+    source = tmp_path / "source"
+    add_worktree(repo, source, "source", base)
+    source_sha = commit_file(source, "source.txt", "source\n", "source")
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text(
+        '[filter "lfs"]\n'
+        "\tclean = git-lfs clean -- %f\n"
+        "\tsmudge = git-lfs smudge -- %f\n"
+        "\tprocess = git-lfs filter-process\n",
+        encoding="utf-8",
+    )
+
+    result = run_integrate(
+        repo,
+        branch="main",
+        expected_head=base,
+        source_sha=source_sha,
+        env={"HOME": str(home)},
+    )
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["status"] == "integrated"
+
+
+@pytest.mark.parametrize("scope", ["--local", "--worktree"])
+def test_integration_rejects_repository_filter_config(tmp_path, scope):
+    repo = tmp_path / "repo"
+    base = init_repo(repo)
+    source = tmp_path / "source"
+    add_worktree(repo, source, "source", base)
+    source_sha = commit_file(source, "source.txt", "source\n", "source")
+    if scope == "--worktree":
+        git(repo, "config", "extensions.worktreeConfig", "true")
+    git(repo, "config", scope, "filter.lfs.process", "git-lfs filter-process")
+
+    result = run_integrate(repo, branch="main", expected_head=base, source_sha=source_sha)
+
+    assert result.returncode == 3
+    assert json.loads(result.stdout)["status"] == "unsafe-git-config"
+    assert git(repo, "rev-parse", "HEAD").stdout.strip() == base
+
+
 def test_integration_rejects_branch_merge_options(tmp_path):
     repo = tmp_path / "repo"
     base = init_repo(repo)
