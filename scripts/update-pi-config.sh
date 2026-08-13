@@ -136,6 +136,10 @@ restore_archimedes_reinstall_backup() {
     rm -rf "$modules/@pi-archimedes/subagent"
     mv "$ARCHIMEDES_REINSTALL_BACKUP/@pi-archimedes/subagent" "$modules/@pi-archimedes/subagent"
   fi
+  if [ -d "$ARCHIMEDES_REINSTALL_BACKUP/@pi-archimedes/footer" ]; then
+    rm -rf "$modules/@pi-archimedes/footer"
+    mv "$ARCHIMEDES_REINSTALL_BACKUP/@pi-archimedes/footer" "$modules/@pi-archimedes/footer"
+  fi
   rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
   ARCHIMEDES_REINSTALL_BACKUP=
 }
@@ -191,8 +195,9 @@ install_langfuse_patch_base() {
 reinstall_archimedes_patch_base() {
   local modules="$DEST/agent/npm/node_modules"
   local meta_dir="$modules/pi-archimedes" subagent_dir="$modules/@pi-archimedes/subagent"
+  local footer_dir="$modules/@pi-archimedes/footer"
   if [ "$MODE" = dry-run ]; then
-    run rm -rf "$meta_dir" "$subagent_dir"
+    run rm -rf "$meta_dir" "$subagent_dir" "$footer_dir"
     run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.0.1
     return
   fi
@@ -201,11 +206,13 @@ reinstall_archimedes_patch_base() {
   backup=$(mktemp -d "$DEST/agent/npm/.archimedes-reinstall.XXXXXX")
   ARCHIMEDES_REINSTALL_BACKUP=$backup
   mkdir -p "$backup/@pi-archimedes"
-  mv "$meta_dir" "$backup/pi-archimedes"
-  mv "$subagent_dir" "$backup/@pi-archimedes/subagent"
+  mv "$meta_dir" "$backup/pi-archimedes" || return 1
+  mv "$subagent_dir" "$backup/@pi-archimedes/subagent" || return 1
+  mv "$footer_dir" "$backup/@pi-archimedes/footer" || return 1
   if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.0.1 \
     && package_is_exact "$meta_dir/package.json" pi-archimedes 2.0.1 \
-    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 2.0.1; then
+    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 2.0.1 \
+    && package_is_exact "$footer_dir/package.json" @pi-archimedes/footer 2.0.1; then
     return
   fi
 
@@ -217,15 +224,20 @@ reinstall_archimedes_patch_base() {
 install_archimedes_patch_base() {
   local modules="$DEST/agent/npm/node_modules"
   local meta_dir="$modules/pi-archimedes" subagent_dir="$modules/@pi-archimedes/subagent"
-  local meta="$meta_dir/package.json" subagent="$subagent_dir/package.json"
+  local footer_dir="$modules/@pi-archimedes/footer"
+  local meta="$meta_dir/package.json" subagent="$subagent_dir/package.json" footer="$footer_dir/package.json"
   local meta_patch="$PACKAGE_PATCH_DIR/pi-archimedes-meta-2.0.1.patch"
   local subagent_patch="$PACKAGE_PATCH_DIR/pi-archimedes-subagent-2.0.1.patch"
+  local footer_patch="$PACKAGE_PATCH_DIR/pi-archimedes-footer-2.0.1.patch"
   if package_is_exact "$meta" pi-archimedes 2.0.1 \
-    && package_is_exact "$subagent" @pi-archimedes/subagent 2.0.1; then
+    && package_is_exact "$subagent" @pi-archimedes/subagent 2.0.1 \
+    && package_is_exact "$footer" @pi-archimedes/footer 2.0.1; then
     if package_patch_is_clean_or_applied "$meta_dir" "$meta_patch" \
-      && package_patch_is_clean_or_applied "$subagent_dir" "$subagent_patch"; then
+      && package_patch_is_clean_or_applied "$subagent_dir" "$subagent_patch" \
+      && package_patch_is_clean_or_applied "$footer_dir" "$footer_patch"; then
       echo "pi-archimedes 2.0.1: already installed"
       echo "@pi-archimedes/subagent 2.0.1: already installed"
+      echo "@pi-archimedes/footer 2.0.1: already installed"
     else
       reinstall_archimedes_patch_base
     fi

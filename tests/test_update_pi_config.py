@@ -55,6 +55,16 @@ def langfuse_patch_dir(tmp_path: Path) -> Path:
 """,
         encoding="utf-8",
     )
+    (patches / "pi-archimedes-footer-2.0.1.patch").write_text(
+        """diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1 +1 @@
+-old-footer
++new-footer
+""",
+        encoding="utf-8",
+    )
     (patches / "pi-langfuse-1.5.12.patch").write_text(
         """diff --git a/index.ts b/index.ts
 --- a/index.ts
@@ -89,10 +99,25 @@ def write_clean_langfuse(package: Path) -> None:
 
 
 def write_applied_archimedes(meta: Path, subagent: Path) -> None:
+    footer = subagent.parent / "footer"
+    footer.mkdir(exist_ok=True)
+    package_json = footer / "package.json"
+    if not package_json.exists():
+        package_json.write_text(
+            json.dumps({"name": "@pi-archimedes/footer", "version": "2.0.1"}),
+            encoding="utf-8",
+        )
     (meta / "src").mkdir(exist_ok=True)
     (subagent / "src").mkdir(exist_ok=True)
+    (footer / "src").mkdir(exist_ok=True)
     (meta / "src/config.ts").write_text("new-meta\n", encoding="utf-8")
     (subagent / "src/index.ts").write_text("new-subagent\n", encoding="utf-8")
+    (footer / "src/index.ts").write_text("new-footer\n", encoding="utf-8")
+
+
+def write_archimedes_footer(footer: Path, source: str = "new-footer\n") -> None:
+    (footer / "src").mkdir(exist_ok=True)
+    (footer / "src/index.ts").write_text(source, encoding="utf-8")
 
 
 def write_package(root: Path, relative: str, name: str, version: str) -> Path:
@@ -493,6 +518,7 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     assert log.read_text(encoding="utf-8").splitlines() == [f"patch|{dest}"]
     assert "pi-archimedes 2.0.1: already installed" in proc.stdout
     assert "@pi-archimedes/subagent 2.0.1: already installed" in proc.stdout
+    assert "@pi-archimedes/footer 2.0.1: already installed" in proc.stdout
     assert "pi-langfuse 1.5.12: already installed" in proc.stdout
 
 
@@ -518,9 +544,57 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
     fake_pi.write_text(
         '#!/bin/sh\n'
         'root="$PI_CODING_AGENT_DIR/npm/node_modules"\n'
-        'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent"\n'
+        'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent" "$root/@pi-archimedes/footer"\n'
         'printf \'{"name":"pi-archimedes","version":"2.0.1"}\\n\' >"$root/pi-archimedes/package.json"\n'
         'printf \'{"name":"@pi-archimedes/subagent","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/footer","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/footer/package.json"\n'
+        'printf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_patch.write_text(
+        '#!/bin/sh\nprintf "patch|%s\\n" "$PI_CONFIG_DEST" >>"$PI_DEPLOY_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    fake_patch.chmod(0o755)
+
+    proc = run_update(
+        dest,
+        env_overrides={
+            "PI_COMMAND": str(fake_pi),
+            "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
+            "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path)),
+            "PI_DEPLOY_LOG": str(log),
+        },
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "pi|install npm:pi-archimedes@2.0.1",
+        f"patch|{dest}",
+    ]
+
+
+def test_update_reinstalls_exact_archimedes_when_footer_patch_revision_is_stale(tmp_path):
+    dest = tmp_path / ".pi"
+    log = tmp_path / "package-sync.log"
+    modules = dest / "agent" / "npm" / "node_modules"
+    meta = write_package(modules, "pi-archimedes", "pi-archimedes", "2.0.1")
+    subagent = write_package(modules, "@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1")
+    footer = write_package(modules, "@pi-archimedes/footer", "@pi-archimedes/footer", "2.0.1")
+    langfuse = write_package(modules, "pi-langfuse", "pi-langfuse", "1.5.12")
+    write_applied_archimedes(meta, subagent)
+    write_archimedes_footer(footer, "unexpected-footer\n")
+    write_clean_langfuse(langfuse)
+    fake_pi = tmp_path / "pi"
+    fake_patch = tmp_path / "apply-patches"
+    fake_pi.write_text(
+        '#!/bin/sh\n'
+        'root="$PI_CODING_AGENT_DIR/npm/node_modules"\n'
+        'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent" "$root/@pi-archimedes/footer"\n'
+        'printf \'{"name":"pi-archimedes","version":"2.0.1"}\\n\' >"$root/pi-archimedes/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/subagent","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/footer","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/footer/package.json"\n'
         'printf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
         encoding="utf-8",
     )
@@ -699,8 +773,8 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
         )
         if name == "pi-langfuse" and version == "1.5.12":
             write_clean_langfuse(package)
+    write_applied_archimedes(meta, subagent)
     stale = subagent / "src/index.ts"
-    stale.parent.mkdir(parents=True)
     stale.write_text("const previousPatch = true;\n", encoding="utf-8")
     (meta / "old-runtime.txt").write_text("keep me\n", encoding="utf-8")
     fake_pi = tmp_path / "pi"
@@ -708,9 +782,10 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
     fake_pi.write_text(
         '#!/bin/sh\n'
         'root="$PI_CODING_AGENT_DIR/npm/node_modules"\n'
-        'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent"\n'
+        'mkdir -p "$root/pi-archimedes" "$root/@pi-archimedes/subagent" "$root/@pi-archimedes/footer"\n'
         'printf \'{"name":"pi-archimedes","version":"2.0.1"}\\n\' >"$root/pi-archimedes/package.json"\n'
         'printf \'{"name":"@pi-archimedes/subagent","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
+        'printf \'{"name":"@pi-archimedes/footer","version":"2.0.1"}\\n\' >"$root/@pi-archimedes/footer/package.json"\n'
         + ('case "$*" in *pi-langfuse*) exit 7;; esac\n' if failure == "langfuse-install" else ""),
         encoding="utf-8",
     )
@@ -732,7 +807,7 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
         fake_mv = fake_bin / "mv"
         fake_mv.write_text(
             "#!/bin/sh\n"
-            f'case "$1" in *"{subagent}") exit 7;; esac\n'
+            'case "$1" in */@pi-archimedes/subagent) exit 7;; esac\n'
             'exec /bin/mv "$@"\n',
             encoding="utf-8",
         )

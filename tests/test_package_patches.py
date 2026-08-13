@@ -11,7 +11,7 @@ SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
 GITMODULES = ROOT / ".gitmodules"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
-ARCHIMEDES_VENDOR_HEAD = "182f5d4cded89cf5f43316f29d94899cc30f07ce"
+ARCHIMEDES_VENDOR_HEAD = "c1fd7799d5d84809801ba8f10be6d3e36a73cf42"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "c5da10a7cd0bced92ffc70e419d0198829a7a36c"
 
@@ -56,6 +56,18 @@ def _archimedes_meta(root: Path) -> Path:
     return target
 
 
+def _archimedes_footer(root: Path) -> Path:
+    package = root / "@pi-archimedes/footer"
+    target = package / "src/index.ts"
+    target.parent.mkdir(parents=True)
+    (package / "package.json").write_text(
+        json.dumps({"name": "@pi-archimedes/footer", "version": "2.0.1"}),
+        encoding="utf-8",
+    )
+    target.write_text("ctx.ui.setFooter;\nexport const footer = {};\n", encoding="utf-8")
+    return target
+
+
 def _fixture_patches(root: Path) -> Path:
     root.mkdir()
     (root / "pi-langfuse-1.5.12.patch").write_text(
@@ -95,6 +107,17 @@ diff --git a/src/redaction.ts b/src/redaction.ts
 """,
         encoding="utf-8",
     )
+    (root / "pi-archimedes-footer-2.0.1.patch").write_text(
+        """diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,2 +1,2 @@
+ ctx.ui.setFooter;
+-export const footer = {};
++export const footer = { getExtensionStatuses: true };
+""",
+        encoding="utf-8",
+    )
     return root
 
 
@@ -123,6 +146,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
         "export const result = {};\n",
     )
     meta = _archimedes_meta(package_root)
+    footer = _archimedes_footer(package_root)
     patch_root = _fixture_patches(tmp_path / "patches")
 
     checked = _run(package_root, patch_root, "--check")
@@ -138,10 +162,11 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
     assert "maxOutputTokens" in archimedes.read_text(encoding="utf-8")
     assert "maxProviderRequests" in archimedes.read_text(encoding="utf-8")
     assert "subagentMaxProviderRequests" in meta.read_text(encoding="utf-8")
+    assert "getExtensionStatuses" in footer.read_text(encoding="utf-8")
 
     repeated = _run(package_root, patch_root)
     assert repeated.returncode == 0, repeated.stderr
-    assert repeated.stdout.count("already applied") == 3
+    assert repeated.stdout.count("already applied") == 4
 
     package_json = package_root / "pi-langfuse/package.json"
     package_json.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.8"}), encoding="utf-8")
@@ -152,6 +177,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
 
 def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
     package_root = tmp_path / "node_modules"
+    _archimedes_footer(package_root)
     langfuse = _package(
         package_root,
         "pi-langfuse",
@@ -185,6 +211,7 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
 
 def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
     package_root = tmp_path / "node_modules"
+    _archimedes_footer(package_root)
     langfuse = _package(
         package_root,
         "pi-langfuse",
@@ -218,6 +245,7 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
 
 def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
     package_root = tmp_path / "node_modules"
+    _archimedes_footer(package_root)
     _package(
         package_root,
         "pi-langfuse",
@@ -244,6 +272,7 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
 
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
     package_root = tmp_path / "node_modules"
+    _archimedes_footer(package_root)
     langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.12", 'export const session = "file";\n')
     score_source = langfuse.parent / "src/langfuse.ts"
     score_source.write_text(
@@ -280,6 +309,7 @@ def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path)
         "export const result = {};\n",
     )
     meta = _archimedes_meta(package_root)
+    _archimedes_footer(package_root)
     patch_root = _fixture_patches(tmp_path / "patches")
 
     rejected = _run(package_root, patch_root)
@@ -332,9 +362,10 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
     langfuse = (PATCHES / "pi-langfuse-1.5.12.patch").read_text(encoding="utf-8")
     archimedes = (PATCHES / "pi-archimedes-subagent-2.0.1.patch").read_text(encoding="utf-8")
+    footer = (PATCHES / "pi-archimedes-footer-2.0.1.patch").read_text(encoding="utf-8")
     meta = (PATCHES / "pi-archimedes-meta-2.0.1.patch").read_text(encoding="utf-8")
     added = "\n".join(
-        line[1:] for line in (langfuse + archimedes + meta).splitlines()
+        line[1:] for line in (langfuse + archimedes + footer + meta).splitlines()
         if line.startswith("+") and not line.startswith("+++")
     )
 
@@ -379,11 +410,13 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "json.length > MAX_FINGERPRINT_CHARS" in archimedes
     assert '"--no-tools", "--no-extensions", "--no-skills", "--no-context-files"' in archimedes
     assert '"./config": "./src/config.ts"' in archimedes
+    assert "getExtensionStatuses" in footer
+    assert "truncateToWidth" in footer
     assert "subagentMaxProviderRequests" in meta
     assert "DEVELOPMENT.md" not in langfuse
     assert "diff --git a/test/" not in langfuse
     assert "diff --git a/src/" in meta
-    assert ".test.ts" not in archimedes + meta
+    assert ".test.ts" not in archimedes + footer + meta
     assert '"--mode", "json", "--no-session", "-p"' in archimedes
     assert "invocationId" not in added
 
