@@ -44,10 +44,10 @@ function statusText(state: WorkStatus, ctx: ExtensionContext): string | undefine
   if (state.items.length === 0) return undefined;
   const idWidth = Math.max(...state.items.map((item) => item.id.length));
   return state.items.map((item) => {
-    const text = `◐ ${item.id.padEnd(idWidth)}  P${item.priority}  ${item.title}`;
-    return item.id === state.activeBeadId
-      ? ctx.ui.theme.fg("mdHeading", ctx.ui.theme.bold(text))
-      : ctx.ui.theme.fg("syntaxString", text);
+    const current = item.id === state.activeBeadId;
+    const marker = ctx.ui.theme.fg(current ? "mdHeading" : "syntaxString", "◐");
+    const text = `${item.id.padEnd(idWidth)}  P${item.priority}  ${item.title}`;
+    return `${marker} ${current ? ctx.ui.theme.bold(text) : ctx.ui.theme.fg("muted", text)}`;
   }).join("\n");
 }
 
