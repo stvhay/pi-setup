@@ -1229,7 +1229,7 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
     assert not (tmp_path / "runs").exists()
 
 
-def test_work_status_projects_canonical_in_progress_items_in_priority_id_order(agnt):
+def test_work_status_projects_canonical_items_by_priority_and_id_without_creation_time(agnt):
     beads = [
         {"id": "pi-z.1", "title": "Later ID", "status": "in_progress", "priority": 2, "issue_type": "task"},
         {"id": "pi-b.1", "title": "Lower priority", "status": "in_progress", "priority": 1, "issue_type": "epic"},
@@ -1263,6 +1263,49 @@ def test_work_status_projects_canonical_in_progress_items_in_priority_id_order(a
         ],
     }
     assert calls == [["list", "--status", "in_progress"]]
+
+
+def test_work_status_orders_parent_before_children(agnt):
+    beads = [
+        {"id": "pi-demo-4.2", "title": "Child two", "status": "in_progress", "priority": 1, "issue_type": "task", "created_at": "2026-08-13T03:00:02Z", "dependencies": [{"depends_on_id": "pi-demo-4", "type": "parent-child"}]},
+        {"id": "pi-other", "title": "Other root", "status": "in_progress", "priority": 1, "issue_type": "task", "created_at": "2026-08-13T03:00:04Z"},
+        {"id": "pi-demo-4", "title": "Epic", "status": "in_progress", "priority": 2, "issue_type": "epic", "created_at": "2026-08-13T03:00:00Z"},
+        {"id": "pi-demo-4.10", "title": "Child ten", "status": "in_progress", "priority": 1, "issue_type": "task", "created_at": "2026-08-13T03:00:01Z", "parent": "pi-demo-4"},
+        {"id": "pi-demo-4.1", "title": "Child one", "status": "in_progress", "priority": 1, "issue_type": "task", "created_at": "2026-08-13T03:00:03Z", "parent": "pi-demo-4"},
+    ]
+    with patch.dict(
+        agnt.work_status.__globals__,
+        {
+            "run_beads_json": lambda _args: (0, beads, ""),
+            "current_session_work_item": lambda _session_id: "pi-demo-4",
+        },
+    ):
+        result = agnt.work_status("session-1")
+
+    assert [item["id"] for item in result["items"]] == [
+        "pi-other",
+        "pi-demo-4",
+        "pi-demo-4.10",
+        "pi-demo-4.2",
+        "pi-demo-4.1",
+    ]
+
+
+def test_work_status_does_not_infer_parent_from_id(agnt):
+    beads = [
+        {"id": "pi-demo-4.1", "title": "Unrelated root", "status": "in_progress", "priority": 1, "issue_type": "task"},
+        {"id": "pi-demo-4", "title": "Different root", "status": "in_progress", "priority": 2, "issue_type": "epic"},
+    ]
+    with patch.dict(
+        agnt.work_status.__globals__,
+        {
+            "run_beads_json": lambda _args: (0, beads, ""),
+            "current_session_work_item": lambda _session_id: None,
+        },
+    ):
+        result = agnt.work_status("session-1")
+
+    assert [item["id"] for item in result["items"]] == ["pi-demo-4.1", "pi-demo-4"]
 
 
 def test_work_status_rejects_unknown_issue_type(agnt):

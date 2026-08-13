@@ -848,6 +848,69 @@ def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, A
     }
 
 
+def natural_work_id_key(value: str) -> tuple[tuple[int, object], ...]:
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part)
+        for part in re.findall(r"\d+|\D+", value)
+    )
+
+
+def work_parent_id(bead: Dict[str, Any]) -> str | None:
+    parent = bead.get("parent")
+    if isinstance(parent, str) and BEAD_ID.fullmatch(parent):
+        return parent
+    for ref in bead.get("dependencies") or []:
+        if ref_type(ref) == "parent-child":
+            candidate = ref_id(ref)
+            if candidate and BEAD_ID.fullmatch(candidate):
+                return candidate
+    return None
+
+
+def order_work_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    by_id = {item["id"]: item for item in items}
+    children: Dict[str, List[Dict[str, Any]]] = {item["id"]: [] for item in items}
+    roots: List[Dict[str, Any]] = []
+    for item in items:
+        parent_id = item.get("_parentId")
+        if parent_id in by_id and parent_id != item["id"]:
+            children[parent_id].append(item)
+        else:
+            roots.append(item)
+
+    def sort_key(item: Dict[str, Any]) -> tuple[int, tuple[bool, str], tuple[tuple[int, object], ...]]:
+        created_at = item.get("_createdAt")
+        return (
+            item["priority"],
+            (created_at is None, created_at or ""),
+            natural_work_id_key(item["id"]),
+        )
+
+    for siblings in children.values():
+        siblings.sort(key=sort_key)
+    roots.sort(key=sort_key)
+
+    ordered: List[Dict[str, Any]] = []
+    emitted: set[str] = set()
+
+    def emit(item: Dict[str, Any]) -> None:
+        if item["id"] in emitted:
+            return
+        emitted.add(item["id"])
+        ordered.append(item)
+        for child in children[item["id"]]:
+            emit(child)
+
+    for root in roots:
+        emit(root)
+    for item in sorted(items, key=sort_key):
+        emit(item)
+    for item in ordered:
+        item.pop("_parentId", None)
+        item.pop("_createdAt", None)
+    return ordered
+
+
 def work_status(session_id: str) -> Dict[str, Any]:
     code, data, _error = run_beads_json(["list", "--status", "in_progress"])
     if code != 0 or not isinstance(data, list):
@@ -879,9 +942,20 @@ def work_status(session_id: str) -> Dict[str, Any]:
             or status != "in_progress"
         ):
             raise ValueError("in-progress Bead is malformed")
-        items.append({"id": bead_id, "priority": priority, "title": title, "issueType": issue_type})
+        items.append({
+            "id": bead_id,
+            "priority": priority,
+            "title": title,
+            "issueType": issue_type,
+            "_parentId": work_parent_id(bead),
+            "_createdAt": (
+                bead.get("created_at").strip()
+                if isinstance(bead.get("created_at"), str) and bead.get("created_at").strip()
+                else None
+            ),
+        })
 
-    items.sort(key=lambda item: (item["priority"], item["id"]))
+    items = order_work_items(items)
     return {
         "schemaVersion": 1,
         "status": "ok",
