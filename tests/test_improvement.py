@@ -3917,6 +3917,36 @@ def test_session_handoff_source_requires_linked_explicit_closeout():
         improvement.session_handoff_source(missing_outcome, session_id)
 
 
+def test_session_handoff_source_distinguishes_genuinely_unassigned_session():
+    unassigned = getattr(improvement, "SessionUnassigned", None)
+    assert unassigned is not None, "unassigned sessions need an exact domain signal"
+
+    with pytest.raises(unassigned, match="no linked work item"):
+        improvement.session_handoff_source(FakeSessionOwnershipClient(), "session")
+
+
+def test_current_session_handoff_source_confirms_unassigned_before_bypass(monkeypatch):
+    calls = []
+    sleeps = []
+
+    def delayed_source(_client, session_id):
+        calls.append(session_id)
+        if len(calls) == 1:
+            raise improvement.SessionUnassigned("temporarily absent")
+        return {"beadId": "pi-current.1", "outcome": "failure"}
+
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: object())
+    monkeypatch.setattr(improvement, "session_handoff_source", delayed_source)
+    monkeypatch.setattr(improvement, "sleep", sleeps.append)
+
+    assert improvement.current_session_handoff_source("session") == {
+        "beadId": "pi-current.1",
+        "outcome": "failure",
+    }
+    assert calls == ["session", "session"]
+    assert sleeps == [improvement.CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS]
+
+
 def test_session_handoff_source_rejects_invalid_outcome_without_visibility_retry():
     session_id = "018cc251-f400-7000-8000-000000000000"
     invalid = _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1")

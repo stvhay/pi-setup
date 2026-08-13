@@ -1266,6 +1266,10 @@ class SessionOutcomeUnavailable(ValueError):
     pass
 
 
+class SessionUnassigned(ValueError):
+    pass
+
+
 def _work_link_score_id(session_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"urn:agnt:improvement-work-item:{session_id}"))
 
@@ -1325,6 +1329,8 @@ def _assert_session_work_item(client: Any, session_id: str, bead_id: str) -> Non
 
 def session_handoff_source(client: Any, session_id: str) -> dict[str, str]:
     scores = _session_ownership_scores(client, session_id)
+    if not scores:
+        raise SessionUnassigned("current Pi session has no linked work item")
     links = _canonical_score_rows(scores, _work_link_score_id(session_id))
     metadata = links[0].get("metadata") if len(links) == 1 else None
     bead_id = metadata.get("beadId") if isinstance(metadata, dict) else None
@@ -1381,7 +1387,12 @@ def current_session_work_item(session_id: str) -> str | None:
 
 
 def current_session_handoff_source(session_id: str) -> dict[str, str]:
-    return session_handoff_source(_client_from_env(), session_id)
+    client = _client_from_env()
+    try:
+        return session_handoff_source(client, session_id)
+    except SessionUnassigned:
+        sleep(CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS)
+        return session_handoff_source(client, session_id)
 
 
 def current_session_closeout_source(session_id: str) -> dict[str, str]:

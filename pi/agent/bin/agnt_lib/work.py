@@ -20,6 +20,7 @@ from .health import check_status_passed, work_health_report
 from .improvement import (
     BEAD_ID,
     SessionOutcomeUnavailable,
+    SessionUnassigned,
     SessionWorkItemConflict,
     current_session_closeout_source,
     current_session_handoff_source,
@@ -772,22 +773,25 @@ def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, A
         return failed("current Pi session is unavailable")
     try:
         source = current_session_handoff_source(session_id)
+    except SessionUnassigned:
+        source = None
     except (OSError, RuntimeError, ValueError):
         return failed("current session closeout is unavailable")
-    if source["outcome"] != "success":
-        return failed("current session outcome is not successful")
 
-    source_bead_id = source["beadId"]
-    if source_bead_id == target_bead_id:
-        return failed("target work item matches current work item")
-    code, data, _error = run_beads_json(["show", source_bead_id])
-    source_bead = normalize_bead(data)
-    if code != 0 or not source_bead:
-        return failed("could not load current work item")
-    if str(source_bead.get("status") or "").lower() != "closed":
-        return failed("current work item is not closed")
-    if not handoff_closeout_is_clean(source_bead):
-        return failed("current work item closeout is incomplete")
+    source_bead_id = source["beadId"] if source else None
+    if source:
+        if source["outcome"] != "success":
+            return failed("current session outcome is not successful")
+        if source_bead_id == target_bead_id:
+            return failed("target work item matches current work item")
+        code, data, _error = run_beads_json(["show", source_bead_id])
+        source_bead = normalize_bead(data)
+        if code != 0 or not source_bead:
+            return failed("could not load current work item")
+        if str(source_bead.get("status") or "").lower() != "closed":
+            return failed("current work item is not closed")
+        if not handoff_closeout_is_clean(source_bead):
+            return failed("current work item closeout is incomplete")
 
     target_bead = None
     if target_bead_id is not None:
@@ -810,7 +814,7 @@ def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, A
         "beadId": source_bead_id,
         "outcome": source["outcome"],
         "status": "closed",
-    }
+    } if source else {"status": "unassigned"}
     if target_bead_id is None:
         non_epics = [item for item in ready_items if item.get("issue_type") != "epic"]
         candidates = non_epics or ready_items

@@ -10,14 +10,19 @@ function validBeadId(value: string): boolean {
   return value.length <= 200 && BEAD_ID.test(value);
 }
 
-function closedSourceFromPreflight(result: Record<string, unknown>): string | undefined {
+type HandoffSource =
+  | { status: "closed"; beadId: string }
+  | { status: "unassigned" };
+
+function sourceFromPreflight(result: Record<string, unknown>): HandoffSource | undefined {
   const source = result.source;
   if (!source || typeof source !== "object" || Array.isArray(source)) return undefined;
   const sourceRecord = source as Record<string, unknown>;
+  if (sourceRecord.status === "unassigned") return { status: "unassigned" };
   return sourceRecord.status === "closed" &&
     typeof sourceRecord.beadId === "string" &&
     validBeadId(sourceRecord.beadId)
-    ? sourceRecord.beadId
+    ? { status: "closed", beadId: sourceRecord.beadId }
     : undefined;
 }
 
@@ -42,8 +47,9 @@ function choicesFromPreflight(result: Record<string, unknown>): Array<{ id: stri
   });
 }
 
-const kickoffFor = (targetBead: string, sourceBead: string): string =>
-  `Work ${targetBead} in this fresh Pi session after closed ${sourceBead}. Before code changes run \`bd prime\`, \`bd ready\`, then \`agnt work direct-start ${targetBead}\`. Recover only \`bd show ${sourceBead}\`, \`bd show ${targetBead}\`, and artifacts those Beads reference. No prior transcript was copied.`;
+const kickoffFor = (targetBead: string, source: HandoffSource): string => source.status === "closed"
+  ? `Work ${targetBead} in this fresh Pi session after closed ${source.beadId}. Before code changes run \`bd prime\`, \`bd ready\`, then \`agnt work direct-start ${targetBead} --claim\`. Recover only \`bd show ${source.beadId}\`, \`bd show ${targetBead}\`, and artifacts those Beads reference. No prior transcript was copied.`
+  : `Work ${targetBead} in this fresh Pi session from an unassigned source session. Before code changes run \`bd prime\`, \`bd ready\`, then \`agnt work direct-start ${targetBead} --claim\`. Recover only \`bd show ${targetBead}\` and artifacts that Bead references. No prior transcript was copied.`;
 
 type HandoffContext = Pick<ExtensionContext, "cwd" | "mode" | "sessionManager" | "shutdown" | "ui">;
 
@@ -69,10 +75,10 @@ async function startHandoff(requestedTarget: string | undefined, ctx: HandoffCon
     if (!requestedTarget) throw new Error("Bead handoff selection was invalid; current session remains active");
     result = await preflight(requestedTarget);
   }
-  const sourceBead = closedSourceFromPreflight(result);
+  const source = sourceFromPreflight(result);
   const targetBead = targetFromPreflight(result);
-  if (result.status !== "ready" || !sourceBead || !targetBead || (requestedTarget && targetBead !== requestedTarget)) {
-    throw new Error("agnt work handoff-check did not validate a closed source Bead and ready target Bead");
+  if (result.status !== "ready" || !source || !targetBead || (requestedTarget && targetBead !== requestedTarget)) {
+    throw new Error("agnt work handoff-check did not validate source state and ready target Bead");
   }
 
   const replacement = requireProcessReplacement("/handoff-bead");
@@ -101,18 +107,18 @@ async function startHandoff(requestedTarget: string | undefined, ctx: HandoffCon
         nextSession.getSessionDir(),
         "--session",
         nextSessionFile,
-        kickoffFor(targetBead, sourceBead),
+        kickoffFor(targetBead, source),
       ],
       () => ctx.shutdown(),
       "Pi handoff",
-      ` Resume staged session ${nextSessionFile} and run agnt work direct-start ${targetBead}.`,
+      ` Resume staged session ${nextSessionFile} and run agnt work direct-start ${targetBead} --claim.`,
       () => {
         try {
           unlinkSync(nextSessionFile);
         } catch {
           // Best effort: shutdown is already exiting.
         }
-        return ` Start Pi in a fresh session and run agnt work direct-start ${targetBead}.`;
+        return ` Start Pi in a fresh session and run agnt work direct-start ${targetBead} --claim.`;
       },
     );
   } catch (error) {
@@ -139,10 +145,11 @@ export default function beadHandoff(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "handoff_bead",
     label: "Handoff Bead",
-    description: "After successful clean closeout, automatically start ready work or ask once when several choices exist",
-    promptSnippet: "Start ready work in a fresh Pi session after successful clean closeout",
+    description: "Start ready work after clean closeout, or an explicit target from an unassigned session",
+    promptSnippet: "Start ready work in a fresh Pi session after clean closeout or from an unassigned session",
     promptGuidelines: [
-      "Call handoff_bead without a target after recording a successful outcome, committing task-owned changes, and cleanly closing the current Bead.",
+      "Call handoff_bead without a target after recording a successful outcome, committing task-owned changes, and cleanly closing the current Bead, or from a persisted TUI session with no linked Bead when automatic selection is wanted.",
+      "Call handoff_bead with an explicit target from a persisted TUI session only when that session has no linked Bead or current work closed successfully.",
       "handoff_bead selects a sole ready Bead automatically, asks once when several are ready, and uses /new only as a human fallback when unavailable.",
     ],
     parameters: Type.Object({

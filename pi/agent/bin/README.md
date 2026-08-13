@@ -157,8 +157,9 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - `git worktree lock` is not used: it prevents administrative prune/move/remove but does not serialize commands inside a worktree. Git's index/ref lockfiles protect individual writes, not the full preflight/merge/verification transaction.
 
 - `agnt work handoff-check [BEAD] --session-id SESSION`
-  - Internal preflight for tracked Bead handoff extension. It requires one linked successful session outcome and closed source Bead. Without `BEAD`, it selects sole ready non-epic work or returns bounded choices; an explicit or selected target must exist in `bd ready` before fresh-session staging or process replacement.
-  - Returns bounded JSON containing source/target Bead IDs or ready choices, status, and outcome; it does not copy transcript content, stage session, or replace process itself.
+  - Internal preflight for tracked Bead handoff extension. A linked session requires one successful outcome and cleanly closed source Bead. A session with zero ownership and outcome records may hand off without closeout; malformed, conflicting, incomplete, or non-success ownership still fails closed.
+  - Without `BEAD`, it selects sole ready non-epic work or returns bounded choices. Every explicit or selected target must exist in `bd ready` before fresh-session staging or process replacement.
+  - Returns bounded JSON containing closed or unassigned source state, target Bead ID or ready choices, status, and any linked outcome; it does not copy transcript content, stage session, or replace process itself.
 
 - `agnt work next --json`
   - Reads Beads ready work and selects the first non-epic ready bead when available.

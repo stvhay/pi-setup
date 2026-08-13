@@ -1809,6 +1809,63 @@ def test_handoff_check_selects_only_ready_work_automatically(agnt):
     }
 
 
+def test_handoff_check_accepts_ready_target_from_genuinely_unassigned_session(agnt):
+    handoff_check = getattr(agnt, "handoff_check", None)
+    unassigned = getattr(agnt, "SessionUnassigned", None)
+    assert unassigned is not None, "unassigned sessions need an exact domain signal"
+    target = {"id": "pi-next.1", "status": "open"}
+    calls = []
+
+    def no_source(_session_id):
+        raise unassigned("current Pi session has no linked work item")
+
+    def fake_beads(args):
+        calls.append(args)
+        if args == ["show", target["id"]]:
+            return 0, [target], ""
+        if args == ["ready", "--limit", "0"]:
+            return 0, [target], ""
+        pytest.fail(f"unexpected Beads call: {args}")
+
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": no_source,
+        "run_beads_json": fake_beads,
+    }):
+        result = handoff_check(target["id"], session_id="unassigned-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "ready",
+        "source": {"status": "unassigned"},
+        "target": {"beadId": target["id"], "status": "open"},
+    }
+    assert calls == [
+        ["show", target["id"]],
+        ["ready", "--limit", "0"],
+    ]
+
+
+def test_handoff_check_does_not_treat_generic_source_failure_as_unassigned(agnt):
+    handoff_check = getattr(agnt, "handoff_check", None)
+
+    with patch.dict(handoff_check.__globals__, {
+        "current_session_handoff_source": lambda _session_id: (_ for _ in ()).throw(
+            ValueError("malformed ownership")
+        ),
+        "run_beads_json": lambda _args: pytest.fail(
+            "ambiguous source failure must block before Beads inspection"
+        ),
+    }):
+        result = handoff_check("pi-next.1", session_id="old-session")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "error",
+        "targetBead": "pi-next.1",
+        "error": "current session closeout is unavailable",
+    }
+
+
 def test_handoff_check_rejects_incomplete_closeout(agnt):
     handoff_check = getattr(agnt, "handoff_check", None)
     source = {"id": "pi-current.1", "status": "closed"}
