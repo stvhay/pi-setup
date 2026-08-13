@@ -11,7 +11,7 @@ SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
 GITMODULES = ROOT / ".gitmodules"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
-ARCHIMEDES_VENDOR_HEAD = "c1fd7799d5d84809801ba8f10be6d3e36a73cf42"
+ARCHIMEDES_VENDOR_HEAD = "4a77566046ab6c11c7bace02d45588a363857eef"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "c5da10a7cd0bced92ffc70e419d0198829a7a36c"
 

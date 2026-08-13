@@ -62,7 +62,7 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 ### Beads work in the footer
 
-`agent/extensions/beads-footer.ts` adds one keyed status line without replacing the active footer. It lists every canonical `in_progress` Bead as `<id> P<priority> <title>` in priority/ID order and uses the active theme's accent/bold styling for the Bead linked to the current Pi session. Pi's built-in footer renders keyed statuses natively; the version-locked Archimedes footer patch preserves that contract when its custom footer is active. The status refreshes on session startup/reload and after tools that can change Beads; empty, malformed, or failed reads clear it. This data remains presentation-only and is not added to model context.
+`agent/extensions/beads-footer.ts` adds one keyed status without replacing the active footer. It lists every canonical `in_progress` Bead as `<id> P<priority> <title>` in priority/ID order and uses the active theme's accent/bold styling for the Bead linked to the current Pi session. Pi's built-in footer renders keyed statuses natively; the version-locked Archimedes footer patch preserves them as separate sorted, sanitized, width-bounded rows when its custom footer is active. Multiple Beads remain together inside the Beads row. The status refreshes on session startup/reload and after tools that can change Beads; empty, malformed, or failed reads clear it. This data remains presentation-only and is not added to model context.
 
 ### Start the next Bead in a fresh session
 

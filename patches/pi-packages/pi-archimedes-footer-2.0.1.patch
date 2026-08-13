@@ -1,22 +1,20 @@
 diff --git a/src/index.ts b/src/index.ts
-index ee1200a..717426e 100644
+index ee1200a..423f3ae 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -70,0 +71,9 @@ export function registerFooter(pi: ExtensionAPI): void {
-+            const extensionStatuses = footerData.getExtensionStatuses();
-+            const extensionLines = extensionStatuses.size === 0 ? [] : [truncateToWidth(
-+              Array.from(extensionStatuses.entries())
-+                .sort(([a], [b]) => a.localeCompare(b))
-+                .map(([, text]) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim())
-+                .join(" "),
-+              width,
-+              theme.fg("dim", "..."),
-+            )];
-@@ -131 +140 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -70,0 +71,7 @@ export function registerFooter(pi: ExtensionAPI): void {
++            const extensionLines = Array.from(footerData.getExtensionStatuses().entries())
++              .sort(([a], [b]) => a.localeCompare(b))
++              .map(([, text]) => truncateToWidth(
++                text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim(),
++                width,
++                theme.fg("dim", "..."),
++              ));
+@@ -131 +138 @@ export function registerFooter(pi: ExtensionAPI): void {
 -                return [clampLine(leftSectionStr, width)];
 +                return [clampLine(leftSectionStr, width), ...extensionLines];
-@@ -136,0 +146 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -136,0 +144 @@ export function registerFooter(pi: ExtensionAPI): void {
 +                ...extensionLines,
-@@ -160 +170 @@ export function registerFooter(pi: ExtensionAPI): void {
+@@ -160 +168 @@ export function registerFooter(pi: ExtensionAPI): void {
 -            return [clampLine(leftSectionStr + sectionSeparator + rightSectionStr, width)];
 +            return [clampLine(leftSectionStr + sectionSeparator + rightSectionStr, width), ...extensionLines];
