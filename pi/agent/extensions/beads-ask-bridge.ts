@@ -20,12 +20,31 @@ const PreviewSchema = Type.Object({
 	closeoutPath: Type.String({ description: "How the decision will be closed out and evidenced" }),
 });
 
+const CapabilityGrantSchema = Type.Object({
+	action: Type.String(),
+	effects: Type.Array(Type.String()),
+	model: Type.String(),
+	thinking: Type.String(),
+	toolset: Type.Array(Type.String()),
+	contextPolicy: Type.String(),
+	proof: Type.Object({
+		required: Type.Array(Type.String()),
+		evidenceRefs: Type.Array(Type.String()),
+	}),
+	rollout: Type.Object({
+		maxActions: Type.Integer({ minimum: 1 }),
+		maxEffects: Type.Integer({ minimum: 1 }),
+	}),
+	expiry: Type.String(),
+});
+
 const RequestProperties = {
 	targetBead: Type.String({ description: "Bead blocked by this human decision" }),
 	question: Type.String({ description: "Question shown to the user and stored in Beads" }),
 	context: Type.String({ description: "Decision context sufficient for handoff" }),
 	options: Type.Array(Type.String(), { description: "Available answers/options" }),
 	default: Type.Optional(Type.String({ description: "Requested default option" })),
+	grant: Type.Optional(CapabilityGrantSchema),
 	runBundle: Type.Optional(Type.String({ description: "Path to .pi/runs/<id> bundle to update" })),
 	preview: PreviewSchema,
 };
@@ -55,6 +74,17 @@ interface RequestParams {
 	context: string;
 	options: string[];
 	default?: string;
+	grant?: {
+		action: string;
+		effects: string[];
+		model: string;
+		thinking: string;
+		toolset: string[];
+		contextPolicy: string;
+		proof: { required: string[]; evidenceRefs: string[] };
+		rollout: { maxActions: number; maxEffects: number };
+		expiry: string;
+	};
 	runBundle?: string;
 	preview: {
 		action: string;
@@ -113,6 +143,7 @@ function requestArgs(kind: "question" | "approval", params: RequestParams): stri
 		args.push("--selection-mode", params.selectionMode);
 	}
 	if (params.default) args.push("--default", params.default);
+	if (params.grant) args.push("--grant", JSON.stringify(params.grant));
 	if (params.runBundle) args.push("--run-bundle", params.runBundle);
 	return args;
 }
@@ -192,6 +223,19 @@ function approvalMessage(params: RequestParams, decisionBead: string): string {
 		`Consequences: ${params.preview.consequences}`,
 		`Reversibility: ${params.preview.reversibility}`,
 		`Closeout path: ${params.preview.closeoutPath}`,
+		...(params.grant ? [
+			"",
+			`Capability action: ${params.grant.action}`,
+			`Effects: [${params.grant.effects.join(", ")}]`,
+			`Model: ${params.grant.model}`,
+			`Thinking: ${params.grant.thinking}`,
+			`Toolset: [${params.grant.toolset.join(", ")}]`,
+			`Context policy: ${params.grant.contextPolicy}`,
+			`Proof: ${params.grant.proof.required.join(", ")}`,
+			`Proof evidence: ${params.grant.proof.evidenceRefs.join(", ")}`,
+			`Rollout ceiling: ${params.grant.rollout.maxActions} actions / ${params.grant.rollout.maxEffects} effects`,
+			`Grant expiry: ${params.grant.expiry}`,
+		] : []),
 	].join("\n");
 }
 

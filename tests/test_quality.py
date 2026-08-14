@@ -1009,6 +1009,42 @@ def test_inv13_high_consequence_ceiling_and_unknown_budget_fail_closed():  # Tes
     assert unknown["route"] == "human"
 
 
+def _capability_grant():
+    return {
+        "action": "edit",
+        "effects": ["workspace.write"],
+        "model": "openai/gpt-5",
+        "thinking": "high",
+        "toolset": ["read", "edit", "bash"],
+        "contextPolicy": "task-scoped",
+        "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
+        "rollout": {"maxActions": 1, "maxEffects": 1},
+        "expiry": "2099-01-01T00:00:00Z",
+    }
+
+
+def test_inv14_capability_grant_fingerprint_excludes_only_mutable_state():  # Tests INV-14
+    grant = quality.normalize_capability_grant(_capability_grant(), require_future=True)
+    active = {**grant, "revocation": {"status": "active", "reason": None, "at": None}}
+
+    assert grant["schemaVersion"] == 1
+    assert quality.capability_grant_fingerprint(grant) == quality.capability_grant_fingerprint(active)
+    assert quality.capability_grant_status(active) == "active"
+
+    with pytest.raises(ValueError, match="capability grant"):
+        quality.normalize_capability_grant({**_capability_grant(), "rollout": {"maxActions": 0, "maxEffects": 1}})
+
+
+def test_fail12_expired_capability_grant_is_not_active():  # Tests FAIL-12
+    grant = _capability_grant()
+    grant["expiry"] = "2020-01-01T00:00:00Z"
+    grant["revocation"] = {"status": "active", "reason": None, "at": None}
+
+    assert quality.capability_grant_status(grant) == "expired"
+    with pytest.raises(ValueError, match="capability grant fields"):
+        quality.normalize_capability_grant({**grant, "conditions": ["if tests pass"]})
+
+
 def test_fail11_canary_requires_learning_contract_and_ceiling():  # Tests FAIL-11
     with pytest.raises(ValueError, match="canary"):
         quality.assess_risk(_risk_request(

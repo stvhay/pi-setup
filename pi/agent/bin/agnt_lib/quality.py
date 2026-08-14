@@ -149,6 +149,23 @@ MAX_EVIDENCE_REFS = 16
 MAX_LEDGER_BYTES = 16 * 1024 * 1024
 MAX_SNAPSHOT_BYTES = 64 * 1024
 HASH_REF = re.compile(r"sha256:[0-9a-f]{64}\Z")
+CAPABILITY_GRANT_FIELDS = frozenset({
+    "action",
+    "effects",
+    "model",
+    "thinking",
+    "toolset",
+    "contextPolicy",
+    "proof",
+    "rollout",
+    "expiry",
+})
+CAPABILITY_GRANT_FINGERPRINT_FIELDS = CAPABILITY_GRANT_FIELDS
+CAPABILITY_PROOF_FIELDS = frozenset({"required", "evidenceRefs"})
+CAPABILITY_ROLLOUT_FIELDS = frozenset({"maxActions", "maxEffects"})
+CAPABILITY_REVOCATION_FIELDS = frozenset({"status", "reason", "at"})
+CAPABILITY_REVOCATION_STATUSES = frozenset({"pending", "active", "revoked", "expired"})
+CAPABILITY_THINKING_LEVELS = frozenset({"off", "minimal", "low", "medium", "high", "xhigh"})
 FINDING_STATUSES = ("unverified", "confirmed", "refuted", "unresolved")
 VERIFICATION_METHODS = frozenset({"test", "reproducer", "inspection", "profile", "specification"})
 EVIDENCE_REF_FIELDS = frozenset({
@@ -950,6 +967,124 @@ def _text_list(value: Any) -> bool:
         and all(_text(item) for item in value)
         and len(set(value)) == len(value)
     )
+
+
+def _capability_time(value: Any, field: str) -> str:
+    parsed = _parse_time(value)
+    if parsed is None or parsed.tzinfo is None:
+        raise ValueError(f"capability grant {field} is invalid")
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _capability_now(value: datetime | str | None) -> datetime:
+    if value is None:
+        return datetime.now(timezone.utc)
+    if isinstance(value, str):
+        value = _parse_time(value)
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise ValueError("capability grant time is invalid")
+    return value.astimezone(timezone.utc)
+
+
+def _capability_revocation(value: Any) -> dict[str, Any]:
+    if value is None:
+        value = {"status": "pending", "reason": None, "at": None}
+    if not isinstance(value, dict) or set(value) != CAPABILITY_REVOCATION_FIELDS:
+        raise ValueError("capability grant revocation fields are invalid")
+    status = value.get("status")
+    if status not in CAPABILITY_REVOCATION_STATUSES:
+        raise ValueError("capability grant revocation status is invalid")
+    reason = value.get("reason")
+    at = value.get("at")
+    if reason is not None and not _text(reason):
+        raise ValueError("capability grant revocation reason is invalid")
+    if at is not None:
+        at = _capability_time(at, "revocation at")
+    if status in {"pending", "active"} and (reason is not None or at is not None):
+        raise ValueError("capability grant revocation state is invalid")
+    if status in {"revoked", "expired"} and (not reason or at is None):
+        raise ValueError("capability grant revocation state is invalid")
+    return {"status": status, "reason": reason, "at": at}
+
+
+def normalize_capability_grant(
+    value: Any,
+    *,
+    require_future: bool = False,
+    now: datetime | str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("capability grant must be an object")
+    allowed = CAPABILITY_GRANT_FIELDS | {"schemaVersion", "revocation"}
+    if set(value) - allowed or not CAPABILITY_GRANT_FIELDS.issubset(value):
+        raise ValueError("capability grant fields are invalid")
+    if "schemaVersion" in value and value["schemaVersion"] != 1:
+        raise ValueError("capability grant schema is invalid")
+    if not _text(value.get("action")) or not _text(value.get("model")):
+        raise ValueError("capability grant action or model is invalid")
+    if value.get("thinking") not in CAPABILITY_THINKING_LEVELS:
+        raise ValueError("capability grant thinking is invalid")
+    if not _text_list(value.get("effects")) or not _text_list(value.get("toolset")):
+        raise ValueError("capability grant effects or toolset is invalid")
+    if not _text(value.get("contextPolicy")):
+        raise ValueError("capability grant context policy is invalid")
+
+    proof = value.get("proof")
+    if not isinstance(proof, dict) or set(proof) != CAPABILITY_PROOF_FIELDS:
+        raise ValueError("capability grant proof fields are invalid")
+    if not _text_list(proof.get("required")):
+        raise ValueError("capability grant proof requirements are invalid")
+    evidence_refs = proof.get("evidenceRefs")
+    try:
+        _evidence_refs(evidence_refs)
+    except ValueError as exc:
+        raise ValueError("capability grant proof evidence is invalid") from exc
+    if not evidence_refs:
+        raise ValueError("capability grant proof evidence is invalid")
+
+    rollout = value.get("rollout")
+    if not isinstance(rollout, dict) or set(rollout) != CAPABILITY_ROLLOUT_FIELDS:
+        raise ValueError("capability grant rollout fields are invalid")
+    if any(type(rollout[field]) is not int or rollout[field] < 1 or rollout[field] > 10000 for field in CAPABILITY_ROLLOUT_FIELDS):
+        raise ValueError("capability grant rollout ceiling is invalid")
+
+    expiry = _capability_time(value.get("expiry"), "expiry")
+    expiry_time = _parse_time(expiry)
+    current = _capability_now(now)
+    if require_future and (expiry_time is None or expiry_time <= current):
+        raise ValueError("capability grant expiry must be in the future")
+    return {
+        "schemaVersion": 1,
+        "action": value["action"].strip(),
+        "effects": [item.strip() for item in value["effects"]],
+        "model": value["model"].strip(),
+        "thinking": value["thinking"],
+        "toolset": [item.strip() for item in value["toolset"]],
+        "contextPolicy": value["contextPolicy"].strip(),
+        "proof": {
+            "required": [item.strip() for item in proof["required"]],
+            "evidenceRefs": list(evidence_refs),
+        },
+        "rollout": dict(rollout),
+        "expiry": expiry,
+        "revocation": _capability_revocation(value.get("revocation")),
+    }
+
+
+def capability_grant_fingerprint(value: Any) -> str:
+    grant = normalize_capability_grant(value)
+    return _fingerprint({field: grant[field] for field in CAPABILITY_GRANT_FINGERPRINT_FIELDS})
+
+
+def capability_grant_status(value: Any, *, now: datetime | str | None = None) -> str:
+    grant = normalize_capability_grant(value, now=now)
+    status = grant["revocation"]["status"]
+    if status == "active":
+        expiry = _parse_time(grant["expiry"])
+        current = _capability_now(now)
+        if expiry is not None and expiry <= current:
+            return "expired"
+    return status
 
 
 def validate_evidence_ref(value: Any) -> dict[str, Any]:

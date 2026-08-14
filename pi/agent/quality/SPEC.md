@@ -10,7 +10,7 @@ Provide one Git-tracked quality control plan, one deterministic local entry poin
 
 `validate_finding()` and `validate_evidence_ref()` define only fields shared by actionable findings. Review, health, and improvement adapters retain their domain fields; this contract does not replace their enclosing result schemas. Public adapters may carry only core fields plus an explicit safe extension allowlist, so raw private evidence stays behind bounded EvidenceRefs. Improvement schema-3 packets expose one private EvidenceRef per session and deterministically emit one colocated ReviewAssignment. That assignment fixes scope, rubric, private evidence, demonstrated-capability and provider-authorization constraints, output, one-attempt stop rules, and empty effect authority. Policy-v4 results must cite the exact assignment and packet evidence. Policy-v1/v2/v3 decisions remain readable through compatibility validation, with unknown evidence stage preserved where older formats omitted it.
 
-Assigned-agent results normalize to `review` evidence only after domain validation and exact assignment/evidence binding. Transient `ask` results normalize in memory to session-retained `answer` constraints. Durable ticket questions and approvals normalize to pointer-backed `answer` or `authorization` constraints in Beads metadata; neither implies `acceptance`, and normalized results carry no effect authority. Approval requests fingerprint kind, target, question, context, options, default, and informed preview; resolution verifies that identity against an append-only Beads provenance event, so changed approved scope requires a new request.
+Assigned-agent results normalize to `review` evidence only after domain validation and exact assignment/evidence binding. Transient `ask` results normalize in memory to session-retained `answer` constraints. Durable ticket questions and approvals normalize to pointer-backed `answer` or `authorization` constraints in Beads metadata; neither implies `acceptance`, and normalized results carry no effect authority. Approval requests fingerprint kind, target, question, context, options, default, and informed preview; capability approvals additionally store an exact action/effects/model/thinking/toolset/context-policy/proof/rollout/expiry envelope and fingerprint. Resolution verifies identity against an append-only Beads provenance event and reads only resolved human-UI decision state; changed or conditional scope requires a new request, while expiry and revocation can only remove effects.
 
 Langfuse annotation queues normalize to bounded `review` evidence through current queue, queue-item, v3 score, and score-config API fields. Output retains opaque refs, reviewer refs, score-config types, queue scope, completeness, and gaps; score values, comments, corrected outputs, project IDs, subjects, and user IDs stay behind refs. Queue evidence never implies acceptance or authorization.
 
@@ -48,6 +48,8 @@ quality/
 | `normalize_assigned_review_result(assignment, result)` | After domain validation, bind one completed assigned-agent result to its exact assignment evidence and return typed `review` evidence with no authority. |
 | `normalize_ask_result(result)` | Validate one portable `ask` answer and return a session-retained `answer` constraint without persistence or authority. |
 | `normalize_ticket_decision_result(decision_bead, decision)` | Return a durable pointer-backed `answer` or `authorization` constraint from resolved Beads decision metadata; never infer acceptance or effects. |
+| `normalize_capability_grant(value)` / `capability_grant_fingerprint(value)` | Validate one exact capability envelope and fingerprint its immutable ceiling fields, excluding only mutable revocation state. |
+| `resolve_capability_grant(decision_bead)` | Read one resolved human-UI approval decision, automatically mark pending grants active or expired, and return no effects after expiry/revocation. |
 | `normalize_langfuse_annotation_result(...)` | Convert at most 16 current-API annotation rows into opaque private EvidenceRefs with reviewer, score-config, scope, completeness, gaps, and empty authority. |
 | `normalize_external_result(result)` | Validate one editor review or BetterWright takeover artifact with safe relative paths, sensitivity-bounded EvidenceRefs, exact provenance/state, and empty authority. |
 | `improvement.import_langfuse_annotation_evidence(client, queue_id)` | Read one optional Langfuse queue through the bounded service port and preserve unavailable or truncated reads as explicit gaps. |
@@ -86,6 +88,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | INV-11 | Editor review and human-takeover results cross one metadata-only boundary with exact source/category, relative artifact path, scope, EvidenceRefs, human adapter/session provenance, state, gaps, and empty authority. Partial/lost/uncertain takeover state retains a safe resumption path. | Exact-field validation, sensitivity ordering, source/category/adapter binding, canonical relative paths, and fixed non-authorizing output. |
 | INV-12 | The control plan contains exactly the approved 12 metric definitions. Derived observations retain numerator, denominator, state, and decision eligibility; unknown/lower-bound evidence is never eligible, and privacy/unauthorized-mutation guards are zero-tolerance. | Control-plan validation, pure `derive_core_metrics()`, existing evidence-source inputs, and no metric-store writes. |
 | INV-13 | Risk assessment is versioned and component-based: expected loss is failure probability × consequence; expected utility includes benefit, information value, and resource cost; hard guards and uncertainty dominate utility; normal and high-consequence resource ceilings are enforced; canary requests bind hypothesis, evidence, stop rule, and error budget. | `assess_risk()` and control-plan risk-policy validation. |
+| INV-14 | A capability grant fingerprints exactly action, effects, model, thinking, toolset, context policy, proof, rollout ceiling, and expiry. Only resolved human-UI Bead state can activate it; state updates cannot alter its fingerprinted ceiling. | Capability-grant validator, append-only request fingerprint, resolved decision lookup, and bounded revocation update. |
 
 ## Failure Modes
 
@@ -102,16 +105,17 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-9 | Editor/takeover result normalization fails. | Artifact or resumption path is absolute, non-canonical, or escaping; evidence exceeds artifact sensitivity; provenance/state is malformed; raw evidence or nested authority fields are embedded. | Reject whole result, persist nothing, and leave native editor/browser ownership and resumption external. |
 | FAIL-10 | A quality metric cannot be decided. | Source evidence is missing, unknown, lower-bound, or incomplete; a zero-tolerance guard lacks complete coverage. | Return explicit non-eligible state; never convert missingness into zero or success. |
 | FAIL-11 | Risk assessment cannot safely recommend an effect. | A hard guard fails or is unknown, uncertainty is high, measurement is unknown/exceeded, or a canary request lacks its bounded learning contract. | Disable or route human; reject malformed canary requests; never trade a guard for positive utility. |
+| FAIL-12 | Capability grant is malformed, changed, conditional, expired, revoked, or lacks human-UI decision provenance. | Envelope fields, fingerprint, proof, rollout ceiling, expiry, revocation state, or append-only request identity is invalid. | Reject or update state fail-closed; return empty effects and require a new exact approval. |
 
 ## Adapter Boundaries
 
-- Beads remains durable work and human-authority store. Observe kernel neither reads grants nor mutates Beads.
+- Beads remains durable work and human-authority store. The quality observe kernel does not authorize effects; approval handling stores and reads exact grants only from resolved decision Beads.
 - Repository workspace remains source of policy only. `apply()` never edits workspace files.
 - No scheduler, daemon, service, polling loop, or background process lives here.
 - No model-facing typed tool is added; external callers use stable `agnt quality ... --json` CLI commands.
 - Reviewer output is not authority. ReviewAssignment and result schemas reject grant, mode, authority, and effect claims. The existing `review` action may read workspace evidence and write a private result artifact, but cannot mutate workspace, Beads, or external state.
 - `ask` normalization is pure and session-local: the Pi adapter sends answer JSON to the deterministic CLI over stdin and returns `qualityResults` in the same tool result. Durable question/approval normalization happens only in dedicated Beads decision handling; `ticket_gateway` remains limited to list/show/tree/create_draft.
-- Request fingerprints bind approval resolution to created kind, target, prompt/context, choices/default, informed preview, and an append-only Beads provenance event. A changed, recomputed, missing, or unverifiable fingerprint cannot approve; callers create a new request rather than editing old authority.
+- Request fingerprints bind approval resolution to created kind, target, prompt/context, choices/default, informed preview, and, for capability approvals, the exact grant fingerprint and append-only Beads provenance event. A changed, recomputed, missing, conditional, or unverifiable fingerprint cannot approve; callers create a new request rather than editing old authority. Automatic activation, expiry, and revocation mutate state only, never ceiling fields.
 - Langfuse remains optional evidence storage. Annotation import uses `GET /api/public/annotation-queues/{id}`, its bounded item page, `GET /api/public/v3/scores` with `details,subject,annotation`, and score-config reads. It adds no scheduler, persistence, retry loop, Beads mutation, or authority path.
 - Nvim/editor and BetterWright own native interaction and policy. Quality accepts only their validated result metadata; it does not open editors, automate browsers, resume takeovers, or interpret save/manual execution as approval or acceptance.
 - Private review requires demonstrated reviewer capability. Human and local/self-hosted review are eligible classes; any other provider requires explicit authorization before packet access.
@@ -135,6 +139,8 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | Langfuse queue is unavailable, truncated, pending, or incompletely bound | Return unavailable/partial review evidence plus fixed gaps; do not count it as acceptance or authorization. | INV-10, FAIL-8 |
 | Editor review completes | Normalize scoped review evidence; file save grants no authority or acceptance. | INV-11 |
 | Human takeover is partial, lost, or uncertain | Preserve state/gaps and require a safe resumption path; infer no success. | INV-11, FAIL-9 |
+| Capability grant expires or is revoked | Update decision metadata below the stored ceiling and return no allowed effects. | INV-14, FAIL-12 |
+| Capability scope changes or adds conditions | Reject old decision and require a new exact preview/request. | INV-14, FAIL-12 |
 
 ## Testing
 
@@ -160,6 +166,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-9 | `tests/test_quality.py::test_fail9_external_result_rejects_unsafe_or_authorizing_artifacts` |
 | INV-12, FAIL-10 | `tests/test_quality.py::test_inv12_core_metrics_are_decision_linked_and_bounded`, `test_inv12_unknown_and_lower_bound_metrics_cannot_count_as_success`, and `test_inv12_zero_tolerance_metrics_require_complete_evidence`; summary integration in `tests/test_review.py`. |
 | INV-13, FAIL-11 | `tests/test_quality.py::test_inv13_risk_assessment_reports_components_and_normal_ceiling`, `test_fail11_hard_guard_blocks_positive_utility`, `test_inv13_high_consequence_ceiling_and_unknown_budget_fail_closed`, and `test_fail11_canary_requires_learning_contract_and_ceiling`. |
+| INV-14, FAIL-12 | `tests/test_quality.py::test_inv14_capability_grant_fingerprint_excludes_only_mutable_state`, `test_fail12_expired_capability_grant_is_not_active`, and exact Beads/bridge cases in `tests/test_approvals.py`. |
 | CLI/boundaries | `tests/test_quality.py::test_quality_assess_apply_status_cli_contract`, `tests/test_ticket_gateway.py`, and quality checks in `tests/test_context_architecture.py` |
 
 Focused command:

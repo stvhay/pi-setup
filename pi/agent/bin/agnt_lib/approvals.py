@@ -3,12 +3,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 from .core import die
-from .quality import normalize_ticket_decision_result
+from .quality import (
+    capability_grant_fingerprint,
+    capability_grant_status,
+    normalize_capability_grant,
+    normalize_ticket_decision_result,
+)
 from .runs import update_run_result
 from .work import run_beads_json
 
@@ -70,7 +76,7 @@ def _request_fingerprint(approval: Dict[str, Any]) -> str:
     default = _require_nonempty("default", approval.get("default"))
     if default not in options:
         raise ValueError("approval request default is invalid")
-    return _fingerprint({
+    identity = {
         "kind": kind,
         "targetBead": target,
         "question": question,
@@ -78,7 +84,12 @@ def _request_fingerprint(approval: Dict[str, Any]) -> str:
         "options": options,
         "default": default,
         "preview": _normalize_preview(approval.get("preview")),
-    })
+    }
+    if "grantFingerprint" in approval:
+        identity["grantFingerprint"] = _require_nonempty(
+            "grant_fingerprint", approval.get("grantFingerprint")
+        )
+    return _fingerprint(identity)
 
 
 def _provenance_request_fingerprints(value: Any) -> set[str]:
@@ -104,16 +115,76 @@ def _provenance_request_fingerprints(value: Any) -> set[str]:
     return found.union(*(_provenance_request_fingerprints(item) for item in value.values()), set())
 
 
+def _provenance_grant_states(value: Any) -> list[tuple[str, str]]:
+    if isinstance(value, list):
+        states: list[tuple[str, str]] = []
+        for item in value:
+            states.extend(_provenance_grant_states(item))
+        return states
+    if not isinstance(value, dict):
+        return []
+    payload = value.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = None
+    states: list[tuple[str, str]] = []
+    if isinstance(payload, dict) and payload.get("schemaVersion") == 1:
+        kind = payload.get("kind")
+        fingerprint = payload.get("grantFingerprint")
+        status = payload.get("status")
+        if kind == "approval-request":
+            status = payload.get("grantStatus")
+        if isinstance(fingerprint, str) and isinstance(status, str):
+            states.append((fingerprint, status))
+    for item in value.values():
+        states.extend(_provenance_grant_states(item))
+    return states
+
+
+def _record_grant_state(
+    decision_bead: str,
+    grant: Dict[str, Any],
+    beads_runner: BeadsRunner,
+) -> None:
+    code, data, err = beads_runner([
+        "provenance", "record",
+        "--issue", decision_bead,
+        "--kind", "cut",
+        "--source", "agnt-capability",
+        "--at", utc_now(),
+        "--payload", _json_arg({
+            "schemaVersion": 1,
+            "kind": "grant-state",
+            "grantFingerprint": capability_grant_fingerprint(grant),
+            "status": grant["revocation"]["status"],
+        }),
+    ])
+    _require_beads_success(code, data, err, "record capability grant state")
+
+
 def _require_unchanged_approval_preview(
     decision_bead: str,
     approval: Dict[str, Any],
     beads_runner: BeadsRunner,
 ) -> None:
+    grant_fingerprint = None
+    current_grant_status = None
     try:
         preview_fingerprint = _preview_fingerprint(_normalize_preview(approval.get("preview")))
         request_fingerprint = _request_fingerprint(approval)
     except ValueError as exc:
         raise ValueError("approval preview changed; create a new approval request") from exc
+    if "grant" in approval:
+        try:
+            grant = normalize_capability_grant(approval.get("grant"))
+            grant_fingerprint = capability_grant_fingerprint(grant)
+        except ValueError as exc:
+            raise ValueError("approval preview changed; create a new approval request") from exc
+        if approval.get("grantFingerprint") != grant_fingerprint:
+            raise ValueError("approval preview changed; create a new approval request")
+        current_grant_status = grant["revocation"]["status"]
     if (
         approval.get("previewFingerprint") != preview_fingerprint
         or approval.get("requestFingerprint") != request_fingerprint
@@ -123,6 +194,23 @@ def _require_unchanged_approval_preview(
     provenance = _require_beads_success(code, data, err, "read approval provenance")
     if _provenance_request_fingerprints(provenance) != {request_fingerprint}:
         raise ValueError("approval preview changed; create a new approval request")
+    if grant_fingerprint is not None:
+        states = _provenance_grant_states(provenance)
+        state_rank = {"pending": 0, "active": 1, "revoked": 2, "expired": 2}
+        highest_state = -1
+        terminal_state = None
+        for fingerprint, status in states:
+            if fingerprint != grant_fingerprint:
+                raise ValueError("approval grant changed; create a new approval request")
+            if status not in state_rank:
+                raise ValueError("approval grant state changed; create a new approval request")
+            highest_state = max(highest_state, state_rank[status])
+            if status in {"revoked", "expired"}:
+                terminal_state = status
+        if state_rank.get(current_grant_status, -1) < highest_state:
+            raise ValueError("approval grant state changed; create a new approval request")
+        if terminal_state is not None and terminal_state != current_grant_status:
+            raise ValueError("approval grant state changed; create a new approval request")
 
 
 def approval_request_payload(
@@ -135,6 +223,7 @@ def approval_request_payload(
     options: List[str],
     default: str | None,
     preview: Dict[str, Any],
+    grant: Dict[str, Any] | None = None,
     created_at: str | None = None,
 ) -> Dict[str, Any]:
     """Build the durable Beads decision payload for a human gate.
@@ -158,6 +247,12 @@ def approval_request_payload(
     if chosen_default not in choices:
         raise ValueError("default must match one of the options")
     normalized_preview = _normalize_preview(preview)
+    grant_input = grant if grant is not None else preview.get("grant")
+    normalized_grant = None
+    if grant_input is not None:
+        if kind != "approval":
+            raise ValueError("capability grant requires an approval")
+        normalized_grant = normalize_capability_grant(grant_input, require_future=True)
     timestamp = created_at or utc_now()
 
     labels = ["beads-backed", "human", "human-gate", "ask", kind]
@@ -179,6 +274,9 @@ def approval_request_payload(
         "status": "pending",
         "createdAt": timestamp,
     }
+    if normalized_grant is not None:
+        approval["grant"] = normalized_grant
+        approval["grantFingerprint"] = capability_grant_fingerprint(normalized_grant)
     if normalized_selection_mode is not None:
         approval["selectionMode"] = normalized_selection_mode
         approval["customResponseAllowed"] = True
@@ -205,6 +303,20 @@ def approval_request_payload(
         f"- Consequences: {normalized_preview['consequences']}",
         f"- Reversibility: {normalized_preview['reversibility']}",
         f"- Closeout path: {normalized_preview['closeoutPath']}",
+        *([
+            "",
+            "Capability grant:",
+            f"- Action: {normalized_grant['action']}",
+            f"- Effects: {', '.join(normalized_grant['effects'])}",
+            f"- Model: {normalized_grant['model']}",
+            f"- Thinking: {normalized_grant['thinking']}",
+            f"- Toolset: {', '.join(normalized_grant['toolset'])}",
+            f"- Context policy: {normalized_grant['contextPolicy']}",
+            f"- Proof: {', '.join(normalized_grant['proof']['required'])}",
+            f"- Proof evidence: {', '.join(normalized_grant['proof']['evidenceRefs'])}",
+            f"- Rollout ceiling: {normalized_grant['rollout']['maxActions']} actions / {normalized_grant['rollout']['maxEffects']} effects",
+            f"- Expiry: {normalized_grant['expiry']}",
+        ] if normalized_grant else []),
     ])
     return {
         "title": prompt,
@@ -244,6 +356,7 @@ def create_beads_approval_request(
     options: List[str],
     default: str | None = None,
     preview: Dict[str, Any],
+    grant: Dict[str, Any] | None = None,
     run_bundle: Path | None = None,
     beads_runner: BeadsRunner = run_beads_json,
 ) -> Dict[str, Any]:
@@ -256,6 +369,7 @@ def create_beads_approval_request(
         options=options,
         default=default,
         preview=preview,
+        grant=grant,
     )
     metadata_arg = _json_arg(payload["metadata"])
     labels_arg = ",".join(payload["labels"])
@@ -287,6 +401,9 @@ def create_beads_approval_request(
         "kind": "approval-request",
         "requestFingerprint": approval["requestFingerprint"],
     }
+    if "grantFingerprint" in approval:
+        provenance_payload["grantFingerprint"] = approval["grantFingerprint"]
+        provenance_payload["grantStatus"] = approval["grant"]["revocation"]["status"]
     provenance_code, provenance_data, provenance_err = beads_runner([
         "provenance", "record",
         "--issue", decision_bead,
@@ -346,6 +463,148 @@ def _approval_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     return approval
 
 
+def _grant_from_approval(approval: Dict[str, Any]) -> Dict[str, Any] | None:
+    if "grant" not in approval:
+        return None
+    try:
+        grant = normalize_capability_grant(approval.get("grant"))
+    except ValueError as exc:
+        raise ValueError("capability grant is invalid; create a new approval request") from exc
+    if approval.get("grantFingerprint") != capability_grant_fingerprint(grant):
+        raise ValueError("capability grant changed; create a new approval request")
+    return grant
+
+
+def _write_grant_state(
+    metadata: Dict[str, Any],
+    approval: Dict[str, Any],
+    grant: Dict[str, Any],
+    *,
+    status: str,
+    reason: str | None,
+    at: str | None,
+) -> None:
+    original_fingerprint = capability_grant_fingerprint(grant)
+    grant["revocation"] = {"status": status, "reason": reason, "at": at}
+    if capability_grant_fingerprint(grant) != original_fingerprint:
+        raise ValueError("capability grant state would expand its ceiling")
+    approval["grant"] = grant
+    metadata.setdefault("pi", {})["approval"] = approval
+
+
+def resolve_capability_grant(
+    decision_bead: str,
+    *,
+    beads_runner: BeadsRunner = run_beads_json,
+) -> Dict[str, Any]:
+    decision = _require_nonempty("decision_bead", decision_bead)
+    show_code, show_data, show_err = beads_runner(["show", decision])
+    shown = _require_beads_success(show_code, show_data, show_err, "show capability grant")
+    metadata = _metadata_from_bead(shown)
+    approval = _approval_from_metadata(metadata)
+    if approval.get("kind") != "approval":
+        raise ValueError("capability grant decision is not an approval")
+    grant = _grant_from_approval(approval)
+    if grant is None:
+        return {
+            "schemaVersion": 1,
+            "decisionBead": decision,
+            "status": "missing",
+            "allowedEffects": [],
+        }
+    if approval.get("status") != "approved" or approval.get("resolver") != {"kind": "human-ui"}:
+        return {
+            "schemaVersion": 1,
+            "decisionBead": decision,
+            "targetBead": approval.get("targetBead"),
+            "status": "blocked",
+            "grant": grant,
+            "grantFingerprint": capability_grant_fingerprint(grant),
+            "allowedEffects": [],
+        }
+    _require_unchanged_approval_preview(decision, approval, beads_runner)
+    state = capability_grant_status(grant)
+    automatic_update = False
+    note = ""
+    if grant["revocation"]["status"] == "pending":
+        active_grant = dict(grant)
+        active_grant["revocation"] = {"status": "active", "reason": None, "at": None}
+        state = capability_grant_status(active_grant)
+        grant = active_grant
+        _write_grant_state(
+            metadata,
+            approval,
+            grant,
+            status="active",
+            reason=None,
+            at=None,
+        )
+        automatic_update = True
+        note = "Capability grant activated from resolved human approval."
+    if state == "expired" and grant["revocation"]["status"] == "active":
+        _write_grant_state(
+            metadata,
+            approval,
+            grant,
+            status="expired",
+            reason="expiry",
+            at=utc_now(),
+        )
+        automatic_update = True
+        note = "Capability grant expired automatically."
+    if automatic_update:
+        _record_grant_state(decision, grant, beads_runner)
+        update_code, update_data, update_err = beads_runner([
+            "update", decision, "--metadata", _json_arg(metadata),
+            "--append-notes", note,
+        ])
+        _require_beads_success(update_code, update_data, update_err, "update capability grant state")
+    allowed_effects = list(grant["effects"]) if state == "active" else []
+    return {
+        "schemaVersion": 1,
+        "decisionBead": decision,
+        "targetBead": approval.get("targetBead"),
+        "status": state,
+        "grant": grant,
+        "grantFingerprint": capability_grant_fingerprint(grant),
+        "allowedEffects": allowed_effects,
+    }
+
+
+def revoke_capability_grant(
+    decision_bead: str,
+    reason: str,
+    *,
+    beads_runner: BeadsRunner = run_beads_json,
+) -> Dict[str, Any]:
+    revoke_reason = _require_nonempty("reason", reason)
+    decision = _require_nonempty("decision_bead", decision_bead)
+    show_code, show_data, show_err = beads_runner(["show", decision])
+    shown = _require_beads_success(show_code, show_data, show_err, "show capability grant")
+    metadata = _metadata_from_bead(shown)
+    approval = _approval_from_metadata(metadata)
+    grant = _grant_from_approval(approval)
+    if grant is None or approval.get("status") != "approved" or approval.get("resolver") != {"kind": "human-ui"}:
+        raise ValueError("capability grant is not active")
+    _require_unchanged_approval_preview(decision, approval, beads_runner)
+    if grant["revocation"]["status"] not in {"revoked", "expired"}:
+        _write_grant_state(
+            metadata,
+            approval,
+            grant,
+            status="revoked",
+            reason=revoke_reason,
+            at=utc_now(),
+        )
+        _record_grant_state(decision, grant, beads_runner)
+        update_code, update_data, update_err = beads_runner([
+            "update", decision, "--metadata", _json_arg(metadata),
+            "--append-notes", f"Capability grant revoked: {revoke_reason}",
+        ])
+        _require_beads_success(update_code, update_data, update_err, "revoke capability grant")
+    return resolve_capability_grant(decision, beads_runner=beads_runner)
+
+
 def resolve_beads_approval_request(
     *,
     decision_bead: str,
@@ -372,7 +631,10 @@ def resolve_beads_approval_request(
         raise ValueError("question decisions cannot resolve as approved")
     if kind == "approval" and outcome == "answered":
         raise ValueError("approval decisions cannot resolve as answered")
+    grant = _grant_from_approval(approval) if kind == "approval" else None
     if kind == "approval" and outcome == "approved":
+        if grant is not None and grant["revocation"]["status"] in {"revoked", "expired"}:
+            raise ValueError("capability grant is no longer active; create a new approval request")
         _require_unchanged_approval_preview(decision, approval, beads_runner)
 
     structured_answer = structured_answer or selected_options is not None or custom_input is not None
@@ -432,11 +694,36 @@ def resolve_beads_approval_request(
     })
     if resolver is not None:
         approval["resolver"] = {"kind": resolver["kind"]}
+    if grant is not None:
+        if outcome == "approved":
+            resolved_grant = dict(grant)
+            resolved_grant["revocation"] = {"status": "active", "reason": None, "at": None}
+            if capability_grant_status(resolved_grant) != "active":
+                raise ValueError("capability grant is expired; create a new approval request")
+            _write_grant_state(
+                metadata,
+                approval,
+                resolved_grant,
+                status="active",
+                reason=None,
+                at=None,
+            )
+        else:
+            _write_grant_state(
+                metadata,
+                approval,
+                grant,
+                status="revoked",
+                reason=f"resolution:{outcome}",
+                at=utc_now(),
+            )
     quality_result = normalize_ticket_decision_result(decision, approval)
     approval["qualityResult"] = quality_result
 
     note = f"Beads-backed {kind} resolved as {outcome}: {answer_text}"
     update_args = ["update", decision, "--metadata", _json_arg(metadata), "--append-notes", note]
+    if grant is not None:
+        _record_grant_state(decision, grant, beads_runner)
     update_code, update_data, update_err = beads_runner(update_args)
     _require_beads_success(update_code, update_data, update_err, "update approval resolution")
 
@@ -512,6 +799,7 @@ def cmd_approvals(argv: List[str]) -> int:
     request.add_argument("--context", required=True)
     request.add_argument("--option", action="append", required=True)
     request.add_argument("--default")
+    request.add_argument("--grant", help="exact capability grant JSON")
     request.add_argument("--run-bundle", type=Path)
     request.add_argument("--preview-action", required=True)
     request.add_argument("--preview-scope", required=True)
@@ -537,6 +825,14 @@ def cmd_approvals(argv: List[str]) -> int:
         if args.cmd == "request":
             if args.kind == "question" and args.selection_mode is None:
                 raise ValueError("selection_mode is required")
+            grant = None
+            if args.grant is not None:
+                try:
+                    grant = json.loads(args.grant)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("grant must be valid JSON") from exc
+                if not isinstance(grant, dict):
+                    raise ValueError("grant must be a JSON object")
             result = create_beads_approval_request(
                 kind=args.kind,
                 selection_mode=args.selection_mode,
@@ -546,12 +842,17 @@ def cmd_approvals(argv: List[str]) -> int:
                 options=args.option,
                 default=args.default,
                 preview=_preview_from_args(args),
+                grant=grant,
                 run_bundle=args.run_bundle,
             )
         else:
             resolver = None
             if args.resolver_kind is not None or args.resolver_session is not None:
                 resolver = {"kind": args.resolver_kind or "", "sessionId": args.resolver_session or ""}
+                if resolver["kind"] == "human-ui":
+                    current_session = os.environ.get("PI_SESSION_ID")
+                    if not current_session or resolver["sessionId"] != current_session:
+                        raise ValueError("human-ui resolver is not bound to the current Pi session")
             result = resolve_beads_approval_request(
                 decision_bead=args.decision_bead,
                 outcome=args.outcome,
@@ -576,5 +877,7 @@ __all__ = [
     "approval_request_payload",
     "create_beads_approval_request",
     "resolve_beads_approval_request",
+    "resolve_capability_grant",
+    "revoke_capability_grant",
     "cmd_approvals",
 ]
