@@ -67,6 +67,69 @@ def test_valid_approved_implement_metadata_is_dispatchable(agnt):
     ]
 
 
+def _active_orchestration_grant(agnt):
+    grant = {
+        "action": "implement",
+        "effects": ["edit_files"],
+        "model": "openai/gpt-5",
+        "thinking": "high",
+        "toolset": ["read", "edit", "bash"],
+        "contextPolicy": "task-scoped",
+        "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
+        "rollout": {"maxActions": 1, "maxEffects": 1},
+        "expiry": "2099-01-01T00:00:00Z",
+        "revocation": {"status": "active", "reason": None, "at": None},
+    }
+    return {
+        "schemaVersion": 1,
+        "decisionBead": "pi-approval.1",
+        "status": "active",
+        "grant": grant,
+        "grantFingerprint": agnt.capability_grant_fingerprint(grant),
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": ["edit_files"],
+    }
+
+
+def test_orchestration_resolution_uses_canonical_grant_over_copied_flags(agnt):  # Tests INV-14
+    metadata = valid_implement_metadata()
+    metadata["pi"].update({
+        "approved": False,
+        "humanApproval": {"decisionBead": "pi-forged.1", "resolver": {"kind": "human-ui"}},
+        "approvalRefs": ["pi-approval.1"],
+    })
+
+    result = agnt.resolve_orchestration_metadata(
+        metadata,
+        bead={"acceptance_criteria": "ok"},
+        grant_resolver=lambda decision: _active_orchestration_grant(agnt),
+    )
+
+    assert result["status"] == "dispatchable"
+    assert result["normalized"]["approved"] is True
+    assert result["normalized"]["authority"]["decisionBead"] == "pi-approval.1"
+
+
+def test_orchestration_resolution_fails_closed_on_copied_approval(agnt):  # Tests FAIL-12
+    metadata = valid_implement_metadata()
+    metadata["pi"]["approvalRefs"] = ["pi-approval.1"]
+
+    result = agnt.resolve_orchestration_metadata(
+        metadata,
+        bead={"acceptance_criteria": "ok"},
+        grant_resolver=lambda decision: {
+            "schemaVersion": 1,
+            "decisionBead": decision,
+            "status": "blocked",
+            "allowedEffects": [],
+        },
+    )
+
+    assert result["status"] == "needs-human"
+    assert result["dispatchable"] is False
+    assert any("canonical capability grant" in item for item in result["humanActions"])
+
+
 def test_legacy_checkpoint_continuation_metadata_is_ignored(agnt):
     metadata = valid_implement_metadata()
     metadata["pi"]["continuation"] = {

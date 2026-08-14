@@ -50,6 +50,7 @@ quality/
 | `normalize_ticket_decision_result(decision_bead, decision)` | Return a durable pointer-backed `answer` or `authorization` constraint from resolved Beads decision metadata; never infer acceptance or effects. |
 | `normalize_capability_grant(value)` / `capability_grant_fingerprint(value)` | Validate one exact capability envelope and fingerprint its immutable ceiling fields, excluding only mutable revocation state. |
 | `resolve_capability_grant(decision_bead)` | Read one resolved human-UI approval decision, automatically mark pending grants active or expired, and return no effects after expiry/revocation. |
+| `resolve_canonical_capability_grant(decision_bead)` / `resolve_orchestration_metadata(...)` | Resolve one exact grant with bounded Beads lookup at orchestration boundary; malformed, unavailable, changed, expired, revoked, or non-human-UI state fails closed, while compatibility fields remain non-authoritative. |
 | `normalize_langfuse_annotation_result(...)` | Convert at most 16 current-API annotation rows into opaque private EvidenceRefs with reviewer, score-config, scope, completeness, gaps, and empty authority. |
 | `normalize_external_result(result)` | Validate one editor review or BetterWright takeover artifact with safe relative paths, sensitivity-bounded EvidenceRefs, exact provenance/state, and empty authority. |
 | `improvement.import_langfuse_annotation_evidence(client, queue_id)` | Read one optional Langfuse queue through the bounded service port and preserve unavailable or truncated reads as explicit gaps. |
@@ -166,7 +167,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-9 | `tests/test_quality.py::test_fail9_external_result_rejects_unsafe_or_authorizing_artifacts` |
 | INV-12, FAIL-10 | `tests/test_quality.py::test_inv12_core_metrics_are_decision_linked_and_bounded`, `test_inv12_unknown_and_lower_bound_metrics_cannot_count_as_success`, and `test_inv12_zero_tolerance_metrics_require_complete_evidence`; summary integration in `tests/test_review.py`. |
 | INV-13, FAIL-11 | `tests/test_quality.py::test_inv13_risk_assessment_reports_components_and_normal_ceiling`, `test_fail11_hard_guard_blocks_positive_utility`, `test_inv13_high_consequence_ceiling_and_unknown_budget_fail_closed`, and `test_fail11_canary_requires_learning_contract_and_ceiling`. |
-| INV-14, FAIL-12 | `tests/test_quality.py::test_inv14_capability_grant_fingerprint_excludes_only_mutable_state`, `test_fail12_expired_capability_grant_is_not_active`, and exact Beads/bridge cases in `tests/test_approvals.py`. |
+| INV-14, FAIL-12 | `tests/test_quality.py::test_inv14_capability_grant_fingerprint_excludes_only_mutable_state`, `test_fail12_expired_capability_grant_is_not_active`, exact Beads/bridge cases in `tests/test_approvals.py`, and canonical orchestration authority cases in `tests/test_orchestration.py`. |
 | CLI/boundaries | `tests/test_quality.py::test_quality_assess_apply_status_cli_contract`, `tests/test_ticket_gateway.py`, and quality checks in `tests/test_context_architecture.py` |
 
 Focused command:

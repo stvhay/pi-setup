@@ -191,6 +191,37 @@ def test_approved_grant_becomes_active_and_reads_only_resolved_decision(agnt):
     assert not any(call[:2] == ["show", "pi-work.1"] for call in fake.calls)
 
 
+def test_canonical_grant_resolver_returns_bounded_authority(agnt):  # Tests INV-14
+    grant = capability_grant()
+    approval = approval_record(
+        status="approved",
+        resolver={"kind": "human-ui"},
+        grant={**grant, "revocation": {"status": "active", "reason": None, "at": None}},
+        grantFingerprint=agnt.capability_grant_fingerprint(grant),
+    )
+    fake = FakeBeads(show_metadata={"pi": {"approval": approval}})
+
+    result = agnt.resolve_canonical_capability_grant("pi-decision.1", beads_runner=fake)
+
+    assert result["status"] == "active"
+    assert result["decisionBead"] == "pi-decision.1"
+    assert result["allowedEffects"] == grant["effects"]
+    assert len([call for call in fake.calls if call[:2] in (["show", "pi-decision.1"], ["provenance", "log"])]) == 2
+
+
+def test_canonical_grant_resolver_fails_closed_when_state_is_unavailable(agnt):  # Tests FAIL-12
+    def unavailable(args):
+        return 1, None, "Beads unavailable"
+
+    result = agnt.resolve_canonical_capability_grant(
+        "pi-decision.1", beads_runner=unavailable
+    )
+
+    assert result["status"] == "blocked"
+    assert result["allowedEffects"] == []
+    assert result["decisionBead"] == "pi-decision.1"
+
+
 def test_revoked_grant_cannot_be_reapproved(agnt):
     grant = capability_grant()
     approval = approval_record(

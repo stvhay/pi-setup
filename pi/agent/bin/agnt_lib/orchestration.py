@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Mapping
+from typing import Any, Callable, Dict, List, Mapping
+
+from .quality import capability_grant_fingerprint, capability_grant_status, normalize_capability_grant
 
 VALID_ACTIONS = {"implement", "review", "verify", "plan", "research", "finish", "maintenance"}
 READ_ONLY_ACTIONS = {"review", "verify", "plan", "research", "maintenance"}
@@ -150,7 +152,73 @@ def _result(
     return result
 
 
-def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | None = None) -> Dict[str, Any]:
+def _default_grant_resolver(decision_bead: str) -> Mapping[str, Any]:
+    from .approvals import resolve_canonical_capability_grant
+
+    return resolve_canonical_capability_grant(decision_bead)
+
+
+def resolve_orchestration_authority(
+    metadata: Any,
+    *,
+    grant_resolver: Callable[[str], Mapping[str, Any]] = _default_grant_resolver,
+) -> Dict[str, Any]:
+    """Resolve implement authority from one canonical approval Bead."""
+    pi_meta = _metadata_pi(metadata)
+    if pi_meta is None or pi_meta.get("action") != "implement":
+        return {"schemaVersion": 1, "status": "not-required", "allowedEffects": []}
+
+    refs = _string_list(pi_meta.get("approvalRefs"))
+    if refs is None or len(refs) != 1:
+        return {
+            "schemaVersion": 1,
+            "status": "blocked",
+            "reason": "one canonical approval reference is required",
+            "allowedEffects": [],
+        }
+    decision_bead = refs[0]
+    try:
+        resolved = grant_resolver(decision_bead)
+        if not isinstance(resolved, Mapping):
+            raise ValueError("canonical grant result is invalid")
+        if resolved.get("decisionBead") != decision_bead:
+            raise ValueError("canonical grant decision does not match reference")
+        if resolved.get("status") != "active":
+            raise ValueError("canonical capability grant is not active")
+        if resolved.get("resolver") != {"kind": "human-ui"}:
+            raise ValueError("canonical capability grant lacks human UI provenance")
+        grant = normalize_capability_grant(resolved.get("grant"))
+        if capability_grant_fingerprint(grant) != resolved.get("grantFingerprint"):
+            raise ValueError("canonical capability grant fingerprint is invalid")
+        if capability_grant_status(grant) != "active":
+            raise ValueError("canonical capability grant is not active")
+        if resolved.get("allowedEffects") != grant["effects"]:
+            raise ValueError("canonical capability grant effects do not match")
+        return {
+            "schemaVersion": 1,
+            "decisionBead": decision_bead,
+            "status": "active",
+            "grant": grant,
+            "grantFingerprint": resolved["grantFingerprint"],
+            "allowedEffects": list(grant["effects"]),
+            "resolver": {"kind": "human-ui"},
+        }
+    except (Exception, SystemExit):
+        return {
+            "schemaVersion": 1,
+            "decisionBead": decision_bead,
+            "status": "blocked",
+            "reason": "canonical capability grant is unavailable or invalid",
+            "allowedEffects": [],
+        }
+
+
+def validate_orchestration_metadata(
+    metadata: Any,
+    *,
+    bead: Mapping[str, Any] | None = None,
+    authority: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
     """Validate the Beads metadata.pi dispatch contract.
 
     The validator is intentionally dependency-free and returns plain dictionaries
@@ -249,13 +317,27 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         and bool(human_approval["decisionBead"].strip())
         and human_approval.get("resolver") == {"kind": "human-ui"}
     )
+    if authority is not None:
+        approved = authority.get("status") == "active"
+        human_approval = (
+            {
+                "decisionBead": authority.get("decisionBead"),
+                "resolver": authority.get("resolver"),
+            }
+            if approved
+            else None
+        )
+        human_approval_valid = approved
     epic_id = pi_meta.get("epicId")
     worktree_policy = pi_meta.get("worktreePolicy")
     write_set = _string_list(pi_meta.get("writeSet"))
     closeout = _validate_closeout(pi_meta, blockers, required=action == "implement")
 
     if action == "implement":
-        if approved is not True:
+        if authority is not None:
+            if not approved:
+                human_actions.append("canonical capability grant must be active before implement dispatch")
+        elif approved is not True:
             human_actions.append("metadata.pi.approved must be true before implement dispatch")
         elif not human_approval_valid:
             human_actions.append("metadata.pi.humanApproval with human-ui resolver provenance is required before implement dispatch")
@@ -286,6 +368,7 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         "skills": list(skills),
         "approved": approved,
         "humanApproval": human_approval if human_approval_valid else None,
+        "authority": dict(authority) if authority is not None else None,
         "inputRefs": reference_lists["inputRefs"],
         "approvalRefs": reference_lists["approvalRefs"],
         "decisionRefs": reference_lists["decisionRefs"],
@@ -310,6 +393,19 @@ def validate_orchestration_metadata(metadata: Any, *, bead: Mapping[str, Any] | 
         human_actions=human_actions,
         warnings=warnings,
     )
+
+
+def resolve_orchestration_metadata(
+    metadata: Any,
+    *,
+    bead: Mapping[str, Any] | None = None,
+    grant_resolver: Callable[[str], Mapping[str, Any]] = _default_grant_resolver,
+) -> Dict[str, Any]:
+    authority = resolve_orchestration_authority(
+        metadata,
+        grant_resolver=grant_resolver,
+    )
+    return validate_orchestration_metadata(metadata, bead=bead, authority=authority)
 
 
 def _bead_metadata(bead: Mapping[str, Any]) -> Any:
@@ -344,4 +440,9 @@ def validate_bead_orchestration_metadata(bead: Mapping[str, Any]) -> Dict[str, A
     return result
 
 
-__all__ = ["validate_orchestration_metadata", "validate_bead_orchestration_metadata"]
+__all__ = [
+    "resolve_orchestration_authority",
+    "resolve_orchestration_metadata",
+    "validate_orchestration_metadata",
+    "validate_bead_orchestration_metadata",
+]

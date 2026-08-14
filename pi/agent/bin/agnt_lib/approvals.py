@@ -25,6 +25,7 @@ CLOSING_OUTCOMES = {"approved", "answered"}
 BLOCKED_OUTCOMES = VALID_OUTCOMES - CLOSING_OUTCOMES
 REQUIRED_PREVIEW_FIELDS = ["action", "scope", "consequences", "reversibility", "closeoutPath"]
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
+CANONICAL_GRANT_LOOKUP_LIMIT = 2
 
 
 def utc_now() -> str:
@@ -520,6 +521,7 @@ def resolve_capability_grant(
             "status": "blocked",
             "grant": grant,
             "grantFingerprint": capability_grant_fingerprint(grant),
+            "resolver": approval.get("resolver"),
             "allowedEffects": [],
         }
     _require_unchanged_approval_preview(decision, approval, beads_runner)
@@ -567,8 +569,67 @@ def resolve_capability_grant(
         "status": state,
         "grant": grant,
         "grantFingerprint": capability_grant_fingerprint(grant),
+        "resolver": approval.get("resolver"),
         "allowedEffects": allowed_effects,
     }
+
+
+def resolve_canonical_capability_grant(
+    decision_bead: str,
+    *,
+    beads_runner: BeadsRunner = run_beads_json,
+) -> Dict[str, Any]:
+    """Resolve one exact grant with bounded Beads reads and no fail-open path."""
+    decision = _require_nonempty("decision_bead", decision_bead)
+    lookup_count = 0
+
+    def bounded_runner(args: List[str]) -> Tuple[int, Any, str]:
+        nonlocal lookup_count
+        if args and args[0] == "show":
+            lookup_count += 1
+        elif args[:2] == ["provenance", "log"]:
+            lookup_count += 1
+        if lookup_count > CANONICAL_GRANT_LOOKUP_LIMIT:
+            raise ValueError("capability grant lookup bound exceeded")
+        return beads_runner(args)
+
+    try:
+        resolved = resolve_capability_grant(decision, beads_runner=bounded_runner)
+        if not isinstance(resolved, dict) or resolved.get("decisionBead") != decision:
+            raise ValueError("capability grant decision is invalid")
+        status = resolved.get("status")
+        if status not in {"active", "blocked", "missing", "expired", "revoked"}:
+            raise ValueError("capability grant status is invalid")
+        allowed_effects = resolved.get("allowedEffects")
+        if not isinstance(allowed_effects, list) or not all(
+            isinstance(effect, str) and effect.strip() for effect in allowed_effects
+        ):
+            raise ValueError("capability grant effects are invalid")
+        grant = resolved.get("grant")
+        if grant is not None:
+            normalized_grant = normalize_capability_grant(grant)
+            fingerprint = capability_grant_fingerprint(normalized_grant)
+            if resolved.get("grantFingerprint") != fingerprint:
+                raise ValueError("capability grant fingerprint is invalid")
+            if status == "active":
+                if resolved.get("resolver") != {"kind": "human-ui"}:
+                    raise ValueError("capability grant human UI provenance is invalid")
+                if capability_grant_status(normalized_grant) != "active":
+                    raise ValueError("capability grant is not active")
+                if allowed_effects != normalized_grant["effects"]:
+                    raise ValueError("capability grant effects do not match resolved state")
+            elif allowed_effects:
+                raise ValueError("blocked capability grant cannot allow effects")
+        elif allowed_effects:
+            raise ValueError("missing capability grant cannot allow effects")
+        return resolved
+    except (ValueError, SystemExit):
+        return {
+            "schemaVersion": 1,
+            "decisionBead": decision,
+            "status": "blocked",
+            "allowedEffects": [],
+        }
 
 
 def revoke_capability_grant(
@@ -878,6 +939,7 @@ __all__ = [
     "create_beads_approval_request",
     "resolve_beads_approval_request",
     "resolve_capability_grant",
+    "resolve_canonical_capability_grant",
     "revoke_capability_grant",
     "cmd_approvals",
 ]
