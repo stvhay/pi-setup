@@ -10,20 +10,30 @@ Return JSON with `schemaVersion`, matching `reportId` and `reviewPolicyVersion`,
 - `decision`: `no-action`, `actions-created`, `needs-human`, or `excluded`.
 - `findings`: zero or more findings. `actions-created` requires at least one.
 
-Each finding requires:
+Each finding uses the shared Finding core:
 
-- `findingId`: `finding-` plus 12 lowercase hexadecimal characters.
+- `schemaVersion`: `1`.
+- `id`: `finding-` plus 12 lowercase hexadecimal characters.
+- `activity`: `work-learning`; `source`: `improvement-review`.
 - `category`: `coordination-error`, `expected-error`, `infrastructure`, `model-mismatch`, `prompt-targeting`, `security-boundary`, `token-inefficiency`, `tool-use-error`, `verification-gap`, or `unknown`.
+- `severity`: `none`, `low`, `medium`, `high`, `outcome-blocking`, or `unknown`.
+- `claim`: bounded private claim supported by cited packet evidence.
+- `status`: `unverified`, `confirmed`, `refuted`, or `unresolved`.
+- `evidenceRefs`: one or more exact session `evidenceRef` objects copied from this packet. Never alter pointers or copy telemetry excerpts.
+- `verification`: `null` only while `unverified`; otherwise `method` is `test`, `reproducer`, `inspection`, `profile`, or `specification`, and `evidenceRefs` cites a subset of the finding refs.
+- `proposedIntervention`: exact proposed change text; it must match `public.proposedIntervention`.
+
+Improvement-owned extensions remain explicit:
+
 - `errorRelevance`: `relevant`, `contributing`, `expected`, `recovered`, `infrastructure`, or `unknown`.
-- `impact`: `none`, `low`, `medium`, `high`, `outcome-blocking`, or `unknown`.
 - `attribution`: `agent`, `prompt-system`, `model`, `tooling`, `infrastructure`, `user-input`, or `unknown`.
 - `confidence`: number from 0 through 1. Confidence is not proof.
-- `evidenceRefs`: JSON pointers into packet session data. Never copy telemetry excerpts.
-- `proposedIntervention`: `prompt`, `code`, `tool`, `eval`, `workflow`, `routing`, `monitor`, `none`, or `unknown`.
+- `evidenceStage`: `event`, `incident`, `pattern`, `change`, or `unknown`.
+- `interventionType`: `prompt`, `code`, `tool`, `eval`, `workflow`, `routing`, `monitor`, `none`, or `unknown`.
 - `public`: proposed public-safe title, tracked relative paths, aggregate, intervention, acceptance criteria, and evaluation requirement.
 - `relatedFindingId` (optional): existing private monitored finding ID when this new finding is an explicit recurrence in a packet-listed matched post-change cohort.
 
-Use `unknown` whenever evidence cannot support a narrower classification. Use `needs-human` when privacy or attribution remains uncertain.
+Use `unknown` whenever evidence cannot support a narrower classification or stage. Use `needs-human` when privacy or attribution remains uncertain.
 
 The packet's `features.errorTaxonomy` is deterministic triage, not causal
 judgment. It separates raw and unclassified-raw error-observation health counts
@@ -35,12 +45,14 @@ positive final outcome to guess a narrower class.
 
 ## Evidence rules
 
-Classify raw tool errors as events, not mistakes. Escalate only after evidence supports this sequence:
+Classify raw tool errors as events, not mistakes. Record the supported `evidenceStage`; do not collapse or infer missing stages:
 
-1. Event: observed tool, model, evaluator, or workflow signal.
-2. Incident: verified user-visible failure or avoidable wasted work.
-3. Pattern: repeated, attributable incidents in a matched cohort.
-4. Change: Human approval of exact sanitized public proposal and regression check.
+1. `event`: observed tool, model, evaluator, or workflow signal.
+2. `incident`: verified user-visible failure or avoidable wasted work.
+3. `pattern`: repeated, attributable incidents in a matched cohort.
+4. `change`: Human-approved exact sanitized proposal with a regression check.
+
+A proposed intervention does not itself advance evidence to `change`.
 
 Default promotion threshold: at least 3 confirmed instances across 2 independent work items, or at least 5 comparable invocations with a materially worse baseline rate. One confirmed high-impact or outcome-blocking `security-boundary` finding, including confirmed credential exposure, is immediately eligible for a public-safe proposal. Token inefficiency requires at least 5 comparable invocations and p95 normalized fresh tokens or cost at least 1.5× cohort median. Retry overhead becomes notable near 25% added tokens or latency without improved verified outcome.
 

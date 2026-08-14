@@ -299,11 +299,20 @@ allowlisted limit reasons and whether source, limit, observed value, and usage
 state form complete evidence. These aggregates use already-fetched traces and
 observations and add no telemetry calls.
 
-Scans skip sessions already reviewed under the current policy. Promoting a
-finding stores a private cohort fingerprint derived from available task, risk,
-role, model, and prompt dimensions. Later scan packets list monitored finding
-IDs only in the private packet and expose count-only monitoring status in safe
-stdout. A finding enters monitoring only after its linked Bead closes. Five
+Scans skip sessions already reviewed under the current policy. Private schema-3
+packets attach one shared, private, cohort-retained `EvidenceRef` to each session;
+policy-v3 decisions use the shared Finding core plus improvement-owned
+`errorRelevance`, `attribution`, `confidence`, `evidenceStage`,
+`interventionType`, and sanitized `public` fields. Historical policy-v1/v2
+findings and schema-1/2 packets remain readable: validation normalizes their
+private JSON pointers to packet EvidenceRefs and leaves unavailable
+`evidenceStage` as `unknown` rather than guessing.
+
+Promoting a finding stores a private cohort fingerprint derived from available
+task, risk, role, model, and prompt dimensions. Existing promotion-state schemas
+remain readable. Later scan packets list monitored finding IDs only in the private
+packet and expose count-only monitoring status in safe stdout. A finding enters
+monitoring only after its linked Bead closes. Five
 distinct reviewed sessions from the exact stored post-change cohort mark it
 `validated`; fewer remain monitoring. A reviewer marks explicit recurrence by
 giving the new private finding a `relatedFindingId` from the packet's matched

@@ -23,18 +23,21 @@ from .langfuse import DEFAULT_MAX_TRACES, MAX_PAGE_SIZE, LangfuseError, _client_
 from .metrics import git_root
 from .quality import (
     BEAD_ID,
+    FINDING_CORE_FIELDS,
     TASK_OUTCOMES,
     SessionWorkItemConflict,
     capture_session_link,
     capture_session_outcome,
     current_session_id,
+    validate_evidence_ref,
+    validate_finding,
 )
 from .runs import default_runs_dir
 
 REVIEW_SCORE = "improvement_review_status"
 WORK_LINK_SCORE = "improvement_work_item"
 OUTCOME_SCORE = "improvement_task_outcome"
-REVIEW_POLICY_VERSION = "v2"
+REVIEW_POLICY_VERSION = "v3"
 TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
@@ -92,16 +95,21 @@ V1_FINDING_CATEGORIES = {
     "verification-gap",
 }
 FINDING_CATEGORIES = V1_FINDING_CATEGORIES | {"security-boundary"}
-FINDING_CATEGORIES_BY_POLICY = {"v1": V1_FINDING_CATEGORIES, "v2": FINDING_CATEGORIES}
+FINDING_CATEGORIES_BY_POLICY = {
+    "v1": V1_FINDING_CATEGORIES,
+    "v2": FINDING_CATEGORIES,
+    REVIEW_POLICY_VERSION: FINDING_CATEGORIES,
+}
 ERROR_RELEVANCE = {"relevant", "contributing", "expected", "recovered", "infrastructure", "unknown"}
 ERROR_CLASSES = ("expected", "recovered", "provider", "infrastructure", "agent", "unknown")
 ERROR_SOURCES = ("tool", "provider", "process", "artifact", "evaluator", "unknown")
 IMPACTS = {"none", "low", "medium", "high", "outcome-blocking", "unknown"}
 ATTRIBUTIONS = {"agent", "prompt-system", "model", "tooling", "infrastructure", "user-input", "unknown"}
 INTERVENTIONS = {"prompt", "code", "tool", "eval", "workflow", "routing", "monitor", "none", "unknown"}
+EVIDENCE_STAGES = {"event", "incident", "pattern", "change", "unknown"}
 TOP_DECISION_FIELDS = {"schemaVersion", "reportId", "reviewPolicyVersion", "reviewedAt", "sessions"}
 SESSION_DECISION_FIELDS = {"sessionId", "decision", "findings"}
-FINDING_FIELDS = {
+LEGACY_FINDING_FIELDS = {
     "findingId",
     "category",
     "errorRelevance",
@@ -112,7 +120,14 @@ FINDING_FIELDS = {
     "proposedIntervention",
     "public",
 }
-OPTIONAL_FINDING_FIELDS = {"relatedFindingId"}
+IMPROVEMENT_FINDING_EXTENSIONS = {
+    "errorRelevance",
+    "attribution",
+    "confidence",
+    "evidenceStage",
+    "interventionType",
+    "public",
+}
 PUBLIC_FIELDS = {
     "title",
     "affectedPaths",
@@ -121,7 +136,7 @@ PUBLIC_FIELDS = {
     "acceptanceCriteria",
     "evaluationRequirement",
 }
-FINDING_ID = re.compile(r"finding-[a-f0-9]{12}\Z")
+IMPROVEMENT_FINDING_ID = re.compile(r"finding-[a-f0-9]{12}\Z")
 PROMOTION_STATE_FIELDS = {"schemaVersion", "findingId", "beadId", "creationPending", "linkRepairNeeded"}
 MONITORED_PROMOTION_STATE_FIELDS = PROMOTION_STATE_FIELDS | {"monitoring"}
 MONITORING_FIELDS = {
@@ -1388,7 +1403,12 @@ def _pointer(packet: dict[str, Any], pointer: str) -> Any:
     try:
         for raw_part in pointer[1:].split("/"):
             part = raw_part.replace("~1", "/").replace("~0", "~")
-            value = value[int(part)] if isinstance(value, list) else value[part]
+            if isinstance(value, list):
+                if not part.isdigit():
+                    raise ValueError
+                value = value[int(part)]
+            else:
+                value = value[part]
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise ValueError("evidence reference does not exist in packet") from exc
     return value
@@ -1419,15 +1439,144 @@ def _public_strings(public: dict[str, Any]) -> list[str]:
     ]
 
 
+def _improvement_evidence_ref(packet: dict[str, Any], session_index: int) -> dict[str, Any]:
+    report_id = packet.get("reportId")
+    return validate_evidence_ref({
+        "ref": f"artifact:improvement-{report_id}-session-{session_index}",
+        "source": "improvement-scan",
+        "availability": "available",
+        "provenance": f"improvement:{report_id}:session-{session_index}",
+        "integrity": "verified",
+        "sensitivity": "private",
+        "retention": "cohort",
+    })
+
+
+def _packet_evidence_refs(packet: dict[str, Any]) -> list[dict[str, Any]]:
+    if packet.get("schemaVersion") not in {1, 2, 3}:
+        raise ValueError("private packet schemaVersion is unsupported")
+    sessions = packet.get("sessions")
+    if not isinstance(sessions, list):
+        raise ValueError("private packet sessions are invalid")
+    refs = []
+    for index, session in enumerate(sessions):
+        if not isinstance(session, dict):
+            raise ValueError("private packet sessions are invalid")
+        expected = _improvement_evidence_ref(packet, index)
+        if packet["schemaVersion"] == 3 and session.get("evidenceRef") != expected:
+            raise ValueError("private packet evidence reference is invalid")
+        refs.append(expected)
+    return refs
+
+
+def _legacy_improvement_finding(
+    packet: dict[str, Any],
+    raw_finding: Any,
+    *,
+    packet_refs: list[dict[str, Any]],
+    name: str,
+) -> dict[str, Any]:
+    finding = _require_fields(
+        raw_finding,
+        LEGACY_FINDING_FIELDS,
+        name,
+        optional={"relatedFindingId"},
+    )
+    if not isinstance(finding["findingId"], str) or not IMPROVEMENT_FINDING_ID.fullmatch(finding["findingId"]):
+        raise ValueError("findingId must match finding-<12 lowercase hex>")
+    evidence_refs = []
+    for pointer in _require_strings(finding["evidenceRefs"], "evidenceRefs"):
+        _pointer(packet, pointer)
+        try:
+            session_index = int(pointer.split("/", 3)[2])
+            evidence_ref = packet_refs[session_index]
+        except (IndexError, ValueError) as exc:
+            raise ValueError("evidence reference must point inside packet sessions") from exc
+        if evidence_ref not in evidence_refs:
+            evidence_refs.append(evidence_ref)
+    public = _require_fields(finding["public"], PUBLIC_FIELDS, "public")
+    return {
+        "schemaVersion": 1,
+        "id": finding["findingId"],
+        "activity": "work-learning",
+        "source": "improvement-review",
+        "category": finding["category"],
+        "severity": finding["impact"],
+        "claim": public["aggregate"],
+        "status": "confirmed",
+        "evidenceRefs": evidence_refs,
+        "verification": {"method": "inspection", "evidenceRefs": evidence_refs},
+        "proposedIntervention": public["proposedIntervention"],
+        "errorRelevance": finding["errorRelevance"],
+        "attribution": finding["attribution"],
+        "confidence": finding["confidence"],
+        "evidenceStage": "unknown",
+        "interventionType": finding["proposedIntervention"],
+        "public": public,
+        **(
+            {"relatedFindingId": finding["relatedFindingId"]}
+            if "relatedFindingId" in finding
+            else {}
+        ),
+    }
+
+
+def _validate_improvement_finding(
+    finding: dict[str, Any],
+    *,
+    finding_categories: set[str],
+    packet_refs: list[dict[str, Any]],
+    private_strings: set[str],
+) -> dict[str, Any]:
+    validate_finding(finding)
+    finding_id = finding["id"]
+    if not isinstance(finding_id, str) or not IMPROVEMENT_FINDING_ID.fullmatch(finding_id):
+        raise ValueError("finding id must match finding-<12 lowercase hex>")
+    if finding["activity"] != "work-learning" or finding["source"] != "improvement-review":
+        raise ValueError("improvement finding activity and source are invalid")
+    _require_choice(finding["category"], finding_categories, "category")
+    _require_choice(finding["severity"], IMPACTS, "severity")
+    _require_choice(finding["errorRelevance"], ERROR_RELEVANCE, "errorRelevance")
+    _require_choice(finding["attribution"], ATTRIBUTIONS, "attribution")
+    _require_choice(finding["evidenceStage"], EVIDENCE_STAGES, "evidenceStage")
+    _require_choice(finding["interventionType"], INTERVENTIONS, "interventionType")
+    confidence = finding["confidence"]
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+        raise ValueError("confidence must be between 0 and 1")
+    if any(ref not in packet_refs for ref in finding["evidenceRefs"]):
+        raise ValueError("improvement finding must cite private packet evidence")
+    related_finding_id = finding.get("relatedFindingId")
+    if related_finding_id is not None and (
+        not isinstance(related_finding_id, str)
+        or not IMPROVEMENT_FINDING_ID.fullmatch(related_finding_id)
+        or related_finding_id == finding_id
+    ):
+        raise ValueError("relatedFindingId must identify a different monitored finding")
+    public = _require_fields(finding["public"], PUBLIC_FIELDS, "public")
+    _require_strings(public["affectedPaths"], "public.affectedPaths")
+    _require_strings(public["acceptanceCriteria"], "public.acceptanceCriteria")
+    for name in ("title", "aggregate", "proposedIntervention", "evaluationRequirement"):
+        if not isinstance(public[name], str) or not public[name].strip():
+            raise ValueError(f"public.{name} must be non-empty")
+    if finding["proposedIntervention"] != public["proposedIntervention"]:
+        raise ValueError("public and private proposed interventions do not match")
+    for text in _public_strings(public):
+        normalized = _normalized_text(text)
+        if any(private in normalized for private in private_strings):
+            raise ValueError("public summary contains copied private packet text")
+    return finding
+
+
 def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dict[str, Any]:
     _require_fields(decisions, TOP_DECISION_FIELDS, "decisions")
     if decisions["schemaVersion"] != 1:
         raise ValueError("unsupported decision schemaVersion")
     if decisions["reportId"] != packet.get("reportId"):
         raise ValueError("decision reportId does not match packet")
-    if decisions["reviewPolicyVersion"] != packet.get("scan", {}).get("reviewPolicyVersion"):
+    policy_version = decisions["reviewPolicyVersion"]
+    if policy_version != packet.get("scan", {}).get("reviewPolicyVersion"):
         raise ValueError("decision reviewPolicyVersion does not match packet")
-    finding_categories = FINDING_CATEGORIES_BY_POLICY.get(decisions["reviewPolicyVersion"])
+    finding_categories = FINDING_CATEGORIES_BY_POLICY.get(policy_version)
     if finding_categories is None:
         raise ValueError("decision reviewPolicyVersion is unsupported")
     if not isinstance(decisions["reviewedAt"], str):
@@ -1444,9 +1593,11 @@ def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dic
         for item in packet.get("sessions", [])
         if isinstance(item, dict) and isinstance(item.get("sessionId"), str)
     }
+    packet_refs = _packet_evidence_refs(packet)
     private_strings = _packet_strings(packet)
     seen_sessions: set[str] = set()
     seen_findings: set[str] = set()
+    normalized_sessions = []
     for index, raw_session in enumerate(decisions["sessions"]):
         session = _require_fields(raw_session, SESSION_DECISION_FIELDS, f"sessions[{index}]")
         session_id = session["sessionId"]
@@ -1458,45 +1609,37 @@ def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dic
             raise ValueError("findings must be a list")
         if decision == "actions-created" and not session["findings"]:
             raise ValueError("actions-created decisions require findings")
+        normalized_findings = []
         for finding_index, raw_finding in enumerate(session["findings"]):
-            finding = _require_fields(
-                raw_finding,
-                FINDING_FIELDS,
-                f"findings[{finding_index}]",
-                optional=OPTIONAL_FINDING_FIELDS,
+            name = f"findings[{finding_index}]"
+            if isinstance(raw_finding, dict) and "findingId" in raw_finding:
+                if policy_version not in {"v1", "v2"}:
+                    raise ValueError("current review policy requires shared findings")
+                finding = _legacy_improvement_finding(
+                    packet,
+                    raw_finding,
+                    packet_refs=packet_refs,
+                    name=name,
+                )
+            else:
+                finding = _require_fields(
+                    raw_finding,
+                    set(FINDING_CORE_FIELDS) | IMPROVEMENT_FINDING_EXTENSIONS,
+                    name,
+                    optional={"relatedFindingId"},
+                )
+            finding = _validate_improvement_finding(
+                finding,
+                finding_categories=finding_categories,
+                packet_refs=packet_refs,
+                private_strings=private_strings,
             )
-            finding_id = finding["findingId"]
-            if not isinstance(finding_id, str) or not FINDING_ID.fullmatch(finding_id) or finding_id in seen_findings:
-                raise ValueError("findingId must be unique and match finding-<12 lowercase hex>")
-            seen_findings.add(finding_id)
-            related_finding_id = finding.get("relatedFindingId")
-            if related_finding_id is not None and (
-                not isinstance(related_finding_id, str)
-                or not FINDING_ID.fullmatch(related_finding_id)
-                or related_finding_id == finding_id
-            ):
-                raise ValueError("relatedFindingId must identify a different monitored finding")
-            _require_choice(finding["category"], finding_categories, "category")
-            _require_choice(finding["errorRelevance"], ERROR_RELEVANCE, "errorRelevance")
-            _require_choice(finding["impact"], IMPACTS, "impact")
-            _require_choice(finding["attribution"], ATTRIBUTIONS, "attribution")
-            _require_choice(finding["proposedIntervention"], INTERVENTIONS, "proposedIntervention")
-            confidence = finding["confidence"]
-            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
-                raise ValueError("confidence must be between 0 and 1")
-            for evidence_ref in _require_strings(finding["evidenceRefs"], "evidenceRefs"):
-                _pointer(packet, evidence_ref)
-            public = _require_fields(finding["public"], PUBLIC_FIELDS, "public")
-            _require_strings(public["affectedPaths"], "public.affectedPaths")
-            _require_strings(public["acceptanceCriteria"], "public.acceptanceCriteria")
-            for name in ("title", "aggregate", "proposedIntervention", "evaluationRequirement"):
-                if not isinstance(public[name], str) or not public[name].strip():
-                    raise ValueError(f"public.{name} must be non-empty")
-            for text in _public_strings(public):
-                normalized = _normalized_text(text)
-                if any(private in normalized for private in private_strings):
-                    raise ValueError("public summary contains copied private packet text")
-    return decisions
+            if finding["id"] in seen_findings:
+                raise ValueError("finding id must be unique")
+            seen_findings.add(finding["id"])
+            normalized_findings.append(finding)
+        normalized_sessions.append({**session, "findings": normalized_findings})
+    return {**decisions, "sessions": normalized_sessions}
 
 
 def _review_score_id(session_id: str, policy_version: str) -> str:
@@ -1538,7 +1681,7 @@ def review_sessions(
                     "schemaVersion": 1,
                     "reviewPolicyVersion": validated["reviewPolicyVersion"],
                     "reviewedAt": validated["reviewedAt"],
-                    "findingIds": [finding["findingId"] for finding in session["findings"]],
+                    "findingIds": [finding["id"] for finding in session["findings"]],
                     "beadIds": _promoted_bead_ids(session, state_dir) if state_dir else [],
                 },
             )
@@ -1567,13 +1710,18 @@ def _safe_public_text(value: str, name: str) -> str:
     return text
 
 
-def _public_bead(packet: dict[str, Any], decisions: dict[str, Any], finding_id: str, tracked_paths: set[str]) -> tuple[dict[str, Any], dict[str, Any]]:
-    validate_decisions(packet, decisions)
+def _public_bead(
+    packet: dict[str, Any],
+    decisions: dict[str, Any],
+    finding_id: str,
+    tracked_paths: set[str],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    validated = validate_decisions(packet, decisions)
     match = None
     owner = None
-    for session in decisions["sessions"]:
+    for session in validated["sessions"]:
         for finding in session["findings"]:
-            if finding["findingId"] == finding_id:
+            if finding["id"] == finding_id:
                 match, owner = finding, session
     if match is None or owner is None:
         raise ValueError("findingId does not exist in decisions")
@@ -1611,7 +1759,7 @@ def _public_bead(packet: dict[str, Any], decisions: dict[str, Any], finding_id: 
         "description": description,
         "acceptance": "\n".join(f"- {item}" for item in criteria),
         "labels": ["continuous-improvement", category, "human-approved"],
-    }, owner)
+    }, owner, validated)
 
 
 def render_public_bead(bead: dict[str, Any]) -> str:
@@ -1733,7 +1881,7 @@ def _valid_monitoring_state(value: Any) -> bool:
         and all(isinstance(item, str) and SHA256_HEX.fullmatch(item) for item in sample_ids)
         and isinstance(recurrent_ids, list)
         and len(recurrent_ids) == len(set(recurrent_ids))
-        and all(isinstance(item, str) and FINDING_ID.fullmatch(item) for item in recurrent_ids)
+        and all(isinstance(item, str) and IMPROVEMENT_FINDING_ID.fullmatch(item) for item in recurrent_ids)
     )
 
 
@@ -1768,7 +1916,7 @@ def _load_promotion_state(path: Path, finding_id: str) -> dict[str, Any] | None:
 def _promoted_bead_ids(session: dict[str, Any], state_dir: Path) -> list[str]:
     bead_ids = []
     for finding in session["findings"]:
-        finding_id = finding["findingId"]
+        finding_id = finding["id"]
         state = _load_promotion_state(_promotion_state_path(state_dir, finding_id), finding_id)
         if state and not state["creationPending"]:
             bead_ids.append(state["beadId"])
@@ -1781,7 +1929,7 @@ def _monitored_promotion_states(state_dir: Path) -> dict[str, dict[str, Any]]:
         return states
     for path in sorted(state_dir.glob("promotion-finding-*.json")):
         finding_id = path.stem.removeprefix("promotion-")
-        if not FINDING_ID.fullmatch(finding_id):
+        if not IMPROVEMENT_FINDING_ID.fullmatch(finding_id):
             raise ValueError("private promotion state is invalid")
         state = _load_promotion_state(path, finding_id)
         if state and state.get("schemaVersion") == 2 and not state["creationPending"]:
@@ -1896,7 +2044,7 @@ def _update_monitoring_states(
                     if related_findings:
                         monitoring["recurrentFindingIds"] = sorted({
                             *monitoring["recurrentFindingIds"],
-                            *(finding["findingId"] for finding in related_findings),
+                            *(finding["id"] for finding in related_findings),
                         })
                     elif decision_session["decision"] in {"no-action", "actions-created"}:
                         monitoring["sampleIds"] = sorted({
@@ -1983,7 +2131,7 @@ def _write_review_marker(client: Any, decisions: dict[str, Any], session: dict[s
             "schemaVersion": 1,
             "reviewPolicyVersion": decisions["reviewPolicyVersion"],
             "reviewedAt": decisions["reviewedAt"],
-            "findingIds": [finding["findingId"] for finding in session["findings"]],
+            "findingIds": [finding["id"] for finding in session["findings"]],
             "beadIds": sorted(set(bead_ids)),
         },
     )
@@ -2065,7 +2213,7 @@ def _apply_promotion(
         raise ValueError("promotion apply requires Langfuse client")
     bead_ids = []
     for finding in session["findings"]:
-        finding_id_value = finding["findingId"]
+        finding_id_value = finding["id"]
         finding_state = _load_promotion_state(_promotion_state_path(state_dir, finding_id_value), finding_id_value)
         if finding_state and not finding_state["creationPending"]:
             bead_ids.append(finding_state["beadId"])
@@ -2101,11 +2249,11 @@ def promote_finding(
     approval: Any = None,
     beads_runner: Any,
 ) -> dict[str, Any]:
-    if not FINDING_ID.fullmatch(finding_id):
-        raise ValueError("findingId is malformed")
+    if not IMPROVEMENT_FINDING_ID.fullmatch(finding_id):
+        raise ValueError("finding id is malformed")
     if _inside(state_dir, repository_root):
         raise ValueError("private promotion state must be outside repository")
-    bead, session = _public_bead(packet, decisions, finding_id, tracked_paths)
+    bead, session, validated = _public_bead(packet, decisions, finding_id, tracked_paths)
     monitoring = _new_monitoring_state(packet, session)
     approval_preview = _promotion_approval_preview(bead)
     if not apply:
@@ -2113,7 +2261,7 @@ def promote_finding(
     with _promotion_lock(state_dir, finding_id):
         return _apply_promotion(
             client,
-            decisions,
+            validated,
             finding_id=finding_id,
             state_dir=state_dir,
             bead=bead,
@@ -2530,7 +2678,7 @@ def scan_sessions(
     )
     report_id = _hash({"since": since, "until": settled_until, "sessions": [item["sessionId"] for item in sessions]})[:16]
     packet = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "reportId": report_id,
         "createdAt": settled_until,
         "scan": {
@@ -2546,6 +2694,8 @@ def scan_sessions(
         "sessions": sessions,
         "monitoring": monitoring,
     }
+    for index, session in enumerate(sessions):
+        session["evidenceRef"] = _improvement_evidence_ref(packet, index)
     summary = {
         "schemaVersion": 1,
         "status": "ok",

@@ -8,7 +8,7 @@ Provide one Git-tracked quality control plan, one deterministic local entry poin
 
 `control-plan.json` defines five activities. `durable_activity_snapshots()` maps bounded Beads, Git, run, health, context, and eligible-session signals into those activities. `agnt_lib.quality.assess()` validates a bounded snapshot, fingerprints snapshot and policy, and appends one immutable receipt to private runtime state. `apply()` reloads that receipt and current policy, then records a no-op result or one private review assignment. `quality_status()` reports policy identity and private record counts.
 
-`validate_finding()` and `validate_evidence_ref()` define only fields shared by actionable findings. Review and health adapters retain their domain fields; this contract does not replace their enclosing result schemas. Public adapters may carry only core fields plus an explicit safe extension allowlist, so raw private evidence stays behind bounded EvidenceRefs.
+`validate_finding()` and `validate_evidence_ref()` define only fields shared by actionable findings. Review, health, and improvement adapters retain their domain fields; this contract does not replace their enclosing result schemas. Public adapters may carry only core fields plus an explicit safe extension allowlist, so raw private evidence stays behind bounded EvidenceRefs. Improvement schema-3 packets expose one private EvidenceRef per session; policy-v3 decisions use the shared core, while policy-v1/v2 decisions normalize through a read-only compatibility adapter with unknown evidence stage preserved.
 
 **Key files:**
 - `pi/agent/quality/control-plan.json` — versioned activity policy.
@@ -35,6 +35,7 @@ quality/
 | `durable_activity_snapshots(...)` | Derive exact snapshots for all five activities while preserving unknown, lower-bound, and duplicate-suppression state. |
 | `validate_evidence_ref(value)` | Require one bounded opaque pointer plus source, availability, provenance, integrity, sensitivity, and retention metadata. Raw content and unknown fields are rejected. |
 | `validate_finding(value, public=False, public_extensions=None)` | Require shared identity, activity/source, category, severity, claim, status, EvidenceRefs, verification, and proposed intervention while leaving private domain extensions to their owner. Public extensions must be explicitly allowlisted. |
+| `improvement.validate_decisions(packet, decisions)` | Validate current shared improvement findings or normalize historical policy-v1/v2 private findings to the shared core without copying evidence bodies or guessing missing stage. |
 | `assess(snapshot, activity, ...)` | Persist and return one deterministic receipt with zero or one `workPacket`. |
 | `apply(receipt_id, ...)` | Reload current policy and a persisted receipt; record only disabled/no-op state or one private assignment. |
 | `quality_status(...)` | Return current policy fingerprint and private receipt/application/assignment counts. |
@@ -55,6 +56,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | INV-4 | Apply re-reads current policy and accepts only a persisted receipt. Disabled, stale-policy, missing-authority, and non-triggered decisions cannot create an assignment. | Receipt lookup and policy fingerprint comparison before private apply. |
 | INV-5 | Durable collection maps historical checkpoint labels to current activities for reads and duplicate suppression, preserves unknown/lower-bound evidence, and emits only `quality:<activity>` labels on new packets. | Explicit compatibility map, gap-bearing snapshots, open-activity suppression, and canonical packet label generation. |
 | INV-6 | Review and health findings share one validated core and bounded EvidenceRef contract without losing review metrics fields or health diagnostics. | Shared quality validators plus thin review/health adapters; finding statuses are reused by metrics. |
+| INV-7 | Improvement review, promotion, and cohort paths consume shared Findings tied to private packet EvidenceRefs; legacy policy-v1/v2 packets remain readable and missing event-to-change stage stays explicit. | Schema-3 session refs, policy-v3 shared findings, compatibility normalization to `evidenceStage: unknown`, and shared IDs through promotion/monitoring. |
 
 ## Failure Modes
 
@@ -64,6 +66,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-2 | Assessment fails. | Snapshot shape, evidence reference, gap, activity, JSON, or size is invalid. | Reject input with sanitized CLI error; persist nothing. |
 | FAIL-3 | Apply fails or returns `blocked`. | Receipt is absent/malformed, private store is unsafe, or current policy fingerprint differs. | Fail closed; create no assignment or external effect. |
 | FAIL-4 | Finding or evidence normalization fails. | Required common metadata is missing/invalid, verification cites unknown evidence, a pointer is unsafe, or a public finding carries an unapproved extension. | Reject the finding; never copy raw private evidence onto the public path. |
+| FAIL-5 | Improvement finding cites unavailable or foreign packet evidence. | EvidenceRef differs from every exact private packet session ref, current packet ref metadata was altered, or a legacy JSON pointer escapes packet sessions. | Reject before marker, monitoring, approval preview, or public promotion. |
 
 ## Adapter Boundaries
 
@@ -72,7 +75,8 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 - No scheduler, daemon, service, polling loop, or background process lives here.
 - No model-facing typed tool is added; external callers use stable `agnt quality ... --json` CLI commands.
 - Reviewer output is not authority. Assignment packets contain no allowed effects.
-- Finding extensions remain owned by review, health, and later domain adapters. Shared validation does not create a universal result schema.
+- Finding extensions remain owned by review, health, improvement, and later domain adapters. Shared validation does not create a universal result schema.
+- Improvement keeps event, incident, pattern, change, and unknown distinct from finding verification status and intervention type.
 - Private EvidenceRefs may cross a public finding boundary as tagged opaque pointers; copied evidence bodies and non-allowlisted extensions may not.
 
 ## Decision Framework
@@ -95,8 +99,10 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | INV-4 | `tests/test_quality.py::test_inv4_disabled_and_stale_policy_cannot_create_assignment` |
 | INV-5 | `tests/test_quality.py::test_inv5_durable_activity_snapshots_map_signals_and_suppress_legacy_duplicates` plus lower-bound, unknown, checkpoint, and label compatibility cases |
 | INV-6 | `tests/test_quality.py::test_shared_finding_and_evidence_ref_validate_common_contract` plus review and health adapter checks in `tests/test_review.py` and `tests/test_health.py` |
+| INV-7 | `tests/test_improvement.py::test_inv7_current_improvement_finding_uses_shared_core_and_private_evidence_refs`, `test_inv7_policy_v2_packet_normalizes_without_guessing_evidence_stage`, and scan/promotion/monitoring checks |
 | FAIL-2, FAIL-3 | Malformed snapshot, receipt, and application tests prefixed `test_fail2_` / `test_fail3_` in `tests/test_quality.py` |
 | FAIL-4 | `tests/test_quality.py::test_public_finding_rejects_copied_raw_private_evidence` |
+| FAIL-5 | `tests/test_improvement.py::test_fail5_improvement_finding_rejects_evidence_from_another_packet` plus unsafe legacy pointer cases |
 | CLI/boundaries | `tests/test_quality.py::test_quality_assess_apply_status_cli_contract`, quality checks in `tests/test_context_architecture.py` |
 
 Focused command:
