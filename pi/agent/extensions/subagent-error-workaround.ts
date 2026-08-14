@@ -18,7 +18,6 @@ type ChildTraceAvailability = "expected-available" | "expected-unavailable" | "u
 const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
 const PROJECTION_OBSERVE_REQUEST = "pi-setup:langfuse-projection-observe";
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
-const INTERACTIVE_VALUE_MAX_CHARS = 12_000;
 const INLINE_OUTPUT_MAX_CHARS = 12_000;
 const ARTIFACT_MESSAGE_MAX_CHARS = 4_000;
 const TERMINATION_MESSAGE_MAX_CHARS = 4_000;
@@ -105,16 +104,6 @@ type Observe = (
   options: { asType: "agent"; sessionId?: string; flush?: boolean },
 ) => void | Promise<void>;
 
-type ToolErrorSignal = {
-  toolName: string;
-  inputHash: string;
-  count: number;
-  exitCode?: number;
-  cancelled: boolean;
-  timedOut: boolean;
-  recovered: boolean;
-};
-
 type ProviderFailureClass = "quota" | "credit" | "authentication" | "availability";
 type ProviderCircuit = (
   action: "open" | "success",
@@ -135,48 +124,6 @@ type InvocationStart = {
   startedMs: number;
   invocationIds: string[];
 };
-
-function lastAssistantMessage(messages: unknown): { content?: unknown; stopReason?: string; errorMessage?: string } | undefined {
-  if (!Array.isArray(messages)) return undefined;
-  return messages.findLast((item) => item && typeof item === "object" && (item as { role?: string }).role === "assistant") as { content?: unknown; stopReason?: string; errorMessage?: string } | undefined;
-}
-
-function assistantOutput(messages: unknown): unknown {
-  const message = lastAssistantMessage(messages);
-  if (!Array.isArray(message?.content)) {
-    return message?.stopReason === "error" ? providerError(message.errorMessage) : message?.content;
-  }
-  const text = message.content
-    .map((item) => item && typeof item === "object" && (item as { type?: string; text?: string }).type === "text" ? (item as { text?: string }).text ?? "" : "")
-    .filter(Boolean)
-    .join("\n");
-  if (message.stopReason === "error") {
-    const error = providerError(message.errorMessage);
-    return text ? `${text}\n\n[execution failed: ${error}]` : error;
-  }
-  return text || undefined;
-}
-
-function boundedInteractiveValue(value: unknown): unknown {
-  if (typeof value !== "string" || value.length <= INTERACTIVE_VALUE_MAX_CHARS) return value;
-  const notice = "\n[interactive value truncated]";
-  return value.slice(0, INTERACTIVE_VALUE_MAX_CHARS - notice.length) + notice;
-}
-
-function assistantExecutionMetadata(messages: unknown): Record<string, unknown> {
-  const message = lastAssistantMessage(messages);
-  if (!message) return { executionOutcome: "unknown" };
-  if (message.stopReason === "aborted" || message.stopReason === "length" || message.stopReason === "toolUse" || message.stopReason === "pending") {
-    return { executionOutcome: "unavailable" };
-  }
-  if (message.stopReason !== "error") return { executionOutcome: "succeeded" };
-  const classification = providerFailureClass(message.errorMessage);
-  return {
-    executionOutcome: "failed",
-    failureClass: "provider",
-    ...(classification ? { providerFailureClass: classification } : {}),
-  };
-}
 
 type TerminationEvidence = {
   reason: string;
@@ -471,40 +418,6 @@ function childTraceAvailability(result: SubagentResult, mode: EffectiveMode): Ch
   return mode === "agentic" && childSessionId(result) ? "expected-available" : "unknown";
 }
 
-function toolSignalKey(event: { toolName: string; input: Record<string, unknown> }): string {
-  return createHash("sha256").update(`${event.toolName}|${JSON.stringify(event.input)}`).digest("hex");
-}
-
-function recordToolSignal(
-  signals: Map<string, ToolErrorSignal>,
-  event: { toolName: string; input: Record<string, unknown>; details?: unknown; isError?: boolean },
-): void {
-  const key = toolSignalKey(event);
-  const existing = signals.get(key);
-  if (!event.isError) {
-    if (existing) existing.recovered = true;
-    return;
-  }
-  const details = event.details && typeof event.details === "object" ? event.details as Record<string, unknown> : {};
-  const exitCode = typeof details.exitCode === "number" ? details.exitCode : undefined;
-  signals.set(key, {
-    toolName: event.toolName,
-    inputHash: key,
-    count: (existing?.count ?? 0) + 1,
-    ...(exitCode === undefined ? {} : { exitCode }),
-    cancelled: Boolean(details.cancelled),
-    timedOut: Boolean(details.timedOut),
-    recovered: existing?.recovered ?? false,
-  });
-}
-
-function serializedToolSignals(signals: Map<string, ToolErrorSignal>): Array<Record<string, unknown>> {
-  return [...signals.values()].map((signal) => ({
-    ...signal,
-    classification: signal.recovered ? "recovered" : signal.timedOut ? "infrastructure" : "unknown",
-  }));
-}
-
 export function providerFailureClass(message?: string): ProviderFailureClass | undefined {
   const text = String(message ?? "").slice(0, 12_000).toLowerCase();
   if (/\b(?:insufficient[_ -]?quota|quota (?:has been )?exceeded|monthly limit|key limit exceeded|usage limit exceeded)\b/.test(text)) return "quota";
@@ -514,7 +427,7 @@ export function providerFailureClass(message?: string): ProviderFailureClass | u
   return undefined;
 }
 
-function providerError(message?: string): string {
+export function providerError(message?: string): string {
   if (message && /OpenrouterException/i.test(message) && /Key limit exceeded \(monthly limit\)/i.test(message)) {
     return "upstream OpenRouter monthly limit exceeded";
   }
@@ -792,69 +705,20 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
   };
   let observe = dependencies.observe;
   if (!observe) {
-    pi.events.emit(PROJECTION_OBSERVE_REQUEST, (provided: unknown) => {
+    pi.events?.emit(PROJECTION_OBSERVE_REQUEST, (provided: unknown) => {
       if (typeof provided === "function") observe = provided as Observe;
     });
   }
   const getObserve = () => observe
     ? Promise.resolve(observe)
     : Promise.reject(new Error("pi-langfuse projection observer is unavailable"));
-  let interactivePrompt: unknown;
-  let interactiveOutput: unknown;
-  let interactiveExecution: Record<string, unknown> = { executionOutcome: "unknown" };
-  const interactiveToolSignals = new Map<string, ToolErrorSignal>();
 
   pi.on("session_start", async (_event, ctx) => {
-    const work: Array<Promise<unknown>> = [];
-    if (!observe) work.push(getObserve());
-    if (!process.env.PI_SUBAGENT_SOCKET) {
-      work.push(Promise.resolve(activeProviderCircuits(ctx.cwd)).then((providers) => {
-        for (const provider of providers) openProviders.add(provider);
-      }).catch((error) => {
-        console.error("[provider-circuit] could not read provider state:", error);
-      }));
-    }
-    await Promise.all(work);
-  });
-
-  pi.on("before_agent_start", (event) => {
-    if (!process.env.PI_SUBAGENT_SOCKET) {
-      interactivePrompt = boundedInteractiveValue(event.prompt);
-      interactiveOutput = undefined;
-      interactiveExecution = { executionOutcome: "unknown" };
-      interactiveToolSignals.clear();
-    }
-  });
-
-  pi.on("agent_end", (event) => {
-    if (!process.env.PI_SUBAGENT_SOCKET) {
-      interactiveOutput = boundedInteractiveValue(assistantOutput(event.messages));
-      interactiveExecution = assistantExecutionMetadata(event.messages);
-    }
-  });
-
-  pi.on("agent_settled", async (_event, ctx) => {
-    if (process.env.PI_SUBAGENT_SOCKET || interactivePrompt === undefined) return;
-    const input = interactivePrompt;
-    const output = interactiveOutput;
-    const toolErrorSignals = serializedToolSignals(interactiveToolSignals);
-    const execution = interactiveExecution;
-    interactivePrompt = undefined;
-    interactiveOutput = undefined;
-    interactiveExecution = { executionOutcome: "unknown" };
-    interactiveToolSignals.clear();
-    if (output == null) return;
+    if (process.env.PI_SUBAGENT_SOCKET) return;
     try {
-      await (await getObserve())("interactive-result", {
-        input,
-        output,
-        metadata: {
-          ...execution,
-          ...(toolErrorSignals.length ? { toolErrorSignals } : {}),
-        },
-      }, { asType: "agent", sessionId: langfuseSessionId(ctx), flush: true });
+      for (const provider of await activeProviderCircuits(ctx.cwd)) openProviders.add(provider);
     } catch (error) {
-      console.error("[langfuse-projection] could not record interactive result:", error);
+      console.error("[provider-circuit] could not read provider state:", error);
     }
   });
 
@@ -891,7 +755,6 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
   });
 
   pi.on("tool_result", async (event, ctx) => {
-    if (!process.env.PI_SUBAGENT_SOCKET) recordToolSignal(interactiveToolSignals, event);
     if (event.toolName !== "subagent") return;
 
     let details = event.details as SubagentDetails | undefined;

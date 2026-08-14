@@ -212,7 +212,17 @@ worker execution, `agnt context-health` for context entropy checks, and
 Decision](ORCHESTRATION-LOOP.md) for the explicitly selected Beads-first gated
 workflow.
 
-### Metrics and feedback
+### Lifecycle capture, metrics, and feedback
+
+`quality-lifecycle.ts` owns root `session_start` and `agent_settled` capture. It
+resolves current local session/Bead ownership and calls `agnt quality capture`
+with bounded IDs and EvidenceRefs only; prompt and response bodies never cross
+that local CLI boundary. The same adapter sends bounded evaluator observations
+to pi-langfuse when available and records an explicit gap when local ownership
+or optional projection is unavailable. `langfuse-config-env.ts` treats missing
+package, registration, and capture ports as optional failures. The subagent
+observer retains only peer artifact/metric projection and provider-circuit
+behavior, so pi-langfuse cannot block root startup.
 
 Raw per-invocation records land in the resolver-selected private
 `metrics/invocations` directory. The resolver uses

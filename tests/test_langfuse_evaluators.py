@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from conftest import run_node
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pi" / "agent" / "bin"))
 
@@ -99,6 +101,33 @@ def test_apply_creates_missing_and_updates_drifted_rules():
     assert len(client.created_evaluators) == len(manifest["evaluators"])
     assert len(client.created_rules) == len(manifest["rules"]) - 1
     assert client.updated_rules == [("rule-1", manifest["rules"][0])]
+
+
+def test_langfuse_wrapper_loads_without_optional_package(tmp_path):
+    agent_dir = tmp_path / "agent"
+    npm_dir = agent_dir / "npm"
+    npm_dir.mkdir(parents=True)
+    (npm_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {STARTUP_EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const errors = [];
+      const originalError = console.error;
+      console.error = (...args) => errors.push(args.join(" "));
+      try {{
+        await install({{
+          on(name, candidate) {{ handlers[name] = candidate; }},
+          events: {{ on() {{}} }},
+        }});
+        assert.equal(typeof handlers.message_end, "function");
+        assert.deepEqual(errors, ["[langfuse-projection] pi-langfuse package is unavailable"]);
+      }} finally {{
+        console.error = originalError;
+      }}
+    """
+    run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
 
 
 def test_setup_applies_and_startup_checks_evaluators():

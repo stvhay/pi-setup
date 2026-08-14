@@ -57,8 +57,17 @@ judged against that contract; missing required inline/artifact output remains
 visible as poor quality independently of objective execution outcome.
 
 The local private quality ledger owns direct session/Bead links and explicit
-outcomes. Matching Langfuse scores are best-effort evidence: projection gaps are
-reported but cannot block direct start, status, or closeout. Evaluator-ready
+outcomes. `quality-lifecycle.ts` calls `agnt quality capture` at root session
+startup and after agent settlement with session/Bead IDs plus bounded invocation
+or result EvidenceRefs; it never sends prompt, output, or tool payload bodies to
+the local CLI. An unassigned startup is re-resolved after settlement because
+`agnt work direct-start` normally links work after Pi starts. Explicit task
+outcomes remain owned by outcome/closeout commands, not inferred from a settled
+agent turn.
+
+Bounded root prompt/output projection remains best effort. Missing pi-langfuse
+package, registration, service capture, or observer becomes an explicit gap and
+cannot block local capture, direct start, status, or closeout. Evaluator-ready
 result projections share the Pi session ID, allowing sampled outcome scores to
 join the root agent trace without heuristic matching when Langfuse is available.
 `agnt improve` reads bounded Langfuse cohorts and writes private packets under

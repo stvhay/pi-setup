@@ -66,43 +66,61 @@ export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
     return { message: telemetryMessage };
   });
 
-  const require = createRequire(resolve(agentDir, "npm", "package.json"));
-  const langfuseEntry = require.resolve("pi-langfuse");
-  const { default: registerLangfuse } = await import(pathToFileURL(langfuseEntry).href) as {
-    default: LangfuseFactory;
-  };
-  await registerLangfuse(pi);
+  let langfuseEntry: string | undefined;
+  try {
+    const require = createRequire(resolve(agentDir, "npm", "package.json"));
+    langfuseEntry = require.resolve("pi-langfuse");
+  } catch {
+    console.error("[langfuse-projection] pi-langfuse package is unavailable");
+  }
 
-  if (pi.events) {
-    const packageRoot = dirname(langfuseEntry);
-    const [{ getRuntime, shutdownRuntime }, { redactValue }, { getCapturePolicy }] = await Promise.all([
-      import(pathToFileURL(resolve(packageRoot, "src", "langfuse.js")).href),
-      import(pathToFileURL(resolve(packageRoot, "src", "redaction.js")).href),
-      import(pathToFileURL(resolve(packageRoot, "src", "utils.js")).href),
-    ]);
-    const observe: ProjectionObserve = async (name, attributes, options) => {
-      const policy = getCapturePolicy();
-      const runtime = await getRuntime();
-      try {
-        const record = () => {
-          const observation = runtime.startObservation(name, {
-            ...attributes,
-            input: policy.captureInputs ? redactValue(attributes.input) : undefined,
-            output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
-            metadata: redactValue(attributes.metadata),
-          }, { asType: options.asType });
-          observation.end();
-        };
-        return options.sessionId
-          ? runtime.propagateAttributes({ sessionId: options.sessionId }, record)
-          : record();
-      } finally {
-        if (options.flush) await shutdownRuntime(options.sessionId);
-      }
-    };
-    pi.events.on(PROJECTION_OBSERVE_REQUEST, (accept) => {
-      if (typeof accept === "function") (accept as (value: ProjectionObserve) => void)(observe);
-    });
+  let registered = false;
+  if (langfuseEntry) {
+    try {
+      const { default: registerLangfuse } = await import(pathToFileURL(langfuseEntry).href) as {
+        default: LangfuseFactory;
+      };
+      await registerLangfuse(pi);
+      registered = true;
+    } catch {
+      console.error("[langfuse-projection] pi-langfuse registration is unavailable");
+    }
+  }
+
+  if (registered && pi.events && langfuseEntry) {
+    try {
+      const packageRoot = dirname(langfuseEntry);
+      const [{ getRuntime, shutdownRuntime }, { redactValue }, { getCapturePolicy }] = await Promise.all([
+        import(pathToFileURL(resolve(packageRoot, "src", "langfuse.js")).href),
+        import(pathToFileURL(resolve(packageRoot, "src", "redaction.js")).href),
+        import(pathToFileURL(resolve(packageRoot, "src", "utils.js")).href),
+      ]);
+      const observe: ProjectionObserve = async (name, attributes, options) => {
+        const policy = getCapturePolicy();
+        const runtime = await getRuntime();
+        try {
+          const record = () => {
+            const observation = runtime.startObservation(name, {
+              ...attributes,
+              input: policy.captureInputs ? redactValue(attributes.input) : undefined,
+              output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
+              metadata: redactValue(attributes.metadata),
+            }, { asType: options.asType });
+            observation.end();
+          };
+          return options.sessionId
+            ? runtime.propagateAttributes({ sessionId: options.sessionId }, record)
+            : record();
+        } finally {
+          if (options.flush) await shutdownRuntime(options.sessionId);
+        }
+      };
+      pi.events.on(PROJECTION_OBSERVE_REQUEST, (accept) => {
+        if (typeof accept === "function") (accept as (value: ProjectionObserve) => void)(observe);
+      });
+    } catch {
+      console.error("[langfuse-projection] observation capture is unavailable");
+    }
   }
 
   pi.on("message_end", ({ message }) => {

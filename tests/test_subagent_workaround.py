@@ -9,6 +9,7 @@ from conftest import run_node as run_node_process
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "pi" / "agent" / "extensions" / "subagent-error-workaround.ts"
 LANGFUSE_CONFIG_EXTENSION = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
+QUALITY_LIFECYCLE_EXTENSION = ROOT / "pi" / "agent" / "extensions" / "quality-lifecycle.ts"
 RUNTIME_ARTIFACTS = ROOT / "pi" / "agent" / "extensions" / "lib" / "runtime-artifacts.ts"
 SUBAGENT_HARNESS = f"""
       import assert from "node:assert/strict";
@@ -28,6 +29,30 @@ SUBAGENT_HARNESS = f"""
 
 def run_node(script: str, env: dict[str, str] | None = None):
     return run_node_process(script, {"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent"), **(env or {})})
+
+
+def test_subagent_observer_has_no_root_interactive_handlers_or_projection_startup_dependency():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const circuits = [];
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        activeProviderCircuits() {{ return ["openrouter"]; }},
+        providerCircuit(action, provider, reason) {{ circuits.push({{ action, provider, reason }}); }},
+      }});
+
+      assert.equal(handlers.before_agent_start, undefined);
+      assert.equal(handlers.agent_end, undefined);
+      assert.equal(handlers.agent_settled, undefined);
+      await handlers.session_start({{}}, {{ cwd: process.cwd() }});
+      await handlers.message_end({{
+        message: {{ role: "assistant", provider: "openrouter", stopReason: "stop" }},
+      }}, {{ cwd: process.cwd() }});
+      assert.deepEqual(circuits, [{{ action: "success", provider: "openrouter", reason: undefined }}]);
+    """
+    run_node(script)
 
 
 def test_subagent_workaround_exposes_failures_without_touching_successes():
@@ -525,7 +550,7 @@ export async function shutdownRuntime() {
       globalThis.__langfusePropagation = undefined;
       globalThis.__langfuseShutdowns = 0;
       const loaded = await loader.loadExtensions(
-        [{str(LANGFUSE_CONFIG_EXTENSION)!r}, {str(EXTENSION)!r}],
+        [{str(LANGFUSE_CONFIG_EXTENSION)!r}, {str(QUALITY_LIFECYCLE_EXTENSION)!r}, {str(EXTENSION)!r}],
         process.cwd(),
         undefined,
         runtime,
@@ -626,134 +651,6 @@ export async function shutdownRuntime() {
       assert.equal(length.attributes.metadata.executionOutcome, "unavailable");
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(agent_dir)})
-
-
-def test_interactive_results_emit_evaluator_ready_observations():
-    script = f"""
-      {SUBAGENT_HARNESS}
-      const observations = [];
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
-      }});
-
-      const originalSocket = process.env.PI_SUBAGENT_SOCKET;
-      delete process.env.PI_SUBAGENT_SOCKET;
-      await handlers.before_agent_start({{ prompt: "Fix auth" }});
-      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Intermediate attempt" }}] }}] }});
-      assert.deepEqual(observations, []);
-      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Auth fixed" }}] }}] }});
-      const ctx = {{ sessionManager: {{ getSessionFile() {{ return "/private/2026-07-28T00-00-00Z_private-session.jsonl"; }} }} }};
-      await handlers.agent_settled({{}}, ctx);
-      assert.deepEqual(observations, [{{
-        name: "interactive-result",
-        attributes: {{ input: "Fix auth", output: "Auth fixed", metadata: {{ executionOutcome: "succeeded" }} }},
-        options: {{ asType: "agent", sessionId: "2026-07-28T00-00-00Z_private-session", flush: true }},
-      }}]);
-
-      await handlers.before_agent_start({{ prompt: "Ask for a choice" }});
-      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [] }}] }});
-      await handlers.agent_settled({{}}, ctx);
-      assert.equal(observations.length, 1, "empty assistant output must not be evaluated");
-
-      await handlers.before_agent_start({{ prompt: "No captured result" }});
-      await handlers.agent_end({{ messages: [{{ role: "assistant", content: null }}] }});
-      await handlers.agent_settled({{}}, ctx);
-      assert.equal(observations.length, 1, "null assistant output must not be evaluated");
-
-      process.env.PI_SUBAGENT_SOCKET = "/tmp/test-subagent.sock";
-      await handlers.before_agent_start({{ prompt: "Headless work" }});
-      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Done" }}] }}] }});
-      await handlers.agent_settled({{}});
-      delete process.env.PI_SUBAGENT_SOCKET;
-      await handlers.before_agent_start({{ prompt: "Fail visibly" }});
-      await handlers.agent_end({{ messages: [{{
-        role: "assistant",
-        content: [{{ type: "text", text: "Useful partial report" }}],
-        stopReason: "error",
-        errorMessage: "403: OpenrouterException - Key limit exceeded (monthly limit): https://openrouter.ai/settings/keys?id=secret",
-      }}] }});
-      await handlers.agent_settled({{}});
-      assert.equal(
-        observations[1].attributes.output,
-        "Useful partial report\\n\\n[execution failed: upstream OpenRouter monthly limit exceeded]",
-      );
-      assert.deepEqual(observations[1].attributes.metadata, {{
-        executionOutcome: "failed",
-        failureClass: "provider",
-        providerFailureClass: "quota",
-      }});
-      if (originalSocket === undefined) delete process.env.PI_SUBAGENT_SOCKET;
-      else process.env.PI_SUBAGENT_SOCKET = originalSocket;
-      assert.equal(observations.length, 2);
-    """
-    run_node(script)
-
-
-def test_aborted_interactive_result_is_unavailable_not_successful():
-    script = f"""
-      {SUBAGENT_HARNESS}
-      const observations = [];
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
-      }});
-
-      delete process.env.PI_SUBAGENT_SOCKET;
-      await handlers.before_agent_start({{ prompt: "Stop work" }});
-      await handlers.agent_end({{ messages: [{{
-        role: "assistant",
-        content: [{{ type: "text", text: "Partial work" }}],
-        stopReason: "aborted",
-      }}] }});
-      await handlers.agent_settled({{}});
-
-      assert.equal(observations[0].attributes.output, "Partial work");
-      assert.deepEqual(observations[0].attributes.metadata, {{ executionOutcome: "unavailable" }});
-    """
-    run_node(script)
-
-
-def test_interactive_results_emit_payload_free_tool_error_signals():
-    script = f"""
-      {SUBAGENT_HARNESS}
-      const observations = [];
-      install({{
-        on(name, candidate) {{ handlers[name] = candidate; }},
-      }}, {{
-        observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
-      }});
-
-      delete process.env.PI_SUBAGENT_SOCKET;
-      const ctx = {{
-        cwd: process.cwd(),
-        sessionManager: {{ getSessionFile() {{ return "/private/private-session.jsonl"; }} }},
-      }};
-      await handlers.before_agent_start({{ prompt: "Run checks" }});
-      await handlers.tool_result({{
-        toolName: "bash", toolCallId: "red", input: {{ command: "SECRET failing test" }},
-        details: {{ exitCode: 1, cancelled: false }}, isError: true, content: [],
-      }}, ctx);
-      await handlers.tool_result({{
-        toolName: "bash", toolCallId: "green", input: {{ command: "SECRET failing test" }},
-        details: {{ exitCode: 0, cancelled: false }}, isError: false, content: [],
-      }}, ctx);
-      await handlers.tool_result({{
-        toolName: "bash", toolCallId: "timeout", input: {{ command: "SECRET timeout command" }},
-        details: {{ timedOut: true }}, isError: true, content: [],
-      }}, ctx);
-      await handlers.agent_end({{ messages: [{{ role: "assistant", content: [{{ type: "text", text: "Done" }}] }}] }});
-      await handlers.agent_settled({{}}, ctx);
-
-      const signals = observations[0].attributes.metadata.toolErrorSignals;
-      assert.equal(signals.length, 2);
-      assert.deepEqual(signals.map((item) => item.classification).sort(), ["infrastructure", "recovered"]);
-      assert.equal(signals.every((item) => /^[0-9a-f]{{64}}$/.test(item.inputHash)), true);
-      assert.equal(JSON.stringify(signals).includes("SECRET"), false);
-    """
-    run_node(script)
 
 
 def test_subagent_results_emit_evaluator_ready_observations():
