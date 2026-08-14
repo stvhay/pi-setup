@@ -165,6 +165,28 @@ def test_retired_runner_automation_surfaces_are_absent():
     assert "orchestrator-startup" not in doctor
 
 
+def test_retired_maintenance_modes_and_command_are_absent():
+    assert not (AGENT / "bin" / "agnt_lib" / "maintenance.py").exists()
+    assert not (ROOT / "tests" / "test_maintenance.py").exists()
+
+    agnt = (AGENT / "bin" / "agnt").read_text(encoding="utf-8")
+    work = (AGENT / "bin" / "agnt_lib" / "work.py").read_text(encoding="utf-8")
+    quality = (AGENT / "bin" / "agnt_lib" / "quality.py").read_text(encoding="utf-8")
+    docs = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            AGENT / "bin" / "README.md",
+            ROOT / "docs" / "SELF-IMPROVEMENT.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+        )
+    )
+
+    assert "agnt_lib.maintenance" not in agnt
+    assert 'add_parser("maintenance"' not in work
+    assert "MAINTENANCE_MODES" not in quality
+    assert "work maintenance" not in docs
+
+
 def test_quality_kernel_remains_cli_only_without_scheduler_or_service():
     source = (AGENT / "bin" / "agnt_lib" / "quality.py").read_text(encoding="utf-8")
     for forbidden in ("subprocess.", "time.sleep", "registerTool", "while True"):

@@ -9,8 +9,9 @@ import re
 import stat
 import sys
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from subprocess import run as run_process
 from typing import Any, Iterator
 
 from .runtime_paths import resolve_runtime_directory
@@ -33,6 +34,39 @@ ACTIVITY_IDS = (
     "capability-calibration",
     "quality-system-review",
 )
+QUALITY_ACTIVITY_LABELS = {
+    activity: f"quality:{activity}" for activity in ACTIVITY_IDS
+}
+LEGACY_ACTIVITY_LABELS = {
+    "maintenance:design-review": "architecture-coherence",
+    "maintenance:architecture-review": "architecture-coherence",
+    "maintenance:simplification": "architecture-coherence",
+    "maintenance:workflow-retro": "work-learning",
+    "maintenance:context-health": "architecture-coherence",
+    "maintenance:improvement-review": "work-learning",
+    "maintenance:lessons-harvest": "work-learning",
+}
+LEGACY_GIT_CHECKPOINT_LABELS = frozenset({
+    "maintenance:design-review",
+    "maintenance:architecture-review",
+    "maintenance:simplification",
+    "maintenance:workflow-retro",
+    "maintenance:context-health",
+})
+LEGACY_WORK_LEARNING_CHECKPOINT_LABELS = frozenset({
+    "maintenance:improvement-review",
+    "maintenance:lessons-harvest",
+})
+DEFAULT_SIGNAL_THRESHOLDS = {
+    "closedImplementationBeads": 5,
+    "commits": 10,
+    "failedOrBlockedRuns": 2,
+    "humanBlockers": 2,
+    "contextWarnings": 3,
+    "healthWarnings": 3,
+    "healthFailures": 1,
+    "eligibleUnreviewedSessions": 5,
+}
 ACTIVITY_FIELDS = frozenset({
     "id",
     "source",
@@ -432,6 +466,314 @@ def capture(
     )
 
 
+def _labels(bead: dict[str, Any]) -> set[str]:
+    return {str(label) for label in bead.get("labels") or []}
+
+
+def _is_closed(bead: dict[str, Any]) -> bool:
+    return str(bead.get("status") or "").lower() == "closed"
+
+
+def _is_implementation(bead: dict[str, Any]) -> bool:
+    labels = _labels(bead)
+    if "implementation" in labels or "implement" in str(bead.get("title") or "").lower():
+        return True
+    metadata = bead.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = None
+    pi_metadata = metadata.get("pi") if isinstance(metadata, dict) else None
+    return isinstance(pi_metadata, dict) and pi_metadata.get("action") == "implement"
+
+
+def _is_human_blocker(bead: dict[str, Any]) -> bool:
+    labels = _labels(bead)
+    return (
+        bool(labels.intersection({"human", "human-gate", "approval"}))
+        or "human" in str(bead.get("title") or "").lower()
+        or str(bead.get("issue_type") or bead.get("type") or "") == "decision"
+    )
+
+
+def _activity_from_labels(bead: dict[str, Any]) -> str | None:
+    labels = _labels(bead)
+    for activity, label in QUALITY_ACTIVITY_LABELS.items():
+        if label in labels:
+            return activity
+    return next(
+        (activity for label, activity in LEGACY_ACTIVITY_LABELS.items() if label in labels),
+        None,
+    )
+
+
+def open_quality_activities(beads: list[dict[str, Any]]) -> set[str]:
+    return {
+        activity
+        for bead in beads
+        if not _is_closed(bead)
+        if (activity := _activity_from_labels(bead)) is not None
+    }
+
+
+def _parse_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _latest_closed_time(
+    beads: list[dict[str, Any]],
+    *,
+    labels: frozenset[str],
+    activities: frozenset[str],
+) -> datetime | None:
+    times = []
+    for bead in beads:
+        bead_labels = _labels(bead)
+        if not _is_closed(bead) or not (
+            bead_labels.intersection(labels)
+            or any(QUALITY_ACTIVITY_LABELS[activity] in bead_labels for activity in activities)
+        ):
+            continue
+        timestamp = _parse_time(bead.get("closed_at") or bead.get("closedAt"))
+        if timestamp is not None:
+            times.append(timestamp)
+    return max(times) if times else None
+
+
+def default_improvement_review_provider(*, since: str | None, until: str) -> dict[str, Any]:
+    from .improvement import eligible_unreviewed_session_summary
+    from .langfuse import LangfuseError, _client_from_env
+
+    if since is None:
+        end = datetime.fromisoformat(until.replace("Z", "+00:00"))
+        since = (end - timedelta(days=7)).isoformat().replace("+00:00", "Z")
+    try:
+        return eligible_unreviewed_session_summary(
+            _client_from_env(),
+            since=since,
+            until=until,
+        )
+    except (LangfuseError, OSError, ValueError):
+        return {"schemaVersion": 1, "status": "unavailable"}
+
+
+def collect_beads(beads_runner: Any = None) -> tuple[list[dict[str, Any]], list[str]]:
+    code, data, error = (beads_runner or _beads)(["list"])
+    if code != 0:
+        return [], [str(error or "bd list failed")]
+    if not isinstance(data, list):
+        return [], ["bd list returned non-list JSON"]
+    return [item for item in data if isinstance(item, dict)], []
+
+
+def git_commit_summary(
+    root: Path | str | None = None,
+    *,
+    since: datetime | None = None,
+) -> dict[str, Any]:
+    repository = Path(root).expanduser() if root is not None else Path.cwd()
+    command = ["git", "-C", str(repository), "rev-list", "--count"]
+    if since is not None:
+        command.append(f"--since={since.isoformat()}")
+    command.append("HEAD")
+    try:
+        process = run_process(command, text=True, capture_output=True)
+    except OSError as exc:
+        return {"commitsSinceQualityReview": 0, "error": str(exc)}
+    if process.returncode != 0:
+        return {
+            "commitsSinceQualityReview": 0,
+            "error": process.stderr.strip() or "git history unavailable",
+        }
+    try:
+        count = int((process.stdout or "0").strip() or 0)
+    except ValueError:
+        count = 0
+    return {
+        "commitsSinceQualityReview": count,
+        "since": since.isoformat().replace("+00:00", "Z") if since else None,
+    }
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def collect_runs(runs_dir: Path | str | None = None) -> list[dict[str, Any]]:
+    from .runs import default_runs_dir
+
+    root = Path(runs_dir).expanduser() if runs_dir is not None else default_runs_dir()
+    if not root.is_dir():
+        return []
+    runs = []
+    for bundle in sorted(path for path in root.iterdir() if path.is_dir()):
+        invocation = _read_json(bundle / "invocation.yaml") or {}
+        result = _read_json(bundle / "result.yaml") or {}
+        runs.append({
+            "id": str(invocation.get("id") or result.get("invocationId") or bundle.name),
+            "status": result.get("status"),
+        })
+    return runs
+
+
+def _summary_count(report: dict[str, Any] | None, key: str) -> int:
+    summary = report.get("summary") if isinstance(report, dict) else None
+    try:
+        return int(summary.get(key) or 0) if isinstance(summary, dict) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def durable_activity_snapshots(
+    *,
+    beads: list[dict[str, Any]] | None = None,
+    runs: list[dict[str, Any]] | None = None,
+    git_summary: dict[str, Any] | None = None,
+    health_report: dict[str, Any] | None = None,
+    context_health_report: dict[str, Any] | None = None,
+    improvement_review_report: dict[str, Any] | None = None,
+    thresholds: dict[str, int] | None = None,
+    root: Path | str | None = None,
+    runs_dir: Path | str | None = None,
+    beads_runner: Any = None,
+    git_summary_provider: Any = git_commit_summary,
+    improvement_review_provider: Any = default_improvement_review_provider,
+) -> dict[str, dict[str, Any]]:
+    collection_gaps = []
+    if beads is None:
+        beads, bead_warnings = collect_beads(beads_runner)
+        if bead_warnings:
+            collection_gaps.append("beads-unavailable")
+    if runs is None:
+        runs = collect_runs(runs_dir)
+
+    git_checkpoint = _latest_closed_time(
+        beads,
+        labels=LEGACY_GIT_CHECKPOINT_LABELS,
+        activities=frozenset({"architecture-coherence", "quality-system-review"}),
+    )
+    work_learning_checkpoint = _latest_closed_time(
+        beads,
+        labels=LEGACY_WORK_LEARNING_CHECKPOINT_LABELS,
+        activities=frozenset({"work-learning"}),
+    )
+    generated_at = _captured_at()
+    if git_summary is None:
+        git_summary = git_summary_provider(root, since=git_checkpoint)
+    if improvement_review_report is None:
+        improvement_review_report = improvement_review_provider(
+            since=(
+                work_learning_checkpoint.isoformat().replace("+00:00", "Z")
+                if work_learning_checkpoint
+                else None
+            ),
+            until=generated_at,
+        )
+    if health_report is None:
+        from .health import work_health_report
+
+        health_report = work_health_report(
+            root=root,
+            runs_dir=runs_dir,
+            include_beads=False,
+        )
+    if context_health_report is None:
+        from .context_health import context_health_report as build_context_health_report
+
+        context_health_report = build_context_health_report()
+
+    try:
+        commits = int(git_summary.get("commitsSinceQualityReview") or 0)
+    except (TypeError, ValueError):
+        commits = 0
+    signals: dict[str, Any] = {
+        "closedImplementationBeads": sum(
+            1 for bead in beads if _is_closed(bead) and _is_implementation(bead)
+        ),
+        "commitsSinceQualityReview": commits,
+        "failedOrBlockedRuns": sum(
+            1 for run in runs if str(run.get("status") or "") in {"failed", "blocked"}
+        ),
+        "humanBlockers": sum(
+            1 for bead in beads if not _is_closed(bead) and _is_human_blocker(bead)
+        ),
+        "contextWarnings": _summary_count(context_health_report, "warningCount"),
+        "healthWarnings": _summary_count(health_report, "warningCount"),
+        "healthFailures": _summary_count(health_report, "failureCount"),
+    }
+    work_learning_gaps = list(collection_gaps)
+    eligible_sessions = improvement_review_report.get("eligibleSessions")
+    if (
+        improvement_review_report.get("status") == "ok"
+        and type(eligible_sessions) is int
+        and eligible_sessions >= 0
+    ):
+        signals["eligibleUnreviewedSessions"] = eligible_sessions
+        if improvement_review_report.get("lowerBound") is True:
+            work_learning_gaps.append("eligible-sessions-lower-bound")
+    else:
+        signals["eligibleUnreviewedSessions"] = None
+        work_learning_gaps.append("eligible-sessions-unknown")
+
+    limits = {**DEFAULT_SIGNAL_THRESHOLDS, **(thresholds or {})}
+    due_signals = {
+        "capture": [],
+        "work-learning": [
+            name
+            for name in ("humanBlockers", "eligibleUnreviewedSessions")
+            if type(signals[name]) is int and signals[name] >= limits[name]
+        ],
+        "architecture-coherence": [
+            name
+            for name, threshold in (
+                ("closedImplementationBeads", limits["closedImplementationBeads"]),
+                ("commitsSinceQualityReview", limits["commits"]),
+                ("failedOrBlockedRuns", limits["failedOrBlockedRuns"]),
+                ("contextWarnings", limits["contextWarnings"]),
+                ("healthWarnings", limits["healthWarnings"]),
+                ("healthFailures", limits["healthFailures"]),
+            )
+            if signals[name] >= threshold
+        ],
+        "capability-calibration": [],
+        "quality-system-review": [],
+    }
+    active = open_quality_activities(beads)
+    snapshots = {}
+    for activity in ACTIVITY_IDS:
+        triggered_signals = due_signals[activity]
+        suppressed = bool(triggered_signals) and activity in active
+        gaps = list(collection_gaps)
+        if activity == "work-learning":
+            gaps = work_learning_gaps
+        if activity == "architecture-coherence" and git_summary.get("error"):
+            gaps.append("git-history-unknown")
+        snapshot = {
+            "schemaVersion": 1,
+            "triggered": bool(triggered_signals) and not suppressed,
+            "evidenceRefs": [],
+            "gaps": sorted(set(gaps)),
+            "signals": {
+                **signals,
+                "activityLabel": QUALITY_ACTIVITY_LABELS[activity],
+                "triggeredSignals": triggered_signals,
+                "duplicateSuppressed": suppressed,
+            },
+        }
+        snapshots[activity] = _validate_snapshot(snapshot)
+    return snapshots
+
+
 def _canonical(value: Any) -> str:
     try:
         return json.dumps(
@@ -564,12 +906,16 @@ def _validate_work_packet(value: Any, *, activity: str, mode: str) -> dict[str, 
     if (
         mode != "observe"
         or not isinstance(value, dict)
-        or set(value) != fields
+        or frozenset(value) not in {frozenset(fields), frozenset({*fields, "labels"})}
         or value.get("schemaVersion") != 1
         or value.get("activity") != activity
         or not _text(value.get("method"))
         or not _text(value.get("receiver"))
         or value.get("allowedEffects") != []
+        or (
+            "labels" in value
+            and value["labels"] != [QUALITY_ACTIVITY_LABELS[activity]]
+        )
     ):
         raise ValueError("quality receipt work packet is invalid")
     _evidence_refs(value.get("evidenceRefs"))
@@ -682,6 +1028,7 @@ def assess(
             "receiver": selected["receiver"],
             "evidenceRefs": snapshot["evidenceRefs"],
             "gaps": snapshot["gaps"],
+            "labels": [QUALITY_ACTIVITY_LABELS[activity]],
             "allowedEffects": [],
         }
     core = {
@@ -856,7 +1203,12 @@ def cmd_quality(argv: list[str]) -> int:
     capture_cmd.add_argument("--json", action="store_true")
     assess_cmd = sub.add_parser("assess", help="persist one deterministic decision receipt")
     assess_cmd.add_argument("--activity", required=True)
-    assess_cmd.add_argument("--snapshot", help="JSON snapshot; defaults to stdin")
+    assess_input = assess_cmd.add_mutually_exclusive_group()
+    assess_input.add_argument("--snapshot", help="JSON snapshot; defaults to stdin")
+    assess_input.add_argument("--collect", action="store_true", help="derive snapshot from durable local signals")
+    assess_cmd.add_argument("--root")
+    assess_cmd.add_argument("--runs-dir")
+    assess_cmd.add_argument("--no-beads", action="store_true")
     assess_cmd.add_argument("--json", action="store_true")
     apply_cmd = sub.add_parser("apply", help="apply one current receipt within observe-only policy")
     apply_cmd.add_argument("--receipt", required=True)
@@ -872,8 +1224,19 @@ def cmd_quality(argv: list[str]) -> int:
             raw = args.payload if args.payload is not None else sys.stdin.read()
             result = capture(json.loads(raw), beads_runner=_beads)
         elif args.action == "assess":
-            raw = args.snapshot if args.snapshot is not None else sys.stdin.read()
-            result = assess(json.loads(raw), args.activity)
+            if args.activity not in ACTIVITY_IDS:
+                raise ValueError("quality activity is unknown")
+            if args.collect:
+                snapshots = durable_activity_snapshots(
+                    root=Path(args.root).expanduser() if args.root else None,
+                    runs_dir=Path(args.runs_dir).expanduser() if args.runs_dir else None,
+                    beads=[] if args.no_beads else None,
+                )
+                snapshot = snapshots[args.activity]
+            else:
+                raw = args.snapshot if args.snapshot is not None else sys.stdin.read()
+                snapshot = json.loads(raw)
+            result = assess(snapshot, args.activity)
         elif args.action == "apply":
             result = apply(args.receipt)
         else:

@@ -360,10 +360,174 @@ def test_inv2_assessment_is_deterministic_and_emits_at_most_one_packet(tmp_path)
     assert first["authority"] == {"status": "unknown", "allowedEffects": []}
     assert isinstance(first["workPacket"], dict)
     assert first["workPacket"]["allowedEffects"] == []
+    assert first["workPacket"]["labels"] == ["quality:work-learning"]
     assert first["receiptId"] == first["dedupeKey"]
     receipts = (tmp_path / "receipts.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(receipts) == 1
     assert json.loads(receipts[0]) == first
+
+
+def _closed_impl(bead_id):
+    return {
+        "id": bead_id,
+        "title": f"Implement {bead_id}",
+        "issue_type": "task",
+        "status": "closed",
+        "closed_at": "2026-07-09T01:00:00Z",
+        "labels": ["implementation"],
+    }
+
+
+def test_inv5_durable_activity_snapshots_map_signals_and_suppress_legacy_duplicates():  # Tests INV-5
+    beads = [
+        _closed_impl("pi-1"),
+        _closed_impl("pi-2"),
+        _closed_impl("pi-3"),
+        {
+            "id": "pi-coherence-open",
+            "title": "Legacy context review",
+            "issue_type": "task",
+            "status": "open",
+            "labels": ["maintenance:context-health"],
+        },
+        {
+            "id": "pi-human-1",
+            "title": "Human blocker",
+            "issue_type": "decision",
+            "status": "open",
+            "labels": ["human"],
+        },
+        {
+            "id": "pi-human-2",
+            "title": "Another human blocker",
+            "issue_type": "decision",
+            "status": "open",
+            "labels": ["human"],
+        },
+    ]
+    snapshots = quality.durable_activity_snapshots(
+        beads=beads,
+        runs=[{"status": "failed"}, {"status": "blocked"}],
+        git_summary={"commitsSinceQualityReview": 6},
+        health_report={"summary": {"warningCount": 2, "failureCount": 0}},
+        context_health_report={"summary": {"warningCount": 2}},
+        improvement_review_report={"status": "ok", "eligibleSessions": 0},
+        thresholds={
+            "closedImplementationBeads": 3,
+            "commits": 5,
+            "failedOrBlockedRuns": 2,
+            "humanBlockers": 2,
+            "contextWarnings": 1,
+            "healthWarnings": 1,
+        },
+    )
+
+    assert list(snapshots) == ACTIVITY_IDS
+    assert snapshots["work-learning"]["triggered"] is True
+    coherence = snapshots["architecture-coherence"]
+    assert coherence["triggered"] is False
+    assert coherence["signals"]["duplicateSuppressed"] is True
+    assert set(coherence["signals"]["triggeredSignals"]) == {
+        "closedImplementationBeads",
+        "commitsSinceQualityReview",
+        "failedOrBlockedRuns",
+        "contextWarnings",
+        "healthWarnings",
+    }
+    assert coherence["signals"]["activityLabel"] == "quality:architecture-coherence"
+    assert all(
+        snapshot["signals"]["activityLabel"] == f"quality:{activity}"
+        for activity, snapshot in snapshots.items()
+    )
+    assert all(
+        "maintenance:" not in json.dumps(snapshot, sort_keys=True)
+        for snapshot in snapshots.values()
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "activity"),
+    [
+        ("maintenance:design-review", "architecture-coherence"),
+        ("maintenance:architecture-review", "architecture-coherence"),
+        ("maintenance:simplification", "architecture-coherence"),
+        ("maintenance:workflow-retro", "work-learning"),
+        ("maintenance:context-health", "architecture-coherence"),
+        ("maintenance:improvement-review", "work-learning"),
+        ("maintenance:lessons-harvest", "work-learning"),
+    ],
+)
+def test_legacy_maintenance_labels_are_read_compatible_only(label, activity):
+    bead = {"status": "open", "labels": [label]}
+
+    assert quality.open_quality_activities([bead]) == {activity}
+
+
+def test_durable_work_learning_preserves_lower_bound_and_unknown_evidence():
+    base = {
+        "beads": [],
+        "runs": [],
+        "git_summary": {"commitsSinceQualityReview": 0},
+        "health_report": {"summary": {}},
+        "context_health_report": {"summary": {}},
+        "thresholds": {"eligibleUnreviewedSessions": 5},
+    }
+
+    lower_bound = quality.durable_activity_snapshots(
+        **base,
+        improvement_review_report={
+            "status": "ok",
+            "eligibleSessions": 2,
+            "lowerBound": True,
+        },
+    )["work-learning"]
+    unknown = quality.durable_activity_snapshots(
+        **base,
+        improvement_review_report={"status": "unavailable"},
+    )["work-learning"]
+
+    assert lower_bound["triggered"] is False
+    assert lower_bound["signals"]["eligibleUnreviewedSessions"] == 2
+    assert lower_bound["gaps"] == ["eligible-sessions-lower-bound"]
+    assert unknown["triggered"] is False
+    assert unknown["signals"]["eligibleUnreviewedSessions"] is None
+    assert unknown["gaps"] == ["eligible-sessions-unknown"]
+
+
+def test_legacy_checkpoints_bound_git_and_eligible_session_queries():
+    calls = {"git": [], "improvement": []}
+    beads = [
+        {
+            "status": "closed",
+            "closed_at": "2026-07-20T00:00:00Z",
+            "labels": ["maintenance:architecture-review"],
+        },
+        {
+            "status": "closed",
+            "closed_at": "2026-07-25T00:00:00Z",
+            "labels": ["maintenance:improvement-review"],
+        },
+    ]
+
+    def git_provider(_root, *, since):
+        calls["git"].append(since)
+        return {"commitsSinceQualityReview": 0}
+
+    def improvement_provider(**kwargs):
+        calls["improvement"].append(kwargs)
+        return {"status": "ok", "eligibleSessions": 0}
+
+    quality.durable_activity_snapshots(
+        beads=beads,
+        runs=[],
+        health_report={"summary": {}},
+        context_health_report={"summary": {}},
+        git_summary_provider=git_provider,
+        improvement_review_provider=improvement_provider,
+    )
+
+    assert calls["git"][0].isoformat().replace("+00:00", "Z") == "2026-07-20T00:00:00Z"
+    assert calls["improvement"][0]["since"] == "2026-07-25T00:00:00Z"
 
 
 def test_fail2_assessment_rejects_malformed_snapshot_and_unsafe_evidence(tmp_path):  # Tests FAIL-2
@@ -498,6 +662,55 @@ def test_quality_assess_apply_status_cli_contract(monkeypatch, tmp_path, capsys)
         "unknown-activity",
         "--snapshot",
         snapshot,
+        "--json",
+    ]) == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "schemaVersion": 1,
+        "status": "error",
+        "error": "quality assess failed",
+    }
+
+
+def test_quality_assess_cli_collects_durable_activity_snapshot(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda kind: tmp_path)
+    monkeypatch.setattr(
+        quality,
+        "durable_activity_snapshots",
+        lambda **_kwargs: {
+            activity: _snapshot(triggered=activity == "work-learning")
+            for activity in ACTIVITY_IDS
+        },
+    )
+
+    assert quality.cmd_quality([
+        "assess",
+        "--activity",
+        "work-learning",
+        "--collect",
+        "--no-beads",
+        "--json",
+    ]) == 0
+
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["activity"] == "work-learning"
+    assert receipt["workPacket"]["labels"] == ["quality:work-learning"]
+
+
+def test_quality_assess_collect_rejects_unknown_activity_with_sanitized_error(
+    monkeypatch, tmp_path, capsys
+):  # Tests FAIL-2
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda kind: tmp_path)
+    monkeypatch.setattr(
+        quality,
+        "durable_activity_snapshots",
+        lambda **_kwargs: {activity: _snapshot() for activity in ACTIVITY_IDS},
+    )
+
+    assert quality.cmd_quality([
+        "assess",
+        "--activity",
+        "unknown-activity",
+        "--collect",
         "--json",
     ]) == 2
     assert json.loads(capsys.readouterr().out) == {

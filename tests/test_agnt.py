@@ -289,8 +289,11 @@ def test_documented_common_agnt_entry_points_still_parse(agnt, monkeypatch, tmp_
     assert "soul" not in help_text
 
 
-@pytest.mark.parametrize("command", [["runner", "status"], ["daemon", "status"]])
-def test_work_rejects_retired_runner_commands(agnt, command):
+@pytest.mark.parametrize(
+    "command",
+    [["runner", "status"], ["daemon", "status"], ["maintenance", "due"]],
+)
+def test_work_rejects_retired_commands(agnt, command):
     with pytest.raises(SystemExit):
         agnt.cmd_work(command)
 

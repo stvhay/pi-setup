@@ -181,12 +181,6 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
 - `agnt work health [--json] [--strict-checkout] [--runs-dir DIR]`
   - Runs read-only rail-guard checks over run artifacts, Beads refs, approvals, decisions, follow-ups, stale sessions, dirty current/epic worktrees, raw-tool bypass markers, orphaned runs, and failed health/closeout checks.
 
-- `agnt work maintenance due --json`
-  - Reports self-improvement modes due from durable signals: Beads, git commits, runs, health/context warnings, human blockers, and a bounded count of sessions not reviewed under the current improvement policy. Telemetry failure leaves improvement-review due state unknown; incomplete discovery warns that the count may be understated.
-
-- `agnt work maintenance create-beads --dry-run --json | --apply --json`
-  - Previews or explicitly creates maintenance checkpoint Beads. Dry-run is non-mutating. `--apply` is required for live Beads creation. Simplification/refactor implementation specs are created with `approved: false`.
-
 - `agnt work finish <runtime-runs-dir>/<run-id> --status STATUS --summary TEXT [--evidence TEXT ...] [--close-bead]`
   - Updates `result.yaml`; closes the invocation bead only when `--close-bead` is supplied and status is `succeeded` with evidence, reconciled follow-up ids, resolved approval/decision refs, and passing health/closeout checks.
 
@@ -235,14 +229,15 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 
 - `agnt quality capture --payload JSON --json`
   - Appends one schema-validated `invocation` or `result` fact to private `quality/ledger.jsonl`. Required fields are `schemaVersion`, `recordType`, `sessionId`, `beadId`, and `evidenceRefs`; `result` also requires `outcome` (`success`, `partial`, `failure`, or `unclear`). Evidence refs require an allowlisted `artifact`, `invocation`, `observation`, `result`, `run`, or `trace` prefix. Unknown fields, unsafe refs, raw bodies, URLs, credentials, JWTs, secrets, and paths are rejected.
-- `agnt quality assess --activity capture|work-learning|architecture-coherence|capability-calibration|quality-system-review --snapshot JSON --json`
-  - Validates the tracked five-activity control plan and an exact snapshot with `schemaVersion`, `triggered`, `evidenceRefs`, `gaps`, and `signals`. Same snapshot, activity, and policy produce the same receipt and dedupe key. Snapshot bodies are fingerprinted, not copied into receipts.
+- `agnt quality assess --activity capture|work-learning|architecture-coherence|capability-calibration|quality-system-review (--snapshot JSON | --collect) --json`
+  - Validates the tracked five-activity control plan and an exact snapshot with `schemaVersion`, `triggered`, `evidenceRefs`, `gaps`, and `signals`. `--collect` derives durable Beads, Git, run, health, context, and eligible-session signals; optional `--root`, `--runs-dir`, and `--no-beads` bound collection. Same snapshot, activity, and policy produce the same receipt and dedupe key. Snapshot bodies are fingerprinted, not copied into receipts.
+  - Collected work preserves unknown and lower-bound evidence, suppresses duplicates carrying current or legacy labels, and emits only `quality:<activity>` on new work packets. Legacy `maintenance:*` labels are read-only compatibility inputs.
 - `agnt quality apply --receipt ID --json`
   - Revalidates the persisted receipt against current policy. Current `disabled`/`observe` policy can record only a no-op or one private assignment with empty allowed effects; it cannot mutate Beads or workspace files. Policy mismatch returns `blocked` and exit 3.
 - `agnt quality status --json`
   - Reports current mode, policy identity, and private receipt/application/assignment counts.
 
-All quality runtime writes are bounded and private (`0700` directories, `0600` files). Invalid input or unsafe private state returns a sanitized JSON error and exit 2. Omit `--payload` or `--snapshot` to read JSON from stdin. See `pi/agent/quality/SPEC.md` for invariants and failure modes.
+All quality runtime writes are bounded and private (`0700` directories, `0600` files). Invalid input or unsafe private state returns a sanitized JSON error and exit 2. Omit `--payload` or both `--snapshot` and `--collect` to read JSON from stdin. See `pi/agent/quality/SPEC.md` for invariants and failure modes.
 
 ## Private improvement review
 

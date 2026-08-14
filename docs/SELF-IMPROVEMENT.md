@@ -26,7 +26,7 @@ metrics -> annotate -> consolidate -> route hints/demotion
 direct lifecycle -> local quality ledger -> best-effort Langfuse projection
 Langfuse sessions -> private scan -> human review -> private marker
                   -> sanitized Bead -> implementation -> matched monitoring
-Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
+Beads/git/runs/health signals -> quality assess -> observe assignment -> receipt
 ```
 
 ### 1. Capture
@@ -314,8 +314,8 @@ IDs, URLs, user content, excerpts, and absolute paths never enter the Bead.
 
 ### 6. Settled-cohort and upstream monitor
 
-Run this check at each `maintenance:improvement-review` checkpoint, at most once
-per seven-day window unless a deployment or upstream release changes monitored
+Run this check when `work-learning` assessment is due, at most once per
+seven-day window unless a deployment or upstream release changes monitored
 behavior. Keep each pass bounded to 20 selected root sessions and 500 discovered
 traces:
 
@@ -371,44 +371,37 @@ documentation, and regression-test removal after verified package gates; the
 monitor never edits or removes them itself. Record only sanitized package,
 version, PR, and commit facts.
 
-### 7. Maintenance cadence from durable signals
+### 7. Quality activities from durable signals
 
-Use maintenance commands to decide when self-improvement work is due:
+Assess one control-plan activity, then apply its current receipt:
 
 ```bash
-agnt work maintenance due --json
-agnt work maintenance create-beads --dry-run --json
-# after reviewing the proposed checkpoint beads:
-agnt work maintenance create-beads --apply --json
+agnt quality assess --activity work-learning --collect --json
+agnt quality assess --activity architecture-coherence --collect --json
+agnt quality apply --receipt <receipt-id> --json
 ```
 
-The due report derives signals from durable project state: closed implementation
-beads since the last maintenance checkpoint, commits since that checkpoint,
-failed/blocked run artifacts, repeated human blockers, context-health warnings,
-rail-guard health warnings/failures, and a bounded count of sessions not reviewed
-under the current improvement policy. That query starts at the latest closed
-`maintenance:improvement-review` checkpoint, recognizes historical closed
-`maintenance:lessons-harvest` checkpoints, and otherwise uses a seven-day bound.
-Telemetry failure emits a warning and leaves improvement-review due state unknown;
-incomplete bounded discovery warns that the eligible count may be understated.
-Neither condition silently claims no review is due. Open maintenance modes suppress
-duplicates.
+Collection derives bounded signals from durable project state: closed implementation
+Beads, commits since the latest relevant quality checkpoint, failed/blocked run
+artifacts, repeated human blockers, context-health warnings, rail-guard health
+warnings/failures, and eligible sessions not reviewed under current improvement
+policy. Telemetry failure leaves eligible-session state unknown. Incomplete bounded
+discovery records a lower-bound gap even below threshold. Neither state becomes
+success or silently due. Open work with current or historical labels suppresses a
+duplicate activity packet.
 
-Maintenance labels include:
+New packets emit one activity label only: `quality:capture`,
+`quality:work-learning`, `quality:architecture-coherence`,
+`quality:capability-calibration`, or `quality:quality-system-review`. Historical
+`maintenance:design-review`, `maintenance:architecture-review`,
+`maintenance:simplification`, `maintenance:workflow-retro`,
+`maintenance:context-health`, `maintenance:improvement-review`, and
+`maintenance:lessons-harvest` labels remain read-compatible for checkpoint and
+open-duplicate detection; no new work emits them.
 
-- `maintenance:design-review`
-- `maintenance:architecture-review`
-- `maintenance:simplification`
-- `maintenance:workflow-retro`
-- `maintenance:context-health`
-- `maintenance:improvement-review`
-
-Read-only maintenance reviews use `action: review` and are created explicitly
-after dry-run inspection.
-Simplification/refactor implementation beads use
-`action: implement` with `approved: false`; creating the checkpoint does not
-authorize edits. Close maintenance checkpoints like normal Beads: record evidence,
-represent follow-ups as Beads, and pass closeout checks.
+Current observe policy writes at most one private assignment with empty allowed
+effects. It does not create Beads or authorize edits. Follow-up work still uses
+normal Beads and approval paths.
 
 ### 8. Prompt feedback (deliberate, eval-gated)
 

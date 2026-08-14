@@ -99,8 +99,8 @@ rationale.
 
 - **Work item / bead**: durable task-graph node. Answers "what unit of work is
   scheduled, blocked, or complete?" Beads is the canonical agent-facing work
-  queue for dependencies, approvals, blockers, closeout, and maintenance
-  checkpoints. GitHub issues are not mirrored now; any future integration should
+  queue for dependencies, approvals, blockers, closeout, and quality follow-up
+  work. GitHub issues are not mirrored now; any future integration should
   follow the [GitHub Adapter Decision](GITHUB-ADAPTER.md) and remain an adapter
   rather than a second source of truth.
 - **Invocation/result message**: structured interface between orchestration and
@@ -165,9 +165,9 @@ lifecycle, UI, session, and provider integration; typed tools are thin
 agent-facing adapters. Metadata validation lives in `orchestration.py`, approval
 flow in `approvals.py`, ticket operations in `gateway.py`, worktree policy in
 `worktree_policy.py`, target-ref integration semaphore and merge transaction in
-`integration.py`, health checks in `health.py`, and maintenance cadence in
-`maintenance.py`. Long-lived Pi process automation and scheduling live outside
-this repository.
+`integration.py`, health checks in `health.py`, and durable quality-signal
+collection in `quality.py`. Long-lived Pi process automation and scheduling live
+outside this repository.
 
 Local integration uses POSIX `fcntl.flock` under Git's common directory, keyed
 by opaque target-ref identity. This serializes preflight, one merge, conflict
@@ -203,8 +203,9 @@ results, and runtime telemetry (project `.pi/runs/`, `.pi/delegated-results/`,
 and `.pi/metrics/` only when Git proves each candidate ignored, untracked, and
 symlink-safe; hashed `~/.pi/runtime/` fallback otherwise), `agnt action render`
 and `agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch
-plans, plan trees, manual artifact execution, health checks, and maintenance
-checkpoints, `agnt approvals` for durable human decisions, `agnt gateway` for
+plans, plan trees, manual artifact execution, and health checks, `agnt quality`
+for deterministic five-activity assessment, `agnt approvals` for durable human
+decisions, `agnt gateway` for
 constrained Pi extension access, Archimedes `subagent` for interactive peer
 dispatch, `agnt runs invoke` / `agnt work run` for artifact-backed headless
 worker execution, `agnt context-health` for context entropy checks, and
@@ -239,12 +240,14 @@ appends compact records
 to the durable global store `~/.pi/metrics/agent-invocations.jsonl`; run it
 manually or from a locally installed hook. `agnt route` aggregates outcomes by
 family across pending and consolidated metrics and demotes families with
-negative track records. `agnt work maintenance due` derives self-improvement
-triggers from Beads, git, run artifacts, health reports, context-health warnings,
-and bounded eligible-unreviewed session counts. Promoted findings keep private
-matched post-change state; reviewed cohorts validate them or mark recurrence,
-while public follow-up remains approval-gated. Git never tracks telemetry; it
-tracks the policy changes and maintenance checkpoint Beads the telemetry justifies.
+negative track records. `agnt quality assess --activity <id> --collect` derives
+quality triggers from Beads, Git, run artifacts, health reports, context-health
+warnings, and bounded eligible-unreviewed session counts. Unknown and lower-bound
+evidence stays explicit; current and legacy labels suppress duplicate activity
+packets, while new packets emit only `quality:<activity>`. Promoted findings keep
+private matched post-change state; reviewed cohorts validate them or mark
+recurrence, while public follow-up remains approval-gated. Git never tracks
+telemetry; it tracks policy changes telemetry justifies.
 
 ## Quality gates
 
