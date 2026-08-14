@@ -900,7 +900,11 @@ def test_compatibility_matrix_covers_every_configured_package():
     packages = json.loads(SETTINGS.read_text(encoding="utf-8"))["packages"]
     for package in packages:
         source = package["source"] if isinstance(package, dict) else package
-        assert f"`{source}`" in text, f"missing compatibility row for {source}"
+        row = next((line for line in text.splitlines() if f"`{source}`" in line), None)
+        assert row, f"missing compatibility row for {source}"
+        if "@" not in source.split(":", 1)[1].lstrip("@"):
+            assert "Intentional rolling" in row
+            assert "2026-08-13" in row
 
 
 def test_tracked_extensions_use_only_portable_ui_calls():

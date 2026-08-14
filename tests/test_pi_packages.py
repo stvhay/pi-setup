@@ -216,13 +216,11 @@ def test_gpt56_codex_subscription_context_matches_routing_catalog():
         assert catalog[family]["venues"][0]["contextWindow"] == 272_000
 
 
-def test_betterwright_tracks_latest_unpinned_release_in_docs():
+def test_betterwright_remains_unpinned():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    compatibility = (ROOT / "docs" / "extension-web-compatibility.md").read_text(encoding="utf-8")
 
     assert "npm:betterwright" in settings["packages"]
     assert "npm:betterwright@" not in settings["packages"]
-    assert "| `npm:betterwright` | 1.7.1 |" in compatibility
 
 
 def test_observational_memory_compaction_precedes_native_threshold():
