@@ -193,6 +193,55 @@ def test_quality_kernel_remains_cli_only_without_scheduler_or_service():
         assert forbidden not in source
 
 
+def test_control_plan_owns_quality_skill_triggers_and_receivers():
+    plan = json.loads((AGENT / "quality" / "control-plan.json").read_text(encoding="utf-8"))
+    activities = {activity["id"]: activity for activity in plan["activities"]}
+    bindings = {
+        "retrospective": "work-learning",
+        "session-to-skill-extractor": "work-learning",
+        "agent-retrospective-loop": "capability-calibration",
+        "requirement-simplification-review": "architecture-coherence",
+        "code-simplification": "architecture-coherence",
+    }
+
+    for skill_id, activity_id in bindings.items():
+        skill = (AGENT / "skills" / skill_id / "SKILL.md").read_text(encoding="utf-8")
+        assert skill_id in activities[activity_id]["method"]
+        assert activity_id in skill
+        assert "Control plan owns trigger timing and receiver selection." in skill
+        assert "direct invocation" in skill.lower()
+
+    capture_trigger = activities["capture"]["trigger"].lower()
+    learning_trigger = activities["work-learning"]["trigger"].lower()
+    assert "closeout" in capture_trigger and "minimal" in capture_trigger
+    assert "signal" in learning_trigger and "backstop" in learning_trigger
+
+    docs = (ROOT / "docs" / "SELF-IMPROVEMENT.md").read_text(encoding="utf-8")
+    assert "Closeout capture is minimal" in docs
+    assert "signal-plus-backstop" in docs
+    assert "skills do not schedule themselves" in docs
+    assert "seven-day window" not in docs
+
+    combined = "\n".join(
+        (AGENT / "skills" / skill_id / "SKILL.md").read_text(encoding="utf-8")
+        for skill_id in bindings
+    )
+    for duplicate_owner in (
+        "substantial non-trivial work naturally ends",
+        "when a Bead closes",
+        "ten most recent completed runs",
+        "at least three runs",
+        "scheduled lifecycle review",
+        "low-risk cleanup of touched files is clearly useful",
+    ):
+        assert duplicate_owner not in combined
+
+    finishing = (AGENT / "skills" / "finishing-a-development-branch" / "SKILL.md").read_text(encoding="utf-8")
+    verification = (AGENT / "skills" / "verification-before-completion" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Substantial non-trivial wrap-up or Bead close" not in finishing
+    assert "consider `code-simplification`" not in verification
+
+
 def test_quality_spec_and_cli_reference_cover_observe_kernel_contract():
     spec = (AGENT / "quality" / "SPEC.md").read_text(encoding="utf-8")
     reference = (AGENT / "bin" / "README.md").read_text(encoding="utf-8")
@@ -865,8 +914,8 @@ def test_finish_coordinator_declares_trigger_subsumption_and_verification_phases
         "| `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; reuse the recorded baseline, run focused checks after fixes, and run one complete gate for each final candidate; never subsumed. |",
         "| `documentation-standards` | Documentation requested, impacted, or uncertain | Load in validate mode; otherwise coordinator documentation check subsumes generic docs prose. |",
         "| `requesting-code-review` | Non-trivial or risky diff, merge/PR preparation, or required review | Load; otherwise coordinator scope check handles trivial closeout. |",
-        "| `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now; otherwise coordinator scope check subsumes generic cleanup advice. |",
-        "| `session-to-skill-extractor` | Substantial non-trivial wrap-up or Bead close | Load once at final wrap-up; skip routine summaries. |",
+        "| `code-simplification` | `architecture-coherence` assignment selects it, or user explicitly requests simplification | Load only after focused checks pass; never infer selection from touched files. |",
+        "| `session-to-skill-extractor` | `work-learning` assignment selects it, or user explicitly requests extraction | Load once after final candidate work; never infer selection from wrap-up or Bead close. |",
     ]
     assert all(row in skill for row in expected_rows)
     assert "Do not repeat the full baseline during repair" in skill

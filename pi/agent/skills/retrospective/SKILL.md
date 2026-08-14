@@ -1,6 +1,6 @@
 ---
 name: retrospective
-description: Use near branch completion to capture successes, friction, reusable lessons, and project or skill follow-up work.
+description: Use when work-learning assigns a session retrospective or the user explicitly requests one; not for automatic branch, session, or Bead closeout.
 ---
 
 # Retrospective
@@ -15,42 +15,27 @@ At start, read shared conventions if needed:
 ~/.pi/agent/skills/dev-workflow-common/SKILL.md
 ```
 
-## Core rules
+## Invocation and ownership
 
-- Retrospectives are opt-in unless the user explicitly requested one.
+Invoke only from a `work-learning` activity assignment or explicit direct invocation. Branch, session, PR, or Bead completion alone is not a trigger. Control plan owns trigger timing and receiver selection.
+
+- Use assignment scope and EvidenceRefs. For direct invocation, declare the bounded branch or session scope first.
 - Analyze first; ask the user to validate or correct conclusions.
 - Separate project-local improvements from upstream skill/tool improvements.
 - Do not edit instructions, create issues, push, merge, or remove worktrees without explicit approval.
+- Do not schedule another review or maintain a finding/work registry.
 - Cite concrete evidence: commits, diffs, plans, verification output, review findings, and observed friction.
-
-## When to use
-
-Use after:
-
-- `finishing-a-development-branch`
-- a PR is prepared or created
-- a difficult implementation is complete
-- repeated workflow friction occurred
-- the user asks what should be improved next
-
-If invoked automatically by another workflow, ask:
-
-```text
-Would you like a brief retrospective on this session? It should take about 2 minutes.
-```
-
-If the user declines, respond: "Skipping retrospective. Session complete."
 
 ## Step 1: Gather evidence
 
-Inspect branch and commits:
+Read only evidence named by the activity assignment. For direct invocation, inspect the current branch range:
 
 ```bash
 git status --short
 git branch --show-current
-git log --oneline -10
 base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || true)
 if [ -n "$base" ]; then
+  git log --oneline "$base"..HEAD
   git diff --stat "$base"...HEAD
   git diff --name-only "$base"...HEAD
 else
@@ -59,23 +44,10 @@ else
 fi
 ```
 
-Inspect plans:
-
-```bash
-PLANS_DIR=$(~/.pi/agent/bin/agnt plans-dir)
-find "$PLANS_DIR" -maxdepth 1 -type f \( -name '*-design.md' -o -name '*-plan.md' \) | sort
-```
-
-If a PR exists and GitHub is available:
+Inspect only relevant plans, verification results, and review artifacts. If an assigned PR is available, inspect its bounded metadata:
 
 ```bash
 gh pr view --json title,body,additions,deletions,state,url 2>/dev/null || true
-```
-
-Review available artifacts when relevant:
-
-```bash
-find .pi/reviews .pi/peer-runs .pi/research -maxdepth 2 -type f 2>/dev/null | sort | tail -50
 ```
 
 ## Step 2: Compare plan vs actual

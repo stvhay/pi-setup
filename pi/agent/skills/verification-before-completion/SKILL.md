@@ -142,7 +142,7 @@ After synthesis, label each generated metric record so routing learns from the o
 
 ## Code simplification
 
-After focused verification passes and before final completion, consider `code-simplification` for non-trivial code changes. Run focused repair checks after any simplification, then run the final candidate gate once changes stabilize.
+Passing focused verification does not select `code-simplification`. Load it only for an `architecture-coherence` assignment or explicit user request, then run focused repair checks after any simplification and the final candidate gate once changes stabilize.
 
 ## Report format
 

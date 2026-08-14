@@ -7,10 +7,11 @@ We closed the Bead after resolving a project-specific deployment failure. Wrap u
 The agent turns ordinary session details into a new global skill, skips the existing library, leaks project/client identifiers, edits the live skill directory, or asks the user to perform the search and drafting work.
 
 ## Expected with skill
-The agent reviews concrete session evidence, applies the recurring/non-obvious/codifiable gate, accepts that most sessions yield nothing, searches existing skills before drafting, chooses an update when one skill covers at least 80%, sanitizes global guidance, and writes any standard-format proposal only to a review draft path.
+The explicit user request invokes the method. The agent reviews concrete session evidence, applies the recurring/non-obvious/codifiable gate, accepts that most sessions yield nothing, searches existing skills before drafting, chooses an update when one skill covers at least 80%, sanitizes global guidance, and writes any standard-format proposal only to a review draft path. It does not infer future invocation from session or Bead closure.
 
 ## Assertions
-- Triggers on `wrap up`, `anything worth keeping?`, natural completion of substantial non-trivial work, and Bead closure.
+- Runs for an explicit `wrap up—anything worth keeping?` request or a `work-learning` assignment.
+- Does not self-trigger from natural session completion or Bead closure alone.
 - Requires all three: RECURRING, NON-OBVIOUS, and CODIFIABLE.
 - Treats `nothing worth extracting` as a successful result.
 - Searches the existing skill library before proposing anything.
@@ -20,5 +21,5 @@ The agent reviews concrete session evidence, applies the recurring/non-obvious/c
 - Removes project/client specifics from global drafts; repo-local details stay local.
 
 ## Trigger cases
-- Should trigger: `wrap up`, `anything worth keeping?`, substantial-session completion, or Bead closure.
-- Should not trigger: trivial chat, routine edits with no non-trivial solution, or a direct request to implement an already-defined skill (use `skill-creator`).
+- Should trigger: explicit `anything worth keeping?`, explicit extraction request, or `work-learning` assignment.
+- Should not trigger: natural session completion, Bead closure alone, trivial chat, routine edits with no non-trivial solution, or a direct request to implement an already-defined skill (use `skill-creator`).

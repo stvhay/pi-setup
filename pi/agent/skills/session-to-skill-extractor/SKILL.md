@@ -1,11 +1,15 @@
 ---
 name: session-to-skill-extractor
-description: Use when the user says wrap up or asks anything worth keeping, when substantial non-trivial work naturally ends, or when a Bead closes; not for routine summaries or implementing an already-defined skill.
+description: Use when work-learning assigns reusable-pattern review or the user explicitly requests extraction; not for automatic closeout, routine summaries, or implementing an existing skill.
 ---
 
 # Session-to-Skill Extractor
 
 Evaluate completed work for reusable skill material. Most sessions yield nothing; `nothing worth extracting` is a successful answer.
+
+## Invocation and ownership
+
+Invoke only from a `work-learning` activity assignment or explicit direct invocation. Session or Bead closure is evidence, not a trigger. Control plan owns trigger timing and receiver selection. This skill does not schedule itself, promote drafts, or maintain a finding/work registry.
 
 ## Extraction gate
 

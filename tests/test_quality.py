@@ -580,7 +580,7 @@ def test_inv4_disabled_and_stale_policy_cannot_create_assignment(tmp_path):  # T
     current = deepcopy(plan)
     policy_path.write_text(json.dumps(current), encoding="utf-8")
     stale = quality.assess(_snapshot(), "capture", directory=tmp_path, plan_path=policy_path)
-    current["policyVersion"] = "observe-v2"
+    current["policyVersion"] = f'{plan["policyVersion"]}-changed'
     policy_path.write_text(json.dumps(current), encoding="utf-8")
     blocked = quality.apply(stale["receiptId"], directory=tmp_path, plan_path=policy_path)
     assert blocked["status"] == "blocked"
@@ -649,7 +649,7 @@ def test_quality_assess_apply_status_cli_contract(monkeypatch, tmp_path, capsys)
         "schemaVersion": 1,
         "status": "ok",
         "mode": "observe",
-        "policyVersion": "observe-v1",
+        "policyVersion": receipt["policyVersion"],
         "policyFingerprint": receipt["policyFingerprint"],
         "receipts": 1,
         "applications": 1,

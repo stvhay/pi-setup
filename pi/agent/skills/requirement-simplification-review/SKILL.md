@@ -1,6 +1,6 @@
 ---
 name: requirement-simplification-review
-description: Use when simplifying codebases by auditing requirements creep; not for refactoring or bug fixes.
+description: Use when architecture-coherence assigns a requirements-creep audit or when explicitly invoked; not for refactoring or bug fixes.
 disable-model-invocation: true
 ---
 
@@ -8,7 +8,9 @@ disable-model-invocation: true
 
 Trace implementation complexity back to requirements before changing code. Remove accidental obligations, retain load-bearing ones consciously, and leave an implementation-ready decision record.
 
-Invoke explicitly with `/skill:requirement-simplification-review`. It stays out of automatic selection because this is a deliberate, potentially long product-requirement review.
+## Invocation and ownership
+
+Invoke from an `architecture-coherence` activity assignment or explicit direct invocation with `/skill:requirement-simplification-review`. Control plan owns trigger timing and receiver selection. This skill does not schedule itself or maintain a competing finding/work registry.
 
 ## Hard gates
 

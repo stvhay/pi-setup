@@ -1,6 +1,6 @@
 ---
 name: code-simplification
-description: Use after verification when simplification is requested or low-risk cleanup of touched files is clearly useful.
+description: Use when architecture-coherence assigns behavior-preserving cleanup or the user explicitly requests simplification; not for automatic post-verification cleanup.
 ---
 
 # Code Simplification
@@ -13,18 +13,14 @@ Optional refactoring after tests pass. Use it to reduce complexity without chang
 
 **Announce at start:** "I'm using the code-simplification skill to simplify the code you just verified."
 
-## When to Use
+## Invocation and ownership
 
-Use after verification passes when:
+Invoke only from an `architecture-coherence` activity assignment or explicit direct invocation. Passing verification, change size, or touched files are prerequisites/evidence, not triggers. Control plan owns trigger timing and receiver selection.
 
-- the user asks to simplify/refactor
-- low-risk cleanup is obvious in files already touched
-- a review finds avoidable complexity
-
-Skip by default for tiny changes, urgent fixes, or when the user asked for no further edits.
+An activity assignment inherits its allowed effects; observe-only assignments analyze and recommend without edits. A direct implementation request follows normal approval, test, and commit gates. This skill does not schedule itself or maintain a finding/work registry.
 
 ```
-develop → verify → optional simplify → re-verify → complete
+develop → verify → requested simplify → re-verify → complete
 ```
 
 ## Constraints

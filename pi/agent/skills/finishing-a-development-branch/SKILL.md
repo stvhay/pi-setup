@@ -30,26 +30,26 @@ Load this skill first as sole closeout coordinator. Select companion skills only
 | `verification-before-completion` | Every closeout and after any closeout fix | **Required.** Load once; reuse the recorded baseline, run focused checks after fixes, and run one complete gate for each final candidate; never subsumed. |
 | `documentation-standards` | Documentation requested, impacted, or uncertain | Load in validate mode; otherwise coordinator documentation check subsumes generic docs prose. |
 | `requesting-code-review` | Non-trivial or risky diff, merge/PR preparation, or required review | Load; otherwise coordinator scope check handles trivial closeout. |
-| `code-simplification` | Verification passed and simplification is requested or clearly useful in touched files | Load only now; otherwise coordinator scope check subsumes generic cleanup advice. |
-| `session-to-skill-extractor` | Substantial non-trivial wrap-up or Bead close | Load once at final wrap-up; skip routine summaries. |
+| `code-simplification` | `architecture-coherence` assignment selects it, or user explicitly requests simplification | Load only after focused checks pass; never infer selection from touched files. |
+| `session-to-skill-extractor` | `work-learning` assignment selects it, or user explicitly requests extraction | Load once after final candidate work; never infer selection from wrap-up or Bead close. |
 
 Load each selected companion when its phase begins, not all at start. If a selected skill is already loaded and unchanged in this session, reuse its current instructions instead of rereading. Reload only after content changes or an explicit diagnostic reread.
 
 Reuse or establish one relevant baseline before optional closeout phases. Do not repeat the full baseline during repair: simplification, review, or documentation fixes require focused executable checks. Run the complete required matrix once after the candidate stabilizes. A tracked final-candidate change invalidates the final gate and requires one new complete gate.
 
-`writing-clearly-and-concisely` is subsumed by this coordinator's concise report contract; do not load it solely for closeout prose. Generic cleanup advice is subsumed by scope checks, but `code-simplification` remains required when its trigger matches. Safety, approval, verification, documentation, and review gates are never subsumed when applicable.
+`writing-clearly-and-concisely` is subsumed by this coordinator's concise report contract; do not load it solely for closeout prose. Generic cleanup advice is subsumed by scope checks; do not self-schedule `code-simplification`. Safety, approval, verification, documentation, and review gates are never subsumed when applicable.
 
 ## Workflow
 
 1. **Inspect branch/project state**
 2. **Reuse or establish the baseline once**
-3. **Optionally simplify**
+3. **Run assigned or explicitly requested simplification**
 4. **Validate documentation**
 5. **Request code review**
 6. **Run focused repair checks and establish the stable candidate boundary**
 7. **Run the final candidate gate once**
 8. **Prepare PR/merge or local project summary**
-9. **Run substantial-wrap-up extraction when triggered**
+9. **Run assigned or explicitly requested extraction**
 10. **Ask for approval before any remote/destructive action**
 
 Use local project-readiness mode when the project uses local Beads/issues plus atomic commits and no PR/remote workflow. In that mode, verify the tracked task is complete, summarize commits and evidence, and present safe next actions instead of forcing PR language.
@@ -94,9 +94,9 @@ Run the relevant command(s) only when baseline evidence is absent. If no command
 
 A new or unclassified baseline failure blocks work. An unchanged baseline failure may follow an already-approved plan, but it cannot make a required final gate pass.
 
-## Step 3: Optionally simplify
+## Step 3: Run selected simplification
 
-After baseline status is understood and focused change checks pass, load `code-simplification` only when its matrix trigger matches. Keep changes inside touched files and run focused repair checks after any edit.
+After baseline status is understood and focused change checks pass, load `code-simplification` only for an `architecture-coherence` assignment or explicit user request. Keep changes inside touched files and run focused repair checks after any edit.
 
 ## Step 4: Validate documentation
 
@@ -205,9 +205,9 @@ Closes #<issue>  <!-- only if known -->
 2. <ask user approval for push/PR/merge if desired>
 ```
 
-## Step 9: Extract substantial learning when triggered
+## Step 9: Run selected extraction
 
-At substantial non-trivial wrap-up or Bead close, load `session-to-skill-extractor` once. Routine summaries skip extraction.
+Load `session-to-skill-extractor` once only for a `work-learning` assignment or explicit user request. Routine wrap-up and Bead close skip extraction.
 
 ## Step 10: Optional actions after approval
 

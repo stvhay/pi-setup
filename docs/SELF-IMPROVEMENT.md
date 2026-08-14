@@ -29,6 +29,10 @@ Langfuse sessions -> private scan -> human review -> private marker
 Beads/git/runs/health signals -> quality assess -> observe assignment -> receipt
 ```
 
+## Trigger and receiver ownership
+
+`pi/agent/quality/control-plan.json` is the sole quality trigger and receiver owner. Closeout capture is minimal: root-session settlement and explicit work-item outcome record bounded local facts but do not independently launch a retrospective, lifecycle review, extraction pass, or simplification. Aggregate review is signal-plus-backstop: deterministic signals may make an activity due, and an external caller may supply a bounded backstop snapshot, but this repository stores no clock or schedule. Specialized skills keep their judgment methods and explicit direct invocation; skills do not schedule themselves, choose another receiver, grant mutation authority, or maintain another finding/work registry.
+
 ### 1. Capture
 
 Internal eval/run workers write metric records (model, family, task, tokens,
@@ -314,10 +318,7 @@ IDs, URLs, user content, excerpts, and absolute paths never enter the Bead.
 
 ### 6. Settled-cohort and upstream monitor
 
-Run this check when `work-learning` assessment is due, at most once per
-seven-day window unless a deployment or upstream release changes monitored
-behavior. Keep each pass bounded to 20 selected root sessions and 500 discovered
-traces:
+Run this bounded method only when `work-learning` assessment selects it from a durable signal or caller-supplied backstop. Closeout alone never selects aggregate review. Keep each assigned pass within its declared evidence budget; current operator bounds are 20 selected root sessions and 500 discovered traces:
 
 ```bash
 agnt improve scan --since <last-check-ISO> --until <now-ISO> \
@@ -385,7 +386,9 @@ Collection derives bounded signals from durable project state: closed implementa
 Beads, commits since the latest relevant quality checkpoint, failed/blocked run
 artifacts, repeated human blockers, context-health warnings, rail-guard health
 warnings/failures, and eligible sessions not reviewed under current improvement
-policy. Telemetry failure leaves eligible-session state unknown. Incomplete bounded
+policy. An external operator or scheduler may instead provide a bounded snapshot as
+the backstop input; it owns invocation, not policy or receiver selection. Telemetry
+failure leaves eligible-session state unknown. Incomplete bounded
 discovery records a lower-bound gap even below threshold. Neither state becomes
 success or silently due. Open work with current or historical labels suppresses a
 duplicate activity packet.
