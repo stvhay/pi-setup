@@ -46,6 +46,33 @@ def test_node_test_runtime_is_pinned():
     assert "node_modules/" in (ROOT / ".gitignore").read_text().splitlines()
 
 
+def test_checkout_local_artifacts_are_ignored_without_hiding_durable_skill_evals():
+    ignored_paths = (
+        ".beads.gate.lock",
+        ".pi/deploy-previews/example/evidence.txt",
+        ".pi/skill-evals/runtime-package-patch-projection/candidate-output.jsonl",
+    )
+    for path in ignored_paths:
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", "--no-index", "--", path],
+            cwd=ROOT,
+        )
+        assert ignored.returncode == 0, f"local artifact must be ignored: {path}"
+
+    durable_eval = subprocess.run(
+        [
+            "git",
+            "check-ignore",
+            "-q",
+            "--no-index",
+            "--",
+            ".pi/skill-evals/skill-creator/scenarios/example.md",
+        ],
+        cwd=ROOT,
+    )
+    assert durable_eval.returncode == 1
+
+
 def test_ci_installs_pinned_node_dependencies_before_tests():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     markers = (

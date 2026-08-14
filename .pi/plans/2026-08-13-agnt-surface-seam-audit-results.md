@@ -16,7 +16,7 @@
 - Delete candidate: `agnt work next`. It is a caller-free wrapper around ready-work selection; direct workflow uses `bd ready`, and handoff uses the stricter `work handoff-check`.
 - Deepening candidate: require `work direct-closeout ... --outcome success` and record that explicit success internally. Keep `agnt improve outcome` for partial/failure/unclear/manual recording. Never infer or default success. This removes one ordering invariant from model instructions without adding a tool or weakening outcome semantics.
 - Safe compact instruction draft reduces global `pi/agent/AGENTS.md` from **103 lines / 10,739 characters** to **44 lines / 7,342 characters**: **59 lines and 3,397 characters (31.6%)**. With unchanged project `AGENTS.md`, loaded pair falls from **176 lines / 15,784 characters** to **117 lines / 12,387 characters**: **21.5% fewer characters**.
-- Configured unpinned package versions make external tool/command inventory time-dependent. Runtime observed BetterWright `1.8.2`, Caveman `1.0.8`, and Ponytail `2ed6c52`, while `docs/extension-web-compatibility.md` names older snapshots. Use version-neutral wording or explicitly label observations.
+- Configured unpinned package versions make external tool/command inventory time-dependent. Runtime observed BetterWright `1.8.2`, Caveman `1.0.8`, and Ponytail `2ed6c52`, while `docs/extension-web-compatibility.md` names older snapshots. Use version-neutral wording or explicitly label observations. __keep rolling releases of unpinned packages and clarify in documentation.__
 
 ## Method and scope
 

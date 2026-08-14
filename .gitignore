@@ -7,6 +7,7 @@
 .direnv/
 .venv/
 node_modules/
+/.beads.gate.lock
 
 # Python bytecode/cache
 __pycache__/
@@ -25,6 +26,8 @@ references/
 .pi/redteam/
 .pi/research/
 .pi/reviews/
+.pi/deploy-previews/
+.pi/skill-evals/runtime-package-patch-projection/
 .pi/metrics/
 .pi/eval-runs/
 .pi/improvement/

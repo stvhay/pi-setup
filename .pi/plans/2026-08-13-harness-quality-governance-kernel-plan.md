@@ -53,7 +53,7 @@ Planning baseline contains unrelated or pre-existing state that every slice must
 - `.worktrees/feature/pi-ffrh-4-improvement-monitoring` at `6da01e3` — concurrent historical worktree; do not edit, delete, merge, or treat it as current source.
 - `main` already contains runner removal commit `231b601`; retired runner/service files must stay absent. `graphify-out/graph.json` may retain stale pre-removal edges, so verify every graph result in current source.
 
-Existing `pi-z49l` is reused as the first closeout prerequisite; this plan does not duplicate its explicit-success scope. Existing `pi-oafb` owns dirty-artifact root causes. Quality-kernel local-authority work begins only after both are complete.
+Existing `pi-z49l` is reused for explicit-success closeout, `pi-fvyo` completes its final instruction compaction, and `pi-oafb` owns dirty-artifact root causes. Quality-kernel local-authority work begins only after all three are complete.
 
 ## Scope and non-goals
 
@@ -322,7 +322,7 @@ Epic: `pi-rxo3`. Existing prerequisites are external to the epic. Release-gate B
 | Q20 | `pi-rxo3.25` | Q21 | `pi-rxo3.26` | Q22 | `pi-rxo3.27` |
 
 ```text
-Q1   <- pi-z49l, pi-oafb
+Q1   <- pi-z49l, pi-fvyo, pi-oafb
 Q2   <- Q1
 Q3   <- Q2
 Q4   <- Q3
@@ -357,7 +357,7 @@ Graph is acyclic. Q9B and Q9C are optional-adapter branches that rejoin at final
 
 Every task uses TDD for behavior, `verification-before-completion`, active Ponytail full, and one fresh Pi session. Run `git status --short --untracked-files=all` before edits. Do not parallelize tasks that share `quality.py`, `improvement.py`, `work.py`, or the control plan.
 
-### Q1: Localize direct-work authority state [Depends on: `pi-z49l`, `pi-oafb`]
+### Q1: Localize direct-work authority state [Depends on: `pi-z49l`, `pi-fvyo`, `pi-oafb`]
 
 **Context:** Reuse explicit-success closeout, but stop reading authoritative session/Bead/outcome state from Langfuse. Represent a direct session as local Invocation/Result rows in one private append-only ledger; keep Langfuse projection optional. Expose the minimal JSON `agnt quality capture` adapter needed by Q2; assessment commands wait for Q3.
 

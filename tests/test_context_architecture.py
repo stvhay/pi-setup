@@ -70,6 +70,14 @@ def test_active_skills_do_not_reference_removed_plan_helper():
         assert "pi-plans-dir" not in skill_path.read_text(encoding="utf-8"), skill_path
 
 
+def test_unapproved_new_skill_evals_stay_in_ignored_draft_storage():
+    skill = (AGENT / "skills" / "skill-creator" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert ".pi/reviews/skill-drafts/<skill-name>/evals/scenarios/" in skill
+    assert "Only after promotion is approved" in skill
+    assert ".pi/skill-evals/<skill-name>/scenarios/" in skill
+
+
 def test_graphify_skill_matches_current_cli_contract():
     graphify = AGENT / "skills" / "graphify"
     assert (graphify / ".graphify_version").read_text(encoding="utf-8") == "0.9.25"

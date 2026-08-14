@@ -76,11 +76,24 @@ Prefer assumptions over unnecessary questions when repository evidence is clear.
 
 ### 2. RED — establish baseline
 
-Create a scenario before editing:
+For an existing tracked skill, create the scenario before editing:
 
 ```text
 .pi/skill-evals/<skill-name>/scenarios/<scenario>.md
 ```
+
+For a new skill that is still an unapproved draft, keep the scenario, candidate,
+and model output in ignored draft storage:
+
+```text
+.pi/reviews/skill-drafts/<skill-name>/evals/scenarios/<scenario>.md
+```
+
+Only after promotion is approved, move durable scenarios to
+`.pi/skill-evals/<skill-name>/scenarios/` in the same task-owned commit. Do not
+create new unapproved candidate skills or raw model output under
+`.pi/skill-evals/`; preserve pre-existing evidence until its owner approves
+relocation or deletion.
 
 Use this compact shape:
 
