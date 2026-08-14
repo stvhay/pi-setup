@@ -1,103 +1,44 @@
-# Available tools
+# Tools
 
-- `rg PATTERN [PATH]` — fast regex search.
-- `ast-grep --pattern '<code>' --lang <lang>` — structural search.
-- `nanobanana -o OUT.png <prompt>` — image generation when `GEMINI_API_KEY` exists; use `nanobanana --help` for options.
+- Use `rg PATTERN [PATH]` for search, `ast-grep --pattern '<code>' --lang <lang>` for structural search, and `nanobanana -o OUT.png <prompt>` for image generation when `GEMINI_API_KEY` exists.
 
 # Agent helper
 
-Use `~/.pi/agent/bin/agnt` as the deterministic human/CI/headless helper interface. Keep domain logic in `agnt_lib`; Pi extensions own lifecycle, UI, session, and provider integration; typed tools are thin agent-facing adapters. Do not duplicate domain logic across these surfaces. Run `agnt -h` or the command's `-h` for current syntax; full command reference lives in `~/.pi/agent/bin/README.md`.
+Use `~/.pi/agent/bin/agnt` as deterministic human/CI/headless adapter. Keep deterministic domain logic in `agnt_lib`; extensions own Pi lifecycle, UI, session, and provider integration; typed tools stay thin. Do not duplicate domain logic. Exact syntax lives in `~/.pi/agent/bin/README.md`; inspect `agnt -h` or command help on demand.
 
-Common entry points:
+Common discovery: `agnt tasks --models`, `agnt route --task TASK --risk medium --budget balanced`, `agnt eval list`, `agnt context-health`, `agnt doctor --json`, and `agnt plans-dir`. Prefer deterministic helpers and evals over prompt procedures.
 
-```bash
-agnt tasks --models
-agnt route --task TASK --risk medium --budget balanced
-agnt eval list
-agnt context-health
-agnt doctor --json
-agnt plans-dir
-```
+# Workflow
 
-Prefer deterministic helpers, tools, and evals over repeating procedures in prompts.
+- Work directly in current Pi session by default. Batch independent reads; serialize mutations, approvals, and safety gates. Update progress at phase boundaries.
+- After repeated unexpected tool, provider, environment, Node/npm, Docker, or Beads failures, stop retrying and run read-only `agnt doctor --json`; do not alter shell startup or home-managed config without approval.
+- Before repository code changes, run `bd prime` and `bd ready`, then `agnt work direct-start <id> [--claim]`. It validates/shows, claims only with `--claim`, and links one session to one Bead without run bundles/worktrees.
+- Close direct work only after committing task-owned changes: run `agnt work direct-closeout <id> --outcome success --reason "<reason>"`; use `agnt improve outcome <id> <partial|failure|unclear>` only for non-success or manual/repair recording. Direct closeout records explicit success, verifies matching session ownership/outcome before Git or Beads work, rejects tracked non-Beads changes, closes, exports/verifies `.beads/issues.jsonl`, commits only shared portable Beads state, and never pushes. Preserve bounded objective, decisions, constraints, blockers, verification, and next-work refs in Beads or exact tracked/private artifacts.
+- After successful closeout, call `handoff_bead` without target; it auto-selects sole ready non-epic work or asks once, then starts fresh parent-linked session containing only referenced state. Explicit target is allowed only from persisted unassigned TUI or after successful closeout. Non-success/partial/failed closeout stops; `/new` is human fallback.
+- Documentation-only/read-only work may proceed without Bead unless project policy says otherwise. Store useful designs/plans under project `.pi/plans/`; observational memory stays advisory until promoted.
+- Prefer exact paths and `rg`, `find`, `git grep`, `git diff`, and `read` over pasted context. Query `graphify-out/graph.json` first for architecture/dependency work when present, then verify source.
+- Delegate independent read-only work when useful: run `agnt route --access repository`, then unnamed `subagent` with route-generated model/mode/access/thinking; repository access is agentic. Self-contained cold packets use `--access self-contained` and one-shot mode; use `tasks` for parallel work.
+- Subscription-backed peers normally omit request/token/cost caps. Add caps only for explicit bounded experiments or liveness risk. Use metered OpenRouter only for bounded diversity, specialist review, or explicit canary work, always in fresh subagents; metered repository inspection requires route-generated justification, estimates, aggregate budget, and per-child limits. Keep subscription OpenAI/Codex as root/default controller and verify peer claims against source/tests.
+- Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in; ordinary coding does not require them.
+- Unless narrowed, implementation approval includes staging and one local atomic commit of task-owned changes under shared completion contract. Beads sync wording does not govern repository Git authority.
+- Initial implementation approval may cover exact reversible named local branches/worktrees, post-integration removal, and staged tracked/config-controlled deletions. Before cleanup/deletion, show exact paths/branches and commit-SHA recovery. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs/deletion, force/reset/clean, or history rewrite.
+- Initial implementation approval may cover one exact local `agnt work integrate` action when target checkout/branch, expected target HEAD, and source SHA are named. Helper serializes and rechecks scope, aborts conflicts, and stops on divergence; alternate integration needs approval.
+- Initial implementation approval may cover one verified local-live or named test/staging deployment when it binds Bead, source-selection rule, resolved target identity, exact preview/effect bounds, verification, rollback, and stop conditions. Production, unknown/mismatched targets, secrets changes, destructive rollback, or scope/preview drift need new approval; rejection/cancellation/timeout fails closed.
+- Initial implementation approval may cover one ordinary branch push after successful closeout when it binds remote/branch identity, approved base SHA, bounded candidate-selection rule, expected remote state, and final gates. First attempt consumes authority. Protected/production push, PR, force, tags, release, merge, deletion, and history rewrite remain excluded.
+- Outside exact preauthorized setup, integration, cleanup, named non-production deployment, and ordinary push, require explicit approval for push, branch/worktree deletion, local merge, and deployment. Never force/reset/clean, delete Beads, alter Beads remotes/history, install hooks, remotely delete, or rewrite history.
 
-# Operational health
+# Human decisions
 
-After repeated unexpected tool, provider, environment, Node/npm, Docker, or Beads failures, stop retrying and run:
+- Use transient `ask` only for current-session clarification/exploration. Set `selectionMode` and allow typed custom input.
+- Use durable `ticket_question` only when answer must survive handoff/resumption or block a Bead; explore transiently first and persist final blocker only. Use `ticket_approval` for consequential actions with informed action/scope, consequences, reversibility, and closeout evidence, creating durable Beads blocker before UI confirmation. Approvals are not questions.
+- With no interactive UI, never guess or answer for human; report blocked state and leave durable blocker when later resumption matters.
 
-```bash
-agnt doctor --json
-```
+# Concepts and context
 
-Use its report to separate environment failure from task failure. `agnt doctor` is read-only; do not change shell startup or home-managed configuration without explicit approval.
+Keep work item/Bead, routing task, action template, skill, role, and tool/eval distinct. Routing, prompts, and roles do not replace skill methods or project gates. Beads hold durable workflow state; private run artifacts are optional evidence.
 
-# Development workflow
+Keep root instructions universal. Put family overlays at `<root-stem>.d/models/<family>.md`; refine with slash-style provider/model paths. Put roles under `<root-stem>.d/roles/<role>.md`, and skills under `skills/<name>/SKILL.md` with bulky references beside them. Generate layered context with `agnt instructions --context provider/model --role ROLE`; overlays may specialize but never weaken security, approval, verification, Git, or project rules. `SOUL.md` controls communication only.
 
-- Work directly in the current Pi session by default: inspect, edit tracked files, and run focused verification.
-- Batch independent read-only tool calls in one turn. Keep ordered mutations, approvals, and safety gates serial.
-- Update progress at phase boundaries; prefer harness/tool execution state over model-authored progress-only turns.
-- Before code changes in a repository with `.beads/`, use `bd prime` and `bd ready` for context, then start interactive work with `agnt work direct-start <id> [--claim]`. This validates and shows the Bead, claims only with the explicit flag when needed, and links the current session; it does not create run bundles or worktrees. One logical Pi session belongs to one Bead. At successful interactive closeout, first commit task-owned implementation changes, then run `agnt work direct-closeout <id> --outcome success --reason "<reason>"`; use `agnt improve outcome <id> <partial|failure|unclear>` separately for non-success or manual/repair recording. Direct closeout records explicit success, reads back matching session ownership/outcome before Git or Beads work, rejects tracked non-Beads changes, closes the Bead, explicitly exports and verifies `.beads/issues.jsonl`, then commits only that shared portable Beads state, including legitimate mixed Bead rows, and never pushes. Before handoff, keep bounded durable state in Bead state or exact tracked/private artifact references: objective, completed work, accepted decisions, constraints, unresolved blockers, verification state, and next ready Bead. After current Bead closeout succeeds, call `handoff_bead` without a target; it starts the sole ready non-epic Bead automatically or asks once when several choices exist, using a fresh parent-linked session that retrieves only referenced state and never copies the transcript. A persisted TUI session with no linked Bead may instead call `handoff_bead` with an explicit ready target; omitting the target retains the same automatic-selection policy. Assigned sessions still require successful clean closeout, and non-success outcomes or failed or partial closeout stop without handoff. If the tool is unavailable, `/new` is the human fallback. Quitting and resuming may retain the same session.
-- Documentation-only and read-only work may proceed without a Bead unless project instructions say otherwise.
-- Use project-local `.pi/plans/` for durable designs/plans when they help handoff; observational memory is advisory until promoted into Beads or tracked artifacts.
-- Prefer exact paths and filesystem retrieval (`rg`, `find`, `git grep`, `git diff`, `read`) over large pasted context.
-- Delegate difficult or independent read-only analysis when useful. Route filesystem work with `agnt route --access repository`, then call `subagent` with `agent` omitted and route-generated fields; repository access requires agentic mode. Use `--access self-contained` and `mode: "one-shot"` only for cold complete packets. Use `tasks` for parallel work.
-- Do not give subscription-backed subagents or reviewers default `maxProviderRequests`, `maxTotalTokens`, or `maxCostUsd` limits. One-shot already has one provider turn; omit its redundant request cap. Omit request caps for subscription-backed agentic work by default. Add request or duration caps only for an explicit bounded experiment or identified liveness/runaway risk, and label them as caller limits.
-- Keep subscription-backed OpenAI/Codex as the root and default controller. Use direct metered OpenRouter models only for bounded diversity, specialist review, or explicit canary work; verify peer output against primary sources, files, and tests.
-- Metered `openrouter` models must run in fresh workers through `subagent`; never switch a long-running root conversation to them. Self-contained review discovery stays one-shot. Metered agentic repository inspection requires route-generated `quality-benefit` or `missing-capability` justification, estimated cost, aggregate budget, and per-child limits. Only tracked Codex and OpenRouter routes are configured.
-- Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in. Ordinary coding does not require them.
-- Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
-- Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees, post-integration removal, and staged deletion of tracked/config-controlled assets. Before cleanup or deletion, show exact paths/branches and commit-SHA recovery sources. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs, remote deletion, force/reset/clean, or history rewrite.
-- Initial implementation approval may preauthorize one exact local integration through `agnt work integrate` when it names target checkout/branch, expected target HEAD, and source commit SHA. The helper serializes the target, rechecks scope under lock, aborts conflicts, and stops on divergence; any alternate integration strategy requires explicit approval.
-- Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments as one single-use action when it binds the Bead, source-selection rule, resolved target identity, exact preview and effect bounds, verification, rollback, and stop conditions. Production, unknown/mismatched targets, secrets changes, destructive rollback, and scope/preview changes require new explicit approval; rejection, cancellation, or timeout fails closed.
-- Initial implementation approval may preauthorize one ordinary branch push after successful Bead closeout when it binds exact remote and branch identity, approved base SHA, bounded candidate-selection rule, expected remote state, final gates, and fail-closed checks. First push attempt consumes authority. Protected or production branch pushes, PR actions, force, tags, releases, merges, deletion, and history rewrite remain outside that authority.
-- Beads messages about git operations describe Beads' internal sync mechanism, not agent authority for normal repository git commands.
+# Research and learning
 
-Outside that exact initial scope, push, branch/worktree deletion, local merge, and deployment require explicit approval. Do not merge outside guarded integration, deploy outside verified non-production boundaries, force/reset/clean, delete branches or beads, rewrite history, change Beads remotes/history, or install hooks without explicit approval. Remote deletion and history rewrite remain explicitly gated.
-
-# Human questions and approvals
-
-- Use transient `ask` for clarification or exploration needed only in the current interactive session.
-- Use durable `ticket_question` when the answer must survive handoff, block a Bead, or support later resumption. Do not chain durable questions for ideation; explore transiently, then persist only the final blocking decision when needed.
-- For either question path, set `selectionMode` explicitly to `single` or `multi` and keep a typed custom response available.
-- No interactive UI: never guess or select for the human. Report human input unavailable and remain blocked; when later resumption is required, leave a durable blocker open.
-- Approvals are not questions. Use `ticket_approval` with informed scope, consequences, reversibility, and closeout evidence for consequential actions.
-
-# Architecture boundaries
-
-Keep these concepts distinct:
-
-- **Work item/Bead:** durable task, dependency, decision, blocker, and closeout state.
-- **Task:** model/tool routing default such as review, research, or orchestration.
-- **Action template:** explicit operation binding task, skills, role, effects, and output contract.
-- **Skill:** reusable method or capability loaded when relevant.
-- **Role:** delegated-peer stance and output contract.
-- **Tool/eval:** deterministic behavior or validation.
-
-Routing, prompts, and roles do not replace skill methods or project safety gates. Use Beads for durable workflow state; private run artifacts are additional evidence only when optional orchestration is selected.
-
-# Research
-
-For cited external claims, search, fetch, and verify primary URLs before citing:
-
-```bash
-agnt web-search "query"
-agnt web-fetch URL
-```
-
-Do not treat model-native knowledge or unverified peer URLs as sourced evidence.
-
-# Context and reusable learning
-
-- Query `graphify-out/graph.json` first for architecture/dependency work when present: `agnt graphify query "keyword"` or `agnt graphify explain "symbol"`; verify findings in source.
-- Review private telemetry with `agnt improve`; promote only sanitized, human-approved findings into Beads.
-- Shared workflow conventions live in hidden skill `~/.pi/agent/skills/dev-workflow-common/SKILL.md` and should be loaded only when another skill requests them.
-
-# Context packages
-
-Keep root instruction files small and always applicable. Put supplements beside them under `<root-stem>.d/`:
-
-- model overlays: `AGENTS.d/models/<family>.md`, refined by provider/model paths when needed
-- role overlays: `AGENTS.d/roles/<role>.md`
-- skill detail: `skills/<name>/SKILL.md`, with bulky material under `references/`
-
-Generate layered role/model context with `agnt instructions --context provider/model --role ROLE`. Supplements may specialize behavior but must not weaken security, approval, verification, git, or project rules. `SOUL.md` controls communication preferences only.
+For cited external claims, use `agnt web-search` then `agnt web-fetch`; cite verified primary URLs, not model knowledge. Review private telemetry with `agnt improve` and promote only sanitized, human-approved findings into Beads. Load hidden `~/.pi/agent/skills/dev-workflow-common/SKILL.md` only when another skill requests it.

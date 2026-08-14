@@ -60,9 +60,10 @@ def test_builtin_openrouter_uses_only_bounded_model_overrides():
 def test_metered_openrouter_models_require_fresh_delegation_context():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
 
-    assert "Metered `openrouter` models must run in fresh workers" in instructions
-    assert "never switch a long-running root conversation to them" in instructions
-    assert "Only tracked Codex and OpenRouter routes are configured" in instructions
+    assert "metered OpenRouter only for bounded diversity, specialist review, or explicit canary work" in instructions
+    assert "always in fresh subagents" in instructions
+    assert "metered repository inspection requires route-generated justification, estimates, aggregate budget, and per-child limits" in instructions
+    assert "Keep subscription OpenAI/Codex as root/default controller" in instructions
 
 
 def test_review_skill_matches_approved_diversity_matrix():

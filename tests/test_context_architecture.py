@@ -11,6 +11,37 @@ KNOWN_EFFECTS = {"read_workspace", "write_artifacts", "edit_files", "write_works
 WRITE_EFFECTS = {"edit_files", "write_workspace", "update_beads", "external_write", "push", "deploy", "delete_files"}
 
 
+def test_global_instructions_are_compact_and_retain_audited_gates():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    project = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert instructions.endswith("\n") and not instructions.endswith("\n\n")
+    assert len(instructions.splitlines()) <= 44
+    assert len(instructions) <= 7_500
+    assert len(instructions) * 10 <= 10_739 * 7
+    assert (len(instructions) + len(project)) * 5 <= 15_784 * 4
+
+    for clause in (
+        "deterministic domain logic in `agnt_lib`",
+        "extensions own Pi lifecycle, UI, session, and provider integration",
+        "typed tools stay thin",
+        "stop retrying and run read-only `agnt doctor --json`",
+        "`agnt work direct-closeout <id> --outcome success --reason \"<reason>\"`",
+        "`agnt route --access repository`",
+        "`--access self-contained`",
+        "metered OpenRouter only for bounded diversity",
+        "Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in",
+        "Outside exact preauthorized setup",
+        "With no interactive UI, never guess",
+        "Keep work item/Bead, routing task, action template, skill, role, and tool/eval distinct",
+        "`agnt web-search` then `agnt web-fetch`",
+        "`<root-stem>.d/models/<family>.md`",
+        "slash-style provider/model paths",
+        "never weaken security, approval, verification, Git, or project rules",
+    ):
+        assert clause in instructions
+
+
 def load_frontmatter(common, path: Path):
     meta, _body = common.parse_frontmatter_file(path)
     return meta
@@ -288,17 +319,9 @@ def test_bead_handoffs_use_bounded_durable_state():
     common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
     handoff = (AGENT / "extensions" / "bead-handoff.ts").read_text(encoding="utf-8")
 
-    for field in (
-        "objective",
-        "completed work",
-        "accepted decisions",
-        "constraints",
-        "unresolved blockers",
-        "verification state",
-        "next ready Bead",
-    ):
+    for field in ("objective", "decisions", "constraints", "blockers", "verification", "next-work refs"):
         assert field in instructions
-    assert "Bead state or exact tracked/private artifact references" in instructions
+    assert "in Beads or exact tracked/private artifacts" in instructions
     assert "one explicit question and evidence contract" in common
     assert "bd prime" in handoff and "bd ready" in handoff
     assert "artifacts those Beads reference" in handoff
@@ -340,12 +363,21 @@ def test_initial_scope_covers_reversible_local_git_and_tracked_deletions():
     executing = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
     finishing = (AGENT / "skills" / "finishing-a-development-branch" / "SKILL.md").read_text(encoding="utf-8")
 
+    for phrase in (
+        "Initial implementation approval may cover exact reversible named local branches/worktrees",
+        "post-integration removal",
+        "staged tracked/config-controlled deletions",
+        "commit-SHA recovery",
+    ):
+        assert phrase in global_instructions
+
     authority = "Initial implementation approval may preauthorize exact reversible local Git setup and cleanup"
-    for text in (global_instructions, project_instructions, template_instructions, common):
+    for text in (project_instructions, template_instructions, common):
         assert authority in text
+    for text in (global_instructions, project_instructions, template_instructions, common):
         assert "untracked runtime data" in text
         assert "backups" in text
-        assert "remote deletion" in text
+        assert "remote" in text and "deletion" in text
         assert "history rewrite" in text
 
     assert "Tracked/config-controlled deletions included in that scope may be staged without another approval" in common
@@ -378,8 +410,18 @@ def test_preapproved_local_integration_uses_guarded_semaphore():
     architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     integration = (AGENT / "bin" / "agnt_lib" / "integration.py").read_text(encoding="utf-8")
 
+    for phrase in (
+        "Initial implementation approval may cover one exact local `agnt work integrate` action",
+        "target checkout/branch",
+        "expected target HEAD",
+        "source SHA",
+        "aborts conflicts",
+        "stops on divergence",
+    ):
+        assert phrase in global_instructions
+
     authority = "Initial implementation approval may preauthorize one exact local integration"
-    for text in (global_instructions, project_instructions, common):
+    for text in (project_instructions, common):
         assert authority in text
         assert "agnt work integrate" in text
         assert "expected target HEAD" in text
@@ -410,9 +452,20 @@ def test_initial_scope_covers_known_nonproduction_deployments_only():
     system = (ROOT / "docs" / "AGNT-SYSTEM.md").read_text(encoding="utf-8")
     loop = (ROOT / "docs" / "ORCHESTRATION-LOOP.md").read_text(encoding="utf-8")
 
+    for phrase in (
+        "Initial implementation approval may cover one verified local-live or named test/staging deployment",
+        "source-selection rule",
+        "resolved target identity",
+        "exact preview/effect bounds",
+        "verification, rollback, and stop conditions",
+        "rejection/cancellation/timeout fails closed",
+    ):
+        assert phrase in global_instructions
+
     authority = "Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments"
-    for text in (global_instructions, project_instructions, template_instructions, common):
+    for text in (project_instructions, template_instructions, common):
         assert authority in text
+    for text in (global_instructions, project_instructions, template_instructions, common):
         assert "production" in text
         assert "unknown" in text
 
@@ -468,8 +521,19 @@ def test_initial_approval_can_cover_one_guarded_push_after_closeout():
     system = (ROOT / "docs" / "AGNT-SYSTEM.md").read_text(encoding="utf-8")
     loop = (ROOT / "docs" / "ORCHESTRATION-LOOP.md").read_text(encoding="utf-8")
 
+    for phrase in (
+        "Initial implementation approval may cover one ordinary branch push after successful closeout",
+        "remote/branch identity",
+        "approved base SHA",
+        "bounded candidate-selection rule",
+        "expected remote state",
+        "First attempt consumes authority",
+        "Protected/production push",
+    ):
+        assert phrase in global_instructions
+
     authority = "Initial implementation approval may preauthorize one ordinary branch push after successful Bead closeout"
-    for text in (global_instructions, project_instructions, template_instructions):
+    for text in (project_instructions, template_instructions):
         assert authority in text
         assert "exact remote and branch identity" in text
         assert "protected or production branch" in text.lower()
@@ -551,11 +615,11 @@ def test_global_instructions_use_direct_lifecycle_start():
     assert "`agnt work direct-closeout <id> --outcome success --reason \"<reason>\"`" in instructions
     assert "`agnt direct start" not in instructions
     assert "run `agnt improve link <id>`" not in instructions
-    assert "does not create run bundles or worktrees" in instructions
+    assert "without run bundles/worktrees" in instructions
     assert "shared portable Beads state" in instructions
     assert "never pushes" in instructions
     assert "`handoff_bead`" in instructions
-    assert "after current bead closeout" in instructions.lower()
+    assert "After successful closeout" in instructions
     assert "`/new`" in instructions and "human fallback" in instructions
     assert "use `/clone` or `/new`" not in instructions
 
@@ -578,26 +642,21 @@ def test_fresh_bead_recovery_docs_prefer_agent_handoff():
 def test_default_instructions_batch_reads_and_use_phase_progress():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
 
-    assert "Batch independent read-only tool calls in one turn" in instructions
-    assert "Keep ordered mutations, approvals, and safety gates serial" in instructions
+    assert "Batch independent reads" in instructions
+    assert "serialize mutations, approvals, and safety gates" in instructions
     assert "Update progress at phase boundaries" in instructions
-    assert "prefer harness/tool execution state over model-authored progress-only turns" in instructions
 
 
 def test_default_instructions_route_questions_by_durability():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
 
-    assert "Use transient `ask`" in instructions
-    assert "current interactive session" in instructions
-    assert "Use durable `ticket_question`" in instructions
-    assert "survive handoff" in instructions
-    assert "block a Bead" in instructions
-    assert "selectionMode" in instructions
-    assert "typed custom response" in instructions
-    assert "Do not chain durable questions" in instructions
-    assert "No interactive UI" in instructions and "remain blocked" in instructions
+    assert "Use transient `ask` only for current-session clarification/exploration" in instructions
+    assert "Use durable `ticket_question` only when answer must survive handoff/resumption or block a Bead" in instructions
+    assert "Set `selectionMode` and allow typed custom input" in instructions
+    assert "explore transiently first and persist final blocker only" in instructions
+    assert "With no interactive UI" in instructions and "report blocked state" in instructions
     assert "Approvals are not questions" in instructions
-    assert "`ticket_approval`" in instructions
+    assert "Use `ticket_approval`" in instructions
 
 
 def test_ticket_question_prompt_guidance_keeps_durable_boundary_and_approval_separation():
@@ -724,7 +783,8 @@ def test_repository_delegation_guidance_is_access_and_billing_aware():
 
     assert "--access repository" in instructions + review + reference
     assert "--access self-contained" in instructions + review + reference
-    assert "repository access requires agentic" in (instructions + review + reference).lower()
+    assert "repository access is agentic" in instructions.lower()
+    assert "repository access requires agentic" in (review + reference).lower()
     assert "quality-benefit" in reference
     assert "missing-capability" in reference
     assert "estimated-input-tokens" in reference
@@ -735,9 +795,9 @@ def test_subagent_guidance_calibrates_output_contracts_and_failure_evidence():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     reference = (AGENT / "bin" / "README.md").read_text(encoding="utf-8")
 
-    assert "one-shot already has one provider turn" in instructions.lower()
-    assert "subscription-backed agentic work" in instructions
-    assert "maxProviderRequests" in instructions
+    assert "self-contained cold packets" in instructions.lower() and "one-shot mode" in instructions
+    assert "Subscription-backed peers normally omit request/token/cost caps" in instructions
+    assert "Add caps only for explicit bounded experiments or liveness risk" in instructions
     for contract in ("inline", "artifact", "status-only", "pass-no-findings"):
         assert f"| `{contract}` |" in reference
     assert "reasoning may consume that allowance before the visible final answer" in reference
