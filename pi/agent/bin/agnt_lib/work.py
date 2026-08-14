@@ -18,6 +18,10 @@ from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
 from .improvement import (
+    link_current_session,
+    record_current_session_closeout as record_current_session_outcome,
+)
+from .quality import (
     BEAD_ID,
     SessionOutcomeUnavailable,
     SessionUnassigned,
@@ -26,8 +30,6 @@ from .improvement import (
     current_session_handoff_source,
     current_session_id,
     current_session_work_item,
-    link_current_session,
-    record_current_session_outcome,
 )
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .integration import integrate_local_commit
@@ -959,7 +961,7 @@ def work_status(session_id: str) -> Dict[str, Any]:
     return {
         "schemaVersion": 1,
         "status": "ok",
-        "activeBeadId": current_session_work_item(session_id) if items else None,
+        "activeBeadId": current_session_work_item(session_id),
         "items": items,
     }
 
@@ -1016,7 +1018,7 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
         stages["claim"] = {"status": "succeeded"}
 
     try:
-        link_current_session(bead_id)
+        link_result = link_current_session(bead_id)
     except SessionWorkItemConflict:
         stages["link"] = {"status": "failed", "error": "session belongs to another work item"}
         return {
@@ -1050,6 +1052,8 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
         }
 
     stages["link"] = {"status": "succeeded"}
+    if link_result.get("evidenceGaps"):
+        stages["link"]["evidenceGaps"] = link_result["evidenceGaps"]
     return {"schemaVersion": 1, "status": "started", "bead": bead, "stages": stages, "repair": None}
 
 
@@ -1100,12 +1104,16 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         return failed("outcome", "direct closeout outcome must be success")
 
     try:
-        record_current_session_outcome(bead_id, outcome)
+        outcome_result = record_current_session_outcome(bead_id, outcome)
     except SessionWorkItemConflict:
         return failed("outcome", "session belongs to another work item")
+    except SessionUnassigned:
+        return failed("outcome", "current session has no linked work item")
     except (OSError, RuntimeError, ValueError):
         return failed("outcome", "session closeout outcome recording failed")
     stages["outcome"] = {"status": "succeeded", "outcome": outcome}
+    if isinstance(outcome_result, dict) and outcome_result.get("evidenceGaps"):
+        stages["outcome"]["evidenceGaps"] = outcome_result["evidenceGaps"]
 
     try:
         source = current_session_closeout_source(current_session_id())

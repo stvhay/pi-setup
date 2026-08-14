@@ -16,9 +16,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pi" / "agent" / "bin"))
 
-from agnt_lib import improvement, langfuse
+from agnt_lib import improvement, langfuse, quality
 
 LangfuseClient = langfuse.LangfuseClient
+
+
+@pytest.fixture(autouse=True)
+def isolate_quality_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        quality, "resolve_runtime_directory", lambda kind: tmp_path / "quality"
+    )
 
 
 class FakeTelemetryClient(LangfuseClient):
@@ -3845,371 +3852,123 @@ def test_improve_promote_cli_previews_without_remote_clients(monkeypatch, tmp_pa
         assert private not in output
 
 
-class FakeSessionOwnershipClient:
-    def __init__(self, rows=()):
-        self.rows = list(rows)
-        self.score_queries = []
-        self.put_calls = []
-
-    def list_scores(self, **kwargs):
-        self.score_queries.append(kwargs)
-        return [
-            row
-            for row in self.rows
-            if row.get("name") == kwargs["name"]
-            and (row.get("subject") or {}).get("id") == kwargs["session_id"]
-        ][: kwargs["limit"]]
+class FakeSessionProjectionClient:
+    def __init__(self):
+        self.calls = []
 
     def put_session_score(self, **kwargs):
-        self.put_calls.append(kwargs)
+        self.calls.append(kwargs)
         return {"id": kwargs["score_id"]}
 
 
-def _ownership_score(session_id, name, bead_id):
-    score_id = (
-        improvement._work_link_score_id(session_id)
-        if name == improvement.WORK_LINK_SCORE
-        else improvement._outcome_score_id(session_id)
+def test_current_session_link_is_local_first_when_projection_is_unavailable(monkeypatch):
+    monkeypatch.setenv("PI_SESSION_ID", "session-local")
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: (_ for _ in ()).throw(langfuse.LangfuseError("unavailable")),
     )
-    return {
-        "id": score_id,
-        "name": name,
-        "value": "linked" if name == improvement.WORK_LINK_SCORE else "success",
-        "source": "API",
-        "metadata": {"schemaVersion": 1, "beadId": bead_id},
-        "subject": {"kind": "session", "id": session_id},
+
+    result = improvement.link_current_session("pi-work.1")
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "linked",
+        "beadId": "pi-work.1",
+        "evidenceGaps": ["langfuse-projection-unavailable"],
     }
+    assert quality.session_work_item("session-local") == "pi-work.1"
 
 
-@pytest.mark.parametrize(
-    ("rows", "expected"),
-    [
-        ([_ownership_score("session", improvement.WORK_LINK_SCORE, "pi-current.1")], "pi-current.1"),
-        ([], None),
-    ],
-    ids=("linked-without-outcome", "unlinked"),
-)
-def test_session_work_item_uses_existing_canonical_correlation(rows, expected):
-    client = FakeSessionOwnershipClient(rows)
+def test_current_session_link_bounds_malformed_projection_adapter(monkeypatch):
+    monkeypatch.setenv("PI_SESSION_ID", "session-local")
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: (_ for _ in ()).throw(AttributeError("malformed adapter config")),
+    )
 
-    assert improvement.session_work_item(client, "session") == expected
-    assert [query["name"] for query in client.score_queries] == [
-        improvement.WORK_LINK_SCORE,
-    ]
+    result = improvement.link_current_session("pi-work.1")
 
-
-def test_session_handoff_source_requires_linked_explicit_closeout():
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    client = FakeSessionOwnershipClient([
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
-        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1"),
-    ])
-
-    assert improvement.session_handoff_source(client, session_id) == {
-        "beadId": "pi-current.1",
-        "outcome": "success",
-    }
-
-    missing_outcome = FakeSessionOwnershipClient([
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
-    ])
-    with pytest.raises(ValueError, match="closeout outcome"):
-        improvement.session_handoff_source(missing_outcome, session_id)
+    assert result["status"] == "linked"
+    assert result["evidenceGaps"] == ["langfuse-projection-unavailable"]
+    assert quality.session_work_item("session-local") == "pi-work.1"
 
 
-def test_session_handoff_source_distinguishes_genuinely_unassigned_session():
-    unassigned = getattr(improvement, "SessionUnassigned", None)
-    assert unassigned is not None, "unassigned sessions need an exact domain signal"
+def test_current_session_outcome_is_local_first_when_projection_is_unavailable(monkeypatch):
+    monkeypatch.setenv("PI_SESSION_ID", "session-local")
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: (_ for _ in ()).throw(langfuse.LangfuseError("unavailable")),
+    )
 
-    with pytest.raises(unassigned, match="no linked work item"):
-        improvement.session_handoff_source(FakeSessionOwnershipClient(), "session")
+    result = improvement.record_current_session_outcome("pi-work.1", "success")
 
-
-def test_current_session_handoff_source_confirms_unassigned_before_bypass(monkeypatch):
-    calls = []
-    sleeps = []
-
-    def delayed_source(_client, session_id):
-        calls.append(session_id)
-        if len(calls) == 1:
-            raise improvement.SessionUnassigned("temporarily absent")
-        return {"beadId": "pi-current.1", "outcome": "failure"}
-
-    monkeypatch.setattr(improvement, "_client_from_env", lambda: object())
-    monkeypatch.setattr(improvement, "session_handoff_source", delayed_source)
-    monkeypatch.setattr(improvement, "sleep", sleeps.append)
-
-    assert improvement.current_session_handoff_source("session") == {
-        "beadId": "pi-current.1",
-        "outcome": "failure",
-    }
-    assert calls == ["session", "session"]
-    assert sleeps == [improvement.CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS]
-
-
-def test_session_handoff_source_rejects_invalid_outcome_without_visibility_retry():
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    invalid = _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1")
-    invalid["value"] = "rejected"
-    client = FakeSessionOwnershipClient([
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
-        invalid,
-    ])
-
-    with pytest.raises(ValueError, match="invalid") as caught:
-        improvement.session_handoff_source(client, session_id)
-
-    assert not isinstance(caught.value, improvement.SessionOutcomeUnavailable)
-
-
-def test_record_current_session_outcome_delegates_existing_domain_logic(monkeypatch):
-    wrapper = getattr(improvement, "record_current_session_outcome", None)
-    assert wrapper is not None, "current-session outcome wrapper is missing"
-    client = object()
-    calls = []
-
-    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
-    monkeypatch.setattr(improvement, "current_session_id", lambda: "session-current")
-    monkeypatch.setattr(improvement, "_beads", "beads-runner")
-
-    def record(client_arg, **kwargs):
-        calls.append((client_arg, kwargs))
-        return {
-            "schemaVersion": 1,
-            "status": "recorded",
-            "beadId": kwargs["bead_id"],
-            "outcome": kwargs["outcome"],
-        }
-
-    monkeypatch.setattr(improvement, "record_session_outcome", record)
-
-    assert wrapper("pi-current.1", "success") == {
+    assert result == {
         "schemaVersion": 1,
         "status": "recorded",
-        "beadId": "pi-current.1",
+        "beadId": "pi-work.1",
         "outcome": "success",
+        "evidenceGaps": ["langfuse-projection-unavailable"],
     }
-    assert calls == [(client, {
-        "session_id": "session-current",
-        "bead_id": "pi-current.1",
-        "outcome": "success",
-        "beads_runner": "beads-runner",
-    })]
-
-
-def test_closeout_handoff_source_waits_for_one_written_outcome(monkeypatch):
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    client = FakeSessionOwnershipClient()
-    improvement.record_session_outcome(
-        client,
-        session_id=session_id,
-        bead_id="pi-current.1",
-        outcome="success",
-        beads_runner=lambda _args: (0, {"id": "pi-current.1"}, ""),
-    )
-    client.rows = [
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
-        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1"),
-    ]
-    list_scores = client.list_scores
-    hidden = [True]
-
-    def delayed_list_scores(**kwargs):
-        rows = list_scores(**kwargs)
-        if kwargs["name"] == improvement.OUTCOME_SCORE and hidden[0]:
-            hidden[0] = False
-            return []
-        return rows
-
-    monkeypatch.setattr(client, "list_scores", delayed_list_scores)
-    now = [0.0]
-    sleeps = []
-    monkeypatch.setattr(improvement, "monotonic", lambda: now[0])
-
-    def advance(delay):
-        sleeps.append(delay)
-        now[0] += delay
-
-    monkeypatch.setattr(improvement, "sleep", advance)
-
-    assert improvement.closeout_handoff_source(client, session_id) == {
-        "beadId": "pi-current.1",
-        "outcome": "success",
-    }
-    assert [call["name"] for call in client.put_calls].count(improvement.OUTCOME_SCORE) == 1
-    assert sleeps == [improvement.CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS]
-
-
-def test_closeout_handoff_source_stops_at_monotonic_deadline(monkeypatch):
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    client = FakeSessionOwnershipClient([
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
-    ])
-    now = [0.0]
-    sleeps = []
-    monkeypatch.setattr(improvement, "CLOSEOUT_OUTCOME_TIMEOUT_SECONDS", 0.25)
-    monkeypatch.setattr(improvement, "CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS", 0.1)
-    monkeypatch.setattr(improvement, "CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS", 0.2)
-    monkeypatch.setattr(improvement, "monotonic", lambda: now[0])
-
-    def advance(delay):
-        sleeps.append(delay)
-        now[0] += delay
-
-    monkeypatch.setattr(improvement, "sleep", advance)
-
-    with pytest.raises(improvement.SessionOutcomeUnavailable, match="bounded wait"):
-        improvement.closeout_handoff_source(client, session_id)
-
-    assert sleeps == pytest.approx([0.1, 0.15])
-    assert [query["name"] for query in client.score_queries].count(
-        improvement.OUTCOME_SCORE
-    ) == 3
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        ValueError("outcome rejected"),
-        improvement.SessionWorkItemConflict("wrong owner"),
-        langfuse.LangfuseError("transport failed"),
-        TimeoutError("transport timed out"),
-    ],
-    ids=("rejection", "wrong-owner", "transport", "timeout"),
-)
-def test_closeout_handoff_source_does_not_retry_other_errors(monkeypatch, error):
-    calls = []
-
-    def fail(_client, _session_id):
-        calls.append(error)
-        raise error
-
-    monkeypatch.setattr(improvement, "session_handoff_source", fail)
-    monkeypatch.setattr(
-        improvement,
-        "sleep",
-        lambda _delay: pytest.fail("non-visibility errors must not be retried"),
-    )
-
-    with pytest.raises(type(error), match=re.escape(str(error))):
-        improvement.closeout_handoff_source(object(), "session")
-
-    assert calls == [error]
-
-
-def test_session_handoff_source_uses_only_canonical_score_ownership(monkeypatch):
-    session_id = "run-cwd-shadow"
-    client = FakeSessionOwnershipClient([
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-current.1"),
-        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-current.1"),
-    ])
-    monkeypatch.setattr(
-        improvement,
-        "_correlate",
-        lambda *_args, **_kwargs: pytest.fail("handoff source must not inspect run bundles"),
-    )
-
-    assert improvement.session_handoff_source(client, session_id) == {
-        "beadId": "pi-current.1",
+    assert quality.session_handoff_source("session-local") == {
+        "beadId": "pi-work.1",
         "outcome": "success",
     }
 
 
-@pytest.mark.parametrize("existing_name", [improvement.WORK_LINK_SCORE, improvement.OUTCOME_SCORE])
-def test_link_session_rejects_conflicting_canonical_owner_before_write(existing_name):
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    client = FakeSessionOwnershipClient([
-        _ownership_score(session_id, existing_name, "pi-first.1"),
-    ])
+def test_current_session_link_projects_after_local_capture(monkeypatch):
+    client = FakeSessionProjectionClient()
+    monkeypatch.setenv("PI_SESSION_ID", "session-local")
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
 
-    with pytest.raises(ValueError, match="handoff_bead") as caught:
-        improvement.link_session(
-            client,
-            session_id=session_id,
-            bead_id="pi-second.1",
-            beads_runner=lambda args: (0, {"id": args[1]}, ""),
-        )
-
-    assert client.put_calls == []
-    assert "pi-first.1" not in str(caught.value)
+    assert improvement.link_current_session("pi-work.1") == {
+        "schemaVersion": 1,
+        "status": "linked",
+        "beadId": "pi-work.1",
+    }
+    assert [call["name"] for call in client.calls] == [improvement.WORK_LINK_SCORE]
+    assert client.calls[0]["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
 
 
-def test_link_session_fails_closed_on_malformed_canonical_owner():
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    malformed = _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-first.1")
-    malformed["metadata"] = {"schemaVersion": 1}
-    client = FakeSessionOwnershipClient([malformed])
-
-    with pytest.raises(ValueError, match="handoff_bead"):
-        improvement.link_session(
-            client,
-            session_id=session_id,
-            bead_id="pi-second.1",
-            beads_runner=lambda args: (0, {"id": args[1]}, ""),
-        )
-
-    assert client.put_calls == []
-
-
-def test_link_session_fails_closed_when_ownership_read_hits_cap():
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    rows = []
-    for index in range(improvement.SCORES_PER_QUERY + 1):
-        row = _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-second.1")
-        row["id"] = f"noncanonical-{index}"
-        rows.append(row)
-    client = FakeSessionOwnershipClient(rows)
-
-    with pytest.raises(ValueError, match="handoff_bead"):
-        improvement.link_session(
-            client,
-            session_id=session_id,
-            bead_id="pi-second.1",
-            beads_runner=lambda args: (0, {"id": args[1]}, ""),
-        )
-
-    assert client.put_calls == []
-
-
-def test_link_session_allows_same_owner_with_bounded_canonical_reads():
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    client = FakeSessionOwnershipClient([
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-work.1"),
-        _ownership_score(session_id, improvement.OUTCOME_SCORE, "pi-work.1"),
-    ])
-
-    result = improvement.link_session(
-        client,
-        session_id=session_id,
-        bead_id="pi-work.1",
+def test_local_session_owner_conflict_blocks_projection(monkeypatch):
+    quality.capture_session_link(
+        "session-local",
+        "pi-first.1",
         beads_runner=lambda args: (0, {"id": args[1]}, ""),
     )
-
-    assert result == {"schemaVersion": 1, "status": "linked", "beadId": "pi-work.1"}
-    assert [query["name"] for query in client.score_queries] == [
-        improvement.WORK_LINK_SCORE,
-        improvement.OUTCOME_SCORE,
-    ]
-    assert all(query["session_id"] == session_id for query in client.score_queries)
-    assert all(query["from_timestamp"] < query["to_timestamp"] for query in client.score_queries)
-    assert all(1 <= query["limit"] <= improvement.SCORES_PER_QUERY + 1 for query in client.score_queries)
-    assert [call["name"] for call in client.put_calls] == [improvement.WORK_LINK_SCORE]
-
-
-@pytest.mark.parametrize("action", ["link", "outcome"])
-def test_improve_cli_requires_fresh_session_after_work_item_conflict(action, monkeypatch, capsys):
-    session_id = "018cc251-f400-7000-8000-000000000000"
-    client = FakeSessionOwnershipClient([
-        _ownership_score(session_id, improvement.WORK_LINK_SCORE, "pi-first.1"),
-    ])
-    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setenv("PI_SESSION_ID", "session-local")
     monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
-    monkeypatch.setenv("PI_SESSION_ID", session_id)
-    argv = [action, "pi-second.1", "--json"]
-    if action == "outcome":
-        argv.insert(2, "success")
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: pytest.fail("local conflict must block projection lookup"),
+    )
 
-    assert improvement.cmd_improve(argv) == 2
+    with pytest.raises(improvement.SessionWorkItemConflict, match="handoff_bead"):
+        improvement.link_current_session("pi-second.1")
+
+
+def test_improve_cli_requires_fresh_session_after_local_work_item_conflict(monkeypatch, capsys):
+    quality.capture_session_link(
+        "session-local",
+        "pi-first.1",
+        beads_runner=lambda args: (0, {"id": args[1]}, ""),
+    )
+    monkeypatch.setenv("PI_SESSION_ID", "session-local")
+    monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: pytest.fail("local conflict must block projection lookup"),
+    )
+
+    assert improvement.cmd_improve(["link", "pi-second.1", "--json"]) == 2
 
     output = capsys.readouterr().out
     assert json.loads(output) == {
@@ -4225,8 +3984,7 @@ def test_improve_cli_requires_fresh_session_after_work_item_conflict(action, mon
             "humanFallback": {"command": "/new"},
         },
     }
-    assert "/clone" not in output
-    assert client.put_calls == []
+    assert "pi-first.1" not in output
 
 
 def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, tmp_path, capsys):

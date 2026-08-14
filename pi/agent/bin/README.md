@@ -134,16 +134,16 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Validates required `invocation.yaml` and `result.yaml` fields. With `--require-followups-exist`, every `result.yaml.followUps[]` id must resolve to a Beads item.
 
 - `agnt work direct-start BEAD [--claim]`
-  - Starts ordinary direct work by validating and showing the Bead, optionally claiming it only when `--claim` is explicit and the Bead is not already in progress, then idempotently linking the current Pi session.
-  - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. After successful current Bead closeout, call `handoff_bead` without a target; sole ready non-epic work continues automatically, while several choices use one selection. `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
+  - Starts ordinary direct work by validating and showing the Bead, optionally claiming it only when `--claim` is explicit and the Bead is not already in progress, then idempotently linking the current Pi session in the private local quality ledger.
+  - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. Langfuse projection is best effort; projection failure appears as `langfuse-projection-unavailable` evidence without blocking authoritative local capture. After successful current Bead closeout, call `handoff_bead` without a target; sole ready non-epic work continues automatically, while several choices use one selection. `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
   - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle or worktree creation.
 
 - `agnt work status --session-id SESSION`
-  - Reads canonical `in_progress` Beads and existing session-work correlation without mutation, returning deterministic priority/ID-ordered JSON for presentation adapters.
-  - Returns no private session data beyond the linked public Bead ID. Query or validation failures use a bounded error shape with empty items.
+  - Reads canonical `in_progress` Beads and private local session-work correlation without mutation, returning deterministic priority/ID-ordered JSON for presentation adapters.
+  - Returns no private session data beyond the linked public Bead ID. Missing correlation is unassigned; malformed ledger or query state uses a bounded error shape with empty items.
 
 - `agnt work direct-closeout BEAD --outcome success --reason REASON`
-  - Runs only after task-owned implementation changes are verified and committed. It requires literal explicit `success`, records it through existing improvement logic, then reads back matching session ownership and `success` before Git or Beads work; it never infers or defaults success.
+  - Runs only after task-owned implementation changes are verified and committed. It requires literal explicit `success`, appends it to the private local quality ledger, then reads back matching session ownership and `success` before Git or Beads work; it never infers or defaults success. Langfuse projection remains best effort and non-authoritative.
   - Use `agnt improve outcome` separately for `partial`, `failure`, `unclear`, or manual/repair recording; non-success work stops without direct closeout or handoff.
   - Refuses tracked non-Beads changes, closes the Bead idempotently, explicitly exports canonical regular issues through `bd export --readonly`, and verifies target `status`, `closed_at`, and `close_reason` parity before replacing `.beads/issues.jsonl`.
   - Stages and creates a second local commit containing only `.beads/issues.jsonl`. The shared portable-state commit preserves all legitimate exported Bead rows; unrelated untracked files remain untouched. It never pushes.
@@ -231,12 +231,18 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
   - Also warns on oversized unallowlisted skills and overlapping skill descriptions.
   - `--strict` exits nonzero when failures are found; warnings remain entropy signals.
 
+## Private quality capture
+
+- `agnt quality capture --payload JSON --json`
+  - Appends one schema-validated `invocation` or `result` fact to the resolved private `quality/ledger.jsonl`. Required fields are `schemaVersion`, `recordType`, `sessionId`, `beadId`, and `evidenceRefs`; `result` also requires `outcome` (`success`, `partial`, `failure`, or `unclear`). Evidence refs require an allowlisted type prefix (`artifact`, `invocation`, `observation`, `result`, `run`, or `trace`). Unknown fields, unsafe refs, raw bodies, URLs, credentials, JWTs, secrets, and paths are rejected.
+  - Writes are append-only, private (`0700` directory and `0600` ledger), bounded, and same-session/same-Bead checked. Output omits the private session ID. Assessment and apply commands are intentionally absent until their later quality-kernel slices.
+
 ## Private improvement review
 
 - `agnt improve link BEAD [--json]`
-  - Idempotently links the current private Pi session to one exact public work-item ID, preferring canonical `PI_SESSION_ID` and falling back to the `PI_SESSION_FILE` stem. Existing canonical link/outcome ownership for another Bead fails closed with `handoff_bead` recovery and a `/new` human fallback instead of being overwritten. `agnt work direct-start` normally handles this for interactive work.
+  - Idempotently links the current private Pi session to one exact public work-item ID in the local quality ledger, preferring canonical `PI_SESSION_ID` and falling back to the `PI_SESSION_FILE` stem. Existing local link/outcome ownership for another Bead fails closed with `handoff_bead` recovery and a `/new` human fallback instead of being overwritten. `agnt work direct-start` normally handles this for interactive work. Matching Langfuse score projection is best effort.
 - `agnt improve outcome BEAD success|partial|failure|unclear [--json]`
-  - Idempotently backfills the same-Bead work-item link and records an explicit human final session outcome. Ordinary successful direct work records `success` through `agnt work direct-closeout`; use this command separately for non-success or manual/repair recording. Scans keep objective execution and sampled apparent judgment separate, prefer only explicit outcomes whose Bead metadata matches session correlation, and otherwise prevent failed or unavailable execution from being promoted by a positive apparent score. Historical owner mismatches become count-only `mismatched-work-item-outcome` capture gaps.
+  - Idempotently backfills the same-Bead local work-item link and records an explicit final session outcome, then best-effort projects matching Langfuse scores. Ordinary successful direct work records `success` through `agnt work direct-closeout`; use this command separately for non-success or manual/repair recording. Scans keep objective execution and sampled apparent judgment separate, prefer only projected explicit outcomes whose Bead metadata matches session correlation, and otherwise prevent failed or unavailable execution from being promoted by a positive apparent score. Historical projection mismatches become count-only `mismatched-work-item-outcome` capture gaps.
 - `agnt improve scan [--since ISO] [--until ISO] [--limit N] [--max-traces N] [--recheck] [--dry-run] [--json]`
   - Reads up to `--max-traces` traces (default 500) and writes a schema-2 private packet under `~/.pi/improvement/`; `--dry-run` writes nothing. A fixed five-minute settlement lag excludes active ingestion. Discovery reads through a bounded five-minute lookahead so a child completed before the watermark can still join its later parent projection; only traces at or before the watermark enter root selection. The private packet records requested end, watermark, and read cutoff; pass its `scan.until` back as `--until` to replay the settled cohort. Safe schema-1 output reports only lag/exclusion state and count-only discovery/classification health, never packet path or private timestamps.
   - Exact discovered agentic child sessions are excluded before root eligibility, review-score coverage, and `--limit` selection. Projection observations fetched for classification are cached for selected roots. Incomplete discovery, truncated projection observations, and malformed declarations remain lower bounds rather than guessed roots or children. Selected roots remain capped at 20 traces and 500 observations per trace.

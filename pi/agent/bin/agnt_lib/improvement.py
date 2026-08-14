@@ -17,25 +17,28 @@ from collections import Counter
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from time import monotonic, sleep
 from typing import Any
 
 from .langfuse import DEFAULT_MAX_TRACES, MAX_PAGE_SIZE, LangfuseError, _client_from_env
 from .metrics import git_root
+from .quality import (
+    BEAD_ID,
+    TASK_OUTCOMES,
+    SessionWorkItemConflict,
+    capture_session_link,
+    capture_session_outcome,
+    current_session_id,
+)
 from .runs import default_runs_dir
 
 REVIEW_SCORE = "improvement_review_status"
 WORK_LINK_SCORE = "improvement_work_item"
 OUTCOME_SCORE = "improvement_task_outcome"
-TASK_OUTCOMES = {"success", "partial", "failure", "unclear"}
 REVIEW_POLICY_VERSION = "v2"
 TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
 SCORES_PER_QUERY = 100
-CLOSEOUT_OUTCOME_TIMEOUT_SECONDS = 2.0
-CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS = 0.1
-CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS = 0.5
 SETTLEMENT_LAG_SECONDS = 300
 COHORT_OUTCOMES = ("success", "partial", "failure", "unclear", "unknown")
 CHILD_TRACE_MODES = ("agentic", "one-shot", "unknown")
@@ -119,7 +122,6 @@ PUBLIC_FIELDS = {
     "evaluationRequirement",
 }
 FINDING_ID = re.compile(r"finding-[a-f0-9]{12}\Z")
-BEAD_ID = re.compile(r"[a-z][a-z0-9]*-[A-Za-z0-9._-]+\Z")
 PROMOTION_STATE_FIELDS = {"schemaVersion", "findingId", "beadId", "creationPending", "linkRepairNeeded"}
 MONITORED_PROMOTION_STATE_FIELDS = PROMOTION_STATE_FIELDS | {"monitoring"}
 MONITORING_FIELDS = {
@@ -1258,18 +1260,6 @@ def _correlated_outcome_scores(
     return accepted, mismatched
 
 
-class SessionWorkItemConflict(ValueError):
-    pass
-
-
-class SessionOutcomeUnavailable(ValueError):
-    pass
-
-
-class SessionUnassigned(ValueError):
-    pass
-
-
 def _work_link_score_id(session_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"urn:agnt:improvement-work-item:{session_id}"))
 
@@ -1283,131 +1273,7 @@ def _canonical_score_rows(rows: list[dict[str, Any]], score_id: str) -> list[dic
     return [row for row in identified if row["id"] == score_id] if identified else rows
 
 
-def _session_score_rows(
-    client: Any,
-    session_id: str,
-    name: str,
-    score_id: str,
-) -> list[dict[str, Any]]:
-    started = _session_start(session_id) or datetime(1970, 1, 1, tzinfo=timezone.utc)
-    until = max(datetime.now(timezone.utc), started) + timedelta(minutes=5)
-    found = client.list_scores(
-        name=name,
-        from_timestamp=started.isoformat().replace("+00:00", "Z"),
-        to_timestamp=until.isoformat().replace("+00:00", "Z"),
-        session_id=session_id,
-        limit=SCORES_PER_QUERY + 1,
-    )
-    if len(found) > SCORES_PER_QUERY:
-        raise SessionWorkItemConflict(
-            "current Pi session ownership is incomplete; "
-            "use handoff_bead or the /new human fallback and retry"
-        )
-    return _canonical_score_rows(found, score_id)
-
-
-def _session_ownership_scores(client: Any, session_id: str) -> list[dict[str, Any]]:
-    rows = []
-    for name, score_id in (
-        (WORK_LINK_SCORE, _work_link_score_id(session_id)),
-        (OUTCOME_SCORE, _outcome_score_id(session_id)),
-    ):
-        rows.extend(_session_score_rows(client, session_id, name, score_id))
-    return rows
-
-
-def _assert_session_work_item(client: Any, session_id: str, bead_id: str) -> None:
-    for score in _session_ownership_scores(client, session_id):
-        metadata = score.get("metadata")
-        owner = metadata.get("beadId") if isinstance(metadata, dict) else None
-        if not isinstance(owner, str) or not BEAD_ID.fullmatch(owner) or owner != bead_id:
-            raise SessionWorkItemConflict(
-                "current Pi session belongs to another work item; "
-                "use handoff_bead or the /new human fallback and retry"
-            )
-
-
-def session_handoff_source(client: Any, session_id: str) -> dict[str, str]:
-    scores = _session_ownership_scores(client, session_id)
-    if not scores:
-        raise SessionUnassigned("current Pi session has no linked work item")
-    links = _canonical_score_rows(scores, _work_link_score_id(session_id))
-    metadata = links[0].get("metadata") if len(links) == 1 else None
-    bead_id = metadata.get("beadId") if isinstance(metadata, dict) else None
-    if len(links) != 1 or links[0].get("value") != "linked" or not isinstance(bead_id, str) or not BEAD_ID.fullmatch(bead_id):
-        raise ValueError("current Pi session has no linked work item")
-    correlation = {"status": "linked", "beadId": bead_id}
-    outcomes, mismatched = _correlated_outcome_scores(session_id, correlation, scores)
-    if mismatched:
-        raise SessionWorkItemConflict("current Pi session closeout ownership conflicts")
-    if not outcomes:
-        raise SessionOutcomeUnavailable("current Pi session closeout outcome is unavailable")
-    if len(outcomes) != 1 or outcomes[0].get("value") not in TASK_OUTCOMES:
-        raise ValueError("current Pi session closeout outcome is invalid")
-    return {
-        "beadId": str(correlation["beadId"]),
-        "outcome": str(outcomes[0]["value"]),
-    }
-
-
-def closeout_handoff_source(client: Any, session_id: str) -> dict[str, str]:
-    deadline = monotonic() + CLOSEOUT_OUTCOME_TIMEOUT_SECONDS
-    backoff = CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS
-    while True:
-        try:
-            return session_handoff_source(client, session_id)
-        except SessionOutcomeUnavailable:
-            remaining = deadline - monotonic()
-            if remaining <= 0:
-                raise SessionOutcomeUnavailable(
-                    "current Pi session closeout outcome remained unavailable after bounded wait"
-                ) from None
-            sleep(min(backoff, remaining))
-            backoff = min(backoff * 2, CLOSEOUT_OUTCOME_MAX_BACKOFF_SECONDS)
-
-
-def session_work_item(client: Any, session_id: str) -> str | None:
-    if not session_id or len(session_id) > 200:
-        raise ValueError("current Pi session is unavailable")
-    correlation = _score_work_correlation(
-        session_id,
-        _session_score_rows(
-            client,
-            session_id,
-            WORK_LINK_SCORE,
-            _work_link_score_id(session_id),
-        ),
-    )
-    bead_id = correlation.get("beadId") if correlation.get("status") == "linked" else None
-    return bead_id if isinstance(bead_id, str) and BEAD_ID.fullmatch(bead_id) else None
-
-
-def current_session_work_item(session_id: str) -> str | None:
-    return session_work_item(_client_from_env(), session_id)
-
-
-def current_session_handoff_source(session_id: str) -> dict[str, str]:
-    client = _client_from_env()
-    try:
-        return session_handoff_source(client, session_id)
-    except SessionUnassigned:
-        sleep(CLOSEOUT_OUTCOME_INITIAL_BACKOFF_SECONDS)
-        return session_handoff_source(client, session_id)
-
-
-def current_session_closeout_source(session_id: str) -> dict[str, str]:
-    return closeout_handoff_source(_client_from_env(), session_id)
-
-
-def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: Any) -> dict[str, Any]:
-    if not session_id or len(session_id) > 200:
-        raise ValueError("current Pi session is unavailable")
-    if not BEAD_ID.fullmatch(bead_id):
-        raise ValueError("bead ID is malformed")
-    code, _data, _error = beads_runner(["show", bead_id])
-    if code != 0:
-        raise ValueError("could not load work item")
-    _assert_session_work_item(client, session_id, bead_id)
+def _project_session_link(client: Any, *, session_id: str, bead_id: str) -> None:
     client.put_session_score(
         score_id=_work_link_score_id(session_id),
         session_id=session_id,
@@ -1416,20 +1282,16 @@ def link_session(client: Any, *, session_id: str, bead_id: str, beads_runner: An
         data_type="CATEGORICAL",
         metadata={"schemaVersion": 1, "beadId": bead_id},
     )
-    return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
 
 
-def record_session_outcome(
+def _project_session_outcome(
     client: Any,
     *,
     session_id: str,
     bead_id: str,
     outcome: str,
-    beads_runner: Any,
-) -> dict[str, Any]:
-    if outcome not in TASK_OUTCOMES:
-        raise ValueError("task outcome is unsupported")
-    link_session(client, session_id=session_id, bead_id=bead_id, beads_runner=beads_runner)
+) -> None:
+    _project_session_link(client, session_id=session_id, bead_id=bead_id)
     client.put_session_score(
         score_id=_outcome_score_id(session_id),
         session_id=session_id,
@@ -1438,7 +1300,14 @@ def record_session_outcome(
         data_type="CATEGORICAL",
         metadata={"schemaVersion": 1, "beadId": bead_id},
     )
-    return {"schemaVersion": 1, "status": "recorded", "beadId": bead_id, "outcome": outcome}
+
+
+def _best_effort_projection(summary: dict[str, Any], project: Any) -> dict[str, Any]:
+    try:
+        project(_client_from_env())
+    except Exception:
+        return {**summary, "evidenceGaps": ["langfuse-projection-unavailable"]}
+    return summary
 
 
 def _write_private_json(output_dir: Path, filename: str, value: dict[str, Any]) -> Path:
@@ -2717,33 +2586,50 @@ def _beads(args: list[str]) -> tuple[int, Any, str]:
     return run_beads_json(args)
 
 
-def current_session_id() -> str:
-    session_id = os.environ.get("PI_SESSION_ID")
-    if session_id:
-        return session_id
-    session_file = os.environ.get("PI_SESSION_FILE")
-    if not session_file:
-        raise ValueError("current Pi session is unavailable")
-    return Path(session_file).stem
-
-
 def link_current_session(bead_id: str) -> dict[str, Any]:
-    return link_session(
-        _client_from_env(),
-        session_id=current_session_id(),
-        bead_id=bead_id,
+    session_id = current_session_id()
+    summary = capture_session_link(
+        session_id,
+        bead_id,
         beads_runner=_beads,
+    )
+    return _best_effort_projection(
+        summary,
+        lambda client: _project_session_link(client, session_id=session_id, bead_id=bead_id),
+    )
+
+
+def _record_current_session_outcome(
+    bead_id: str,
+    outcome: str,
+    *,
+    require_link: bool,
+) -> dict[str, Any]:
+    session_id = current_session_id()
+    summary = capture_session_outcome(
+        session_id,
+        bead_id,
+        outcome,
+        beads_runner=_beads,
+        require_link=require_link,
+    )
+    return _best_effort_projection(
+        summary,
+        lambda client: _project_session_outcome(
+            client,
+            session_id=session_id,
+            bead_id=bead_id,
+            outcome=outcome,
+        ),
     )
 
 
 def record_current_session_outcome(bead_id: str, outcome: str) -> dict[str, Any]:
-    return record_session_outcome(
-        _client_from_env(),
-        session_id=current_session_id(),
-        bead_id=bead_id,
-        outcome=outcome,
-        beads_runner=_beads,
-    )
+    return _record_current_session_outcome(bead_id, outcome, require_link=False)
+
+
+def record_current_session_closeout(bead_id: str, outcome: str) -> dict[str, Any]:
+    return _record_current_session_outcome(bead_id, outcome, require_link=True)
 
 
 def _load_private_object(path: Path, repository_root: Path) -> dict[str, Any]:
@@ -2837,13 +2723,7 @@ def cmd_improve(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.action == "outcome":
         try:
-            summary = record_session_outcome(
-                _client_from_env(),
-                session_id=current_session_id(),
-                bead_id=args.bead,
-                outcome=args.outcome,
-                beads_runner=_beads,
-            )
+            summary = record_current_session_outcome(args.bead, args.outcome)
         except SessionWorkItemConflict:
             return _report_session_work_item_conflict(target_bead=args.bead, json_output=args.json)
         except (LangfuseError, OSError, ValueError):

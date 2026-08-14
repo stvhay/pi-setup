@@ -21,6 +21,16 @@ def test_improve_command_is_advertised_and_dispatched(agnt, monkeypatch, capsys)
     assert seen == [["scan", "--dry-run"]]
 
 
+def test_quality_command_is_capture_only_and_dispatched(agnt, monkeypatch, capsys):
+    assert agnt.main(["--help"]) == 0
+    assert "quality" in capsys.readouterr().out
+
+    seen = []
+    monkeypatch.setattr(agnt, "cmd_quality", lambda args: seen.append(args) or 7)
+    assert agnt.main(["quality", "capture", "--json"]) == 7
+    assert seen == [["capture", "--json"]]
+
+
 def test_route_eval_omits_unused_output_directory():
     from agnt_lib import evals
 

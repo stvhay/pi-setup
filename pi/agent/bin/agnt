@@ -34,6 +34,7 @@ from agnt_lib.maintenance import *  # noqa: E402,F401,F403
 from agnt_lib.context_health import *  # noqa: E402,F401,F403
 from agnt_lib.doctor import *  # noqa: E402,F401,F403
 from agnt_lib.langfuse import *  # noqa: E402,F401,F403
+from agnt_lib.quality import *  # noqa: E402,F401,F403
 from agnt_lib.improvement import *  # noqa: E402,F401,F403
 
 def cmd_instructions(argv: List[str]) -> int:
@@ -72,6 +73,7 @@ def main(argv: List[str]) -> int:
         "doctor": ("check local Pi/agnt operational readiness", cmd_doctor),
         "langfuse": ("check or apply tracked evaluator configuration", cmd_langfuse),
         "improve": ("scan and review private improvement telemetry", cmd_improve),
+        "quality": ("capture private quality facts", cmd_quality),
         "graphify": ("run graphify knowledge-graph tooling", cmd_graphify),
         "plans-dir": ("print/create the active plans directory", cmd_plans_dir),
     }

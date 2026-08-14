@@ -23,6 +23,7 @@ the metrics justify changing:
 ```text
 metrics -> annotate -> consolidate -> route hints/demotion
                               -> policy edit -> eval -> commit
+direct lifecycle -> local quality ledger -> best-effort Langfuse projection
 Langfuse sessions -> private scan -> human review -> private marker
                   -> sanitized Bead -> implementation -> matched monitoring
 Beads/git/runs/health signals -> maintenance due -> checkpoint bead -> closeout
@@ -55,10 +56,13 @@ or filesystem paths. Requested status-only and PASS/no-findings responses are
 judged against that contract; missing required inline/artifact output remains
 visible as poor quality independently of objective execution outcome.
 
-The Langfuse extension records private interactive telemetry. Evaluator-ready
+The local private quality ledger owns direct session/Bead links and explicit
+outcomes. Matching Langfuse scores are best-effort evidence: projection gaps are
+reported but cannot block direct start, status, or closeout. Evaluator-ready
 result projections share the Pi session ID, allowing sampled outcome scores to
-join the root agent trace without heuristic matching. `agnt improve` reads
-bounded cohorts and writes private packets under `~/.pi/improvement/`.
+join the root agent trace without heuristic matching when Langfuse is available.
+`agnt improve` reads bounded Langfuse cohorts and writes private packets under
+`~/.pi/improvement/`; it does not become direct-work authority.
 Runner sessions correlate from run bundles; interactive work links through
 `agnt work direct-start`. Successful closeout uses
 `agnt work direct-closeout <bead> --outcome success --reason <reason>`; use
@@ -74,12 +78,13 @@ and sends bounded Bead references plus `bd prime`, `bd ready`, and claiming
 source transcript is not copied. `/new` remains human fallback when automated
 handoff is unavailable.
 Quitting and resuming may retain same session. Link and outcome
-commands fail closed rather than overwrite conflicting canonical ownership.
-Direct closeout reuses outcome recording for explicit success and reads it back
-before Git or Beads work. Outcome recording idempotently backfills the same-Bead
-link and records an explicit final outcome, which overrides sampled evaluator
-guesses only when its Bead metadata matches correlation. Private evidence stays
-outside git and committed Beads.
+commands fail closed rather than overwrite conflicting local ownership or
+malformed ledger state. Direct closeout appends explicit success locally and
+reads it back before Git or Beads work. Outcome recording idempotently backfills
+the same-Bead link; best-effort Langfuse projection overrides sampled evaluator
+guesses only when its Bead metadata matches correlation. The ledger stores only
+bounded structural rows—never prompts, responses, secrets, absolute paths, or
+public Bead descriptions—and stays outside git and committed Beads.
 
 ### 2. Annotate (the human/orchestrator signal)
 
@@ -150,14 +155,15 @@ agnt improve promote <report> <decisions> --finding <id>          # preview
 agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bead
 ```
 
-`link` writes an idempotent private session score containing only the public
-work-item ID after bounded reads prove existing canonical link/outcome ownership
-is absent or belongs to the same Bead. Direct closeout calls the same outcome
-logic with literal `success`, then reads back that same-Bead value before any Git
-or Beads closeout work. `outcome` remains available for non-success and
-manual/repair recording. Both paths add one idempotent categorical session score. Conflicts expose only
-`handoff_bead` recovery plus the `/new` human fallback, not prior owner or session
-IDs. Scans keep objective
+`link` appends an idempotent local `invocation` row containing only bounded
+session/work-item identity and safe evidence refs after validating existing local
+ownership. Direct closeout appends a local `result` with literal `success`, then
+reads back that same-session/same-Bead value before any Git or Beads closeout
+work. `outcome` remains available for non-success and manual/repair recording.
+Both paths project matching categorical Langfuse scores best effort; projection
+failure is an explicit evidence gap, not an authority failure. Conflicts expose
+only `handoff_bead` recovery plus the `/new` human fallback, not prior owner or
+session IDs. Scans keep objective
 `executionOutcome`, sampled `apparentOutcome`, and explicit human outcome distinct.
 An explicit human outcome is authoritative only when its Bead metadata matches the
 session correlation; historical mismatches are ignored as outcomes and counted as

@@ -1227,6 +1227,121 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
     assert not (tmp_path / "runs").exists()
 
 
+def test_direct_start_and_status_use_local_authority_without_langfuse(
+    agnt, monkeypatch, tmp_path
+):
+    direct_start = agnt.direct_start
+    improvement = sys.modules["agnt_lib.improvement"]
+    quality = sys.modules["agnt_lib.quality"]
+    bead = {
+        "id": "pi-test.local",
+        "title": "Local authority",
+        "status": "in_progress",
+        "priority": 1,
+        "issue_type": "task",
+    }
+
+    def unavailable():
+        raise improvement.LangfuseError("service unavailable")
+
+    def fake_beads(args):
+        if args == ["show", bead["id"]]:
+            return 0, [bead], ""
+        if args == ["list", "--status", "in_progress"]:
+            return 0, [bead], ""
+        pytest.fail(f"unexpected Beads call: {args}")
+
+    monkeypatch.setattr(
+        quality, "resolve_runtime_directory", lambda kind: tmp_path / "quality"
+    )
+    monkeypatch.setenv("PI_SESSION_ID", "session-local")
+    monkeypatch.setattr(improvement, "_client_from_env", unavailable)
+    with patch.dict(direct_start.__globals__, {"run_beads_json": fake_beads}):
+        started = direct_start(bead["id"], claim=False)
+        status = agnt.work_status("session-local")
+
+    assert started["status"] == "started"
+    assert started["stages"]["link"] == {
+        "status": "succeeded",
+        "evidenceGaps": ["langfuse-projection-unavailable"],
+    }
+    assert status["activeBeadId"] == bead["id"]
+
+
+def test_direct_closeout_reads_local_success_without_langfuse(
+    agnt, monkeypatch, tmp_path
+):
+    direct_start = agnt.direct_start
+    direct_closeout = agnt.direct_closeout
+    improvement = sys.modules["agnt_lib.improvement"]
+    quality = sys.modules["agnt_lib.quality"]
+    bead = {"id": "pi-test.close-local", "status": "in_progress"}
+
+    def unavailable():
+        raise improvement.LangfuseError("service unavailable")
+
+    def fake_beads(args):
+        if args == ["show", bead["id"]]:
+            return 0, [bead], ""
+        pytest.fail(f"unexpected Beads call: {args}")
+
+    monkeypatch.setattr(
+        quality, "resolve_runtime_directory", lambda kind: tmp_path / "quality"
+    )
+    monkeypatch.setenv("PI_SESSION_ID", "session-close-local")
+    monkeypatch.setattr(improvement, "_client_from_env", unavailable)
+    with patch.dict(direct_start.__globals__, {"run_beads_json": fake_beads}):
+        assert direct_start(bead["id"], claim=False)["status"] == "started"
+        with patch.dict(direct_closeout.__globals__, {
+            "_git": lambda _root, args: subprocess.CompletedProcess(args, 1, "", "unavailable"),
+        }):
+            result = direct_closeout(bead["id"], outcome="success", reason="Done.")
+
+    assert result["status"] == "error"
+    assert result["stages"]["outcome"] == {
+        "status": "succeeded",
+        "outcome": "success",
+        "evidenceGaps": ["langfuse-projection-unavailable"],
+    }
+    assert result["stages"]["ownership"] == {"status": "succeeded", "outcome": "success"}
+    assert result["stages"]["preflight"]["error"] == "Git repository is unavailable"
+
+
+def test_direct_closeout_rejects_missing_local_session_link(agnt, monkeypatch, tmp_path):
+    direct_closeout = agnt.direct_closeout
+    improvement = sys.modules["agnt_lib.improvement"]
+    quality = sys.modules["agnt_lib.quality"]
+    bead = {"id": "pi-test.unlinked", "status": "in_progress"}
+
+    monkeypatch.setattr(
+        quality, "resolve_runtime_directory", lambda kind: tmp_path / "quality"
+    )
+    monkeypatch.setenv("PI_SESSION_ID", "session-unlinked")
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: pytest.fail("missing local authority must block projection"),
+    )
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "run_beads_json": lambda args: (0, [bead], "")
+            if args == ["show", bead["id"]]
+            else pytest.fail(f"unexpected Beads call: {args}"),
+            "_git": lambda *_args: pytest.fail(
+                "missing local authority must block Git inspection"
+            ),
+        },
+    ):
+        result = direct_closeout(bead["id"], outcome="success", reason="Done.")
+
+    assert result["status"] == "error"
+    assert result["stages"]["outcome"] == {
+        "status": "failed",
+        "error": "current session has no linked work item",
+    }
+
+
 def test_work_status_projects_canonical_items_by_priority_and_id_without_creation_time(agnt):
     beads = [
         {"id": "pi-z.1", "title": "Later ID", "status": "in_progress", "priority": 2, "issue_type": "task"},
@@ -1339,24 +1454,18 @@ def test_work_status_rejects_unknown_issue_type(agnt):
             agnt.work_status("session-1")
 
 
-def test_work_status_empty_state_skips_session_correlation(agnt):
+def test_work_status_empty_state_still_validates_local_authority(agnt):
     with patch.dict(
         agnt.work_status.__globals__,
         {
             "run_beads_json": lambda _args: (0, [], ""),
-            "current_session_work_item": lambda _session_id: pytest.fail(
-                "empty state must not query session correlation"
+            "current_session_work_item": lambda _session_id: (_ for _ in ()).throw(
+                ValueError("malformed local ledger")
             ),
         },
     ):
-        result = agnt.work_status("session-1")
-
-    assert result == {
-        "schemaVersion": 1,
-        "status": "ok",
-        "activeBeadId": None,
-        "items": [],
-    }
+        with pytest.raises(ValueError, match="malformed local ledger"):
+            agnt.work_status("session-1")
 
 
 def test_work_status_cli_bounds_query_failures(agnt, capsys):
@@ -1606,17 +1715,27 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
         "FAKE_EXPORT",
         "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in exported),
     )
+    improvement = sys.modules["agnt_lib.improvement"]
+    quality = sys.modules["agnt_lib.quality"]
+    monkeypatch.setattr(
+        quality,
+        "resolve_runtime_directory",
+        lambda kind: tmp_path.parent / f"{tmp_path.name}-quality",
+    )
+    monkeypatch.setenv("PI_SESSION_ID", "session-closeout")
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: (_ for _ in ()).throw(improvement.LangfuseError("unavailable")),
+    )
+    quality.capture_session_link(
+        "session-closeout", target["id"], beads_runner=fake_beads
+    )
     monkeypatch.chdir(tmp_path)
     with patch.dict(
         direct_closeout.__globals__,
         {
             "beads_bin": lambda: str(exporter),
-            "record_current_session_outcome": lambda _bead_id, _outcome: None,
-            "current_session_id": lambda: "session-closeout",
-            "current_session_closeout_source": lambda _session_id: {
-                "beadId": target["id"],
-                "outcome": "success",
-            },
             "run_beads_json": fake_beads,
         },
     ):
@@ -1628,6 +1747,10 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
         )
 
     assert result["status"] == retry["status"] == "closed"
+    assert result["stages"]["outcome"]["evidenceGaps"] == [
+        "langfuse-projection-unavailable"
+    ]
+    assert result["stages"]["ownership"] == {"status": "succeeded", "outcome": "success"}
     assert retry["commit"] is None
     assert result["commit"] == subprocess.run(
         ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
@@ -1636,7 +1759,10 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
     assert rows[target["id"]]["status"] == "closed"
     assert rows[shared["id"]]["notes"] == "new legitimate shared state"
     assert calls == [
+        ["show", target["id"]],
+        ["show", target["id"]],
         ["close", target["id"], "--reason", "Verified and complete."],
+        ["show", target["id"]],
         ["show", target["id"]],
         ["close", target["id"], "--reason", "Verified and complete."],
         ["show", target["id"]],
@@ -1666,9 +1792,7 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
 
 def test_direct_closeout_reports_exhausted_visibility_wait(agnt):
     direct_closeout = agnt.direct_closeout
-    outcome_unavailable = sys.modules[
-        "agnt_lib.improvement"
-    ].SessionOutcomeUnavailable
+    outcome_unavailable = agnt.SessionOutcomeUnavailable
     calls = []
 
     def unavailable(session_id):

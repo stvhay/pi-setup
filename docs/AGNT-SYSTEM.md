@@ -63,10 +63,10 @@ The tracked subagent observer records compatible payload-free metrics and persis
 For direct coding:
 
 1. Run `bd prime` and inspect ready work.
-2. Confirm or create a Bead, then link the current session with `agnt work direct-start`.
+2. Confirm or create a Bead, then link the current session with `agnt work direct-start`. Session/Bead authority is an append-only private local quality ledger; matching Langfuse scores are best-effort evidence only.
 3. Inspect, edit, and verify in Pi.
 4. Commit task-owned changes.
-5. Run `agnt work direct-closeout <id> --outcome success --reason "<reason>"` to record and verify explicit success, close the Bead, export and verify `.beads/issues.jsonl`, and create its separate portable-state commit. Use `agnt improve outcome` separately for non-success or manual/repair recording.
+5. Run `agnt work direct-closeout <id> --outcome success --reason "<reason>"` to append and read back local explicit success, close the Bead, export and verify `.beads/issues.jsonl`, and create its separate portable-state commit. Langfuse unavailability does not block this path. Use `agnt improve outcome` separately for non-success or manual/repair recording.
 6. Hand off ready follow-up work in a fresh session when needed.
 
 For optional orchestration, action templates may create private run bundles containing invocation metadata, result evidence, artifacts, and metric references. `agnt runs invoke` and `agnt work run` execute those bundles through the internal headless worker. See [Run Artifacts](RUN-ARTIFACTS.md).
