@@ -160,9 +160,6 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Without `BEAD`, it selects sole ready non-epic work or returns bounded choices. Every explicit or selected target must exist in `bd ready` before fresh-session staging or process replacement.
   - Returns bounded JSON containing closed or unassigned source state, target Bead ID or ready choices, status, and any linked outcome; it does not copy transcript content, stage session, or replace process itself.
 
-- `agnt work next --json`
-  - Reads Beads ready work and selects the first non-epic ready bead when available.
-
 - `agnt work plan [BEAD_ID] --action ACTION --target REF --dry-run`
   - Builds a dry-run dispatch plan from a bead plus action template. It does not invoke a model or mutate Beads.
 

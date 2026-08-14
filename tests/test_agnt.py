@@ -2754,15 +2754,23 @@ def test_finish_work_updates_result_and_closes_bead(agnt, tmp_path):
     assert calls == [["close", "pi-test.4", "--reason", "Verified and complete."]]
 
 
-def test_cmd_work_next_selects_ready_non_epic(agnt, capsys):
+def test_cmd_work_next_is_not_registered(agnt):
+    with pytest.raises(SystemExit) as exc:
+        agnt.cmd_work(["next"])
+
+    assert exc.value.code == 2
+
+
+def test_get_bead_without_id_selects_ready_non_epic(agnt):
     ready = [
         {"id": "pi-epic", "issue_type": "epic", "title": "Epic"},
         {"id": "pi-task", "issue_type": "task", "title": "Task"},
     ]
-    with patch.dict(agnt.cmd_work.__globals__, {"run_beads_json": lambda _args: (0, ready, "")}):
-        assert agnt.cmd_work(["next", "--json"]) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert out["item"]["id"] == "pi-task"
+    with patch.dict(agnt.get_bead.__globals__, {"run_beads_json": lambda _args: (0, ready, "")}):
+        code, bead, error = agnt.get_bead(None)
+
+    assert (code, error) == (0, "")
+    assert bead["id"] == "pi-task"
 
 
 def test_work_tree_for_epic_includes_children_validation_and_blockers(agnt, tmp_path):

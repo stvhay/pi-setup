@@ -1248,8 +1248,6 @@ def cmd_work(argv: List[str]) -> int:
     handoff_check_cmd = sub.add_parser("handoff-check", help="validate closeout and select ready work before fresh-session handoff")
     handoff_check_cmd.add_argument("bead_id", nargs="?")
     handoff_check_cmd.add_argument("--session-id", required=True)
-    next_cmd = sub.add_parser("next", help="show the next ready bead")
-    next_cmd.add_argument("--json", action="store_true")
     plan = sub.add_parser("plan", help="construct a dry-run dispatch plan for a bead")
     plan.add_argument("bead_id", nargs="?", help="bead id; defaults to first ready non-epic bead")
     plan.add_argument("--action")
@@ -1357,15 +1355,6 @@ def cmd_work(argv: List[str]) -> int:
         result = handoff_check(args.bead_id, session_id=args.session_id)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] in {"ready", "selection-required"} else 2
-    if args.command == "next":
-        code, data, err = run_beads_json(["ready"])
-        if code != 0:
-            print(err, file=sys.stderr)
-            return code
-        item = select_next_ready(data)
-        result = {"schemaVersion": 1, "item": item}
-        print(json.dumps(result, indent=2, sort_keys=True) if args.json else (json.dumps(item, indent=2, sort_keys=True) if item else "No ready work"))
-        return 0
     if args.command == "plan":
         if not args.dry_run:
             print("agnt work plan is dry-run only; pass --dry-run", file=sys.stderr)
