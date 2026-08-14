@@ -27,6 +27,7 @@ from .improvement import (
     current_session_id,
     current_session_work_item,
     link_current_session,
+    record_current_session_outcome,
 )
 from .maintenance import maintenance_create_beads, maintenance_due_report
 from .integration import integrate_local_commit
@@ -1076,7 +1077,7 @@ def _portable_issue_rows(path: Path) -> Dict[str, Dict[str, Any]]:
     return rows
 
 
-def direct_closeout(bead_id: str, *, reason: str) -> Dict[str, Any]:
+def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any]:
     stages: Dict[str, Any] = {}
     closed = False
 
@@ -1095,6 +1096,16 @@ def direct_closeout(bead_id: str, *, reason: str) -> Dict[str, Any]:
         return failed("preflight", "bead ID is malformed")
     if not reason.strip():
         return failed("preflight", "close reason is required")
+    if outcome != "success":
+        return failed("outcome", "direct closeout outcome must be success")
+
+    try:
+        record_current_session_outcome(bead_id, outcome)
+    except SessionWorkItemConflict:
+        return failed("outcome", "session belongs to another work item")
+    except (OSError, RuntimeError, ValueError):
+        return failed("outcome", "session closeout outcome recording failed")
+    stages["outcome"] = {"status": "succeeded", "outcome": outcome}
 
     try:
         source = current_session_closeout_source(current_session_id())
@@ -1111,6 +1122,8 @@ def direct_closeout(bead_id: str, *, reason: str) -> Dict[str, Any]:
         return failed("ownership", "session closeout outcome was rejected")
     if source["beadId"] != bead_id:
         return failed("ownership", "session belongs to another work item")
+    if source["outcome"] != outcome:
+        return failed("ownership", "session closeout outcome is not successful")
     stages["ownership"] = {"status": "succeeded", "outcome": source["outcome"]}
 
     root_result = _git(Path.cwd(), ["rev-parse", "--show-toplevel"])
@@ -1239,6 +1252,7 @@ def cmd_work(argv: List[str]) -> int:
     status_cmd.add_argument("--session-id", required=True)
     direct_closeout_cmd = sub.add_parser("direct-closeout", help="close a directly worked bead and commit its portable state")
     direct_closeout_cmd.add_argument("bead_id")
+    direct_closeout_cmd.add_argument("--outcome", required=True, choices=["success"])
     direct_closeout_cmd.add_argument("--reason", required=True)
     integrate_cmd = sub.add_parser("integrate", help="serialize and verify one preapproved local merge")
     integrate_cmd.add_argument("--target-branch", required=True)
@@ -1333,7 +1347,7 @@ def cmd_work(argv: List[str]) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "ok" else 2
     if args.command == "direct-closeout":
-        result = direct_closeout(args.bead_id, reason=args.reason)
+        result = direct_closeout(args.bead_id, outcome=args.outcome, reason=args.reason)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "closed" else 3 if result["status"] == "partial" else 2
     if args.command == "integrate":

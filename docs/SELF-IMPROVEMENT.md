@@ -59,10 +59,12 @@ The Langfuse extension records private interactive telemetry. Evaluator-ready
 result projections share the Pi session ID, allowing sampled outcome scores to
 join the root agent trace without heuristic matching. `agnt improve` reads
 bounded cohorts and writes private packets under `~/.pi/improvement/`.
-Runner sessions correlate from run bundles; interactive work must call
-`agnt improve link <bead>` after claim and `agnt improve outcome <bead> <outcome>`
-at closeout. One logical Pi session belongs to one Bead. After current Bead
-successful closeout, agents call `handoff_bead` without a target. A persisted TUI
+Runner sessions correlate from run bundles; interactive work links through
+`agnt work direct-start`. Successful closeout uses
+`agnt work direct-closeout <bead> --outcome success --reason <reason>`; use
+`agnt improve outcome <bead> <partial|failure|unclear>` separately for non-success
+or manual/repair recording. One logical Pi session belongs to one Bead. After
+current Bead successful closeout, agents call `handoff_bead` without a target. A persisted TUI
 session with zero ownership records may hand off directly; linked sessions retain
 successful-outcome and clean-closeout requirements. Tool continues sole ready
 non-epic work automatically or asks once when several choices exist, then revalidates
@@ -72,8 +74,9 @@ and sends bounded Bead references plus `bd prime`, `bd ready`, and claiming
 source transcript is not copied. `/new` remains human fallback when automated
 handoff is unavailable.
 Quitting and resuming may retain same session. Link and outcome
-commands fail closed rather than overwrite conflicting canonical ownership. The
-outcome command idempotently backfills the same-Bead
+commands fail closed rather than overwrite conflicting canonical ownership.
+Direct closeout reuses outcome recording for explicit success and reads it back
+before Git or Beads work. Outcome recording idempotently backfills the same-Bead
 link and records an explicit final outcome, which overrides sampled evaluator
 guesses only when its Bead metadata matches correlation. Private evidence stays
 outside git and committed Beads.
@@ -136,8 +139,9 @@ commit with the evidence summarized in the message
 ### 5. Private review and safe promotion
 
 ```bash
-agnt improve link <bead>                                  # claim-time correlation
-agnt improve outcome <bead> <success|partial|failure|unclear> # closeout correlation + outcome
+agnt improve link <bead>                                  # manual/repair correlation
+agnt work direct-closeout <bead> --outcome success --reason <reason>
+agnt improve outcome <bead> <success|partial|failure|unclear> # non-success/manual/repair outcome
 agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --dry-run --json
 agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --json
 agnt improve review <report> <decisions>          # preview
@@ -148,8 +152,10 @@ agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bea
 
 `link` writes an idempotent private session score containing only the public
 work-item ID after bounded reads prove existing canonical link/outcome ownership
-is absent or belongs to the same Bead. `outcome` refreshes that same-Bead link and
-adds one idempotent categorical session score. Conflicts expose only
+is absent or belongs to the same Bead. Direct closeout calls the same outcome
+logic with literal `success`, then reads back that same-Bead value before any Git
+or Beads closeout work. `outcome` remains available for non-success and
+manual/repair recording. Both paths add one idempotent categorical session score. Conflicts expose only
 `handoff_bead` recovery plus the `/new` human fallback, not prior owner or session
 IDs. Scans keep objective
 `executionOutcome`, sampled `apparentOutcome`, and explicit human outcome distinct.

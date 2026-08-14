@@ -1385,6 +1385,169 @@ def test_direct_start_exists_only_under_work_namespace(agnt, capsys):
     assert "direct-start" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    "outcome_args",
+    [[], ["--outcome", "partial"], ["--outcome", "failure"], ["--outcome", "unclear"]],
+    ids=("missing", "partial", "failure", "unclear"),
+)
+def test_direct_closeout_cli_requires_explicit_success(agnt, outcome_args):
+    with patch.dict(
+        agnt.cmd_work.__globals__,
+        {"direct_closeout": lambda *_args, **_kwargs: pytest.fail(
+            "invalid outcome must fail before direct closeout"
+        )},
+    ):
+        with pytest.raises(SystemExit) as exc:
+            agnt.cmd_work([
+                "direct-closeout",
+                "pi-test.close",
+                "--reason",
+                "Done.",
+                *outcome_args,
+            ])
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("outcome", ["partial", "failure", "unclear"])
+def test_direct_closeout_domain_rejects_non_success_before_mutation(agnt, outcome):
+    direct_closeout = agnt.direct_closeout
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "record_current_session_outcome": lambda *_args: pytest.fail(
+                "non-success outcome must fail before recording"
+            ),
+            "current_session_closeout_source": lambda *_args: pytest.fail(
+                "non-success outcome must fail before ownership readback"
+            ),
+            "_git": lambda *_args: pytest.fail(
+                "non-success outcome must fail before Git inspection"
+            ),
+            "run_beads_json": lambda *_args: pytest.fail(
+                "non-success outcome must fail before Beads mutation"
+            ),
+        },
+    ):
+        result = direct_closeout(
+            "pi-test.close", outcome=outcome, reason="Done."
+        )
+
+    assert result["status"] == "error"
+    assert result["stages"]["outcome"] == {
+        "status": "failed",
+        "error": "direct closeout outcome must be success",
+    }
+
+
+def test_direct_closeout_records_success_before_readback_and_preflight(agnt):
+    direct_closeout = agnt.direct_closeout
+    events = []
+
+    def record(bead_id, outcome):
+        events.append(("record", bead_id, outcome))
+
+    def readback(session_id):
+        events.append(("readback", session_id))
+        return {"beadId": "pi-test.close", "outcome": "success"}
+
+    def git(_root, args):
+        events.append(("git", args[0]))
+        return subprocess.CompletedProcess(args, 1, "", "unavailable")
+
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "record_current_session_outcome": record,
+            "current_session_id": lambda: "session-closeout",
+            "current_session_closeout_source": readback,
+            "_git": git,
+            "run_beads_json": lambda *_args: pytest.fail(
+                "failed Git preflight must block Beads mutation"
+            ),
+        },
+    ):
+        result = direct_closeout(
+            "pi-test.close", outcome="success", reason="Done."
+        )
+
+    assert result["status"] == "error"
+    assert events == [
+        ("record", "pi-test.close", "success"),
+        ("readback", "session-closeout"),
+        ("git", "rev-parse"),
+    ]
+
+
+def test_direct_closeout_outcome_write_failure_stops_before_readback(agnt):
+    direct_closeout = agnt.direct_closeout
+
+    def fail_record(_bead_id, _outcome):
+        raise RuntimeError("private transport detail")
+
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "record_current_session_outcome": fail_record,
+            "current_session_closeout_source": lambda *_args: pytest.fail(
+                "failed outcome write must block ownership readback"
+            ),
+            "_git": lambda *_args: pytest.fail(
+                "failed outcome write must block Git inspection"
+            ),
+            "run_beads_json": lambda *_args: pytest.fail(
+                "failed outcome write must block Beads mutation"
+            ),
+        },
+    ):
+        result = direct_closeout(
+            "pi-test.close", outcome="success", reason="Done."
+        )
+
+    assert result["status"] == "error"
+    assert result["stages"]["outcome"] == {
+        "status": "failed",
+        "error": "session closeout outcome recording failed",
+    }
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_error"),
+    [
+        ({"beadId": "pi-other.close", "outcome": "success"}, "session belongs to another work item"),
+        ({"beadId": "pi-test.close", "outcome": "partial"}, "session closeout outcome is not successful"),
+    ],
+    ids=("wrong-bead", "non-success"),
+)
+def test_direct_closeout_requires_matching_success_readback(
+    agnt, source, expected_error
+):
+    direct_closeout = agnt.direct_closeout
+    with patch.dict(
+        direct_closeout.__globals__,
+        {
+            "record_current_session_outcome": lambda _bead_id, _outcome: None,
+            "current_session_id": lambda: "session-closeout",
+            "current_session_closeout_source": lambda _session_id: source,
+            "_git": lambda *_args: pytest.fail(
+                "mismatched readback must block Git inspection"
+            ),
+            "run_beads_json": lambda *_args: pytest.fail(
+                "mismatched readback must block Beads mutation"
+            ),
+        },
+    ):
+        result = direct_closeout(
+            "pi-test.close", outcome="success", reason="Done."
+        )
+
+    assert result["status"] == "error"
+    assert result["stages"]["ownership"] == {
+        "status": "failed",
+        "error": expected_error,
+    }
+
+
 def test_direct_closeout_exports_parity_and_commits_shared_beads_only(
     agnt, monkeypatch, tmp_path
 ):
@@ -1448,6 +1611,7 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
         direct_closeout.__globals__,
         {
             "beads_bin": lambda: str(exporter),
+            "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "current_session_closeout_source": lambda _session_id: {
                 "beadId": target["id"],
@@ -1456,8 +1620,12 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
             "run_beads_json": fake_beads,
         },
     ):
-        result = direct_closeout(target["id"], reason="Verified and complete.")
-        retry = direct_closeout(target["id"], reason="Verified and complete.")
+        result = direct_closeout(
+            target["id"], outcome="success", reason="Verified and complete."
+        )
+        retry = direct_closeout(
+            target["id"], outcome="success", reason="Verified and complete."
+        )
 
     assert result["status"] == retry["status"] == "closed"
     assert retry["commit"] is None
@@ -1510,6 +1678,7 @@ def test_direct_closeout_reports_exhausted_visibility_wait(agnt):
     with patch.dict(
         direct_closeout.__globals__,
         {
+            "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "current_session_closeout_source": unavailable,
             "_git": lambda *_args: pytest.fail(
@@ -1517,7 +1686,9 @@ def test_direct_closeout_reports_exhausted_visibility_wait(agnt):
             ),
         },
     ):
-        result = direct_closeout("pi-test.close", reason="Done.")
+        result = direct_closeout(
+            "pi-test.close", outcome="success", reason="Done."
+        )
 
     assert result["status"] == "error"
     assert result["stages"]["ownership"] == {
@@ -1557,6 +1728,7 @@ def test_direct_closeout_blocks_non_visibility_ownership_failures(
     with patch.dict(
         direct_closeout.__globals__,
         {
+            "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "current_session_closeout_source": fail,
             "_git": lambda *_args: pytest.fail(
@@ -1564,7 +1736,9 @@ def test_direct_closeout_blocks_non_visibility_ownership_failures(
             ),
         },
     ):
-        result = direct_closeout("pi-test.close", reason="Done.")
+        result = direct_closeout(
+            "pi-test.close", outcome="success", reason="Done."
+        )
 
     assert result["status"] == "error"
     assert result["stages"]["ownership"] == {
@@ -1587,14 +1761,20 @@ def test_direct_closeout_cli_reports_partial_state(agnt, capsys):
     with patch.dict(
         agnt.cmd_work.__globals__,
         {
-            "direct_closeout": lambda bead_id, reason: partial
-            if (bead_id, reason) == ("pi-test.close", "Done.")
+            "direct_closeout": lambda bead_id, outcome, reason: partial
+            if (bead_id, outcome, reason) == ("pi-test.close", "success", "Done.")
             else pytest.fail("unexpected closeout arguments")
         },
     ):
-        assert agnt.main(
-            ["work", "direct-closeout", "pi-test.close", "--reason", "Done."]
-        ) == 3
+        assert agnt.main([
+            "work",
+            "direct-closeout",
+            "pi-test.close",
+            "--outcome",
+            "success",
+            "--reason",
+            "Done.",
+        ]) == 3
 
     assert json.loads(capsys.readouterr().out) == partial
 
@@ -1621,6 +1801,7 @@ def test_direct_closeout_rejects_tracked_non_beads_changes_before_mutation(
     with patch.dict(
         direct_closeout.__globals__,
         {
+            "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "current_session_closeout_source": lambda _session_id: {
                 "beadId": "pi-test.dirty",
@@ -1631,7 +1812,9 @@ def test_direct_closeout_rejects_tracked_non_beads_changes_before_mutation(
             ),
         },
     ):
-        result = direct_closeout("pi-test.dirty", reason="Done.")
+        result = direct_closeout(
+            "pi-test.dirty", outcome="success", reason="Done."
+        )
 
     assert result["status"] == "error"
     assert result["stages"]["preflight"] == {
@@ -1691,6 +1874,7 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(
         direct_closeout.__globals__,
         {
             "beads_bin": lambda: str(exporter),
+            "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "current_session_closeout_source": lambda _session_id: {
                 "beadId": "pi-test.parity",
@@ -1699,7 +1883,9 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(
             "run_beads_json": fake_beads,
         },
     ):
-        result = direct_closeout("pi-test.parity", reason="right")
+        result = direct_closeout(
+            "pi-test.parity", outcome="success", reason="right"
+        )
 
     assert result["status"] == "partial"
     assert result["stages"]["parity"]["status"] == "failed"

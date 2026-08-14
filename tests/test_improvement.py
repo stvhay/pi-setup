@@ -3962,6 +3962,41 @@ def test_session_handoff_source_rejects_invalid_outcome_without_visibility_retry
     assert not isinstance(caught.value, improvement.SessionOutcomeUnavailable)
 
 
+def test_record_current_session_outcome_delegates_existing_domain_logic(monkeypatch):
+    wrapper = getattr(improvement, "record_current_session_outcome", None)
+    assert wrapper is not None, "current-session outcome wrapper is missing"
+    client = object()
+    calls = []
+
+    monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
+    monkeypatch.setattr(improvement, "current_session_id", lambda: "session-current")
+    monkeypatch.setattr(improvement, "_beads", "beads-runner")
+
+    def record(client_arg, **kwargs):
+        calls.append((client_arg, kwargs))
+        return {
+            "schemaVersion": 1,
+            "status": "recorded",
+            "beadId": kwargs["bead_id"],
+            "outcome": kwargs["outcome"],
+        }
+
+    monkeypatch.setattr(improvement, "record_session_outcome", record)
+
+    assert wrapper("pi-current.1", "success") == {
+        "schemaVersion": 1,
+        "status": "recorded",
+        "beadId": "pi-current.1",
+        "outcome": "success",
+    }
+    assert calls == [(client, {
+        "session_id": "session-current",
+        "bead_id": "pi-current.1",
+        "outcome": "success",
+        "beads_runner": "beads-runner",
+    })]
+
+
 def test_closeout_handoff_source_waits_for_one_written_outcome(monkeypatch):
     session_id = "018cc251-f400-7000-8000-000000000000"
     client = FakeSessionOwnershipClient()

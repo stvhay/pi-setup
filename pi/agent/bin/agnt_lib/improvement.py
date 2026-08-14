@@ -2736,6 +2736,16 @@ def link_current_session(bead_id: str) -> dict[str, Any]:
     )
 
 
+def record_current_session_outcome(bead_id: str, outcome: str) -> dict[str, Any]:
+    return record_session_outcome(
+        _client_from_env(),
+        session_id=current_session_id(),
+        bead_id=bead_id,
+        outcome=outcome,
+        beads_runner=_beads,
+    )
+
+
 def _load_private_object(path: Path, repository_root: Path) -> dict[str, Any]:
     if _inside(path, repository_root):
         raise ValueError("improvement review files must be outside repository")
