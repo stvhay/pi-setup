@@ -19,13 +19,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .actions import assignment_action_contract
 from .langfuse import DEFAULT_MAX_TRACES, MAX_PAGE_SIZE, LangfuseError, _client_from_env
 from .metrics import git_root
 from .quality import (
     BEAD_ID,
     FINDING_CORE_FIELDS,
+    MAX_REVIEW_ASSIGNMENT_ITEMS,
     TASK_OUTCOMES,
     SessionWorkItemConflict,
+    build_review_assignment,
     capture_session_link,
     capture_session_outcome,
     current_session_id,
@@ -37,7 +40,7 @@ from .runs import default_runs_dir
 REVIEW_SCORE = "improvement_review_status"
 WORK_LINK_SCORE = "improvement_work_item"
 OUTCOME_SCORE = "improvement_task_outcome"
-REVIEW_POLICY_VERSION = "v3"
+REVIEW_POLICY_VERSION = "v4"
 TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
@@ -98,6 +101,7 @@ FINDING_CATEGORIES = V1_FINDING_CATEGORIES | {"security-boundary"}
 FINDING_CATEGORIES_BY_POLICY = {
     "v1": V1_FINDING_CATEGORIES,
     "v2": FINDING_CATEGORIES,
+    "v3": FINDING_CATEGORIES,
     REVIEW_POLICY_VERSION: FINDING_CATEGORIES,
 }
 ERROR_RELEVANCE = {"relevant", "contributing", "expected", "recovered", "infrastructure", "unknown"}
@@ -108,6 +112,19 @@ ATTRIBUTIONS = {"agent", "prompt-system", "model", "tooling", "infrastructure", 
 INTERVENTIONS = {"prompt", "code", "tool", "eval", "workflow", "routing", "monitor", "none", "unknown"}
 EVIDENCE_STAGES = {"event", "incident", "pattern", "change", "unknown"}
 TOP_DECISION_FIELDS = {"schemaVersion", "reportId", "reviewPolicyVersion", "reviewedAt", "sessions"}
+CURRENT_REVIEW_RESULT_FIELDS = TOP_DECISION_FIELDS | {
+    "assignmentId",
+    "reviewStatus",
+    "route",
+    "gaps",
+    "attempt",
+}
+REVIEW_STATUS_GAPS = {
+    "unavailable": "reviewer-unavailable",
+    "timed-out": "review-timed-out",
+    "privacy-uncertain": "review-private-unsafe",
+    "schema-invalid": "review-result-schema-invalid",
+}
 SESSION_DECISION_FIELDS = {"sessionId", "decision", "findings"}
 LEGACY_FINDING_FIELDS = {
     "findingId",
@@ -160,6 +177,10 @@ PRIVATE_PUBLIC_TEXT = re.compile(
     r"\b(?:api[_ -]?key|authorization|bearer|password|secret)\b|(?:^|[^A-Za-z0-9])(?:~?/|[A-Za-z]:\\)",
     re.IGNORECASE,
 )
+
+
+class PrivateReviewUnsafe(ValueError):
+    pass
 
 
 def improvement_dir() -> Path:
@@ -1358,6 +1379,14 @@ def _write_packet(output_dir: Path, packet: dict[str, Any]) -> Path:
     return _write_private_json(output_dir, f"scan-{packet['reportId']}.json", packet)
 
 
+def _write_review_assignment(output_dir: Path, assignment: dict[str, Any]) -> Path:
+    return _write_private_json(
+        output_dir,
+        f"review-assignment-{assignment['assignmentId']}.json",
+        assignment,
+    )
+
+
 def _inside(path: Path, root: Path) -> bool:
     try:
         path.resolve().relative_to(root.resolve())
@@ -1469,6 +1498,51 @@ def _packet_evidence_refs(packet: dict[str, Any]) -> list[dict[str, Any]]:
     return refs
 
 
+def review_assignment(packet: dict[str, Any]) -> dict[str, Any]:
+    if (
+        packet.get("schemaVersion") != 3
+        or packet.get("scan", {}).get("reviewPolicyVersion") != REVIEW_POLICY_VERSION
+    ):
+        raise ValueError("review assignment requires a current private packet")
+    refs = _packet_evidence_refs(packet)
+    if not refs or len(refs) > MAX_REVIEW_ASSIGNMENT_ITEMS:
+        raise ValueError("review assignment session scope is invalid")
+    return build_review_assignment(
+        activity="work-learning",
+        action=assignment_action_contract("review"),
+        scope={
+            "kind": "improvement-session-cohort",
+            "id": packet.get("reportId"),
+            "itemCount": len(refs),
+            "maxItems": MAX_REVIEW_ASSIGNMENT_ITEMS,
+        },
+        evidence_refs=refs,
+        rubric={
+            "path": "pi/agent/langfuse/improvement-review.md",
+            "version": REVIEW_POLICY_VERSION,
+        },
+    )
+
+
+def review_gap_result(packet: dict[str, Any], review_status: str) -> dict[str, Any]:
+    gap = REVIEW_STATUS_GAPS.get(review_status)
+    if gap is None:
+        raise ValueError("review status is unsupported")
+    assignment = review_assignment(packet)
+    return {
+        "schemaVersion": 1,
+        "assignmentId": assignment["assignmentId"],
+        "reviewStatus": review_status,
+        "route": "human",
+        "gaps": [gap],
+        "attempt": 1,
+        "reportId": packet["reportId"],
+        "reviewPolicyVersion": REVIEW_POLICY_VERSION,
+        "reviewedAt": packet["createdAt"],
+        "sessions": [],
+    }
+
+
 def _legacy_improvement_finding(
     packet: dict[str, Any],
     raw_finding: Any,
@@ -1544,7 +1618,7 @@ def _validate_improvement_finding(
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
         raise ValueError("confidence must be between 0 and 1")
     if any(ref not in packet_refs for ref in finding["evidenceRefs"]):
-        raise ValueError("improvement finding must cite private packet evidence")
+        raise PrivateReviewUnsafe("improvement finding must cite private packet evidence")
     related_finding_id = finding.get("relatedFindingId")
     if related_finding_id is not None and (
         not isinstance(related_finding_id, str)
@@ -1563,17 +1637,22 @@ def _validate_improvement_finding(
     for text in _public_strings(public):
         normalized = _normalized_text(text)
         if any(private in normalized for private in private_strings):
-            raise ValueError("public summary contains copied private packet text")
+            raise PrivateReviewUnsafe("public summary contains copied private packet text")
     return finding
 
 
 def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dict[str, Any]:
-    _require_fields(decisions, TOP_DECISION_FIELDS, "decisions")
+    policy_version = decisions.get("reviewPolicyVersion") if isinstance(decisions, dict) else None
+    current = policy_version == REVIEW_POLICY_VERSION
+    _require_fields(
+        decisions,
+        CURRENT_REVIEW_RESULT_FIELDS if current else TOP_DECISION_FIELDS,
+        "decisions",
+    )
     if decisions["schemaVersion"] != 1:
         raise ValueError("unsupported decision schemaVersion")
     if decisions["reportId"] != packet.get("reportId"):
         raise ValueError("decision reportId does not match packet")
-    policy_version = decisions["reviewPolicyVersion"]
     if policy_version != packet.get("scan", {}).get("reviewPolicyVersion"):
         raise ValueError("decision reviewPolicyVersion does not match packet")
     finding_categories = FINDING_CATEGORIES_BY_POLICY.get(policy_version)
@@ -1587,6 +1666,27 @@ def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dic
         raise ValueError("reviewedAt must be an ISO timestamp") from exc
     if not isinstance(decisions["sessions"], list):
         raise ValueError("sessions must be a list")
+
+    if current:
+        assignment = review_assignment(packet)
+        if decisions["assignmentId"] != assignment["assignmentId"]:
+            raise ValueError("decision assignmentId does not match packet")
+        if decisions["attempt"] != 1 or type(decisions["attempt"]) is not int:
+            raise ValueError("review attempt is invalid")
+        review_status = decisions["reviewStatus"]
+        if review_status == "completed":
+            if decisions["route"] != "none" or decisions["gaps"] != []:
+                raise ValueError("completed review route or gaps are invalid")
+        else:
+            expected_gap = REVIEW_STATUS_GAPS.get(review_status)
+            if (
+                expected_gap is None
+                or decisions["route"] != "human"
+                or decisions["gaps"] != [expected_gap]
+                or decisions["sessions"] != []
+            ):
+                raise ValueError("incomplete review result is invalid")
+            return decisions
 
     packet_sessions = {
         item.get("sessionId"): item
@@ -1639,6 +1739,8 @@ def validate_decisions(packet: dict[str, Any], decisions: dict[str, Any]) -> dic
             seen_findings.add(finding["id"])
             normalized_findings.append(finding)
         normalized_sessions.append({**session, "findings": normalized_findings})
+    if current and seen_sessions != set(packet_sessions):
+        raise ValueError("current review must cover the exact assigned session scope")
     return {**decisions, "sessions": normalized_sessions}
 
 
@@ -1655,7 +1757,28 @@ def review_sessions(
     state_dir: Path | None = None,
     beads_runner: Any = None,
 ) -> dict[str, Any]:
-    validated = validate_decisions(packet, decisions)
+    current = packet.get("scan", {}).get("reviewPolicyVersion") == REVIEW_POLICY_VERSION
+    try:
+        validated = validate_decisions(packet, decisions)
+    except PrivateReviewUnsafe:
+        if not current:
+            raise
+        validated = review_gap_result(packet, "privacy-uncertain")
+    except ValueError:
+        if not current:
+            raise
+        validated = review_gap_result(packet, "schema-invalid")
+    if current and validated["reviewStatus"] != "completed":
+        return {
+            "schemaVersion": 1,
+            "status": "needs-human",
+            "reviewStatus": validated["reviewStatus"],
+            "route": validated["route"],
+            "gaps": validated["gaps"],
+            "reviewedSessions": 0,
+            "findings": 0,
+            "scoresWritten": 0,
+        }
     findings = sum(len(session["findings"]) for session in validated["sessions"])
     monitoring_enabled = apply and (state_dir is not None or beads_runner is not None)
     if monitoring_enabled:
@@ -2527,8 +2650,8 @@ def scan_sessions(
     beads_runner: Any = None,
     observed_at: str | datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    if limit < 1:
-        raise ValueError("scan limit must be positive")
+    if not 1 <= limit <= MAX_REVIEW_ASSIGNMENT_ITEMS:
+        raise ValueError("scan limit must be between 1 and 20")
     if not since or not until:
         raise ValueError("scan requires time bounds")
     if _inside(output_dir, repository_root):
@@ -2696,6 +2819,12 @@ def scan_sessions(
     }
     for index, session in enumerate(sessions):
         session["evidenceRef"] = _improvement_evidence_ref(packet, index)
+    assignment = review_assignment(packet) if sessions else None
+    assignment_ref = (
+        f"artifact:review-assignment-{assignment['assignmentId']}"
+        if assignment is not None
+        else None
+    )
     summary = {
         "schemaVersion": 1,
         "status": "ok",
@@ -2713,8 +2842,12 @@ def scan_sessions(
         "unlinkedSessions": sum(item["correlation"]["status"] == "unlinked" for item in sessions),
         "reportWritten": not dry_run,
         "reportPath": None,
+        "assignmentWritten": assignment is not None and not dry_run,
+        "assignmentRef": assignment_ref,
     }
     if not dry_run:
+        if assignment is not None:
+            _write_review_assignment(output_dir, assignment)
         _write_packet(output_dir, packet)
     return summary, packet
 
@@ -2803,8 +2936,8 @@ def _timestamp(value: str) -> str:
 
 def _scan_limit(value: str) -> int:
     limit = int(value)
-    if not 1 <= limit <= 50:
-        raise argparse.ArgumentTypeError("limit must be between 1 and 50")
+    if not 1 <= limit <= MAX_REVIEW_ASSIGNMENT_ITEMS:
+        raise argparse.ArgumentTypeError("limit must be between 1 and 20")
     return limit
 
 
@@ -2858,14 +2991,14 @@ def cmd_improve(argv: list[str]) -> int:
     outcome.add_argument("bead")
     outcome.add_argument("outcome", choices=sorted(TASK_OUTCOMES))
     outcome.add_argument("--json", action="store_true")
-    review = sub.add_parser("review", help="validate private review decisions and optionally mark sessions")
+    review = sub.add_parser("review", help="validate an assignment-bound private review result and optionally mark sessions")
     review.add_argument("report", type=Path)
-    review.add_argument("decisions", type=Path)
+    review.add_argument("result", type=Path)
     review.add_argument("--apply", action="store_true")
     review.add_argument("--json", action="store_true")
     promote = sub.add_parser("promote", help="preview or create one public-safe improvement Bead")
     promote.add_argument("report", type=Path)
-    promote.add_argument("decisions", type=Path)
+    promote.add_argument("result", type=Path)
     promote.add_argument("--finding", required=True)
     promote.add_argument("--apply", action="store_true")
     promote.add_argument("--approval")
@@ -2907,7 +3040,7 @@ def cmd_improve(argv: list[str]) -> int:
         try:
             repository_root = git_root()
             packet = _load_private_object(args.report, repository_root)
-            decisions = _load_private_object(args.decisions, repository_root)
+            decisions = _load_private_object(args.result, repository_root)
             approval = None
             if args.apply:
                 if not args.approval:
@@ -2944,15 +3077,17 @@ def cmd_improve(argv: list[str]) -> int:
         try:
             repository_root = git_root()
             packet = _load_private_object(args.report, repository_root)
-            decisions = _load_private_object(args.decisions, repository_root)
-            summary = review_sessions(
-                _client_from_env() if args.apply else None,
-                packet,
-                decisions,
-                apply=args.apply,
-                state_dir=improvement_dir() if args.apply else None,
-                beads_runner=_beads if args.apply else None,
-            )
+            decisions = _load_private_object(args.result, repository_root)
+            summary = review_sessions(None, packet, decisions)
+            if args.apply and summary["status"] != "needs-human":
+                summary = review_sessions(
+                    _client_from_env(),
+                    packet,
+                    decisions,
+                    apply=True,
+                    state_dir=improvement_dir(),
+                    beads_runner=_beads,
+                )
         except (LangfuseError, OSError, ValueError, json.JSONDecodeError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement review failed"}))

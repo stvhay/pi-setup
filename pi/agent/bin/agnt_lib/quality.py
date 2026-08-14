@@ -118,6 +118,22 @@ FINDING_CORE_FIELDS = frozenset({
     "verification",
     "proposedIntervention",
 })
+REVIEW_ASSIGNMENT_FIELDS = frozenset({
+    "schemaVersion",
+    "assignmentId",
+    "activity",
+    "action",
+    "scope",
+    "evidenceRefs",
+    "rubric",
+    "privacyConstraints",
+    "modelConstraints",
+    "outputContract",
+    "stopRules",
+    "authority",
+})
+REVIEW_ASSIGNMENT_ID = re.compile(r"review-[0-9a-f]{64}\Z")
+MAX_REVIEW_ASSIGNMENT_ITEMS = 20
 
 
 class SessionWorkItemConflict(ValueError):
@@ -864,6 +880,149 @@ def _finding_evidence_refs(value: Any) -> list[dict[str, Any]]:
     if len({_canonical(item) for item in refs}) != len(refs):
         raise ValueError("finding evidence references are invalid")
     return refs
+
+
+def _review_assignment_contract(routing_task: Any, output_name: Any) -> dict[str, Any]:
+    if (
+        not isinstance(routing_task, str)
+        or not OPAQUE_ID.fullmatch(routing_task)
+        or not _text(output_name)
+    ):
+        raise ValueError("review assignment contract is invalid")
+    return {
+        "privacyConstraints": {
+            "evidenceSensitivity": "private",
+            "allowedReviewerClasses": [
+                "human",
+                "local-self-hosted",
+                "explicitly-authorized-provider",
+            ],
+            "providerAccess": "explicit-approval-required",
+            "rawEvidenceExport": False,
+        },
+        "modelConstraints": {
+            "routingTask": routing_task,
+            "capability": "demonstrated-required",
+        },
+        "outputContract": {
+            "name": output_name,
+            "schemaVersion": 1,
+            "requiredFields": [
+                "assignmentId",
+                "reviewStatus",
+                "route",
+                "gaps",
+                "sessions",
+            ],
+        },
+        "stopRules": {
+            "maxAttempts": 1,
+            "timeoutSeconds": 900,
+            "onUnavailable": "route-human",
+            "onTimeout": "route-human",
+            "onPrivacyUncertain": "route-human",
+            "onSchemaInvalid": "route-human",
+        },
+    }
+
+
+def validate_review_assignment(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != REVIEW_ASSIGNMENT_FIELDS:
+        raise ValueError("review assignment fields are invalid")
+    if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
+        raise ValueError("review assignment schema is invalid")
+    if value.get("activity") not in ACTIVITY_IDS:
+        raise ValueError("review assignment activity is invalid")
+
+    action = value.get("action")
+    if (
+        not isinstance(action, dict)
+        or set(action) != {"id", "routingTask"}
+        or any(
+            not isinstance(action.get(field), str)
+            or not OPAQUE_ID.fullmatch(action[field])
+            for field in action
+        )
+    ):
+        raise ValueError("review assignment action is invalid")
+
+    scope = value.get("scope")
+    if (
+        not isinstance(scope, dict)
+        or set(scope) != {"kind", "id", "itemCount", "maxItems"}
+        or any(
+            not isinstance(scope.get(field), str)
+            or not OPAQUE_ID.fullmatch(scope[field])
+            for field in ("kind", "id")
+        )
+        or type(scope.get("itemCount")) is not int
+        or type(scope.get("maxItems")) is not int
+        or not 1 <= scope["itemCount"] <= scope["maxItems"] <= MAX_REVIEW_ASSIGNMENT_ITEMS
+    ):
+        raise ValueError("review assignment scope is invalid")
+
+    evidence_refs = value.get("evidenceRefs")
+    if (
+        not isinstance(evidence_refs, list)
+        or len(evidence_refs) != scope["itemCount"]
+        or len({_canonical(item) for item in evidence_refs}) != len(evidence_refs)
+    ):
+        raise ValueError("review assignment evidence is invalid")
+    for item in evidence_refs:
+        if validate_evidence_ref(item)["sensitivity"] != "private":
+            raise ValueError("review assignment evidence must remain private")
+
+    rubric = value.get("rubric")
+    rubric_path = rubric.get("path") if isinstance(rubric, dict) else None
+    if (
+        not isinstance(rubric, dict)
+        or set(rubric) != {"path", "version"}
+        or not _text(rubric_path)
+        or not _text(rubric.get("version"))
+        or Path(rubric_path).is_absolute()
+        or "\\" in rubric_path
+        or ".." in Path(rubric_path).parts
+    ):
+        raise ValueError("review assignment rubric is invalid")
+
+    output = value.get("outputContract")
+    output_name = output.get("name") if isinstance(output, dict) else None
+    contract = _review_assignment_contract(action["routingTask"], output_name)
+    if any(value.get(field) != expected for field, expected in contract.items()):
+        raise ValueError("review assignment constraints are invalid")
+    if value.get("authority") != {"status": "none", "allowedEffects": []}:
+        raise ValueError("review assignment authority is invalid")
+
+    assignment_id = value.get("assignmentId")
+    core = {key: item for key, item in value.items() if key != "assignmentId"}
+    expected_id = "review-" + _fingerprint(core).partition(":")[2]
+    if assignment_id != expected_id or not REVIEW_ASSIGNMENT_ID.fullmatch(str(assignment_id or "")):
+        raise ValueError("review assignment identity is invalid")
+    return value
+
+
+def build_review_assignment(
+    *,
+    activity: str,
+    action: dict[str, Any],
+    scope: dict[str, Any],
+    evidence_refs: list[dict[str, Any]],
+    rubric: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(action, dict) or set(action) != {"id", "routingTask", "outputContract"}:
+        raise ValueError("review assignment action is invalid")
+    core = {
+        "schemaVersion": 1,
+        "activity": activity,
+        "action": {"id": action["id"], "routingTask": action["routingTask"]},
+        "scope": scope,
+        "evidenceRefs": evidence_refs,
+        "rubric": rubric,
+        **_review_assignment_contract(action["routingTask"], action["outputContract"]),
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+    assignment_id = "review-" + _fingerprint(core).partition(":")[2]
+    return validate_review_assignment({**core, "assignmentId": assignment_id})
 
 
 def validate_finding(

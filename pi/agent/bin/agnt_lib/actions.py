@@ -97,6 +97,21 @@ def validate_all_actions() -> List[str]:
     return failures
 
 
+def assignment_action_contract(action_id: str) -> Dict[str, str]:
+    path, meta, _body = load_action(action_id)
+    failures = validate_action_meta(path, meta)
+    if failures:
+        raise ValueError("assignment action is invalid")
+    effects = {str(effect) for effect in meta.get("allowedEffects") or []}
+    if effects.intersection(WRITE_EFFECTS):
+        raise ValueError("assignment action grants mutation effects")
+    return {
+        "id": str(meta.get("id") or path.stem),
+        "routingTask": str(meta["routingTask"]),
+        "outputContract": str(meta["outputContract"]),
+    }
+
+
 def cmd_action(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt action", description="List, validate, and render prompt/action templates into invocation artifacts.")
     sub = parser.add_subparsers(dest="command")

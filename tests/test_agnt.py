@@ -558,6 +558,14 @@ def test_action_inventory_and_validation(agnt):
     assert agnt.validate_all_actions() == []
 
 
+def test_review_assignment_reuses_non_mutating_review_action(agnt):
+    assert agnt.assignment_action_contract("review") == {
+        "id": "review",
+        "routingTask": "review",
+        "outputContract": "findings-with-evidence",
+    }
+
+
 def test_workflow_gate_eval_checks_independent_closeout_scenarios():
     eval_dir = AGNT.parents[1] / "evals" / "workflow-gate-smoke"
     spec = json.loads((eval_dir / "eval.json").read_text(encoding="utf-8"))

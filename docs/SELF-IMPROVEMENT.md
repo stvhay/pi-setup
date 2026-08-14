@@ -24,8 +24,9 @@ the metrics justify changing:
 metrics -> annotate -> consolidate -> route hints/demotion
                               -> policy edit -> eval -> commit
 direct lifecycle -> local quality ledger -> best-effort Langfuse projection
-Langfuse sessions -> private scan -> human review -> private marker
-                  -> sanitized Bead -> implementation -> matched monitoring
+Langfuse sessions -> private scan + ReviewAssignment -> authorized contextual review
+                  -> validated result -> private marker -> sanitized Bead
+                  -> implementation -> matched monitoring
 Beads/git/runs/health signals -> quality assess -> observe assignment -> receipt
 ```
 
@@ -162,10 +163,10 @@ agnt work direct-closeout <bead> --outcome success --reason <reason>
 agnt improve outcome <bead> <success|partial|failure|unclear> # non-success/manual/repair outcome
 agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --dry-run --json
 agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --json
-agnt improve review <report> <decisions>          # preview
-agnt improve review <report> <decisions> --apply  # private session markers
-agnt improve promote <report> <decisions> --finding <id>          # preview
-agnt improve promote <report> <decisions> --finding <id> --apply  # approved Bead
+agnt improve review <report> <result>          # validate assignment-bound result
+agnt improve review <report> <result> --apply  # private session markers
+agnt improve promote <report> <result> --finding <id>          # preview
+agnt improve promote <report> <result> --finding <id> --apply  # approved Bead
 ```
 
 `link` appends an idempotent local `invocation` row containing only bounded
@@ -193,6 +194,23 @@ watermark, and read cutoff; safe output exposes only lag and active-window-exclu
 state. Reuse the packet's `scan.until` as `--until` to replay the same settled cohort.
 Empty settled windows fail closed.
 
+Each non-empty current scan also writes one deterministic private ReviewAssignment
+beside the packet. Safe output exposes only its opaque artifact ref and write status.
+The assignment binds at most 20 session EvidenceRefs to the tracked policy-v4
+rubric and existing non-mutating `review` action. It requires demonstrated reviewer
+capability and explicit provider authorization for private evidence, defines the
+result fields, permits one attempt, and carries no effect authority. Human and
+local/self-hosted review satisfy the default privacy classes; another provider must
+be explicitly authorized before packet access.
+
+Current results must cite the exact `assignmentId`, packet/report policy, and
+session EvidenceRefs; completion covers every assigned session exactly once.
+`reviewStatus` is `completed`, `unavailable`, `timed-out`,
+`privacy-uncertain`, or `schema-invalid`. Non-completed or invalid output produces
+an explicit gap and `human` route with no marker, finding, effect, or automatic
+paid retry. Reviewer output cannot grant effects or set capability mode, grant,
+or authority.
+
 Discovery reports valid API totals, scanned/attributable/unattributed counts, root
 and excluded-child session counts, classification completeness, and continuation
 state. Exact agentic child sessions declared by bounded discovered projections are
@@ -201,9 +219,10 @@ cached when their root is selected. Incomplete discovery, truncated observations
 and malformed declarations make cohort health a lower bound rather than forcing a
 root/child guess. Repeated pages stop as incomplete. Selected root sessions retain
 20-trace and 500-observation-per-trace caps with capture-gap markers. Private scan
-packets use schema 2; safe scan summaries and review decisions remain schema 1,
-current review policy is `v2`, and historical schema-1 packets and `v1` decisions
-remain reviewable. Safe output reports write status but not private packet paths.
+packets use schema 3; safe scan summaries and review results remain schema 1,
+current review policy is `v4`, and historical schema-1/2/3 packets with `v1`–`v3`
+decisions remain reviewable. Safe output reports packet and assignment write status
+but not private paths.
 For the exact
 `pi-langfuse-1.5.7-dual-null-dual-26` TOOL fingerprint, scans report both tool
 payload-byte aggregates as unavailable (`null`) and record rule status plus
@@ -301,10 +320,10 @@ observations and add no telemetry calls.
 
 Scans skip sessions already reviewed under the current policy. Private schema-3
 packets attach one shared, private, cohort-retained `EvidenceRef` to each session;
-policy-v3 decisions use the shared Finding core plus improvement-owned
+policy-v4 assignment-bound results use the shared Finding core plus improvement-owned
 `errorRelevance`, `attribution`, `confidence`, `evidenceStage`,
-`interventionType`, and sanitized `public` fields. Historical policy-v1/v2
-findings and schema-1/2 packets remain readable: validation normalizes their
+`interventionType`, and sanitized `public` fields. Historical policy-v1/v2/v3
+findings and schema-1/2/3 packets remain readable: validation normalizes older
 private JSON pointers to packet EvidenceRefs and leaves unavailable
 `evidenceStage` as `unknown` rather than guessing.
 

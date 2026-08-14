@@ -364,6 +364,77 @@ def test_public_finding_rejects_copied_raw_private_evidence():  # Tests FAIL-4
         quality.validate_evidence_ref({**_shared_evidence_ref(), "content": "raw payload"})
 
 
+def test_inv8_review_assignment_is_bounded_private_and_non_authorizing():  # Tests INV-8
+    evidence_refs = [
+        _shared_evidence_ref(ref=f"artifact:improvement-report-session-{index}")
+        for index in range(2)
+    ]
+    kwargs = {
+        "activity": "work-learning",
+        "action": {
+            "id": "review",
+            "routingTask": "review",
+            "outputContract": "findings-with-evidence",
+        },
+        "scope": {
+            "kind": "improvement-session-cohort",
+            "id": "report-0123456789abcdef",
+            "itemCount": 2,
+            "maxItems": 20,
+        },
+        "evidence_refs": evidence_refs,
+        "rubric": {
+            "path": "pi/agent/langfuse/improvement-review.md",
+            "version": "v4",
+        },
+    }
+
+    assignment = quality.build_review_assignment(**kwargs)
+
+    assert assignment == quality.build_review_assignment(**kwargs)
+    assert quality.validate_review_assignment(assignment) == assignment
+    assert assignment["evidenceRefs"] == evidence_refs
+    assert assignment["privacyConstraints"] == {
+        "evidenceSensitivity": "private",
+        "allowedReviewerClasses": [
+            "human",
+            "local-self-hosted",
+            "explicitly-authorized-provider",
+        ],
+        "providerAccess": "explicit-approval-required",
+        "rawEvidenceExport": False,
+    }
+    assert assignment["modelConstraints"] == {
+        "routingTask": "review",
+        "capability": "demonstrated-required",
+    }
+    assert assignment["outputContract"] == {
+        "name": "findings-with-evidence",
+        "schemaVersion": 1,
+        "requiredFields": [
+            "assignmentId",
+            "reviewStatus",
+            "route",
+            "gaps",
+            "sessions",
+        ],
+    }
+    assert assignment["stopRules"] == {
+        "maxAttempts": 1,
+        "timeoutSeconds": 900,
+        "onUnavailable": "route-human",
+        "onTimeout": "route-human",
+        "onPrivacyUncertain": "route-human",
+        "onSchemaInvalid": "route-human",
+    }
+    assert assignment["authority"] == {"status": "none", "allowedEffects": []}
+
+    elevated = deepcopy(assignment)
+    elevated["authority"]["allowedEffects"] = ["update_beads"]
+    with pytest.raises(ValueError, match="review assignment"):
+        quality.validate_review_assignment(elevated)
+
+
 def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1
     plan = quality.load_control_plan()
 

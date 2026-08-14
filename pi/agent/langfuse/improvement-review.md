@@ -1,10 +1,20 @@
 # Improvement Review Rubric
 
-Use this rubric only with a private `agnt improve scan` packet. Human review or an explicitly approved local/self-hosted reviewer classifies evidence; deterministic signals do not establish causality. Do not send packet content to another provider without explicit authorization.
+Use this rubric only with the private ReviewAssignment emitted beside an `agnt improve scan` packet. Human review, a local/self-hosted reviewer, or an explicitly provider-authorized reviewer classifies evidence; deterministic signals do not establish causality. Route only to the assignment's demonstrated reviewer capability. Do not send packet content to another provider without explicit authorization.
 
 ## Decision format
 
-Return JSON with `schemaVersion`, matching `reportId` and `reviewPolicyVersion`, ISO `reviewedAt`, and reviewed `sessions`. Each session has:
+Return one assignment-bound JSON result with:
+
+- `schemaVersion`: `1`.
+- `assignmentId`: exact private assignment ID.
+- `reviewStatus`: `completed`, `unavailable`, `timed-out`, `privacy-uncertain`, or `schema-invalid`.
+- `route`: `none` only for a completed valid result; otherwise `human`.
+- `gaps`: empty only for completion; otherwise the assignment-defined explicit gap.
+- `attempt`: `1`. Stop after one attempt; never silently retry paid review.
+- matching `reportId` and `reviewPolicyVersion`, ISO `reviewedAt`, and reviewed `sessions`.
+
+For non-completed status, return no sessions or findings. Reviewer output cannot set grant, mode, authority, or allowed effects. A `completed` result must cover every assigned session exactly once. Each session has:
 
 - `sessionId`: exact private packet session ID.
 - `decision`: `no-action`, `actions-created`, `needs-human`, or `excluded`.

@@ -674,11 +674,11 @@ def test_eligible_unreviewed_summary_is_bounded_and_payload_free():
     assert not any(session_id in json.dumps(summary) for session_id in client.score_sessions)
 
 
-def test_policy_v3_rechecks_sessions_reviewed_only_under_v2():
+def test_policy_v4_rechecks_sessions_reviewed_only_under_v3():
     client = FakeScanClient(
         [_private_trace("historical-session", "historical-trace")],
         {},
-        reviewed={"historical-session": "v2"},
+        reviewed={"historical-session": "v3"},
     )
 
     summary = improvement.eligible_unreviewed_session_summary(
@@ -687,7 +687,7 @@ def test_policy_v3_rechecks_sessions_reviewed_only_under_v2():
         until="2026-07-27T00:00:00Z",
     )
 
-    assert improvement.REVIEW_POLICY_VERSION == "v3"
+    assert improvement.REVIEW_POLICY_VERSION == "v4"
     assert summary["eligibleSessions"] == 1
     assert summary["reviewedSessionsSkipped"] == 0
 
@@ -2085,15 +2085,22 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
     assert summary["eligibleSessions"] == 1
     assert summary["reportWritten"] is True
     assert summary["reportPath"] is None
+    assert summary["assignmentWritten"] is True
+    assert summary["assignmentRef"].startswith("artifact:review-assignment-")
     assert "private-trace" not in json.dumps(summary)
     assert "run-private-run" not in json.dumps(summary)
     assert str(output_dir) not in json.dumps(summary)
     report_path, = output_dir.glob("scan-*.json")
-    assert report_path.parent == output_dir
+    assignment_path, = output_dir.glob("review-assignment-*.json")
+    assert report_path.parent == assignment_path.parent == output_dir
     assert stat.S_IMODE(output_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(report_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(assignment_path.stat().st_mode) == 0o600
     assert list(output_dir.glob(".*.tmp")) == []
     assert json.loads(report_path.read_text(encoding="utf-8")) == packet
+    assignment = json.loads(assignment_path.read_text(encoding="utf-8"))
+    assert assignment == improvement.review_assignment(packet)
+    assert summary["assignmentRef"] == f"artifact:review-assignment-{assignment['assignmentId']}"
 
     session = packet["sessions"][0]
     assert session["sessionId"] == "run-private-run"
@@ -2483,6 +2490,11 @@ def test_scan_rejects_explicit_outcome_with_ambiguous_idless_links(tmp_path):
     assert summary["cohortHealth"]["captureGaps"]["mismatched-work-item-outcome"] == 1
 
 
+def test_scan_rejects_scope_above_review_assignment_bound(tmp_path):
+    with pytest.raises(ValueError, match="between 1 and 20"):
+        _scan_sessions(FakeScanClient([], {}), tmp_path, limit=21)
+
+
 def test_scan_dry_run_skips_reviewed_sessions_without_writing(tmp_path):
     reviewed = _private_trace("reviewed-session", "reviewed-trace")
     eligible = _private_trace("eligible-session", "eligible-trace")
@@ -2789,6 +2801,62 @@ def _review_decisions():
     }
 
 
+def _current_review_packet():
+    packet = _review_packet()
+    packet["schemaVersion"] = 3
+    packet["scan"]["reviewPolicyVersion"] = improvement.REVIEW_POLICY_VERSION
+    packet["sessions"][0]["evidenceRef"] = {
+        "ref": "artifact:improvement-0123456789abcdef-session-0",
+        "source": "improvement-scan",
+        "availability": "available",
+        "provenance": "improvement:0123456789abcdef:session-0",
+        "integrity": "verified",
+        "sensitivity": "private",
+        "retention": "cohort",
+    }
+    return packet
+
+
+def _current_review_result(packet=None):
+    packet = packet or _current_review_packet()
+    legacy = _review_decisions()["sessions"][0]["findings"][0]
+    evidence_ref = packet["sessions"][0]["evidenceRef"]
+    return {
+        "schemaVersion": 1,
+        "assignmentId": improvement.review_assignment(packet)["assignmentId"],
+        "reviewStatus": "completed",
+        "route": "none",
+        "gaps": [],
+        "attempt": 1,
+        "reportId": packet["reportId"],
+        "reviewPolicyVersion": improvement.REVIEW_POLICY_VERSION,
+        "reviewedAt": "2026-07-27T01:00:00Z",
+        "sessions": [{
+            "sessionId": packet["sessions"][0]["sessionId"],
+            "decision": "actions-created",
+            "findings": [{
+                "schemaVersion": 1,
+                "id": legacy["findingId"],
+                "activity": "work-learning",
+                "source": "improvement-review",
+                "category": legacy["category"],
+                "severity": legacy["impact"],
+                "claim": legacy["public"]["aggregate"],
+                "status": "confirmed",
+                "evidenceRefs": [evidence_ref],
+                "verification": {"method": "inspection", "evidenceRefs": [evidence_ref]},
+                "proposedIntervention": legacy["public"]["proposedIntervention"],
+                "errorRelevance": legacy["errorRelevance"],
+                "attribution": legacy["attribution"],
+                "confidence": legacy["confidence"],
+                "evidenceStage": "pattern",
+                "interventionType": legacy["proposedIntervention"],
+                "public": legacy["public"],
+            }],
+        }],
+    }
+
+
 def _monitoring_session(session_id, *, model="private-model"):
     return {
         "sessionId": session_id,
@@ -2869,6 +2937,82 @@ def _promote_monitoring_source(tmp_path):
     return packet, decisions, state_dir, beads_runner, result["beadId"]
 
 
+def test_inv8_current_review_is_assignment_bound_and_cannot_claim_effects():  # Tests INV-8
+    packet = _current_review_packet()
+    assignment = improvement.review_assignment(packet)
+    result = _current_review_result(packet)
+
+    assert assignment["scope"] == {
+        "kind": "improvement-session-cohort",
+        "id": packet["reportId"],
+        "itemCount": 1,
+        "maxItems": 20,
+    }
+    assert assignment["action"] == {"id": "review", "routingTask": "review"}
+    assert improvement.validate_decisions(packet, result) == result
+
+    with pytest.raises(ValueError, match="assignmentId"):
+        improvement.validate_decisions(packet, {**result, "assignmentId": "review-wrong"})
+    with pytest.raises(ValueError, match="unknown fields"):
+        improvement.validate_decisions(packet, {**result, "allowedEffects": []})
+
+    empty = {**result, "sessions": []}
+    with pytest.raises(ValueError, match="exact assigned session scope"):
+        improvement.validate_decisions(packet, empty)
+    assert improvement.review_sessions(None, packet, empty)["reviewStatus"] == "schema-invalid"
+
+
+@pytest.mark.parametrize(
+    ("review_status", "gap"),
+    [
+        ("unavailable", "reviewer-unavailable"),
+        ("timed-out", "review-timed-out"),
+        ("privacy-uncertain", "review-private-unsafe"),
+        ("schema-invalid", "review-result-schema-invalid"),
+    ],
+)
+def test_fail6_review_failures_route_human_once_without_retry(review_status, gap):  # Tests FAIL-6
+    packet = _current_review_packet()
+    result = improvement.review_gap_result(packet, review_status)
+
+    assert result["attempt"] == 1
+    assert result["route"] == "human"
+    assert result["gaps"] == [gap]
+    assert result["sessions"] == []
+    summary = improvement.review_sessions(None, packet, result, apply=True)
+    assert summary == {
+        "schemaVersion": 1,
+        "status": "needs-human",
+        "reviewStatus": review_status,
+        "route": "human",
+        "gaps": [gap],
+        "reviewedSessions": 0,
+        "findings": 0,
+        "scoresWritten": 0,
+    }
+
+
+def test_fail6_invalid_or_private_unsafe_result_becomes_explicit_human_route():  # Tests FAIL-6
+    packet = _current_review_packet()
+    malformed = _current_review_result(packet)
+    malformed.pop("assignmentId")
+
+    malformed_summary = improvement.review_sessions(None, packet, malformed, apply=True)
+    assert malformed_summary["reviewStatus"] == "schema-invalid"
+    assert malformed_summary["gaps"] == ["review-result-schema-invalid"]
+
+    unsafe = _current_review_result(packet)
+    foreign_ref = {
+        **packet["sessions"][0]["evidenceRef"],
+        "ref": "artifact:improvement-other-report-session-0",
+    }
+    unsafe["sessions"][0]["findings"][0]["evidenceRefs"] = [foreign_ref]
+    unsafe["sessions"][0]["findings"][0]["verification"]["evidenceRefs"] = [foreign_ref]
+    unsafe_summary = improvement.review_sessions(None, packet, unsafe, apply=True)
+    assert unsafe_summary["reviewStatus"] == "privacy-uncertain"
+    assert unsafe_summary["gaps"] == ["review-private-unsafe"]
+
+
 def test_review_rubric_requires_unknown_and_evidence_thresholds():
     rubric = (ROOT / "pi" / "agent" / "langfuse" / "improvement-review.md").read_text(encoding="utf-8")
 
@@ -2886,6 +3030,10 @@ def test_review_rubric_requires_unknown_and_evidence_thresholds():
         "`validated`",
         "`recurrent`",
         "Human approval",
+        "`assignmentId`",
+        "`reviewStatus`",
+        "one attempt",
+        "cannot set grant, mode, authority, or allowed effects",
     ):
         assert required in rubric
 
@@ -2903,7 +3051,7 @@ def test_human_calibrated_policy_accepts_security_boundary_regression():
 
     rubric = (ROOT / "pi" / "agent" / "langfuse" / "improvement-review.md").read_text(encoding="utf-8")
 
-    assert improvement.REVIEW_POLICY_VERSION == "v3"
+    assert improvement.REVIEW_POLICY_VERSION == "v4"
     assert improvement.validate_decisions(packet, decisions)["sessions"][0]["findings"][0]["category"] == (
         "security-boundary"
     )
@@ -2939,49 +3087,20 @@ def test_historical_schema_1_private_packet_remains_reviewable():
     )
 
 
+def test_policy_v3_shared_result_remains_readable_after_assignment_upgrade():
+    packet = _current_review_packet()
+    result = _current_review_result(packet)
+    packet["scan"]["reviewPolicyVersion"] = "v3"
+    for field in ("assignmentId", "reviewStatus", "route", "gaps", "attempt"):
+        result.pop(field)
+    result["reviewPolicyVersion"] = "v3"
+
+    assert improvement.validate_decisions(packet, result) == result
+
+
 def test_inv7_current_improvement_finding_uses_shared_core_and_private_evidence_refs():  # Tests INV-7
-    packet = _review_packet()
-    packet["schemaVersion"] = 3
-    packet["scan"]["reviewPolicyVersion"] = improvement.REVIEW_POLICY_VERSION
-    evidence_ref = {
-        "ref": "artifact:improvement-0123456789abcdef-session-0",
-        "source": "improvement-scan",
-        "availability": "available",
-        "provenance": "improvement:0123456789abcdef:session-0",
-        "integrity": "verified",
-        "sensitivity": "private",
-        "retention": "cohort",
-    }
-    packet["sessions"][0]["evidenceRef"] = evidence_ref
-    decisions = {
-        "schemaVersion": 1,
-        "reportId": packet["reportId"],
-        "reviewPolicyVersion": improvement.REVIEW_POLICY_VERSION,
-        "reviewedAt": "2026-07-27T01:00:00Z",
-        "sessions": [{
-            "sessionId": "private-session",
-            "decision": "actions-created",
-            "findings": [{
-                "schemaVersion": 1,
-                "id": "finding-0123456789ab",
-                "activity": "work-learning",
-                "source": "improvement-review",
-                "category": "coordination-error",
-                "severity": "medium",
-                "claim": "Repeated coordination failures occurred across reviewed work items.",
-                "status": "confirmed",
-                "evidenceRefs": [evidence_ref],
-                "verification": {"method": "inspection", "evidenceRefs": [evidence_ref]},
-                "proposedIntervention": "Clarify one conflicting coordination instruction.",
-                "errorRelevance": "contributing",
-                "attribution": "prompt-system",
-                "confidence": 0.8,
-                "evidenceStage": "pattern",
-                "interventionType": "prompt",
-                "public": _review_decisions()["sessions"][0]["findings"][0]["public"],
-            }],
-        }],
-    }
+    packet = _current_review_packet()
+    decisions = _current_review_result(packet)
 
     validated = improvement.validate_decisions(packet, decisions)
     finding = validated["sessions"][0]["findings"][0]
@@ -3028,43 +3147,15 @@ def test_inv7_policy_v2_packet_normalizes_without_guessing_evidence_stage():  # 
 
 
 def test_fail5_improvement_finding_rejects_evidence_from_another_packet():  # Tests FAIL-5
-    packet = _review_packet()
-    packet["schemaVersion"] = 3
-    packet["scan"]["reviewPolicyVersion"] = improvement.REVIEW_POLICY_VERSION
-    packet["sessions"][0]["evidenceRef"] = {
-        "ref": "artifact:improvement-0123456789abcdef-session-0",
-        "source": "improvement-scan",
-        "availability": "available",
-        "provenance": "improvement:0123456789abcdef:session-0",
-        "integrity": "verified",
-        "sensitivity": "private",
-        "retention": "cohort",
-    }
-    decisions = _review_decisions()
-    decisions["reviewPolicyVersion"] = improvement.REVIEW_POLICY_VERSION
-    legacy = decisions["sessions"][0]["findings"][0]
-    decisions["sessions"][0]["findings"][0] = {
-        "schemaVersion": 1,
-        "id": legacy["findingId"],
-        "activity": "work-learning",
-        "source": "improvement-review",
-        "category": legacy["category"],
-        "severity": legacy["impact"],
-        "claim": legacy["public"]["aggregate"],
-        "status": "unverified",
-        "evidenceRefs": [{
-            **packet["sessions"][0]["evidenceRef"],
-            "ref": "artifact:improvement-other-report-session-0",
-        }],
-        "verification": None,
-        "proposedIntervention": legacy["public"]["proposedIntervention"],
-        "errorRelevance": legacy["errorRelevance"],
-        "attribution": legacy["attribution"],
-        "confidence": legacy["confidence"],
-        "evidenceStage": "unknown",
-        "interventionType": legacy["proposedIntervention"],
-        "public": legacy["public"],
-    }
+    packet = _current_review_packet()
+    decisions = _current_review_result(packet)
+    finding = decisions["sessions"][0]["findings"][0]
+    finding["status"] = "unverified"
+    finding["evidenceRefs"] = [{
+        **packet["sessions"][0]["evidenceRef"],
+        "ref": "artifact:improvement-other-report-session-0",
+    }]
+    finding["verification"] = None
 
     with pytest.raises(ValueError, match="private packet evidence"):
         improvement.validate_decisions(packet, decisions)
@@ -3183,6 +3274,16 @@ def test_improvement_dir_uses_private_default_and_environment_override(monkeypat
     assert improvement.improvement_dir() == override
 
 
+def test_improve_review_cli_names_assignment_bound_result(capsys):
+    with pytest.raises(SystemExit) as raised:
+        improvement.cmd_improve(["review", "--help"])
+
+    assert raised.value.code == 0
+    usage = capsys.readouterr().out
+    assert "report result" in usage
+    assert "decisions" not in usage
+
+
 def test_improve_review_cli_is_preview_only_by_default(monkeypatch, tmp_path, capsys):
     private_dir = tmp_path / "private"
     private_dir.mkdir()
@@ -3200,6 +3301,35 @@ def test_improve_review_cli_is_preview_only_by_default(monkeypatch, tmp_path, ca
     assert json.loads(output)["status"] == "preview"
     assert "private-session" not in output
     assert "private-trace" not in output
+
+
+def test_improve_review_cli_routes_invalid_result_without_opening_provider(monkeypatch, tmp_path, capsys):
+    private_dir = tmp_path / "private"
+    private_dir.mkdir()
+    report_path = private_dir / "report.json"
+    result_path = private_dir / "result.json"
+    packet = _current_review_packet()
+    result = _current_review_result(packet)
+    result.pop("assignmentId")
+    report_path.write_text(json.dumps(packet), encoding="utf-8")
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+    monkeypatch.setattr(improvement, "git_root", lambda: tmp_path / "repo")
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: pytest.fail("invalid result must not open a provider client"),
+    )
+
+    assert improvement.cmd_improve([
+        "review",
+        str(report_path),
+        str(result_path),
+        "--apply",
+        "--json",
+    ]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "needs-human"
+    assert output["gaps"] == ["review-result-schema-invalid"]
 
 
 def test_improve_review_cli_applies_markers_only_with_apply(monkeypatch, tmp_path, capsys):
@@ -3521,32 +3651,8 @@ def test_scan_projects_matched_monitoring_privately_but_summary_is_count_only(tm
         output_dir=state_dir,
         limit=1,
     )
-    decisions = _review_decisions()
-    decisions["reportId"] = source_packet["reportId"]
-    decisions["reviewPolicyVersion"] = source_packet["scan"]["reviewPolicyVersion"]
+    decisions = _current_review_result(source_packet)
     decisions["reviewedAt"] = source_packet["createdAt"]
-    decisions["sessions"][0]["sessionId"] = source_id
-    legacy_finding = decisions["sessions"][0]["findings"][0]
-    evidence_ref = source_packet["sessions"][0]["evidenceRef"]
-    decisions["sessions"][0]["findings"][0] = {
-        "schemaVersion": 1,
-        "id": legacy_finding["findingId"],
-        "activity": "work-learning",
-        "source": "improvement-review",
-        "category": legacy_finding["category"],
-        "severity": legacy_finding["impact"],
-        "claim": legacy_finding["public"]["aggregate"],
-        "status": "confirmed",
-        "evidenceRefs": [evidence_ref],
-        "verification": {"method": "inspection", "evidenceRefs": [evidence_ref]},
-        "proposedIntervention": legacy_finding["public"]["proposedIntervention"],
-        "errorRelevance": legacy_finding["errorRelevance"],
-        "attribution": legacy_finding["attribution"],
-        "confidence": legacy_finding["confidence"],
-        "evidenceStage": "pattern",
-        "interventionType": legacy_finding["proposedIntervention"],
-        "public": legacy_finding["public"],
-    }
 
     def beads_runner(args):
         if args[0] == "show":
