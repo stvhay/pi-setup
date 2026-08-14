@@ -231,11 +231,18 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
   - Also warns on oversized unallowlisted skills and overlapping skill descriptions.
   - `--strict` exits nonzero when failures are found; warnings remain entropy signals.
 
-## Private quality capture
+## Private quality kernel
 
 - `agnt quality capture --payload JSON --json`
-  - Appends one schema-validated `invocation` or `result` fact to the resolved private `quality/ledger.jsonl`. Required fields are `schemaVersion`, `recordType`, `sessionId`, `beadId`, and `evidenceRefs`; `result` also requires `outcome` (`success`, `partial`, `failure`, or `unclear`). Evidence refs require an allowlisted type prefix (`artifact`, `invocation`, `observation`, `result`, `run`, or `trace`). Unknown fields, unsafe refs, raw bodies, URLs, credentials, JWTs, secrets, and paths are rejected.
-  - Writes are append-only, private (`0700` directory and `0600` ledger), bounded, and same-session/same-Bead checked. Output omits the private session ID. Assessment and apply commands are intentionally absent until their later quality-kernel slices.
+  - Appends one schema-validated `invocation` or `result` fact to private `quality/ledger.jsonl`. Required fields are `schemaVersion`, `recordType`, `sessionId`, `beadId`, and `evidenceRefs`; `result` also requires `outcome` (`success`, `partial`, `failure`, or `unclear`). Evidence refs require an allowlisted `artifact`, `invocation`, `observation`, `result`, `run`, or `trace` prefix. Unknown fields, unsafe refs, raw bodies, URLs, credentials, JWTs, secrets, and paths are rejected.
+- `agnt quality assess --activity capture|work-learning|architecture-coherence|capability-calibration|quality-system-review --snapshot JSON --json`
+  - Validates the tracked five-activity control plan and an exact snapshot with `schemaVersion`, `triggered`, `evidenceRefs`, `gaps`, and `signals`. Same snapshot, activity, and policy produce the same receipt and dedupe key. Snapshot bodies are fingerprinted, not copied into receipts.
+- `agnt quality apply --receipt ID --json`
+  - Revalidates the persisted receipt against current policy. Current `disabled`/`observe` policy can record only a no-op or one private assignment with empty allowed effects; it cannot mutate Beads or workspace files. Policy mismatch returns `blocked` and exit 3.
+- `agnt quality status --json`
+  - Reports current mode, policy identity, and private receipt/application/assignment counts.
+
+All quality runtime writes are bounded and private (`0700` directories, `0600` files). Invalid input or unsafe private state returns a sanitized JSON error and exit 2. Omit `--payload` or `--snapshot` to read JSON from stdin. See `pi/agent/quality/SPEC.md` for invariants and failure modes.
 
 ## Private improvement review
 

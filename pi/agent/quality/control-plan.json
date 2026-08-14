@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "observe-v1",
+  "mode": "observe",
+  "activities": [
+    {
+      "id": "capture",
+      "source": "Pi lifecycle and direct-work boundaries",
+      "inputs": ["invocation facts", "result facts", "evidence references"],
+      "trigger": "A root session starts, settles, or records an explicit work-item outcome.",
+      "owner": "agnt quality capture",
+      "method": "Record minimal schema-validated local facts.",
+      "output": "Private invocation or result record",
+      "receiver": "Local quality ledger",
+      "acceptanceRule": "Record is private, bounded, schema-valid, and linked to one session and work item.",
+      "evidence": ["invocation record", "result record", "explicit evidence gaps"],
+      "budget": {
+        "unit": "invocation-share",
+        "limitPercent": 5
+      },
+      "escalation": "Fail closed on invalid local authority; report optional projection gaps.",
+      "retirementCondition": "Retire only when another local authoritative lifecycle adapter preserves this contract."
+    },
+    {
+      "id": "work-learning",
+      "source": "Settled direct-work and invocation results",
+      "inputs": ["accepted outcomes", "avoidable failures", "user corrections", "repeated friction"],
+      "trigger": "A settled work item exposes a correction, failure, friction signal, or review backstop.",
+      "owner": "Harness quality policy",
+      "method": "Apply bounded work-learning review methods.",
+      "output": "One decision receipt and at most one private review assignment",
+      "receiver": "Retrospective or skill-learning method",
+      "acceptanceRule": "Claim is evidence-linked, actionable, and separates unknown attribution from observed facts.",
+      "evidence": ["settled result", "correction signal", "review result"],
+      "budget": {
+        "unit": "invocation-share",
+        "limitPercent": 10
+      },
+      "escalation": "Route missing context, repeated recurrence, or consequential intervention to human review.",
+      "retirementCondition": "Retire when no decision uses its signals or another activity fully owns the learning decision."
+    },
+    {
+      "id": "architecture-coherence",
+      "source": "Repository structure, policy, health, and verified change evidence",
+      "inputs": ["boundary drift", "duplication", "context overlap", "stale policy"],
+      "trigger": "A coherence signal crosses its declared threshold or an external backstop requests review.",
+      "owner": "Harness quality policy",
+      "method": "Apply architecture, context-health, and simplification review methods.",
+      "output": "One decision receipt and at most one private review assignment",
+      "receiver": "Architecture or simplification reviewer",
+      "acceptanceRule": "Finding names a current source boundary, evidence, consequence, and bounded intervention.",
+      "evidence": ["source reference", "health result", "verification result"],
+      "budget": {
+        "unit": "invocation-share",
+        "limitPercent": 10
+      },
+      "escalation": "Route broad, irreversible, authority-sensitive, or evidence-poor proposals to human review.",
+      "retirementCondition": "Retire when its signals no longer inform a coherence decision or are absorbed without overlap."
+    },
+    {
+      "id": "capability-calibration",
+      "source": "Exact model, thinking, tool, action, and accepted-result envelopes",
+      "inputs": ["accepted results", "failed results", "capability drift", "proof gaps"],
+      "trigger": "An exact capability envelope gains evidence, drifts, fails critically, or reaches a review backstop.",
+      "owner": "Harness quality policy",
+      "method": "Apply routing calibration and capability lifecycle review.",
+      "output": "One decision receipt and at most one private review assignment",
+      "receiver": "Capability reviewer",
+      "acceptanceRule": "Conclusion is exact-envelope scoped and cannot grant or widen authority.",
+      "evidence": ["invocation envelope", "accepted result", "failure or drift evidence"],
+      "budget": {
+        "unit": "invocation-share",
+        "limitPercent": 10
+      },
+      "escalation": "Revert to observe or disabled and route consequential uncertainty to human review.",
+      "retirementCondition": "Retire when the envelope or decision it calibrates is no longer used."
+    },
+    {
+      "id": "quality-system-review",
+      "source": "Control-plan activities, receipts, interventions, budgets, and quality metrics",
+      "inputs": ["activity coverage", "stale modes", "budget use", "intervention outcomes"],
+      "trigger": "Coverage, staleness, budget, or intervention evidence requires audit, or a backstop requests review.",
+      "owner": "Harness quality policy",
+      "method": "Audit the quality system against its own invariants and retirement rules.",
+      "output": "One decision receipt and at most one private review assignment",
+      "receiver": "Quality-system reviewer",
+      "acceptanceRule": "Review identifies retained, changed, or retired controls without creating a competing registry.",
+      "evidence": ["control plan", "decision receipts", "verified intervention outcomes"],
+      "budget": {
+        "unit": "invocation-share",
+        "limitPercent": 10
+      },
+      "escalation": "Route missing authority, critical control failure, or plan-wide change to human review.",
+      "retirementCondition": "Retire only with the governed quality kernel itself and an explicit replacement decision."
+    }
+  ]
+}

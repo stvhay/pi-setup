@@ -73,7 +73,7 @@ def main(argv: List[str]) -> int:
         "doctor": ("check local Pi/agnt operational readiness", cmd_doctor),
         "langfuse": ("check or apply tracked evaluator configuration", cmd_langfuse),
         "improve": ("scan and review private improvement telemetry", cmd_improve),
-        "quality": ("capture private quality facts", cmd_quality),
+        "quality": ("capture and assess private quality facts", cmd_quality),
         "graphify": ("run graphify knowledge-graph tooling", cmd_graphify),
         "plans-dir": ("print/create the active plans directory", cmd_plans_dir),
     }

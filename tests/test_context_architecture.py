@@ -165,6 +165,27 @@ def test_retired_runner_automation_surfaces_are_absent():
     assert "orchestrator-startup" not in doctor
 
 
+def test_quality_kernel_remains_cli_only_without_scheduler_or_service():
+    source = (AGENT / "bin" / "agnt_lib" / "quality.py").read_text(encoding="utf-8")
+    for forbidden in ("subprocess.", "time.sleep", "registerTool", "while True"):
+        assert forbidden not in source
+
+
+def test_quality_spec_and_cli_reference_cover_observe_kernel_contract():
+    spec = (AGENT / "quality" / "SPEC.md").read_text(encoding="utf-8")
+    reference = (AGENT / "bin" / "README.md").read_text(encoding="utf-8")
+
+    for heading in ("## Purpose", "## Public Interface", "## Invariants", "## Failure Modes", "## Testing"):
+        assert heading in spec
+    for item in ("INV-1", "INV-2", "INV-3", "INV-4", "FAIL-1", "FAIL-2", "FAIL-3"):
+        assert item in spec
+    for boundary in ("Beads", "workspace", "scheduler", "model-facing"):
+        assert boundary in spec
+    for command in ("quality capture", "quality assess", "quality apply", "quality status"):
+        assert command in reference
+    assert "intentionally absent" not in reference
+
+
 def test_approved_ponytail_surfaces_are_absent():
     assert not (AGENT / "bin" / "agnt_lib" / "graphify.py").exists()
     agnt = (AGENT / "bin" / "agnt").read_text(encoding="utf-8")

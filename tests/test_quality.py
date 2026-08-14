@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import stat
 import sys
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -13,6 +14,30 @@ if str(BIN) not in sys.path:
     sys.path.insert(0, str(BIN))
 
 from agnt_lib import quality
+
+QUALITY_PLAN = BIN.parent / "quality" / "control-plan.json"
+ACTIVITY_FIELDS = {
+    "id",
+    "source",
+    "inputs",
+    "trigger",
+    "owner",
+    "method",
+    "output",
+    "receiver",
+    "acceptanceRule",
+    "evidence",
+    "budget",
+    "escalation",
+    "retirementCondition",
+}
+ACTIVITY_IDS = [
+    "capture",
+    "work-learning",
+    "architecture-coherence",
+    "capability-calibration",
+    "quality-system-review",
+]
 
 
 def beads_ok(args):
@@ -272,3 +297,211 @@ def test_capture_cli_accepts_only_validated_json(monkeypatch, tmp_path, capsys):
         "error": "quality capture failed",
     }
     assert "private body" not in output
+
+
+def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1
+    plan = quality.load_control_plan()
+
+    assert QUALITY_PLAN.is_file()
+    assert set(plan) == {"schemaVersion", "policyVersion", "mode", "activities"}
+    assert plan["schemaVersion"] == 1
+    assert plan["mode"] in {"disabled", "observe"}
+    assert [activity["id"] for activity in plan["activities"]] == ACTIVITY_IDS
+    assert all(set(activity) == ACTIVITY_FIELDS for activity in plan["activities"])
+    assert quality.validate_control_plan(plan) == plan
+
+
+def test_fail1_control_plan_rejects_missing_unknown_and_invalid_fields():  # Tests FAIL-1
+    plan = quality.load_control_plan()
+    missing = deepcopy(plan)
+    missing["activities"][0].pop("source")
+    unknown = deepcopy(plan)
+    unknown["activities"][0]["schedule"] = "daily"
+    bad_inputs = deepcopy(plan)
+    bad_inputs["activities"][0]["inputs"] = []
+    bad_trigger = deepcopy(plan)
+    bad_trigger["activities"][0]["trigger"] = ""
+    bad_budget = deepcopy(plan)
+    bad_budget["activities"][0]["budget"] = {"unit": "invocation-share", "limitPercent": 101}
+    bad_escalation = deepcopy(plan)
+    bad_escalation["activities"][0]["escalation"] = ""
+    bad_retirement = deepcopy(plan)
+    bad_retirement["activities"][0]["retirementCondition"] = ""
+
+    for invalid in (
+        missing,
+        unknown,
+        bad_inputs,
+        bad_trigger,
+        bad_budget,
+        bad_escalation,
+        bad_retirement,
+    ):
+        with pytest.raises(ValueError, match="control plan"):
+            quality.validate_control_plan(invalid)
+
+
+def _snapshot(*, triggered=True, gaps=None):
+    return {
+        "schemaVersion": 1,
+        "triggered": triggered,
+        "evidenceRefs": ["run:quality-1"],
+        "gaps": list(gaps or []),
+        "signals": {"settledResults": 3},
+    }
+
+
+def test_inv2_assessment_is_deterministic_and_emits_at_most_one_packet(tmp_path):  # Tests INV-2
+    first = quality.assess(_snapshot(), "work-learning", directory=tmp_path)
+    second = quality.assess(_snapshot(), "work-learning", directory=tmp_path)
+
+    assert first == second
+    assert first["mode"] == "observe"
+    assert first["authority"] == {"status": "unknown", "allowedEffects": []}
+    assert isinstance(first["workPacket"], dict)
+    assert first["workPacket"]["allowedEffects"] == []
+    assert first["receiptId"] == first["dedupeKey"]
+    receipts = (tmp_path / "receipts.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(receipts) == 1
+    assert json.loads(receipts[0]) == first
+
+
+def test_fail2_assessment_rejects_malformed_snapshot_and_unsafe_evidence(tmp_path):  # Tests FAIL-2
+    with pytest.raises(ValueError, match="snapshot"):
+        quality.assess({**_snapshot(), "rawPrompt": "private"}, "capture", directory=tmp_path)
+    with pytest.raises(ValueError, match="evidence"):
+        quality.assess(
+            {**_snapshot(), "evidenceRefs": ["https://private.example"]},
+            "capture",
+            directory=tmp_path,
+        )
+    with pytest.raises(ValueError, match="activity"):
+        quality.assess(_snapshot(), "unknown-activity", directory=tmp_path)
+
+
+def test_inv3_apply_is_private_observe_only_and_idempotent(tmp_path):  # Tests INV-3
+    receipt = quality.assess(_snapshot(gaps=["review-context-unavailable"]), "work-learning", directory=tmp_path)
+
+    first = quality.apply(receipt["receiptId"], directory=tmp_path)
+    second = quality.apply(receipt["receiptId"], directory=tmp_path)
+
+    assert first == second
+    assert first == {
+        "schemaVersion": 1,
+        "status": "observed",
+        "receiptId": receipt["receiptId"],
+        "activity": "work-learning",
+        "authority": {"status": "unknown", "allowedEffects": []},
+        "assignmentRef": f"artifact:quality-assignment-{receipt['receiptId']}",
+    }
+    assert len((tmp_path / "applications.jsonl").read_text(encoding="utf-8").splitlines()) == 1
+    assignments = list((tmp_path / "assignments").glob("*.json"))
+    assert len(assignments) == 1
+    assert json.loads(assignments[0].read_text(encoding="utf-8")) == receipt["workPacket"]
+
+
+def test_inv4_disabled_and_stale_policy_cannot_create_assignment(tmp_path):  # Tests INV-4
+    plan = quality.load_control_plan()
+    disabled = deepcopy(plan)
+    disabled["mode"] = "disabled"
+    policy_path = tmp_path / "control-plan.json"
+    policy_path.write_text(json.dumps(disabled), encoding="utf-8")
+
+    receipt = quality.assess(_snapshot(), "capture", directory=tmp_path, plan_path=policy_path)
+    assert receipt["mode"] == "disabled"
+    assert receipt["workPacket"] is None
+    assert quality.apply(receipt["receiptId"], directory=tmp_path, plan_path=policy_path)["status"] == "disabled"
+    assert not (tmp_path / "assignments").exists()
+
+    current = deepcopy(plan)
+    policy_path.write_text(json.dumps(current), encoding="utf-8")
+    stale = quality.assess(_snapshot(), "capture", directory=tmp_path, plan_path=policy_path)
+    current["policyVersion"] = "observe-v2"
+    policy_path.write_text(json.dumps(current), encoding="utf-8")
+    blocked = quality.apply(stale["receiptId"], directory=tmp_path, plan_path=policy_path)
+    assert blocked["status"] == "blocked"
+    assert blocked["reason"] == "policy-mismatch"
+    assert not (tmp_path / "assignments").exists()
+
+
+def test_fail3_non_triggered_receipt_cannot_smuggle_assignment(tmp_path):  # Tests FAIL-3
+    packet = quality.assess(_snapshot(), "capture", directory=tmp_path)["workPacket"]
+    receipt = quality.assess(_snapshot(triggered=False), "capture", directory=tmp_path)
+    tampered = {**receipt, "workPacket": packet}
+    core = {key: value for key, value in tampered.items() if key not in {"receiptId", "dedupeKey"}}
+    tampered_id = "quality-" + quality._fingerprint(core).partition(":")[2]
+    tampered.update({"receiptId": tampered_id, "dedupeKey": tampered_id})
+    with (tmp_path / "receipts.jsonl").open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(tampered, sort_keys=True, separators=(",", ":")) + "\n")
+
+    with pytest.raises(ValueError, match="receipt"):
+        quality.apply(tampered_id, directory=tmp_path)
+    assert not (tmp_path / "assignments").exists()
+
+
+def test_fail3_apply_rejects_missing_receipt(tmp_path):  # Tests FAIL-3
+    with pytest.raises(ValueError, match="receipt"):
+        quality.apply("missing-receipt", directory=tmp_path)
+
+
+def test_fail3_status_rejects_inconsistent_application(tmp_path):  # Tests FAIL-3
+    application = {
+        "schemaVersion": 1,
+        "status": "observed",
+        "receiptId": "quality-receipt",
+        "activity": "capture",
+        "authority": {"status": "unknown", "allowedEffects": []},
+        "assignmentRef": None,
+    }
+    path = tmp_path / "applications.jsonl"
+    path.write_text(json.dumps(application) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(ValueError, match="application"):
+        quality.quality_status(directory=tmp_path)
+
+
+def test_quality_assess_apply_status_cli_contract(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda kind: tmp_path)
+    snapshot = json.dumps(_snapshot())
+
+    assert quality.cmd_quality([
+        "assess",
+        "--activity",
+        "architecture-coherence",
+        "--snapshot",
+        snapshot,
+        "--json",
+    ]) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["activity"] == "architecture-coherence"
+
+    assert quality.cmd_quality(["apply", "--receipt", receipt["receiptId"], "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "observed"
+
+    assert quality.cmd_quality(["status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status == {
+        "schemaVersion": 1,
+        "status": "ok",
+        "mode": "observe",
+        "policyVersion": "observe-v1",
+        "policyFingerprint": receipt["policyFingerprint"],
+        "receipts": 1,
+        "applications": 1,
+        "assignments": 1,
+    }
+
+    assert quality.cmd_quality([
+        "assess",
+        "--activity",
+        "unknown-activity",
+        "--snapshot",
+        snapshot,
+        "--json",
+    ]) == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "schemaVersion": 1,
+        "status": "error",
+        "error": "quality assess failed",
+    }

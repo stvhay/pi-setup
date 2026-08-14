@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -25,9 +26,36 @@ SENSITIVE_REF = re.compile(
 )
 JWT_REF = re.compile(r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\Z")
 TASK_OUTCOMES = frozenset({"success", "partial", "failure", "unclear"})
+ACTIVITY_IDS = (
+    "capture",
+    "work-learning",
+    "architecture-coherence",
+    "capability-calibration",
+    "quality-system-review",
+)
+ACTIVITY_FIELDS = frozenset({
+    "id",
+    "source",
+    "inputs",
+    "trigger",
+    "owner",
+    "method",
+    "output",
+    "receiver",
+    "acceptanceRule",
+    "evidence",
+    "budget",
+    "escalation",
+    "retirementCondition",
+})
+CONTROL_PLAN_PATH = Path(__file__).resolve().parents[2] / "quality" / "control-plan.json"
 LEDGER_NAME = "ledger.jsonl"
+RECEIPTS_NAME = "receipts.jsonl"
+APPLICATIONS_NAME = "applications.jsonl"
 MAX_EVIDENCE_REFS = 16
 MAX_LEDGER_BYTES = 16 * 1024 * 1024
+MAX_SNAPSHOT_BYTES = 64 * 1024
+HASH_REF = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 class SessionWorkItemConflict(ValueError):
@@ -93,13 +121,14 @@ def _quality_directory(directory: str | os.PathLike[str] | None = None) -> Path:
 
 
 @contextmanager
-def _locked_ledger(
+def _locked_store(
     directory: str | os.PathLike[str] | None,
+    name: str,
     *,
     exclusive: bool,
 ) -> Iterator[tuple[int | None, Path]]:
     root = _quality_directory(directory)
-    path = root / LEDGER_NAME
+    path = root / name
     flags = (os.O_RDWR | os.O_CREAT | os.O_APPEND) if exclusive else os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -113,13 +142,23 @@ def _locked_ledger(
     try:
         mode = os.fstat(fd).st_mode
         if not stat.S_ISREG(mode) or (not exclusive and stat.S_IMODE(mode) != 0o600):
-            raise OSError("quality ledger is not a private regular file")
+            raise OSError("quality store is not a private regular file")
         if exclusive:
             os.fchmod(fd, 0o600)
         fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
         yield fd, root
     finally:
         os.close(fd)
+
+
+@contextmanager
+def _locked_ledger(
+    directory: str | os.PathLike[str] | None,
+    *,
+    exclusive: bool,
+) -> Iterator[tuple[int | None, Path]]:
+    with _locked_store(directory, LEDGER_NAME, exclusive=exclusive) as state:
+        yield state
 
 
 def _validate_row(value: Any) -> dict[str, Any]:
@@ -173,20 +212,24 @@ def _session_state(rows: list[dict[str, Any]], session_id: str) -> tuple[str | N
     return bead_id, outcome
 
 
-def _read_rows(fd: int) -> list[dict[str, Any]]:
+def _read_json_rows(fd: int, validator: Any, label: str) -> list[dict[str, Any]]:
     size = os.fstat(fd).st_size
     if size > MAX_LEDGER_BYTES:
-        raise ValueError("quality ledger exceeds bounded size")
+        raise ValueError(f"quality {label} exceeds bounded size")
     os.lseek(fd, 0, os.SEEK_SET)
     data = os.read(fd, size)
     if not data:
         return []
     if not data.endswith(b"\n"):
-        raise ValueError("quality ledger row is incomplete")
+        raise ValueError(f"quality {label} row is incomplete")
     try:
-        rows = [_validate_row(json.loads(line)) for line in data.decode("utf-8").splitlines()]
+        return [validator(json.loads(line)) for line in data.decode("utf-8").splitlines()]
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("quality ledger row is invalid") from exc
+        raise ValueError(f"quality {label} row is invalid") from exc
+
+
+def _read_rows(fd: int) -> list[dict[str, Any]]:
+    rows = _read_json_rows(fd, _validate_row, "ledger")
     for session_id in {row["sessionId"] for row in rows}:
         _session_state(rows, session_id)
     return rows
@@ -389,6 +432,413 @@ def capture(
     )
 
 
+def _canonical(value: Any) -> str:
+    try:
+        return json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("quality value is not canonical JSON") from exc
+
+
+def _fingerprint(value: Any) -> str:
+    return "sha256:" + hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def _text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= 1000
+
+
+def _text_list(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and len(value) <= 32
+        and all(_text(item) for item in value)
+        and len(set(value)) == len(value)
+    )
+
+
+def validate_control_plan(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "schemaVersion",
+        "policyVersion",
+        "mode",
+        "activities",
+    }:
+        raise ValueError("quality control plan fields are invalid")
+    if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
+        raise ValueError("quality control plan schema is invalid")
+    if not _text(value.get("policyVersion")) or not OPAQUE_ID.fullmatch(value["policyVersion"]):
+        raise ValueError("quality control plan version is invalid")
+    if value.get("mode") not in {"disabled", "observe"}:
+        raise ValueError("quality control plan mode is invalid")
+    activities = value.get("activities")
+    if not isinstance(activities, list) or [item.get("id") if isinstance(item, dict) else None for item in activities] != list(ACTIVITY_IDS):
+        raise ValueError("quality control plan activities are invalid")
+    for activity in activities:
+        if set(activity) != ACTIVITY_FIELDS:
+            raise ValueError("quality control plan activity fields are invalid")
+        for field in (
+            "source",
+            "trigger",
+            "owner",
+            "method",
+            "output",
+            "receiver",
+            "acceptanceRule",
+            "escalation",
+            "retirementCondition",
+        ):
+            if not _text(activity[field]):
+                raise ValueError(f"quality control plan activity {field} is invalid")
+        if not _text_list(activity["inputs"]) or not _text_list(activity["evidence"]):
+            raise ValueError("quality control plan activity inputs or evidence are invalid")
+        budget = activity["budget"]
+        if (
+            not isinstance(budget, dict)
+            or set(budget) != {"unit", "limitPercent"}
+            or budget.get("unit") != "invocation-share"
+            or type(budget.get("limitPercent")) is not int
+            or not 1 <= budget["limitPercent"] <= 20
+        ):
+            raise ValueError("quality control plan activity budget is invalid")
+    return value
+
+
+def load_control_plan(
+    plan_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    path = Path(plan_path) if plan_path is not None else CONTROL_PLAN_PATH
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("quality control plan is unavailable") from exc
+    return validate_control_plan(value)
+
+
+def _gaps(value: Any) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or len(value) > MAX_EVIDENCE_REFS
+        or any(not isinstance(item, str) or not OPAQUE_ID.fullmatch(item) for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError("quality snapshot gaps are invalid")
+    return value
+
+
+def _validate_snapshot(value: Any) -> dict[str, Any]:
+    fields = {"schemaVersion", "triggered", "evidenceRefs", "gaps", "signals"}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError("quality snapshot fields are invalid")
+    if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
+        raise ValueError("quality snapshot schema is invalid")
+    if type(value.get("triggered")) is not bool or not isinstance(value.get("signals"), dict):
+        raise ValueError("quality snapshot trigger or signals are invalid")
+    if any(not _text(key) for key in value["signals"]):
+        raise ValueError("quality snapshot signals are invalid")
+    _evidence_refs(value.get("evidenceRefs"))
+    _gaps(value.get("gaps"))
+    if len(_canonical(value).encode("utf-8")) > MAX_SNAPSHOT_BYTES:
+        raise ValueError("quality snapshot exceeds bounded size")
+    return value
+
+
+def _validate_work_packet(value: Any, *, activity: str, mode: str) -> dict[str, Any] | None:
+    if value is None and mode in {"disabled", "observe"}:
+        return None
+    fields = {
+        "schemaVersion",
+        "activity",
+        "method",
+        "receiver",
+        "evidenceRefs",
+        "gaps",
+        "allowedEffects",
+    }
+    if (
+        mode != "observe"
+        or not isinstance(value, dict)
+        or set(value) != fields
+        or value.get("schemaVersion") != 1
+        or value.get("activity") != activity
+        or not _text(value.get("method"))
+        or not _text(value.get("receiver"))
+        or value.get("allowedEffects") != []
+    ):
+        raise ValueError("quality receipt work packet is invalid")
+    _evidence_refs(value.get("evidenceRefs"))
+    _gaps(value.get("gaps"))
+    return value
+
+
+def _validate_receipt(value: Any) -> dict[str, Any]:
+    fields = {
+        "schemaVersion",
+        "receiptId",
+        "dedupeKey",
+        "policyVersion",
+        "policyFingerprint",
+        "snapshotFingerprint",
+        "activity",
+        "mode",
+        "triggerReason",
+        "evidenceRefs",
+        "gaps",
+        "authority",
+        "workPacket",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError("quality receipt fields are invalid")
+    if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
+        raise ValueError("quality receipt schema is invalid")
+    if value.get("activity") not in ACTIVITY_IDS or value.get("mode") not in {"disabled", "observe"}:
+        raise ValueError("quality receipt decision is invalid")
+    if (
+        not _text(value.get("policyVersion"))
+        or not OPAQUE_ID.fullmatch(value["policyVersion"])
+        or not _text(value.get("triggerReason"))
+    ):
+        raise ValueError("quality receipt context is invalid")
+    if not HASH_REF.fullmatch(str(value.get("policyFingerprint") or "")) or not HASH_REF.fullmatch(str(value.get("snapshotFingerprint") or "")):
+        raise ValueError("quality receipt fingerprint is invalid")
+    _evidence_refs(value.get("evidenceRefs"))
+    _gaps(value.get("gaps"))
+    if value.get("authority") != {"status": "unknown", "allowedEffects": []}:
+        raise ValueError("quality receipt authority is invalid")
+    packet = _validate_work_packet(
+        value.get("workPacket"), activity=value["activity"], mode=value["mode"]
+    )
+    if value["mode"] == "observe" and (value["triggerReason"] == "not-triggered") != (packet is None):
+        raise ValueError("quality receipt trigger and work packet conflict")
+    if packet is not None and (
+        packet["evidenceRefs"] != value["evidenceRefs"] or packet["gaps"] != value["gaps"]
+    ):
+        raise ValueError("quality receipt evidence and work packet conflict")
+    core = {key: item for key, item in value.items() if key not in {"receiptId", "dedupeKey"}}
+    expected_id = "quality-" + _fingerprint(core).partition(":")[2]
+    if value.get("receiptId") != expected_id or value.get("dedupeKey") != expected_id:
+        raise ValueError("quality receipt identity is invalid")
+    return value
+
+
+def _validate_application(value: Any) -> dict[str, Any]:
+    fields = {"schemaVersion", "status", "receiptId", "activity", "authority", "assignmentRef"}
+    if (
+        not isinstance(value, dict)
+        or set(value) != fields
+        or value.get("schemaVersion") != 1
+        or value.get("status") not in {"observed", "disabled", "not-due"}
+        or value.get("activity") not in ACTIVITY_IDS
+        or value.get("authority") != {"status": "unknown", "allowedEffects": []}
+        or not isinstance(value.get("receiptId"), str)
+        or not OPAQUE_ID.fullmatch(value["receiptId"])
+    ):
+        raise ValueError("quality application row is invalid")
+    assignment_ref = value.get("assignmentRef")
+    expected_ref = f"artifact:quality-assignment-{value['receiptId']}"
+    if (value["status"] == "observed" and assignment_ref != expected_ref) or (
+        value["status"] != "observed" and assignment_ref is not None
+    ):
+        raise ValueError("quality application assignment reference is invalid")
+    return value
+
+
+def _persist_receipt(receipt: dict[str, Any], directory: str | os.PathLike[str] | None) -> None:
+    with _locked_store(directory, RECEIPTS_NAME, exclusive=True) as (fd, root):
+        assert fd is not None
+        rows = _read_json_rows(fd, _validate_receipt, "receipt")
+        matches = [row for row in rows if row["receiptId"] == receipt["receiptId"]]
+        if matches and any(row != receipt for row in matches):
+            raise ValueError("quality receipt identity conflicts")
+        if not matches:
+            _append_row(fd, root, receipt)
+
+
+def assess(
+    snapshot: Any,
+    activity: str,
+    *,
+    directory: str | os.PathLike[str] | None = None,
+    plan_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    plan = load_control_plan(plan_path)
+    snapshot = _validate_snapshot(snapshot)
+    selected = next((item for item in plan["activities"] if item["id"] == activity), None)
+    if selected is None:
+        raise ValueError("quality activity is unknown")
+    triggered = snapshot["triggered"]
+    packet = None
+    if plan["mode"] == "observe" and triggered:
+        packet = {
+            "schemaVersion": 1,
+            "activity": activity,
+            "method": selected["method"],
+            "receiver": selected["receiver"],
+            "evidenceRefs": snapshot["evidenceRefs"],
+            "gaps": snapshot["gaps"],
+            "allowedEffects": [],
+        }
+    core = {
+        "schemaVersion": 1,
+        "policyVersion": plan["policyVersion"],
+        "policyFingerprint": _fingerprint(plan),
+        "snapshotFingerprint": _fingerprint(snapshot),
+        "activity": activity,
+        "mode": plan["mode"],
+        "triggerReason": selected["trigger"] if triggered else "not-triggered",
+        "evidenceRefs": snapshot["evidenceRefs"],
+        "gaps": snapshot["gaps"],
+        "authority": {"status": "unknown", "allowedEffects": []},
+        "workPacket": packet,
+    }
+    receipt_id = "quality-" + _fingerprint(core).partition(":")[2]
+    receipt = _validate_receipt({**core, "receiptId": receipt_id, "dedupeKey": receipt_id})
+    _persist_receipt(receipt, directory)
+    return receipt
+
+
+def _load_receipt(
+    receipt_id: str,
+    directory: str | os.PathLike[str] | None,
+) -> dict[str, Any]:
+    if not isinstance(receipt_id, str) or not OPAQUE_ID.fullmatch(receipt_id):
+        raise ValueError("quality receipt ID is invalid")
+    with _locked_store(directory, RECEIPTS_NAME, exclusive=False) as (fd, _root):
+        rows = _read_json_rows(fd, _validate_receipt, "receipt") if fd is not None else []
+    matches = [row for row in rows if row["receiptId"] == receipt_id]
+    if len(matches) != 1:
+        raise ValueError("quality receipt is unavailable")
+    return matches[0]
+
+
+def _write_private_assignment(
+    root: Path,
+    receipt_id: str,
+    packet: dict[str, Any],
+) -> str:
+    assignments = root / "assignments"
+    assignments.mkdir(mode=0o700, exist_ok=True)
+    if assignments.is_symlink() or not assignments.is_dir():
+        raise OSError("quality assignments path is not a directory")
+    assignments.chmod(0o700)
+    path = assignments / f"{receipt_id}.json"
+    encoded = (_canonical(packet) + "\n").encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError:
+        existing_flags = os.O_RDONLY | (os.O_NOFOLLOW if hasattr(os, "O_NOFOLLOW") else 0)
+        existing = os.open(path, existing_flags)
+        try:
+            mode = os.fstat(existing).st_mode
+            data = os.read(existing, len(encoded) + 1)
+            if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o600 or data != encoded:
+                raise OSError("quality assignment conflicts")
+        finally:
+            os.close(existing)
+    else:
+        try:
+            os.fchmod(fd, 0o600)
+            view = memoryview(encoded)
+            while view:
+                view = view[os.write(fd, view):]
+            os.fsync(fd)
+        except Exception:
+            os.close(fd)
+            path.unlink(missing_ok=True)
+            raise
+        else:
+            os.close(fd)
+            directory_fd = os.open(assignments, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    return f"artifact:quality-assignment-{receipt_id}"
+
+
+def apply(
+    receipt_id: str,
+    *,
+    directory: str | os.PathLike[str] | None = None,
+    plan_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    receipt = _load_receipt(receipt_id, directory)
+    plan = load_control_plan(plan_path)
+    if receipt["policyFingerprint"] != _fingerprint(plan):
+        return {
+            "schemaVersion": 1,
+            "status": "blocked",
+            "receiptId": receipt_id,
+            "reason": "policy-mismatch",
+        }
+    activity = next(item for item in plan["activities"] if item["id"] == receipt["activity"])
+    packet = receipt["workPacket"]
+    if (
+        receipt["policyVersion"] != plan["policyVersion"]
+        or receipt["mode"] != plan["mode"]
+        or receipt["triggerReason"] not in {"not-triggered", activity["trigger"]}
+        or (
+            packet is not None
+            and (
+                packet["method"] != activity["method"]
+                or packet["receiver"] != activity["receiver"]
+            )
+        )
+    ):
+        raise ValueError("quality receipt does not match current control plan")
+    with _locked_store(directory, APPLICATIONS_NAME, exclusive=True) as (fd, root):
+        assert fd is not None
+        rows = _read_json_rows(fd, _validate_application, "application")
+        matches = [row for row in rows if row["receiptId"] == receipt_id]
+        if len(matches) > 1:
+            raise ValueError("quality application identity conflicts")
+        if matches:
+            return matches[0]
+        assignment_ref = _write_private_assignment(root, receipt_id, packet) if packet is not None else None
+        status = "observed" if packet is not None else "disabled" if receipt["mode"] == "disabled" else "not-due"
+        result = _validate_application({
+            "schemaVersion": 1,
+            "status": status,
+            "receiptId": receipt_id,
+            "activity": receipt["activity"],
+            "authority": receipt["authority"],
+            "assignmentRef": assignment_ref,
+        })
+        _append_row(fd, root, result)
+        return result
+
+
+def quality_status(
+    *,
+    directory: str | os.PathLike[str] | None = None,
+    plan_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    plan = load_control_plan(plan_path)
+    with _locked_store(directory, RECEIPTS_NAME, exclusive=False) as (fd, _root):
+        receipts = _read_json_rows(fd, _validate_receipt, "receipt") if fd is not None else []
+    with _locked_store(directory, APPLICATIONS_NAME, exclusive=False) as (fd, _root):
+        applications = _read_json_rows(fd, _validate_application, "application") if fd is not None else []
+    return {
+        "schemaVersion": 1,
+        "status": "ok",
+        "mode": plan["mode"],
+        "policyVersion": plan["policyVersion"],
+        "policyFingerprint": _fingerprint(plan),
+        "receipts": len(receipts),
+        "applications": len(applications),
+        "assignments": sum(item["assignmentRef"] is not None for item in applications),
+    }
+
+
 def _beads(args: list[str]) -> tuple[int, Any, str]:
     from .work import run_beads_json
 
@@ -396,20 +846,41 @@ def _beads(args: list[str]) -> tuple[int, Any, str]:
 
 
 def cmd_quality(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="agnt quality", description="Capture private quality facts.")
+    parser = argparse.ArgumentParser(
+        prog="agnt quality",
+        description="Capture facts and assess or apply observe-only quality policy.",
+    )
     sub = parser.add_subparsers(dest="action")
     capture_cmd = sub.add_parser("capture", help="append a validated invocation or result fact")
     capture_cmd.add_argument("--payload", help="JSON capture payload; defaults to stdin")
     capture_cmd.add_argument("--json", action="store_true")
+    assess_cmd = sub.add_parser("assess", help="persist one deterministic decision receipt")
+    assess_cmd.add_argument("--activity", required=True)
+    assess_cmd.add_argument("--snapshot", help="JSON snapshot; defaults to stdin")
+    assess_cmd.add_argument("--json", action="store_true")
+    apply_cmd = sub.add_parser("apply", help="apply one current receipt within observe-only policy")
+    apply_cmd.add_argument("--receipt", required=True)
+    apply_cmd.add_argument("--json", action="store_true")
+    status_cmd = sub.add_parser("status", help="show current policy and private receipt counts")
+    status_cmd.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    if args.action != "capture":
+    if args.action is None:
         parser.print_help()
         return 0
     try:
-        raw = args.payload if args.payload is not None else sys.stdin.read()
-        result = capture(json.loads(raw), beads_runner=_beads)
+        if args.action == "capture":
+            raw = args.payload if args.payload is not None else sys.stdin.read()
+            result = capture(json.loads(raw), beads_runner=_beads)
+        elif args.action == "assess":
+            raw = args.snapshot if args.snapshot is not None else sys.stdin.read()
+            result = assess(json.loads(raw), args.activity)
+        elif args.action == "apply":
+            result = apply(args.receipt)
+        else:
+            result = quality_status()
     except (json.JSONDecodeError, OSError, ValueError):
-        print(json.dumps({"schemaVersion": 1, "status": "error", "error": "quality capture failed"}))
+        error = f"quality {args.action} failed"
+        print(json.dumps({"schemaVersion": 1, "status": "error", "error": error}))
         return 2
     print(json.dumps(result, indent=2 if args.json else None, sort_keys=True))
-    return 0
+    return 3 if result.get("status") == "blocked" else 0
