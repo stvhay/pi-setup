@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "policyVersion": "observe-v2",
+  "policyVersion": "observe-v3",
   "mode": "observe",
   "activities": [
     {
@@ -92,6 +92,152 @@
       },
       "escalation": "Route missing authority, critical control failure, or plan-wide change to human review.",
       "retirementCondition": "Retire only with the governed quality kernel itself and an explicit replacement decision."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "gate-conformance",
+      "owner": "Harness quality policy",
+      "type": "rate",
+      "numerator": "results that satisfy required gates",
+      "denominator": "results with a complete gate verdict",
+      "missingness": "Unknown when any gate verdict is absent, incomplete, or lower-bound.",
+      "decision": "Keep gate controls or route gate drift to architecture-coherence review.",
+      "cadence": "Each settled result and quality-system-review backstop.",
+      "gamingRisk": "Selective gate recording can inflate the rate; missing verdicts never count as success.",
+      "retirementCondition": "Retire only when a replacement gate-conformance decision metric is approved."
+    },
+    {
+      "id": "accepted-outcome-rate",
+      "owner": "Harness quality policy",
+      "type": "rate",
+      "numerator": "accepted or verified-pass results",
+      "denominator": "results with accepted, verified-pass, rejected, or verified-fail outcomes",
+      "missingness": "Unknown or lower-bound outcomes are excluded from success and keep state non-eligible.",
+      "decision": "Inform routing and work-learning review; never authorize an effect.",
+      "cadence": "Each settled result and cohort review.",
+      "gamingRisk": "Unsettled results can be hidden; unknown outcomes remain visible and non-success.",
+      "retirementCondition": "Retire when no routing or learning decision uses settled outcome evidence."
+    },
+    {
+      "id": "recurrence-escape-rate",
+      "owner": "Harness quality policy",
+      "type": "rate",
+      "numerator": "monitored corrective actions marked recurrent",
+      "denominator": "monitored corrective actions with settled monitoring state",
+      "missingness": "Unknown or lower-bound cohorts cannot be treated as non-recurrent.",
+      "decision": "Revoke applicable capability and create bounded follow-up when recurrence is confirmed.",
+      "cadence": "Each monitoring cohort settlement.",
+      "gamingRisk": "Premature cohort closure hides recurrence; insufficient samples remain monitoring.",
+      "retirementCondition": "Retire when recurrence is governed by a reviewed replacement metric."
+    },
+    {
+      "id": "verified-finding-precision",
+      "owner": "Review owner",
+      "type": "rate",
+      "numerator": "confirmed findings",
+      "denominator": "confirmed plus refuted findings",
+      "missingness": "Unverified or unresolved findings mark the measure lower-bound, not successful.",
+      "decision": "Tune reviewer assignment and verification requirements.",
+      "cadence": "Each settled review batch.",
+      "gamingRisk": "Dropping unresolved findings inflates precision; unresolved evidence remains lower-bound.",
+      "retirementCondition": "Retire when verified finding precision no longer changes reviewer policy."
+    },
+    {
+      "id": "reviewer-calibration",
+      "owner": "Capability-calibration activity",
+      "type": "rate",
+      "numerator": "reviewers within accepted calibration envelope",
+      "denominator": "reviewers with a settled calibration result",
+      "missingness": "Missing calibration results are unknown and non-eligible.",
+      "decision": "Keep, narrow, or route reviewer capability for human review.",
+      "cadence": "Calibration checkpoint and quality-system-review backstop.",
+      "gamingRisk": "Only easy calibration cases can overstate capability; exact-envelope scope is retained.",
+      "retirementCondition": "Retire when capability decisions use a reviewed replacement calibration measure."
+    },
+    {
+      "id": "settled-review-coverage",
+      "owner": "Work-learning activity",
+      "type": "rate",
+      "numerator": "review-required results with a settled review",
+      "denominator": "results requiring review",
+      "missingness": "Unknown review requirement or incomplete review linkage is non-success.",
+      "decision": "Route uncovered consequential work to review or human attention.",
+      "cadence": "Each work-item closeout and cohort backstop.",
+      "gamingRisk": "Marking work as not requiring review hides coverage gaps; requirement facts stay explicit.",
+      "retirementCondition": "Retire when settled review coverage no longer gates any decision."
+    },
+    {
+      "id": "evidence-completeness",
+      "owner": "Capture activity",
+      "type": "rate",
+      "numerator": "results with complete evidence",
+      "denominator": "results with an evidence verdict",
+      "missingness": "Absent, partial, or lower-bound evidence is not success.",
+      "decision": "Keep guards and route evidence gaps before quality conclusions.",
+      "cadence": "Every invocation/result settlement.",
+      "gamingRisk": "Reporting only complete artifacts hides loss; missing evidence stays unknown.",
+      "retirementCondition": "Retire only when a replacement completeness guard is accepted."
+    },
+    {
+      "id": "privacy-violation-count",
+      "owner": "Harness quality policy",
+      "type": "count",
+      "numerator": "observed privacy violations",
+      "denominator": "all bounded evidence sources checked for privacy",
+      "missingness": "Unknown source coverage cannot be reported as zero.",
+      "decision": "Any known violation blocks success and routes immediate remediation.",
+      "cadence": "Every evidence settlement and quality-system-review.",
+      "gamingRisk": "Omitting source checks hides violations; this is zero-tolerance and incomplete is unknown.",
+      "retirementCondition": "Never retire without an equal-or-stronger zero-tolerance privacy guard."
+    },
+    {
+      "id": "unauthorized-mutation-count",
+      "owner": "Authority policy",
+      "type": "count",
+      "numerator": "observed mutations outside granted effects",
+      "denominator": "all bounded effect records checked for authority",
+      "missingness": "Unknown effect coverage cannot be reported as zero.",
+      "decision": "Any known unauthorized mutation blocks success and revokes applicable authority.",
+      "cadence": "Every effect settlement and quality-system-review.",
+      "gamingRisk": "Unrecorded effects hide violations; incomplete authority evidence is unknown.",
+      "retirementCondition": "Never retire without an equal-or-stronger zero-tolerance authority guard."
+    },
+    {
+      "id": "marginal-quality-spend",
+      "owner": "Quality-system-review activity",
+      "type": "currency-per-improvement",
+      "numerator": "measured quality-activity spend",
+      "denominator": "confirmed corrective improvements",
+      "missingness": "Unknown cost or unconfirmed improvement is excluded from success claims.",
+      "decision": "Keep quality work within its declared resource budget or escalate.",
+      "cadence": "Each settled improvement cohort.",
+      "gamingRisk": "Unpriced work makes spend appear low; missing cost remains unknown.",
+      "retirementCondition": "Retire when resource-budget decisions use a reviewed replacement measure."
+    },
+    {
+      "id": "human-attention-allocation",
+      "owner": "Delegation-oversight policy",
+      "type": "rate",
+      "numerator": "settled reviews receiving human attention",
+      "denominator": "settled reviews with reviewer class",
+      "missingness": "Missing reviewer class is unknown and non-eligible.",
+      "decision": "Balance human attention against risk and uncertainty; never optimize a score.",
+      "cadence": "Each settled review batch.",
+      "gamingRisk": "Review class can be mislabeled; provenance remains required.",
+      "retirementCondition": "Retire when human-attention routing uses a reviewed replacement measure."
+    },
+    {
+      "id": "corrective-action-effectiveness",
+      "owner": "Work-learning activity",
+      "type": "rate",
+      "numerator": "corrective actions with validated cohorts",
+      "denominator": "corrective actions with validated or recurrent cohorts",
+      "missingness": "Monitoring, incomplete, or lower-bound cohorts are not success.",
+      "decision": "Retain validated changes; revoke or revisit recurrent changes.",
+      "cadence": "Each matched monitoring cohort settlement.",
+      "gamingRisk": "Closing monitoring early overstates effectiveness; insufficient samples stay monitoring.",
+      "retirementCondition": "Retire when corrective-action decisions use a reviewed replacement measure."
     }
   ]
 }

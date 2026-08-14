@@ -816,11 +816,12 @@ def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1
     plan = quality.load_control_plan()
 
     assert QUALITY_PLAN.is_file()
-    assert set(plan) == {"schemaVersion", "policyVersion", "mode", "activities"}
+    assert set(plan) == {"schemaVersion", "policyVersion", "mode", "activities", "metrics"}
     assert plan["schemaVersion"] == 1
     assert plan["mode"] in {"disabled", "observe"}
     assert [activity["id"] for activity in plan["activities"]] == ACTIVITY_IDS
     assert all(set(activity) == ACTIVITY_FIELDS for activity in plan["activities"])
+    assert len(plan["metrics"]) == 12
     assert quality.validate_control_plan(plan) == plan
 
 
@@ -840,6 +841,10 @@ def test_fail1_control_plan_rejects_missing_unknown_and_invalid_fields():  # Tes
     bad_escalation["activities"][0]["escalation"] = ""
     bad_retirement = deepcopy(plan)
     bad_retirement["activities"][0]["retirementCondition"] = ""
+    too_many_metrics = deepcopy(plan)
+    too_many_metrics["metrics"].append(deepcopy(plan["metrics"][0]))
+    bad_metric = deepcopy(plan)
+    bad_metric["metrics"][0].pop("decision")
 
     for invalid in (
         missing,
@@ -849,9 +854,46 @@ def test_fail1_control_plan_rejects_missing_unknown_and_invalid_fields():  # Tes
         bad_budget,
         bad_escalation,
         bad_retirement,
+        too_many_metrics,
+        bad_metric,
     ):
         with pytest.raises(ValueError, match="control plan"):
             quality.validate_control_plan(invalid)
+
+
+def test_inv12_core_metrics_are_decision_linked_and_bounded():  # Tests INV-12
+    plan = quality.load_control_plan()
+    assert [metric["id"] for metric in plan["metrics"]] == list(quality.CORE_METRIC_IDS)
+    assert all(
+        set(metric) == quality.CORE_METRIC_FIELDS
+        and all(isinstance(metric[field], str) and metric[field] for field in quality.CORE_METRIC_FIELDS - {"id"})
+        for metric in plan["metrics"]
+    )
+
+
+def test_inv12_unknown_and_lower_bound_metrics_cannot_count_as_success():  # Tests INV-12
+    report = quality.derive_core_metrics(
+        results=[
+            {"id": "r-1", "outcome": "accepted", "evidenceState": "lower-bound"},
+            {"id": "r-2", "outcome": "unknown", "evidenceState": "unknown"},
+        ],
+        monitoring=[{"status": "recurrent", "evidenceState": "lower-bound"}],
+    )
+
+    assert report["metricCount"] == 12
+    assert report["metrics"]["accepted-outcome-rate"]["state"] == "lower-bound"
+    assert report["metrics"]["accepted-outcome-rate"]["decisionEligible"] is False
+    assert report["metrics"]["recurrence-escape-rate"]["state"] == "lower-bound"
+    assert report["metrics"]["recurrence-escape-rate"]["decisionEligible"] is False
+
+
+def test_inv12_zero_tolerance_metrics_require_complete_evidence():  # Tests INV-12
+    report = quality.derive_core_metrics(results=[{"id": "r-1"}])
+
+    for metric_id in ("privacy-violation-count", "unauthorized-mutation-count"):
+        metric = report["metrics"][metric_id]
+        assert metric["state"] == "unknown"
+        assert metric["decisionEligible"] is False
 
 
 def _snapshot(*, triggered=True, gaps=None):

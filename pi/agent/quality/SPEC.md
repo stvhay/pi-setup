@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Provide one Git-tracked quality control plan, one deterministic local entry point for quality assessment, one bounded private semantic-review contract, typed agent/interview/decision/editor/takeover result adapters, and one shared actionable Finding/EvidenceRef core. Current policy supports only `disabled` and `observe`; it cannot authorize or perform external effects.
+Provide one Git-tracked quality control plan, one deterministic local entry point for quality assessment, one bounded private semantic-review contract, typed agent/interview/decision/editor/takeover result adapters, one shared actionable Finding/EvidenceRef core, and at most 12 decision-linked core metrics. Current policy supports only `disabled` and `observe`; it cannot authorize or perform external effects.
 
 ## Core Mechanism
 
-`control-plan.json` defines five activities. `durable_activity_snapshots()` maps bounded Beads, Git, run, health, context, and eligible-session signals into those activities. `agnt_lib.quality.assess()` validates a bounded snapshot, fingerprints snapshot and policy, and appends one immutable receipt to private runtime state. `apply()` reloads that receipt and current policy, then records a no-op result or one private review assignment. `quality_status()` reports policy identity and private record counts.
+`control-plan.json` defines five activities and the 12-metric ceiling with owner, type, numerator, denominator, missingness, decision, cadence, gaming-risk, and retirement metadata. `durable_activity_snapshots()` maps bounded Beads, Git, run, health, context, and eligible-session signals into those activities. `agnt_lib.quality.assess()` validates a bounded snapshot, fingerprints snapshot and policy, and appends one immutable receipt to private runtime state. `apply()` reloads that receipt and current policy, then records a no-op result or one private review assignment. `derive_core_metrics()` computes metric observations from supplied receipts, results, annotations, and monitoring without writing another store. Unknown and lower-bound observations are never decision-eligible; privacy and unauthorized-mutation metrics are zero-tolerance guards. `quality_status()` reports policy identity and private record counts.
 
 `validate_finding()` and `validate_evidence_ref()` define only fields shared by actionable findings. Review, health, and improvement adapters retain their domain fields; this contract does not replace their enclosing result schemas. Public adapters may carry only core fields plus an explicit safe extension allowlist, so raw private evidence stays behind bounded EvidenceRefs. Improvement schema-3 packets expose one private EvidenceRef per session and deterministically emit one colocated ReviewAssignment. That assignment fixes scope, rubric, private evidence, demonstrated-capability and provider-authorization constraints, output, one-attempt stop rules, and empty effect authority. Policy-v4 results must cite the exact assignment and packet evidence. Policy-v1/v2/v3 decisions remain readable through compatibility validation, with unknown evidence stage preserved where older formats omitted it.
 
@@ -56,6 +56,7 @@ quality/
 | `improvement.review_gap_result(packet, status)` | Record unavailable, timed-out, privacy-uncertain, or schema-invalid review as one explicit human route with no findings or retry. |
 | `assess(snapshot, activity, ...)` | Persist and return one deterministic receipt with zero or one `workPacket`. |
 | `apply(receipt_id, ...)` | Reload current policy and a persisted receipt; record only disabled/no-op state or one private assignment. |
+| `derive_core_metrics(...)` | Derive all 12 bounded metric observations from existing evidence sources; never persist a metric store and never treat unknown/lower-bound data as success. |
 | `quality_status(...)` | Return current policy fingerprint and private receipt/application/assignment counts. |
 | `agnt quality capture` | Append a validated invocation/result lifecycle fact. |
 | `agnt quality normalize-ask` | Normalize a bounded stdin array of transient ask results and return session-only constraints without persistence. |
@@ -82,6 +83,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | INV-9 | Assigned-agent review, transient interview, durable question, authorization, and acceptance semantics remain distinct. Review produces evidence; `ask` produces session-only answer constraints; ticket questions/approvals produce durable pointer-backed answer/authorization constraints; none of these adapters infers acceptance or effect authority. | Exact source-specific normalizers, fixed category mapping, empty normalized authority, and durable ticket result metadata. |
 | INV-10 | Langfuse human scores, score comments, and corrected outputs remain bounded private `review` evidence. Normalized output carries only opaque evidence/reviewer/subject/config refs, config types, scope counts, completeness, gaps, and empty authority. | Authenticated current-API reads, 16-row caps, exact queue/subject/config binding, hashed refs, body omission, and fixed category/authority output. |
 | INV-11 | Editor review and human-takeover results cross one metadata-only boundary with exact source/category, relative artifact path, scope, EvidenceRefs, human adapter/session provenance, state, gaps, and empty authority. Partial/lost/uncertain takeover state retains a safe resumption path. | Exact-field validation, sensitivity ordering, source/category/adapter binding, canonical relative paths, and fixed non-authorizing output. |
+| INV-12 | The control plan contains exactly the approved 12 metric definitions. Derived observations retain numerator, denominator, state, and decision eligibility; unknown/lower-bound evidence is never eligible, and privacy/unauthorized-mutation guards are zero-tolerance. | Control-plan validation, pure `derive_core_metrics()`, existing evidence-source inputs, and no metric-store writes. |
 
 ## Failure Modes
 
@@ -96,6 +98,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-7 | A result changes category/authority or an approval is resolved against changed scope. | Result fields do not match their source contract, assignment IDs differ, selected options are foreign, or current request identity no longer matches its append-only Beads provenance event. | Reject normalization or approval; issue a new exact preview/request for changed scope. |
 | FAIL-8 | Langfuse annotation evidence is unavailable, partial, unbound, or claims authority. | Queue/service reads fail or truncate, items remain pending, score/config/subject/reviewer bindings are missing, or imported fields claim acceptance, authorization, mode, grant, or effects. | Return unavailable/partial evidence with fixed gaps when provenance is still safe; reject malformed or authority-bearing input; never infer completion or effects. |
 | FAIL-9 | Editor/takeover result normalization fails. | Artifact or resumption path is absolute, non-canonical, or escaping; evidence exceeds artifact sensitivity; provenance/state is malformed; raw evidence or nested authority fields are embedded. | Reject whole result, persist nothing, and leave native editor/browser ownership and resumption external. |
+| FAIL-10 | A quality metric cannot be decided. | Source evidence is missing, unknown, lower-bound, or incomplete; a zero-tolerance guard lacks complete coverage. | Return explicit non-eligible state; never convert missingness into zero or success. |
 
 ## Adapter Boundaries
 
@@ -149,6 +152,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-7 | `tests/test_approvals.py::test_fail7_changed_approval_preview_requires_new_request` plus malformed review/ask result checks in `tests/test_quality.py` |
 | FAIL-8 | `tests/test_quality.py::test_fail8_langfuse_annotation_partiality_and_authority_claims_fail_closed` and optional-service gap checks in `tests/test_improvement.py` |
 | FAIL-9 | `tests/test_quality.py::test_fail9_external_result_rejects_unsafe_or_authorizing_artifacts` |
+| INV-12, FAIL-10 | `tests/test_quality.py::test_inv12_core_metrics_are_decision_linked_and_bounded`, `test_inv12_unknown_and_lower_bound_metrics_cannot_count_as_success`, and `test_inv12_zero_tolerance_metrics_require_complete_evidence`; summary integration in `tests/test_review.py`. |
 | CLI/boundaries | `tests/test_quality.py::test_quality_assess_apply_status_cli_contract`, `tests/test_ticket_gateway.py`, and quality checks in `tests/test_context_architecture.py` |
 
 Focused command:

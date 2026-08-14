@@ -453,7 +453,24 @@ Current observe policy writes at most one private assignment with empty allowed
 effects. It does not create Beads or authorize edits. Follow-up work still uses
 normal Beads and approval paths.
 
-### 8. Prompt feedback (deliberate, eval-gated)
+### 8. Decision-linked quality metrics
+
+`control-plan.json` carries one approved ceiling of 12 core metrics. Each definition
+records owner, type, numerator, denominator, missingness, decision, cadence, gaming
+risk, and retirement condition. `derive_core_metrics()` reads existing receipts,
+results, annotations, and monitoring rows; it does not create a second metrics
+store. Reports retain numerator, denominator, value, and explicit `known`,
+`unknown`, or `lower-bound` state. Only known observations with complete
+requirements are decision-eligible.
+
+The two guard metrics, `privacy-violation-count` and
+`unauthorized-mutation-count`, are zero-tolerance. Missing guard coverage is
+unknown, not zero. Unknown, incomplete, and lower-bound evidence cannot support a
+success claim, and metric values never authorize mutation or close Beads. Review
+annotations and invocation summaries may expose the derived report, while source
+artifacts remain owned by their existing private stores.
+
+### 9. Prompt feedback (deliberate, eval-gated)
 
 When a model family shows a repeatable behavioral failure:
 

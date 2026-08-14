@@ -14,7 +14,7 @@ from uuid import uuid4
 import _agnt_common as common
 
 from .core import VALID_OUTCOMES, split_target
-from .quality import FINDING_STATUSES
+from .quality import FINDING_STATUSES, derive_core_metrics
 from .review import load_review_document, review_annotation_fields
 from .runtime_paths import resolve_runtime_directory
 
@@ -318,7 +318,14 @@ def usage_summary(records: List[Dict[str, Any]]) -> Dict[str, Any] | None:
     return total if seen else None
 
 
-def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+def summarize_metrics(
+    records: List[Dict[str, Any]],
+    *,
+    quality_receipts: List[Dict[str, Any]] | None = None,
+    quality_results: List[Dict[str, Any]] | None = None,
+    quality_annotations: List[Dict[str, Any]] | None = None,
+    quality_monitoring: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
     by_model: Dict[str, Dict[str, Any]] = {}
     by_task: Dict[str, Dict[str, Any]] = {}
     exit_codes: Dict[str, int] = {}
@@ -429,6 +436,12 @@ def summarize_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "usage": usage_summary(records),
         "byModel": by_model,
         "byTask": by_task,
+        "qualityMetrics": derive_core_metrics(
+            receipts=quality_receipts,
+            results=[*records, *(quality_results or [])],
+            annotations=quality_annotations,
+            monitoring=quality_monitoring,
+        ),
     }
 
 

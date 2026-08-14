@@ -83,6 +83,33 @@ ACTIVITY_FIELDS = frozenset({
     "escalation",
     "retirementCondition",
 })
+CORE_METRIC_IDS = (
+    "gate-conformance",
+    "accepted-outcome-rate",
+    "recurrence-escape-rate",
+    "verified-finding-precision",
+    "reviewer-calibration",
+    "settled-review-coverage",
+    "evidence-completeness",
+    "privacy-violation-count",
+    "unauthorized-mutation-count",
+    "marginal-quality-spend",
+    "human-attention-allocation",
+    "corrective-action-effectiveness",
+)
+CORE_METRIC_FIELDS = frozenset({
+    "id",
+    "owner",
+    "type",
+    "numerator",
+    "denominator",
+    "missingness",
+    "decision",
+    "cadence",
+    "gamingRisk",
+    "retirementCondition",
+})
+MAX_CORE_METRICS = 12
 CONTROL_PLAN_PATH = Path(__file__).resolve().parents[2] / "quality" / "control-plan.json"
 LEDGER_NAME = "ledger.jsonl"
 RECEIPTS_NAME = "receipts.jsonl"
@@ -1647,12 +1674,225 @@ def validate_finding(
     return value
 
 
+def _metric_source(value: Any, name: str) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError(f"quality metric {name} source is invalid")
+    return value
+
+
+def _metric_state(items: list[dict[str, Any]]) -> str:
+    if any(item.get("evidenceState") == "lower-bound" or item.get("lowerBound") is True for item in items):
+        return "lower-bound"
+    if any(item.get("evidenceState") in {"unknown", "partial"} for item in items):
+        return "unknown"
+    return "known"
+
+
+def _complete_metric_state(items: list[dict[str, Any]], complete: bool) -> str:
+    state = _metric_state(items)
+    return state if state != "known" or complete else "unknown"
+
+
+def _metric_result(
+    metric: dict[str, Any],
+    numerator: int | float,
+    denominator: int | float,
+    *,
+    items: list[dict[str, Any]],
+    state: str | None = None,
+) -> dict[str, Any]:
+    state = state or _metric_state(items)
+    eligible = state == "known" and denominator > 0
+    value: int | float | None = None
+    if eligible:
+        value = numerator if metric["type"] == "count" else numerator / denominator
+    return {
+        "decisionEligible": eligible,
+        "denominator": denominator,
+        "metric": metric["id"],
+        "numerator": numerator,
+        "state": state if denominator > 0 else "unknown",
+        "value": value,
+    }
+
+
+def _boolean_metric(
+    metric: dict[str, Any],
+    items: list[dict[str, Any]],
+    field: str,
+) -> dict[str, Any]:
+    complete = bool(items) and all(type(item.get(field)) is bool for item in items)
+    values = [item[field] for item in items if type(item.get(field)) is bool]
+    return _metric_result(
+        metric,
+        sum(value is True for value in values),
+        len(items),
+        items=items,
+        state=_complete_metric_state(items, complete),
+    )
+
+
+def _cost(item: dict[str, Any]) -> float | None:
+    usage = item.get("usage")
+    cost = usage.get("cost") if isinstance(usage, dict) else None
+    if isinstance(cost, dict) and isinstance(cost.get("total"), (int, float)):
+        return float(cost["total"])
+    if isinstance(item.get("cost"), (int, float)):
+        return float(item["cost"])
+    return None
+
+
+def derive_core_metrics(
+    *,
+    receipts: Any = None,
+    results: Any = None,
+    annotations: Any = None,
+    monitoring: Any = None,
+    plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Derive decision metrics from existing evidence; never persist a metric store."""
+    plan = validate_control_plan(plan or load_control_plan())
+    metrics = {item["id"]: item for item in plan["metrics"]}
+    receipts = _metric_source(receipts, "receipts")
+    results = _metric_source(results, "results")
+    annotations = _metric_source(annotations, "annotations")
+    monitoring = _metric_source(monitoring, "monitoring")
+    all_sources = [*receipts, *results, *annotations, *monitoring]
+    report: dict[str, Any] = {"schemaVersion": 1, "metricCount": len(metrics), "metrics": {}}
+
+    gate = metrics["gate-conformance"]
+    report["metrics"][gate["id"]] = _boolean_metric(gate, results, "gateConformant")
+
+    outcomes = {"accepted", "verified-pass", "rejected", "verified-fail"}
+    known_results = [item for item in results if item.get("outcome") in outcomes]
+    accepted = sum(item["outcome"] in {"accepted", "verified-pass"} for item in known_results)
+    outcome_metric = metrics["accepted-outcome-rate"]
+    report["metrics"][outcome_metric["id"]] = _metric_result(
+        outcome_metric,
+        accepted,
+        len(known_results),
+        items=results,
+        state=_complete_metric_state(results, len(known_results) == len(results) and bool(results)),
+    )
+
+    monitoring_statuses = {"monitoring", "validated", "recurrent"}
+    known_monitoring = [item for item in monitoring if item.get("status") in monitoring_statuses]
+    recurrence = metrics["recurrence-escape-rate"]
+    report["metrics"][recurrence["id"]] = _metric_result(
+        recurrence,
+        sum(item["status"] == "recurrent" for item in known_monitoring),
+        len(known_monitoring),
+        items=monitoring,
+        state=_complete_metric_state(monitoring, len(known_monitoring) == len(monitoring) and bool(monitoring)),
+    )
+
+    confirmed = refuted = uncertain_findings = 0
+    for annotation in annotations:
+        stats = annotation.get("reviewFindingStats")
+        if not isinstance(stats, dict):
+            continue
+        confirmed += int(stats.get("confirmed") or 0)
+        refuted += int(stats.get("refuted") or 0)
+        uncertain_findings += int(stats.get("unverified") or 0) + int(stats.get("unresolved") or 0)
+    precision = metrics["verified-finding-precision"]
+    report["metrics"][precision["id"]] = _metric_result(
+        precision,
+        confirmed,
+        confirmed + refuted,
+        items=annotations,
+        state=(
+            "lower-bound"
+            if uncertain_findings
+            else _complete_metric_state(annotations, len([item for item in annotations if isinstance(item.get("reviewFindingStats"), dict)]) == len(annotations) and bool(annotations))
+        ),
+    )
+
+    calibration = metrics["reviewer-calibration"]
+    calibration_items = [item for item in [*annotations, *results] if "reviewerCalibration" in item]
+    report["metrics"][calibration["id"]] = _boolean_metric(calibration, calibration_items, "reviewerCalibration")
+
+    required_reviews = [item for item in results if type(item.get("reviewRequired")) is bool]
+    reviewed_ids = {
+        str(item.get("recordId") or item.get("id"))
+        for item in annotations
+        if item.get("recordId") or item.get("id")
+    }
+    settled = metrics["settled-review-coverage"]
+    reviewed = sum(
+        item.get("reviewed") is True or str(item.get("recordId") or item.get("id")) in reviewed_ids
+        for item in required_reviews
+        if item.get("reviewRequired") is True
+    )
+    review_required = sum(item.get("reviewRequired") is True for item in required_reviews)
+    report[settled["id"]] = _metric_result(
+        settled,
+        reviewed,
+        review_required,
+        items=required_reviews,
+        state=_complete_metric_state(results, len(required_reviews) == len(results) and bool(results)),
+    )
+
+    evidence = metrics["evidence-completeness"]
+    report[evidence["id"]] = _boolean_metric(evidence, results, "evidenceComplete")
+
+    for metric_id, field in (
+        ("privacy-violation-count", "privacyViolation"),
+        ("unauthorized-mutation-count", "unauthorizedMutation"),
+    ):
+        report["metrics"][metric_id] = _metric_result(
+            metrics[metric_id],
+            sum(item.get(field) is True for item in all_sources),
+            len(all_sources),
+            items=all_sources,
+            state=None if all_sources and all(type(item.get(field)) is bool for item in all_sources) else "unknown",
+        )
+
+    spend_items = [
+        item for item in results
+        if item.get("qualityActivity") is True or item.get("task") in {"review", "quality"}
+    ]
+    spend_values = [_cost(item) for item in spend_items]
+    improvements = sum(item.get("status") == "validated" for item in monitoring)
+    spend = metrics["marginal-quality-spend"]
+    report[spend["id"]] = _metric_result(
+        spend,
+        sum(value for value in spend_values if value is not None),
+        improvements,
+        items=spend_items,
+        state=None if spend_items and len(spend_values) == len(spend_items) else _metric_state(spend_items),
+    )
+
+    attention = metrics["human-attention-allocation"]
+    attention_items = [item for item in [*annotations, *results] if item.get("reviewerType") in {"human", "agent"}]
+    report[attention["id"]] = _metric_result(
+        attention,
+        sum(item.get("reviewerType") == "human" for item in attention_items),
+        len(attention_items),
+        items=attention_items,
+        state=None if attention_items else "unknown",
+    )
+
+    effectiveness = metrics["corrective-action-effectiveness"]
+    settled_monitoring = [item for item in monitoring if item.get("status") in {"validated", "recurrent"}]
+    report[effectiveness["id"]] = _metric_result(
+        effectiveness,
+        sum(item["status"] == "validated" for item in settled_monitoring),
+        len(settled_monitoring),
+        items=monitoring,
+        state=_complete_metric_state(monitoring, len(settled_monitoring) == len(monitoring) and bool(monitoring)),
+    )
+    return report
+
+
 def validate_control_plan(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {
         "schemaVersion",
         "policyVersion",
         "mode",
         "activities",
+        "metrics",
     }:
         raise ValueError("quality control plan fields are invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
@@ -1661,6 +1901,19 @@ def validate_control_plan(value: Any) -> dict[str, Any]:
         raise ValueError("quality control plan version is invalid")
     if value.get("mode") not in {"disabled", "observe"}:
         raise ValueError("quality control plan mode is invalid")
+    metrics = value.get("metrics")
+    if (
+        not isinstance(metrics, list)
+        or len(metrics) != len(CORE_METRIC_IDS)
+        or len(metrics) > MAX_CORE_METRICS
+        or [item.get("id") if isinstance(item, dict) else None for item in metrics] != list(CORE_METRIC_IDS)
+    ):
+        raise ValueError("quality control plan metrics are invalid")
+    for metric in metrics:
+        if not isinstance(metric, dict) or set(metric) != CORE_METRIC_FIELDS:
+            raise ValueError("quality control plan metric fields are invalid")
+        if not all(_text(metric[field]) for field in CORE_METRIC_FIELDS - {"id"}):
+            raise ValueError("quality control plan metric metadata is invalid")
     activities = value.get("activities")
     if not isinstance(activities, list) or [item.get("id") if isinstance(item, dict) else None for item in activities] != list(ACTIVITY_IDS):
         raise ValueError("quality control plan activities are invalid")

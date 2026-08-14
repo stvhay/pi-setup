@@ -251,6 +251,43 @@ def test_metrics_summary_exposes_verified_finding_yield_per_cost(agnt):
     assert model["confirmedFindingsPerUsd"] == pytest.approx(4.0)
 
 
+def test_metrics_summary_exposes_decision_linked_quality_metrics(agnt):
+    record = {
+        "target": "openrouter/moonshotai/kimi-k2.7-code",
+        "task": "review",
+        "recordId": "result-1",
+        "elapsedMs": 1000,
+        "responseChars": 10,
+        "stderrChars": 0,
+        "exitCode": 0,
+        "outcome": "accepted",
+        "gateConformant": True,
+        "evidenceComplete": True,
+        "privacyViolation": False,
+        "unauthorizedMutation": False,
+        "reviewRequired": True,
+        "reviewerCalibration": True,
+        "reviewerType": "human",
+        "qualityActivity": True,
+        "usage": {"cost": {"total": 0.5}},
+    }
+
+    summary = agnt.summarize_metrics([record])
+    report = summary["qualityMetrics"]
+
+    assert report["metricCount"] == 12
+    assert report["metrics"]["accepted-outcome-rate"] == {
+        "decisionEligible": True,
+        "denominator": 1,
+        "metric": "accepted-outcome-rate",
+        "numerator": 1,
+        "state": "known",
+        "value": 1.0,
+    }
+    assert report["metrics"]["privacy-violation-count"]["value"] == 0
+    assert report["metrics"]["unauthorized-mutation-count"]["value"] == 0
+
+
 def test_metrics_annotation_accepts_validated_findings_file(agnt, tmp_path, capsys):
     metrics_dir = tmp_path / "metrics"
     annotations = tmp_path / "annotations.jsonl"
