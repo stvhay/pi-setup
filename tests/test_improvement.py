@@ -2950,6 +2950,10 @@ def test_inv8_current_review_is_assignment_bound_and_cannot_claim_effects():  # 
     }
     assert assignment["action"] == {"id": "review", "routingTask": "review"}
     assert improvement.validate_decisions(packet, result) == result
+    normalized = improvement.review_sessions(None, packet, result)["qualityResult"]
+    assert normalized["category"] == "review"
+    assert normalized["evidenceRefs"] == assignment["evidenceRefs"]
+    assert normalized["authority"] == {"status": "none", "allowedEffects": []}
 
     with pytest.raises(ValueError, match="assignmentId"):
         improvement.validate_decisions(packet, {**result, "assignmentId": "review-wrong"})

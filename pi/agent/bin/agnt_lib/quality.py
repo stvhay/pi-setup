@@ -1025,6 +1025,143 @@ def build_review_assignment(
     return validate_review_assignment({**core, "assignmentId": assignment_id})
 
 
+def normalize_assigned_review_result(
+    assignment: Any,
+    result: Any,
+) -> dict[str, Any]:
+    assignment = validate_review_assignment(assignment)
+    required = {"schemaVersion", *assignment["outputContract"]["requiredFields"]}
+    forbidden = {"accepted", "acceptance", "allowedEffects", "authority", "authorization", "grant", "mode"}
+    if (
+        not isinstance(result, dict)
+        or not required.issubset(result)
+        or forbidden.intersection(result)
+    ):
+        raise ValueError("assigned review result fields are invalid")
+    if result.get("schemaVersion") != 1 or type(result.get("schemaVersion")) is not int:
+        raise ValueError("assigned review result schema is invalid")
+    if result.get("assignmentId") != assignment["assignmentId"]:
+        raise ValueError("assigned review result does not match assignment")
+    if (
+        result.get("reviewStatus") != "completed"
+        or result.get("route") != "none"
+        or result.get("gaps") != []
+        or not isinstance(result.get("sessions"), list)
+    ):
+        raise ValueError("assigned review result status is invalid")
+    return {
+        "schemaVersion": 1,
+        "resultType": "evidence",
+        "category": "review",
+        "source": "assigned-agent",
+        "assignmentId": assignment["assignmentId"],
+        "status": "completed",
+        "evidenceRefs": assignment["evidenceRefs"],
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+
+
+def normalize_ask_result(result: Any) -> dict[str, Any]:
+    required = {"id", "question", "options", "selectionMode", "selectedOptions"}
+    optional = {"description", "customInput"}
+    if not isinstance(result, dict) or not required.issubset(result) or set(result) - required - optional:
+        raise ValueError("ask result fields are invalid")
+    question_id = result.get("id")
+    if not _text(question_id):
+        raise ValueError("ask result question ID is invalid")
+    if not _text(result.get("question")) or not _text_list(result.get("options")):
+        raise ValueError("ask result question is invalid")
+    if "description" in result and not _text(result["description"]):
+        raise ValueError("ask result description is invalid")
+    selection_mode = result.get("selectionMode")
+    if selection_mode not in {"single", "multi"}:
+        raise ValueError("ask result selection mode is invalid")
+    selected = result.get("selectedOptions")
+    if (
+        not isinstance(selected, list)
+        or len(selected) > len(result["options"])
+        or any(not _text(item) or item not in result["options"] for item in selected)
+        or len(set(selected)) != len(selected)
+    ):
+        raise ValueError("ask result selected options are invalid")
+    custom = result.get("customInput")
+    if custom is not None:
+        if not _text(custom):
+            raise ValueError("ask result custom input is invalid")
+        custom = custom.strip()
+    if selection_mode == "single" and (len(selected) > 1 or (selected and custom)):
+        raise ValueError("ask result selected options are invalid")
+    return {
+        "schemaVersion": 1,
+        "resultType": "constraint",
+        "category": "answer",
+        "source": "ask",
+        "retention": "session",
+        "questionId": question_id,
+        "status": "answered" if selected or custom else "cancelled",
+        "selectedOptions": list(selected),
+        **({"customInput": custom} if custom else {}),
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+
+
+def normalize_ask_results(results: Any) -> dict[str, Any]:
+    if not isinstance(results, list) or not 1 <= len(results) <= 32:
+        raise ValueError("ask results are invalid")
+    return {
+        "schemaVersion": 1,
+        "source": "ask",
+        "results": [normalize_ask_result(result) for result in results],
+    }
+
+
+def normalize_ticket_decision_result(
+    decision_bead: str,
+    decision: Any,
+) -> dict[str, Any]:
+    decision_bead = _bead_id(decision_bead)
+    if not isinstance(decision, dict):
+        raise ValueError("ticket decision result is invalid")
+    kind = decision.get("kind")
+    status = decision.get("status")
+    if kind not in {"question", "approval"} or status not in {
+        "approved", "answered", "rejected", "cancelled", "timed-out",
+    }:
+        raise ValueError("ticket decision result category or status is invalid")
+    if (kind == "question" and status == "approved") or (
+        kind == "approval" and status == "answered"
+    ):
+        raise ValueError("ticket decision result category or status is invalid")
+    if status in {"approved", "answered"} and decision.get("resolver") != {"kind": "human-ui"}:
+        raise ValueError("ticket decision result lacks human UI provenance")
+    if kind == "approval" and status == "approved" and not HASH_REF.fullmatch(
+        str(decision.get("requestFingerprint") or "")
+    ):
+        raise ValueError("ticket approval request is unbound")
+    target_bead = _bead_id(decision.get("targetBead"))
+    evidence_ref = validate_evidence_ref({
+        "ref": f"result:ticket-{decision_bead}",
+        "source": "beads-decision",
+        "availability": "available",
+        "provenance": f"ticket:{decision_bead}",
+        "integrity": "verified",
+        "sensitivity": "internal",
+        "retention": "durable",
+    })
+    return {
+        "schemaVersion": 1,
+        "resultType": "constraint",
+        "category": "answer" if kind == "question" else "authorization",
+        "source": f"ticket-{kind}",
+        "retention": "durable",
+        "decisionBead": decision_bead,
+        "targetBead": target_bead,
+        "status": status,
+        "evidenceRefs": [evidence_ref],
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+
+
 def validate_finding(
     value: Any,
     *,
@@ -1459,12 +1596,17 @@ def _beads(args: list[str]) -> tuple[int, Any, str]:
 def cmd_quality(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="agnt quality",
-        description="Capture facts and assess or apply observe-only quality policy.",
+        description="Capture and normalize facts or assess observe-only quality policy.",
     )
     sub = parser.add_subparsers(dest="action")
     capture_cmd = sub.add_parser("capture", help="append a validated invocation or result fact")
     capture_cmd.add_argument("--payload", help="JSON capture payload; defaults to stdin")
     capture_cmd.add_argument("--json", action="store_true")
+    normalize_ask_cmd = sub.add_parser(
+        "normalize-ask", help="normalize transient ask results without persistence"
+    )
+    normalize_ask_cmd.add_argument("--payload", help="JSON result array; defaults to stdin")
+    normalize_ask_cmd.add_argument("--json", action="store_true")
     assess_cmd = sub.add_parser("assess", help="persist one deterministic decision receipt")
     assess_cmd.add_argument("--activity", required=True)
     assess_input = assess_cmd.add_mutually_exclusive_group()
@@ -1487,6 +1629,9 @@ def cmd_quality(argv: list[str]) -> int:
         if args.action == "capture":
             raw = args.payload if args.payload is not None else sys.stdin.read()
             result = capture(json.loads(raw), beads_runner=_beads)
+        elif args.action == "normalize-ask":
+            raw = args.payload if args.payload is not None else sys.stdin.read()
+            result = normalize_ask_results(json.loads(raw))
         elif args.action == "assess":
             if args.activity not in ACTIVITY_IDS:
                 raise ValueError("quality activity is unknown")

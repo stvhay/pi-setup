@@ -32,6 +32,7 @@ from .quality import (
     capture_session_link,
     capture_session_outcome,
     current_session_id,
+    normalize_assigned_review_result,
     validate_evidence_ref,
     validate_finding,
 )
@@ -1816,6 +1817,10 @@ def review_sessions(
         "findings": findings,
         "scoresWritten": written,
     }
+    if current:
+        summary["qualityResult"] = normalize_assigned_review_result(
+            review_assignment(packet), validated
+        )
     if monitoring_enabled:
         summary["monitoring"] = _update_monitoring_states(
             packet,

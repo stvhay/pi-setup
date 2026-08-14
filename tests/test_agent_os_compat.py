@@ -201,6 +201,8 @@ def test_archimedes_custom_input_wrapper_preserves_public_components_and_one_por
     package_dir.mkdir(parents=True)
     bus_dir.mkdir(parents=True)
     subagent_dir.mkdir(parents=True)
+    (agent_dir / "bin").mkdir()
+    (agent_dir / "bin" / "agnt").symlink_to(ROOT / "pi" / "agent" / "bin" / "agnt")
     (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
     (package_dir / "package.json").write_text(
         json.dumps({"name": "pi-archimedes", "version": "2.0.1", "type": "module", "main": "./index.js"}),
@@ -622,6 +624,8 @@ export function findAgent(agents, name) { return agents.find((agent) => agent.na
           }} }});
           assert.deepEqual(result.details.results[0].selectedOptions, ["Alpha"]);
           assert.equal(result.details.results[0].selectionMode, "single");
+          assert.equal(result.details.qualityResults[0].category, "answer");
+          assert.equal(result.details.qualityResults[0].retention, "session");
           assert.equal(result.details.usedUpstream, true);
           assert.equal(globalThis.__upstreamAskCalls.length, upstreamCallsBefore + 1);
           const upstreamCall = globalThis.__upstreamAskCalls.at(-1);
@@ -645,6 +649,8 @@ export function findAgent(agents, name) { return agents.find((agent) => agent.na
           assert.deepEqual(result.details.results[0].selectedOptions, ["Two"]);
           assert.equal(result.details.results[0].customInput, "custom value");
           assert.equal(result.details.results[0].selectionMode, "multi");
+          assert.equal(result.details.qualityResults[0].category, "answer");
+          assert.equal(result.details.qualityResults[0].authority.status, "none");
           assert.equal(result.content[0].text.includes("features: [Two] + Other: “custom value”"), true);
           assert.deepEqual(warnings, [["Custom response cannot be empty.", "warning"]]);
 

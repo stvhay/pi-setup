@@ -5,6 +5,7 @@ import { dirname, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { runAgntJson } from "./lib/run-agnt-json.ts";
 
 type SelectionMode = "single" | "multi";
 type Question = {
@@ -197,9 +198,46 @@ function normalizeLegacyResult(result: any, questions: Question[]): any {
       ...currentDetails,
       results: details.results.map((legacy: any, index: number) => {
         const { multi: _multi, ...answer } = legacy;
-        return { ...answer, selectionMode: questions[index]?.selectionMode ?? "single" };
+        const question = questions[index];
+        return {
+          ...answer,
+          id: clean(question?.id) || clean(answer.id) || "unknown",
+          question: clean(question?.question) || clean(answer.question),
+          description: clean(question?.description, 1000) || clean(answer.description, 1000) || undefined,
+          options: question
+            ? question.options.map(({ label }) => clean(label))
+            : Array.isArray(answer.options) ? answer.options.map((option: unknown) => clean(option)) : [],
+          selectionMode: question?.selectionMode ?? "single",
+          selectedOptions: Array.isArray(answer.selectedOptions)
+            ? answer.selectedOptions.map((option: unknown) => clean(option))
+            : [],
+          customInput: clean(answer.customInput) || undefined,
+        };
       }),
     },
+  };
+}
+
+async function withQualityAskResults(
+  result: any,
+  questions: Question[],
+  cwd: string | undefined,
+  signal?: AbortSignal,
+): Promise<any> {
+  const normalized = normalizeLegacyResult(result, questions);
+  const results = normalized?.details?.results;
+  if (!Array.isArray(results)) return normalized;
+  const quality = await runAgntJson(
+    ["quality", "normalize-ask", "--json"],
+    cwd || process.cwd(),
+    signal,
+    "ask result normalizer",
+    JSON.stringify(results),
+  );
+  if (!Array.isArray(quality.results)) throw new Error("ask result normalizer returned invalid results");
+  return {
+    ...normalized,
+    details: { ...normalized.details, qualityResults: quality.results },
   };
 }
 
@@ -458,9 +496,11 @@ function registerPortableAsk(pi: ExtensionAPI, upstreamAsk?: ToolDefinition, emi
             multi: selectionMode === "multi",
           })),
         };
-        return normalizeLegacyResult(
+        return withQualityAskResults(
           await upstreamAsk.execute(toolCallId, legacy, signal, onUpdate, ctx),
           params.questions,
+          ctx.cwd,
+          signal,
         );
       }
       if (!ctx.hasUI) {
@@ -472,19 +512,19 @@ function registerPortableAsk(pi: ExtensionAPI, upstreamAsk?: ToolDefinition, emi
           selectionMode: question.selectionMode,
           selectedOptions: [],
         }));
-        return {
+        return withQualityAskResults({
           content: [{ type: "text", text: "User cancelled the question." }],
           details: { results },
-        };
+        }, params.questions, ctx.cwd, signal);
       }
 
       emitAsk?.(params.questions);
       const results: Answer[] = [];
       for (const question of params.questions) results.push(await answerQuestion(question, ctx.ui));
-      return {
+      return withQualityAskResults({
         content: [{ type: "text", text: `User answers:\n${results.map(formatAnswer).join("\n")}` }],
         details: { results },
-      };
+      }, params.questions, ctx.cwd, signal);
     },
   } as any);
 }

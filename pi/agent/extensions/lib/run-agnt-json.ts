@@ -9,6 +9,7 @@ export function runAgntJson(
 	cwd: string,
 	signal?: AbortSignal,
 	parseErrorLabel = "agnt",
+	input?: string,
 ): Promise<Record<string, unknown>> {
 	return new Promise((resolve, reject) => {
 		const proc = execFile(AGNT_BIN, args, { cwd, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024, signal }, (err, stdout, stderr) => {
@@ -22,6 +23,7 @@ export function runAgntJson(
 				reject(new Error(`${parseErrorLabel} did not return JSON: ${(parseErr as Error).message}; output=${stdout}`));
 			}
 		});
+		if (input !== undefined) proc.stdin?.end(input);
 		if (signal) signal.addEventListener("abort", () => proc.kill(), { once: true });
 	});
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -8,19 +9,33 @@ from pathlib import Path
 import pytest
 
 
+def _fingerprint(value: dict) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _preview_fingerprint(preview: dict) -> str:
+    return _fingerprint(preview)
+
+
+def _request_fingerprint(approval: dict) -> str:
+    return _fingerprint({
+        key: approval[key]
+        for key in ("kind", "targetBead", "question", "context", "options", "default", "preview")
+    })
+
+
 class FakeBeads:
-    def __init__(self, show_metadata: dict | None = None):
+    def __init__(
+        self,
+        show_metadata: dict | None = None,
+        history_metadata: dict | None = None,
+    ):
         self.calls: list[list[str]] = []
         self.show_metadata = show_metadata or {
-            "pi": {
-                "approval": {
-                    "kind": "approval",
-                    "targetBead": "pi-work.1",
-                    "requestingRun": "approval-run",
-                    "status": "pending",
-                }
-            }
+            "pi": {"approval": approval_record(requestingRun="approval-run")}
         }
+        self.history_metadata = history_metadata or self.show_metadata
 
     def __call__(self, args: list[str]):
         self.calls.append(list(args))
@@ -30,6 +45,18 @@ class FakeBeads:
             return 0, {"ok": True}, ""
         if args[0] == "show":
             return 0, {"id": args[1], "metadata": json.dumps(self.show_metadata)}, ""
+        if args[:2] == ["provenance", "record"]:
+            return 0, {"recorded": True}, ""
+        if args[:2] == ["provenance", "log"]:
+            approval = self.history_metadata["pi"]["approval"]
+            return 0, [{
+                "source": "agnt-approval",
+                "payload": json.dumps({
+                    "schemaVersion": 1,
+                    "kind": "approval-request",
+                    "requestFingerprint": approval["requestFingerprint"],
+                }),
+            }], ""
         if args[0] == "update":
             return 0, {"id": args[1]}, ""
         if args[0] == "close":
@@ -45,6 +72,24 @@ def approval_preview() -> dict:
         "reversibility": "Code changes are revertible; Beads decision history remains auditable.",
         "closeoutPath": "Resolve the decision bead, run focused tests, and record evidence.",
     }
+
+
+def approval_record(**overrides) -> dict:
+    preview = approval_preview()
+    approval = {
+        "kind": "approval",
+        "targetBead": "pi-work.1",
+        "question": "Approve risky edit?",
+        "context": "Implementation needs explicit approval before mutating code.",
+        "options": ["approve", "reject"],
+        "default": "reject",
+        "preview": preview,
+        "previewFingerprint": _preview_fingerprint(preview),
+        "status": "pending",
+        **overrides,
+    }
+    approval["requestFingerprint"] = _request_fingerprint(approval)
+    return approval
 
 
 def test_create_approval_request_creates_decision_blocks_target_and_updates_run_result(agnt, tmp_path):
@@ -83,7 +128,19 @@ def test_create_approval_request_creates_decision_blocks_target_and_updates_run_
     assert "approval-run" not in create_call[create_call.index("--description") + 1]
     assert metadata["pi"]["approval"]["default"] == "reject"
     assert metadata["pi"]["approval"]["preview"] == approval_preview()
+    assert metadata["pi"]["approval"]["previewFingerprint"] == _preview_fingerprint(approval_preview())
+    assert metadata["pi"]["approval"]["requestFingerprint"] == _request_fingerprint(metadata["pi"]["approval"])
     assert fake.calls[1] == ["dep", "pi-decision.1", "--blocks", "pi-work.1"]
+    provenance = fake.calls[2]
+    assert provenance[:6] == [
+        "provenance", "record", "--issue", "pi-decision.1", "--kind", "cut",
+    ]
+    recorded = json.loads(provenance[provenance.index("--payload") + 1])
+    assert recorded == {
+        "schemaVersion": 1,
+        "kind": "approval-request",
+        "requestFingerprint": metadata["pi"]["approval"]["requestFingerprint"],
+    }
 
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert run_result["status"] == "needs-human"
@@ -206,11 +263,32 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
     assert result["decisionBead"] == "pi-decision.1"
     assert result["outcome"] == "approved"
     assert result["blockerVisible"] is False
+    assert result["qualityResult"] == {
+        "schemaVersion": 1,
+        "resultType": "constraint",
+        "category": "authorization",
+        "source": "ticket-approval",
+        "retention": "durable",
+        "decisionBead": "pi-decision.1",
+        "targetBead": "pi-work.1",
+        "status": "approved",
+        "evidenceRefs": [{
+            "ref": "result:ticket-pi-decision.1",
+            "source": "beads-decision",
+            "availability": "available",
+            "provenance": "ticket:pi-decision.1",
+            "integrity": "verified",
+            "sensitivity": "internal",
+            "retention": "durable",
+        }],
+        "authority": {"status": "none", "allowedEffects": []},
+    }
     update_call = next(call for call in fake.calls if call[0] == "update")
     updated_metadata = json.loads(update_call[update_call.index("--metadata") + 1])
     assert updated_metadata["pi"]["approval"]["status"] == "approved"
     assert updated_metadata["pi"]["approval"]["answer"] == "Approved for the stated write set."
     assert updated_metadata["pi"]["approval"]["resolver"] == {"kind": "human-ui"}
+    assert updated_metadata["pi"]["approval"]["qualityResult"] == result["qualityResult"]
     assert "requestingRun" not in updated_metadata["pi"]["approval"]
     target_update = next(call for call in fake.calls if call[:2] == ["update", "pi-work.1"])
     target_metadata = json.loads(target_update[target_update.index("--metadata") + 1])
@@ -224,6 +302,66 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
     assert run_result["status"] == "succeeded"
     assert run_result["approvalRefs"] == ["pi-decision.1"]
     assert run_result["decisionRefs"] == ["pi-decision.1"]
+
+
+def test_fail7_changed_approval_preview_requires_new_request(agnt):  # Tests FAIL-7
+    metadata = {"pi": {"approval": approval_record()}}
+    metadata["pi"]["approval"]["preview"]["scope"] = "Expanded write set"
+    fake = FakeBeads(show_metadata=metadata)
+
+    with pytest.raises(ValueError, match="new approval request"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+            beads_runner=fake,
+        )
+
+    assert fake.calls == [["show", "pi-decision.1"]]
+
+
+def test_fail7_recomputed_fingerprint_still_requires_new_request(agnt):  # Tests FAIL-7
+    original = {"pi": {"approval": approval_record()}}
+    changed = json.loads(json.dumps(original))
+    changed_preview = {**approval_preview(), "scope": "Expanded write set"}
+    changed["pi"]["approval"]["preview"] = changed_preview
+    changed["pi"]["approval"]["previewFingerprint"] = _preview_fingerprint(changed_preview)
+    changed["pi"]["approval"]["requestFingerprint"] = _request_fingerprint(
+        changed["pi"]["approval"]
+    )
+    fake = FakeBeads(show_metadata=changed, history_metadata=original)
+
+    with pytest.raises(ValueError, match="new approval request"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+            beads_runner=fake,
+        )
+
+    assert fake.calls == [["show", "pi-decision.1"], [
+        "provenance", "log", "pi-decision.1", "--kind", "cut",
+    ]]
+
+
+def test_fail7_retargeted_approval_requires_new_request(agnt):  # Tests FAIL-7
+    original = {"pi": {"approval": approval_record()}}
+    changed = json.loads(json.dumps(original))
+    changed["pi"]["approval"]["targetBead"] = "pi-substituted.1"
+    changed["pi"]["approval"]["requestFingerprint"] = _request_fingerprint(
+        changed["pi"]["approval"]
+    )
+    fake = FakeBeads(show_metadata=changed, history_metadata=original)
+
+    with pytest.raises(ValueError, match="new approval request"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+            beads_runner=fake,
+        )
+
+    assert not any(call[:2] == ["update", "pi-substituted.1"] for call in fake.calls)
 
 
 def test_resolve_approved_decision_accepts_bd_show_list_shape_and_preserves_target(agnt):
@@ -289,6 +427,10 @@ def test_custom_response_resolution_persists_structured_question_answer(
 
     approval = result["metadata"]["pi"]["approval"]
     assert approval["selectedOptions"] == selected_options
+    assert result["qualityResult"]["category"] == "answer"
+    assert result["qualityResult"]["source"] == "ticket-question"
+    assert result["qualityResult"]["authority"] == {"status": "none", "allowedEffects": []}
+    assert result["qualityResult"]["category"] != "acceptance"
     if custom_input is None:
         assert "customInput" not in approval
     else:

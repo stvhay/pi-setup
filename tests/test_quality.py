@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import stat
 import sys
@@ -364,36 +365,41 @@ def test_public_finding_rejects_copied_raw_private_evidence():  # Tests FAIL-4
         quality.validate_evidence_ref({**_shared_evidence_ref(), "content": "raw payload"})
 
 
-def test_inv8_review_assignment_is_bounded_private_and_non_authorizing():  # Tests INV-8
+def _review_assignment():
     evidence_refs = [
         _shared_evidence_ref(ref=f"artifact:improvement-report-session-{index}")
         for index in range(2)
     ]
-    kwargs = {
-        "activity": "work-learning",
-        "action": {
+    return quality.build_review_assignment(
+        activity="work-learning",
+        action={
             "id": "review",
             "routingTask": "review",
             "outputContract": "findings-with-evidence",
         },
-        "scope": {
+        scope={
             "kind": "improvement-session-cohort",
             "id": "report-0123456789abcdef",
             "itemCount": 2,
             "maxItems": 20,
         },
-        "evidence_refs": evidence_refs,
-        "rubric": {
+        evidence_refs=evidence_refs,
+        rubric={
             "path": "pi/agent/langfuse/improvement-review.md",
             "version": "v4",
         },
-    }
+    )
 
-    assignment = quality.build_review_assignment(**kwargs)
 
-    assert assignment == quality.build_review_assignment(**kwargs)
+def test_inv8_review_assignment_is_bounded_private_and_non_authorizing():  # Tests INV-8
+    assignment = _review_assignment()
+
+    assert assignment == _review_assignment()
     assert quality.validate_review_assignment(assignment) == assignment
-    assert assignment["evidenceRefs"] == evidence_refs
+    assert assignment["evidenceRefs"] == [
+        _shared_evidence_ref(ref=f"artifact:improvement-report-session-{index}")
+        for index in range(2)
+    ]
     assert assignment["privacyConstraints"] == {
         "evidenceSensitivity": "private",
         "allowedReviewerClasses": [
@@ -433,6 +439,101 @@ def test_inv8_review_assignment_is_bounded_private_and_non_authorizing():  # Tes
     elevated["authority"]["allowedEffects"] = ["update_beads"]
     with pytest.raises(ValueError, match="review assignment"):
         quality.validate_review_assignment(elevated)
+
+
+def test_inv9_assigned_agent_review_result_is_typed_evidence_only():  # Tests INV-9
+    assignment = _review_assignment()
+    result = quality.normalize_assigned_review_result(
+        assignment,
+        {
+            "schemaVersion": 1,
+            "assignmentId": assignment["assignmentId"],
+            "reviewStatus": "completed",
+            "route": "none",
+            "gaps": [],
+            "sessions": [{"sessionId": "private-session", "findings": []}],
+            "reportId": "report-0123456789abcdef",
+            "reviewPolicyVersion": "v4",
+            "reviewedAt": "2026-08-14T00:00:00Z",
+            "attempt": 1,
+        },
+    )
+
+    assert result == {
+        "schemaVersion": 1,
+        "resultType": "evidence",
+        "category": "review",
+        "source": "assigned-agent",
+        "assignmentId": assignment["assignmentId"],
+        "status": "completed",
+        "evidenceRefs": assignment["evidenceRefs"],
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+    with pytest.raises(ValueError, match="assigned review result fields"):
+        quality.normalize_assigned_review_result(
+            assignment,
+            {
+                "schemaVersion": 1,
+                "assignmentId": assignment["assignmentId"],
+                "reviewStatus": "completed",
+                "route": "none",
+                "gaps": [],
+                "sessions": [],
+                "accepted": True,
+            },
+        )
+
+
+def test_inv9_transient_ask_result_is_session_constraint_not_acceptance():  # Tests INV-9
+    result = quality.normalize_ask_result({
+        "id": "deploy?",
+        "question": "Which surface first?",
+        "options": ["CLI", "Extension"],
+        "selectionMode": "single",
+        "selectedOptions": ["CLI"],
+    })
+
+    assert result == {
+        "schemaVersion": 1,
+        "resultType": "constraint",
+        "category": "answer",
+        "source": "ask",
+        "retention": "session",
+        "questionId": "deploy?",
+        "status": "answered",
+        "selectedOptions": ["CLI"],
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+    assert result["category"] not in {"acceptance", "authorization"}
+
+    with pytest.raises(ValueError, match="selected options"):
+        quality.normalize_ask_result({
+            "id": "surface",
+            "question": "Which surface first?",
+            "options": ["CLI", "Extension"],
+            "selectionMode": "single",
+            "selectedOptions": ["Other"],
+        })
+
+
+def test_inv9_quality_cli_normalizes_ask_results_without_persistence(
+    monkeypatch, tmp_path, capsys
+):  # Tests INV-9
+    payload = [{
+        "id": "surface",
+        "question": "Which surface first?",
+        "options": ["CLI", "Extension"],
+        "selectionMode": "single",
+        "selectedOptions": ["CLI"],
+    }]
+    monkeypatch.setattr(quality.sys, "stdin", io.StringIO(json.dumps(payload)))
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda kind: tmp_path)
+
+    assert quality.cmd_quality(["normalize-ask", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["results"][0]["category"] == "answer"
+    assert result["results"][0]["retention"] == "session"
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1

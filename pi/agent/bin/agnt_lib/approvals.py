@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 from .core import die
+from .quality import normalize_ticket_decision_result
 from .runs import update_run_result
 from .work import run_beads_json
 
@@ -46,6 +48,81 @@ def _normalize_preview(preview: Dict[str, Any] | None) -> Dict[str, str]:
             raise ValueError(f"preview.{key} is required")
         normalized[key] = value.strip()
     return normalized
+
+
+def _fingerprint(value: Dict[str, Any]) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _preview_fingerprint(preview: Dict[str, str]) -> str:
+    return _fingerprint(preview)
+
+
+def _request_fingerprint(approval: Dict[str, Any]) -> str:
+    kind = approval.get("kind")
+    if kind not in VALID_KINDS:
+        raise ValueError("approval request kind is invalid")
+    target = _require_nonempty("target_bead", approval.get("targetBead"))
+    question = _require_nonempty("question", approval.get("question"))
+    context = _require_nonempty("context", approval.get("context"))
+    options = _normalize_options(approval.get("options"))
+    default = _require_nonempty("default", approval.get("default"))
+    if default not in options:
+        raise ValueError("approval request default is invalid")
+    return _fingerprint({
+        "kind": kind,
+        "targetBead": target,
+        "question": question,
+        "context": context,
+        "options": options,
+        "default": default,
+        "preview": _normalize_preview(approval.get("preview")),
+    })
+
+
+def _provenance_request_fingerprints(value: Any) -> set[str]:
+    if isinstance(value, list):
+        return set().union(*(_provenance_request_fingerprints(item) for item in value), set())
+    if not isinstance(value, dict):
+        return set()
+    found = set()
+    if value.get("source") == "agnt-approval":
+        payload = value.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError:
+                payload = None
+        if (
+            isinstance(payload, dict)
+            and payload.get("schemaVersion") == 1
+            and payload.get("kind") == "approval-request"
+            and isinstance(payload.get("requestFingerprint"), str)
+        ):
+            found.add(payload["requestFingerprint"])
+    return found.union(*(_provenance_request_fingerprints(item) for item in value.values()), set())
+
+
+def _require_unchanged_approval_preview(
+    decision_bead: str,
+    approval: Dict[str, Any],
+    beads_runner: BeadsRunner,
+) -> None:
+    try:
+        preview_fingerprint = _preview_fingerprint(_normalize_preview(approval.get("preview")))
+        request_fingerprint = _request_fingerprint(approval)
+    except ValueError as exc:
+        raise ValueError("approval preview changed; create a new approval request") from exc
+    if (
+        approval.get("previewFingerprint") != preview_fingerprint
+        or approval.get("requestFingerprint") != request_fingerprint
+    ):
+        raise ValueError("approval preview changed; create a new approval request")
+    code, data, err = beads_runner(["provenance", "log", decision_bead, "--kind", "cut"])
+    provenance = _require_beads_success(code, data, err, "read approval provenance")
+    if _provenance_request_fingerprints(provenance) != {request_fingerprint}:
+        raise ValueError("approval preview changed; create a new approval request")
 
 
 def approval_request_payload(
@@ -98,12 +175,14 @@ def approval_request_payload(
         "options": choices,
         "default": chosen_default,
         "preview": normalized_preview,
+        "previewFingerprint": _preview_fingerprint(normalized_preview),
         "status": "pending",
         "createdAt": timestamp,
     }
     if normalized_selection_mode is not None:
         approval["selectionMode"] = normalized_selection_mode
         approval["customResponseAllowed"] = True
+    approval["requestFingerprint"] = _request_fingerprint(approval)
     metadata = {"pi": {"approval": approval}}
     description = "\n".join([
         f"Beads-backed {kind} request.",
@@ -202,6 +281,24 @@ def create_beads_approval_request(
     dep_code, dep_data, dep_err = beads_runner(dep_args)
     _require_beads_success(dep_code, dep_data, dep_err, "dep approval blocker")
 
+    approval = payload["metadata"]["pi"]["approval"]
+    provenance_payload = {
+        "schemaVersion": 1,
+        "kind": "approval-request",
+        "requestFingerprint": approval["requestFingerprint"],
+    }
+    provenance_code, provenance_data, provenance_err = beads_runner([
+        "provenance", "record",
+        "--issue", decision_bead,
+        "--kind", "cut",
+        "--source", "agnt-approval",
+        "--at", approval["createdAt"],
+        "--payload", _json_arg(provenance_payload),
+    ])
+    _require_beads_success(
+        provenance_code, provenance_data, provenance_err, "record approval provenance"
+    )
+
     run_result = None
     if run_bundle is not None:
         run_result = update_run_result(
@@ -275,6 +372,8 @@ def resolve_beads_approval_request(
         raise ValueError("question decisions cannot resolve as approved")
     if kind == "approval" and outcome == "answered":
         raise ValueError("approval decisions cannot resolve as answered")
+    if kind == "approval" and outcome == "approved":
+        _require_unchanged_approval_preview(decision, approval, beads_runner)
 
     structured_answer = structured_answer or selected_options is not None or custom_input is not None
     if structured_answer:
@@ -333,6 +432,8 @@ def resolve_beads_approval_request(
     })
     if resolver is not None:
         approval["resolver"] = {"kind": resolver["kind"]}
+    quality_result = normalize_ticket_decision_result(decision, approval)
+    approval["qualityResult"] = quality_result
 
     note = f"Beads-backed {kind} resolved as {outcome}: {answer_text}"
     update_args = ["update", decision, "--metadata", _json_arg(metadata), "--append-notes", note]
@@ -381,6 +482,7 @@ def resolve_beads_approval_request(
         "kind": kind,
         "outcome": outcome,
         "blockerVisible": blocker_visible,
+        "qualityResult": quality_result,
         "metadata": metadata,
         "closeResult": close_result,
         "targetUpdateResult": target_update_result,
