@@ -25,6 +25,7 @@ from .metrics import git_root
 from .quality import (
     BEAD_ID,
     FINDING_CORE_FIELDS,
+    MAX_LANGFUSE_ANNOTATION_ITEMS,
     MAX_REVIEW_ASSIGNMENT_ITEMS,
     TASK_OUTCOMES,
     SessionWorkItemConflict,
@@ -33,6 +34,7 @@ from .quality import (
     capture_session_outcome,
     current_session_id,
     normalize_assigned_review_result,
+    normalize_langfuse_annotation_result,
     validate_evidence_ref,
     validate_finding,
 )
@@ -182,6 +184,93 @@ PRIVATE_PUBLIC_TEXT = re.compile(
 
 class PrivateReviewUnsafe(ValueError):
     pass
+
+
+def _unavailable_langfuse_annotation_evidence(queue_id: str) -> dict[str, Any]:
+    return normalize_langfuse_annotation_result(
+        queue_id=queue_id,
+        queue=None,
+        items=[],
+        scores=[],
+        score_configs=[],
+        completeness={
+            "queue": False,
+            "items": False,
+            "scores": False,
+            "scoreConfigs": False,
+        },
+        gaps=[
+            "items-unavailable",
+            "queue-unavailable",
+            "score-configs-unavailable",
+            "scores-unavailable",
+        ],
+    )
+
+
+def import_langfuse_annotation_evidence(
+    client: Any,
+    queue_id: str,
+    *,
+    limit: int = MAX_LANGFUSE_ANNOTATION_ITEMS,
+) -> dict[str, Any]:
+    if type(limit) is not int or not 1 <= limit <= MAX_LANGFUSE_ANNOTATION_ITEMS:
+        raise ValueError("Langfuse annotation limit is invalid")
+    if client is None:
+        return _unavailable_langfuse_annotation_evidence(queue_id)
+    try:
+        queue = client.get_annotation_queue(queue_id)
+    except LangfuseError:
+        return _unavailable_langfuse_annotation_evidence(queue_id)
+
+    gaps = []
+    completeness = {"queue": True, "items": False, "scores": False, "scoreConfigs": False}
+    try:
+        item_result = client.list_annotation_queue_items(queue_id, limit=limit)
+        items = item_result["items"]
+        completeness["items"] = item_result["complete"] is True
+        if not completeness["items"]:
+            gaps.append("item-limit")
+    except (KeyError, LangfuseError, TypeError):
+        items = []
+        gaps.append("items-unavailable")
+
+    try:
+        score_result = client.list_annotation_scores(queue_id, limit=limit)
+        scores = score_result["scores"]
+        completeness["scores"] = score_result["complete"] is True
+        if not completeness["scores"]:
+            gaps.append("score-limit")
+    except (KeyError, LangfuseError, TypeError):
+        scores = []
+        gaps.append("scores-unavailable")
+
+    config_ids = queue.get("scoreConfigIds") if isinstance(queue, dict) else None
+    score_configs = []
+    if isinstance(config_ids, list):
+        if len(config_ids) > limit:
+            gaps.append("score-config-limit")
+        config_failed = False
+        for config_id in config_ids[:limit]:
+            try:
+                score_configs.append(client.get_score_config(config_id))
+            except LangfuseError:
+                config_failed = True
+        if config_failed:
+            gaps.append("score-configs-unavailable")
+        completeness["scoreConfigs"] = len(config_ids) <= limit and not config_failed
+    else:
+        gaps.append("score-configs-unavailable")
+
+    return normalize_langfuse_annotation_result(
+        queue_id=queue_id,
+        queue=queue,
+        items=items,
+        scores=scores,
+        score_configs=score_configs,
+        completeness=completeness,
+        gaps=gaps,
+    )
 
 
 def improvement_dir() -> Path:
@@ -2989,6 +3078,11 @@ def cmd_improve(argv: list[str]) -> int:
     scan.add_argument("--recheck", action="store_true")
     scan.add_argument("--dry-run", action="store_true")
     scan.add_argument("--json", action="store_true")
+    annotations = sub.add_parser(
+        "annotations", help="import bounded Langfuse annotation queue evidence"
+    )
+    annotations.add_argument("queue")
+    annotations.add_argument("--json", action="store_true")
     link = sub.add_parser("link", help="link the current private session to a public work item")
     link.add_argument("bead")
     link.add_argument("--json", action="store_true")
@@ -3009,6 +3103,31 @@ def cmd_improve(argv: list[str]) -> int:
     promote.add_argument("--approval")
     promote.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.action == "annotations":
+        try:
+            try:
+                client = _client_from_env()
+            except ValueError:
+                client = None
+            summary = import_langfuse_annotation_evidence(client, args.queue)
+        except (LangfuseError, ValueError):
+            if args.json:
+                print(json.dumps({
+                    "schemaVersion": 1,
+                    "status": "error",
+                    "error": "annotation import failed",
+                }))
+            else:
+                print("Annotation import failed.", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(summary, indent=2, sort_keys=True))
+        else:
+            print(
+                f"Annotation evidence: {summary['status']}; "
+                f"references: {len(summary['evidenceRefs'])}"
+            )
+        return 0
     if args.action == "outcome":
         try:
             summary = record_current_session_outcome(args.bead, args.outcome)
@@ -3139,4 +3258,10 @@ def cmd_improve(argv: list[str]) -> int:
     return 0
 
 
-__all__ = ["cmd_improve", "eligible_unreviewed_session_summary", "improvement_dir", "scan_sessions"]
+__all__ = [
+    "cmd_improve",
+    "eligible_unreviewed_session_summary",
+    "import_langfuse_annotation_evidence",
+    "improvement_dir",
+    "scan_sessions",
+]

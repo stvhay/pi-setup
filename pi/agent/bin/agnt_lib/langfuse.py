@@ -304,6 +304,65 @@ class LangfuseClient:
                 break
         return rows[:limit]
 
+    @staticmethod
+    def _annotation_path_id(value: str) -> str:
+        if not isinstance(value, str) or not value or len(value) > 1000:
+            raise ValueError("Langfuse annotation identifier is invalid")
+        return urllib.parse.quote(value, safe="")
+
+    def get_annotation_queue(self, queue_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/api/public/annotation-queues/{self._annotation_path_id(queue_id)}",
+        )
+
+    def list_annotation_queue_items(
+        self,
+        queue_id: str,
+        *,
+        limit: int,
+    ) -> dict[str, Any]:
+        if type(limit) is not int or not 1 <= limit < MAX_PAGE_SIZE:
+            raise ValueError("Langfuse annotation limit is invalid")
+        payload = self._request(
+            "GET",
+            f"/api/public/annotation-queues/{self._annotation_path_id(queue_id)}/items",
+            params={"limit": limit + 1, "page": 1},
+        )
+        items = self._data(payload)
+        meta = self._meta(payload)
+        total = meta.get("totalItems")
+        complete = (
+            len(items) <= limit
+            and type(total) is int
+            and total == len(items)
+        )
+        return {"items": items[:limit], "complete": complete}
+
+    def list_annotation_scores(
+        self,
+        queue_id: str,
+        *,
+        limit: int,
+    ) -> dict[str, Any]:
+        if type(limit) is not int or not 1 <= limit < MAX_PAGE_SIZE:
+            raise ValueError("Langfuse annotation limit is invalid")
+        payload = self._request("GET", "/api/public/v3/scores", params={
+            "fields": "details,subject,annotation",
+            "queueId": queue_id,
+            "source": "ANNOTATION",
+            "limit": limit + 1,
+        })
+        scores = self._data(payload)
+        complete = len(scores) <= limit and not self._meta(payload).get("cursor")
+        return {"scores": scores[:limit], "complete": complete}
+
+    def get_score_config(self, config_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/api/public/score-configs/{self._annotation_path_id(config_id)}",
+        )
+
     def put_session_score(
         self,
         *,

@@ -514,6 +514,70 @@ def test_session_score_writes_use_caller_id_for_idempotent_updates():
     ]
 
 
+def test_annotation_import_keeps_optional_langfuse_failure_as_explicit_gap():
+    class UnavailableAnnotationClient:
+        def get_annotation_queue(self, queue_id):
+            raise langfuse.LangfuseError("unavailable")
+
+    result = improvement.import_langfuse_annotation_evidence(
+        UnavailableAnnotationClient(), "queue-quality"
+    )
+
+    assert result["status"] == "unavailable"
+    assert result["evidenceRefs"] == []
+    assert result["gaps"] == [
+        "items-unavailable",
+        "queue-unavailable",
+        "score-configs-unavailable",
+        "scores-unavailable",
+    ]
+    assert result["completeness"] == {
+        "queue": False,
+        "items": False,
+        "scores": False,
+        "scoreConfigs": False,
+        "complete": False,
+    }
+    assert result["authority"] == {"status": "none", "allowedEffects": []}
+
+
+def test_annotation_cli_imports_without_persisting_or_granting_authority(monkeypatch, capsys):
+    class UnavailableAnnotationClient:
+        def get_annotation_queue(self, queue_id):
+            raise langfuse.LangfuseError("unavailable")
+
+    monkeypatch.setattr(
+        improvement, "_client_from_env", lambda: UnavailableAnnotationClient()
+    )
+
+    assert improvement.cmd_improve([
+        "annotations", "queue-quality", "--json",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "unavailable"
+    assert result["authority"] == {"status": "none", "allowedEffects": []}
+
+
+def test_annotation_cli_treats_missing_optional_credentials_as_unavailable(monkeypatch, capsys):
+    monkeypatch.setattr(
+        improvement,
+        "_client_from_env",
+        lambda: (_ for _ in ()).throw(ValueError("not configured")),
+    )
+
+    assert improvement.cmd_improve([
+        "annotations", "queue-quality", "--json",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "unavailable"
+    assert result["gaps"] == [
+        "items-unavailable",
+        "queue-unavailable",
+        "score-configs-unavailable",
+        "scores-unavailable",
+    ]
+
+
 def test_transport_errors_do_not_expose_url_headers_or_response_body(monkeypatch):
     client = LangfuseClient("https://private.example", "public-secret", "private-secret")
 

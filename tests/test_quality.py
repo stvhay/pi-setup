@@ -536,6 +536,148 @@ def test_inv9_quality_cli_normalizes_ask_results_without_persistence(
     assert list(tmp_path.iterdir()) == []
 
 
+def _langfuse_annotation_import():
+    return {
+        "queue_id": "queue-quality",
+        "queue": {
+            "id": "queue-quality",
+            "name": "Quality review",
+            "description": None,
+            "scoreConfigIds": ["config-quality"],
+            "createdAt": "2026-08-14T00:00:00Z",
+            "updatedAt": "2026-08-14T00:01:00Z",
+        },
+        "items": [{
+            "id": "item-1",
+            "queueId": "queue-quality",
+            "objectId": "trace-private",
+            "objectType": "TRACE",
+            "status": "COMPLETED",
+            "completedAt": "2026-08-14T00:02:00Z",
+            "createdAt": "2026-08-14T00:00:00Z",
+            "updatedAt": "2026-08-14T00:02:00Z",
+        }],
+        "scores": [{
+            "id": "score-quality",
+            "projectId": "project-private",
+            "name": "quality",
+            "value": 0.8,
+            "dataType": "NUMERIC",
+            "source": "ANNOTATION",
+            "timestamp": "2026-08-14T00:02:00Z",
+            "environment": "default",
+            "createdAt": "2026-08-14T00:02:00Z",
+            "updatedAt": "2026-08-14T00:02:00Z",
+            "comment": "private reviewer comment",
+            "configId": "config-quality",
+            "metadata": {},
+            "authorUserId": "reviewer-private",
+            "queueId": "queue-quality",
+            "subject": {"kind": "trace", "id": "trace-private"},
+        }, {
+            "id": "score-correction",
+            "projectId": "project-private",
+            "name": "output",
+            "value": "private corrected output",
+            "dataType": "CORRECTION",
+            "source": "ANNOTATION",
+            "timestamp": "2026-08-14T00:03:00Z",
+            "environment": "default",
+            "createdAt": "2026-08-14T00:03:00Z",
+            "updatedAt": "2026-08-14T00:03:00Z",
+            "comment": None,
+            "configId": None,
+            "metadata": {},
+            "authorUserId": "reviewer-private",
+            "queueId": "queue-quality",
+            "subject": {"kind": "trace", "id": "trace-private"},
+        }],
+        "score_configs": [{
+            "id": "config-quality",
+            "name": "quality",
+            "createdAt": "2026-08-14T00:00:00Z",
+            "updatedAt": "2026-08-14T00:00:00Z",
+            "projectId": "project-private",
+            "dataType": "NUMERIC",
+            "isArchived": False,
+            "minValue": 0,
+            "maxValue": 1,
+            "categories": None,
+            "description": "private rubric",
+        }],
+        "completeness": {
+            "queue": True,
+            "items": True,
+            "scores": True,
+            "scoreConfigs": True,
+        },
+        "gaps": [],
+    }
+
+
+def test_inv10_langfuse_annotations_are_bounded_review_evidence_only():  # Tests INV-10
+    result = quality.normalize_langfuse_annotation_result(**_langfuse_annotation_import())
+
+    assert result["category"] == "review"
+    assert result["source"] == "langfuse-annotation-queue"
+    assert result["status"] == "completed"
+    assert result["reviewers"][0].startswith("langfuse-user-")
+    assert result["rubric"] == {
+        "scoreConfigs": [{
+            "ref": result["rubric"]["scoreConfigs"][0]["ref"],
+            "dataType": "NUMERIC",
+        }],
+        "complete": True,
+    }
+    assert result["scope"] == {
+        "queueRef": result["scope"]["queueRef"],
+        "itemCount": 1,
+        "completedItems": 1,
+        "objectTypes": ["trace"],
+        "maxItems": 16,
+    }
+    assert [record["kinds"] for record in result["annotations"]] == [
+        ["score", "comment"],
+        ["corrected-output"],
+    ]
+    assert len(result["evidenceRefs"]) == 2
+    assert result["completeness"]["complete"] is True
+    assert result["gaps"] == []
+    assert result["authority"] == {"status": "none", "allowedEffects": []}
+    encoded = json.dumps(result)
+    for private in (
+        "private reviewer comment",
+        "private corrected output",
+        "trace-private",
+        "reviewer-private",
+        "project-private",
+    ):
+        assert private not in encoded
+    assert result["category"] not in {"annotation", "acceptance", "authorization"}
+
+
+def test_fail8_langfuse_annotation_partiality_and_authority_claims_fail_closed():  # Tests FAIL-8
+    partial = _langfuse_annotation_import()
+    partial["items"][0]["status"] = "PENDING"
+    partial["items"][0]["completedAt"] = None
+    partial["scores"] = []
+    partial["completeness"]["items"] = False
+    partial["gaps"] = ["item-limit"]
+
+    result = quality.normalize_langfuse_annotation_result(**partial)
+
+    assert result["status"] == "partial"
+    assert result["evidenceRefs"] == []
+    assert result["completeness"]["complete"] is False
+    assert result["gaps"] == ["item-limit", "pending-items"]
+    assert result["authority"] == {"status": "none", "allowedEffects": []}
+
+    claimed = _langfuse_annotation_import()
+    claimed["scores"][0]["accepted"] = True
+    with pytest.raises(ValueError, match="authority"):
+        quality.normalize_langfuse_annotation_result(**claimed)
+
+
 def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1
     plan = quality.load_control_plan()
 

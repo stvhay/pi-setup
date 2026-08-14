@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -134,6 +135,35 @@ REVIEW_ASSIGNMENT_FIELDS = frozenset({
 })
 REVIEW_ASSIGNMENT_ID = re.compile(r"review-[0-9a-f]{64}\Z")
 MAX_REVIEW_ASSIGNMENT_ITEMS = 20
+MAX_LANGFUSE_ANNOTATION_ITEMS = 16
+LANGFUSE_ANNOTATION_GAPS = frozenset({
+    "empty-queue",
+    "item-limit",
+    "items-incomplete",
+    "items-unavailable",
+    "missing-item-scores",
+    "missing-reviewer",
+    "missing-score-config",
+    "pending-items",
+    "queue-incomplete",
+    "queue-unavailable",
+    "score-config-limit",
+    "score-configs-incomplete",
+    "score-configs-unavailable",
+    "score-limit",
+    "scores-incomplete",
+    "scores-unavailable",
+    "unmatched-annotations",
+})
+LANGFUSE_ANNOTATION_AUTHORITY_FIELDS = frozenset({
+    "accepted",
+    "acceptance",
+    "allowedEffects",
+    "authority",
+    "authorization",
+    "grant",
+    "mode",
+})
 
 
 class SessionWorkItemConflict(ValueError):
@@ -1057,6 +1087,285 @@ def normalize_assigned_review_result(
         "assignmentId": assignment["assignmentId"],
         "status": "completed",
         "evidenceRefs": assignment["evidenceRefs"],
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+
+
+def _langfuse_annotation_ref(kind: str, value: Any) -> str:
+    if not _text(value):
+        raise ValueError("Langfuse annotation identifier is invalid")
+    digest = _fingerprint(value).partition(":")[2][:24]
+    return f"langfuse-{kind}-{digest}"
+
+
+def _langfuse_annotation_authority_claim(value: Any) -> bool:
+    if isinstance(value, list):
+        return any(_langfuse_annotation_authority_claim(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    return bool(LANGFUSE_ANNOTATION_AUTHORITY_FIELDS.intersection(value)) or any(
+        _langfuse_annotation_authority_claim(item) for item in value.values()
+    )
+
+
+def normalize_langfuse_annotation_result(
+    *,
+    queue_id: str,
+    queue: Any,
+    items: Any,
+    scores: Any,
+    score_configs: Any,
+    completeness: Any,
+    gaps: Any,
+) -> dict[str, Any]:
+    """Normalize current Langfuse queue API rows without copying annotation bodies."""
+    if _langfuse_annotation_authority_claim(
+        [queue, items, scores, score_configs, completeness]
+    ):
+        raise ValueError("Langfuse annotation authority fields are forbidden")
+    if not _text(queue_id):
+        raise ValueError("Langfuse annotation queue ID is invalid")
+    if (
+        not isinstance(items, list)
+        or len(items) > MAX_LANGFUSE_ANNOTATION_ITEMS
+        or not isinstance(scores, list)
+        or len(scores) > MAX_LANGFUSE_ANNOTATION_ITEMS
+        or not isinstance(score_configs, list)
+        or len(score_configs) > MAX_LANGFUSE_ANNOTATION_ITEMS
+    ):
+        raise ValueError("Langfuse annotation import exceeds its bound")
+    completeness_fields = {"queue", "items", "scores", "scoreConfigs"}
+    if (
+        not isinstance(completeness, dict)
+        or set(completeness) != completeness_fields
+        or any(type(completeness[field]) is not bool for field in completeness_fields)
+    ):
+        raise ValueError("Langfuse annotation completeness is invalid")
+    if (
+        not isinstance(gaps, list)
+        or len(gaps) > 32
+        or len(set(gaps)) != len(gaps)
+        or any(gap not in LANGFUSE_ANNOTATION_GAPS for gap in gaps)
+    ):
+        raise ValueError("Langfuse annotation gaps are invalid")
+
+    normalized_gaps = set(gaps)
+    related_gaps = {
+        "queue": {"queue-incomplete", "queue-unavailable"},
+        "items": {"item-limit", "items-incomplete", "items-unavailable"},
+        "scores": {"score-limit", "scores-incomplete", "scores-unavailable"},
+        "scoreConfigs": {
+            "score-config-limit",
+            "score-configs-incomplete",
+            "score-configs-unavailable",
+        },
+    }
+    default_gaps = {
+        "queue": "queue-incomplete",
+        "items": "items-incomplete",
+        "scores": "scores-incomplete",
+        "scoreConfigs": "score-configs-incomplete",
+    }
+    for field in completeness_fields:
+        if completeness[field] is False and not normalized_gaps.intersection(related_gaps[field]):
+            normalized_gaps.add(default_gaps[field])
+
+    queue_ref = _langfuse_annotation_ref("queue", queue_id)
+    config_ids: list[str] = []
+    if queue is None:
+        if completeness["queue"] or items or scores or score_configs:
+            raise ValueError("Langfuse annotation unavailable queue is invalid")
+    else:
+        raw_config_ids = queue.get("scoreConfigIds") if isinstance(queue, dict) else None
+        if (
+            not isinstance(queue, dict)
+            or queue.get("id") != queue_id
+            or not isinstance(raw_config_ids, list)
+            or not raw_config_ids
+            or len(raw_config_ids) > 32
+            or len(set(raw_config_ids)) != len(raw_config_ids)
+            or any(not _text(config_id) for config_id in raw_config_ids)
+        ):
+            raise ValueError("Langfuse annotation queue is invalid")
+        config_ids = list(raw_config_ids)
+        if len(config_ids) > MAX_LANGFUSE_ANNOTATION_ITEMS:
+            normalized_gaps.add("score-config-limit")
+
+    item_by_subject: dict[tuple[str, str], dict[str, Any]] = {}
+    completed_items = 0
+    object_types: set[str] = set()
+    for item in items:
+        object_type = item.get("objectType") if isinstance(item, dict) else None
+        status = item.get("status") if isinstance(item, dict) else None
+        if (
+            not isinstance(item, dict)
+            or not _text(item.get("id"))
+            or item.get("queueId") != queue_id
+            or not _text(item.get("objectId"))
+            or object_type not in {"TRACE", "OBSERVATION", "SESSION"}
+            or status not in {"PENDING", "COMPLETED"}
+        ):
+            raise ValueError("Langfuse annotation queue item is invalid")
+        subject = (object_type.lower(), item["objectId"])
+        if subject in item_by_subject:
+            raise ValueError("Langfuse annotation queue items are duplicated")
+        item_by_subject[subject] = item
+        object_types.add(subject[0])
+        if status == "COMPLETED":
+            completed_items += 1
+        else:
+            normalized_gaps.add("pending-items")
+    if queue is not None and not items:
+        normalized_gaps.add("empty-queue")
+
+    config_by_id: dict[str, dict[str, Any]] = {}
+    for config in score_configs:
+        config_id = config.get("id") if isinstance(config, dict) else None
+        if (
+            not isinstance(config, dict)
+            or not _text(config_id)
+            or config_id not in config_ids
+            or config.get("dataType") not in {"NUMERIC", "BOOLEAN", "CATEGORICAL", "TEXT"}
+            or config_id in config_by_id
+        ):
+            raise ValueError("Langfuse annotation score config is invalid")
+        config_by_id[config_id] = config
+    if queue is not None and any(config_id not in config_by_id for config_id in config_ids):
+        normalized_gaps.add("missing-score-config")
+
+    reviewers: set[str] = set()
+    annotations: list[dict[str, Any]] = []
+    evidence_refs: list[dict[str, Any]] = []
+    scored_configs: dict[tuple[str, str], set[str]] = {}
+    score_ids: set[str] = set()
+    for score in scores:
+        subject = score.get("subject") if isinstance(score, dict) else None
+        data_type = score.get("dataType") if isinstance(score, dict) else None
+        score_id = score.get("id") if isinstance(score, dict) else None
+        value = score.get("value") if isinstance(score, dict) else None
+        if (
+            not isinstance(score, dict)
+            or not _text(score_id)
+            or score_id in score_ids
+            or not _text(score.get("name"))
+            or score.get("source") != "ANNOTATION"
+            or score.get("queueId") != queue_id
+            or data_type not in {"NUMERIC", "BOOLEAN", "CATEGORICAL", "TEXT", "CORRECTION"}
+            or not isinstance(subject, dict)
+            or subject.get("kind") not in {"trace", "observation", "session"}
+            or not _text(subject.get("id"))
+        ):
+            raise ValueError("Langfuse annotation score is invalid")
+        if (
+            (data_type == "NUMERIC" and (
+                type(value) not in {int, float} or not math.isfinite(value)
+            ))
+            or (data_type == "BOOLEAN" and type(value) is not bool)
+            or (data_type in {"CATEGORICAL", "TEXT", "CORRECTION"} and not isinstance(value, str))
+        ):
+            raise ValueError("Langfuse annotation score value is invalid")
+        score_ids.add(score_id)
+        subject_key = (subject["kind"], subject["id"])
+        if subject_key not in item_by_subject:
+            normalized_gaps.add("unmatched-annotations")
+            continue
+
+        config_id = score.get("configId")
+        config_ref = None
+        if data_type == "CORRECTION":
+            if score["name"] != "output" or config_id is not None:
+                raise ValueError("Langfuse corrected output is invalid")
+            kinds = ["corrected-output"]
+            evidence_source = "langfuse-correction"
+        else:
+            if not _text(config_id) or config_id not in config_ids:
+                normalized_gaps.add("unmatched-annotations")
+                continue
+            config = config_by_id.get(config_id)
+            if config is None:
+                normalized_gaps.add("missing-score-config")
+            elif config["dataType"] != data_type:
+                raise ValueError("Langfuse annotation score config does not match score")
+            config_ref = _langfuse_annotation_ref("score-config", config_id)
+            scored_configs.setdefault(subject_key, set()).add(config_id)
+            comment = score.get("comment")
+            if comment is not None and not isinstance(comment, str):
+                raise ValueError("Langfuse annotation comment is invalid")
+            kinds = ["score", *(["comment"] if comment else [])]
+            evidence_source = "langfuse-annotation"
+
+        author = score.get("authorUserId")
+        reviewer = None
+        if author is None:
+            normalized_gaps.add("missing-reviewer")
+        elif not _text(author):
+            raise ValueError("Langfuse annotation reviewer is invalid")
+        else:
+            reviewer = _langfuse_annotation_ref("user", author)
+            reviewers.add(reviewer)
+
+        evidence_ref = validate_evidence_ref({
+            "ref": "result:" + _langfuse_annotation_ref(
+                "correction" if data_type == "CORRECTION" else "annotation", score_id
+            ),
+            "source": evidence_source,
+            "availability": "available",
+            "provenance": queue_ref,
+            "integrity": "verified",
+            "sensitivity": "private",
+            "retention": "cohort",
+        })
+        evidence_refs.append(evidence_ref)
+        annotations.append({
+            "evidenceRef": evidence_ref["ref"],
+            "kinds": kinds,
+            "reviewer": reviewer,
+            "scoreConfigRef": config_ref,
+            "subject": {
+                "kind": subject["kind"],
+                "ref": _langfuse_annotation_ref(subject["kind"], subject["id"]),
+            },
+        })
+
+    expected_configs = set(config_ids)
+    if any(
+        item["status"] == "COMPLETED" and scored_configs.get(subject, set()) != expected_configs
+        for subject, item in item_by_subject.items()
+    ):
+        normalized_gaps.add("missing-item-scores")
+
+    rubric_configs = [
+        {
+            "ref": _langfuse_annotation_ref("score-config", config_id),
+            "dataType": config_by_id[config_id]["dataType"],
+        }
+        for config_id in config_ids
+        if config_id in config_by_id
+    ]
+    gap_list = sorted(normalized_gaps)
+    fully_complete = all(completeness.values()) and not gap_list
+    return {
+        "schemaVersion": 1,
+        "resultType": "evidence",
+        "category": "review",
+        "source": "langfuse-annotation-queue",
+        "status": "unavailable" if queue is None else "completed" if fully_complete else "partial",
+        "reviewers": sorted(reviewers),
+        "rubric": {
+            "scoreConfigs": rubric_configs,
+            "complete": completeness["scoreConfigs"] and len(rubric_configs) == len(config_ids),
+        },
+        "scope": {
+            "queueRef": queue_ref,
+            "itemCount": len(items),
+            "completedItems": completed_items,
+            "objectTypes": sorted(object_types),
+            "maxItems": MAX_LANGFUSE_ANNOTATION_ITEMS,
+        },
+        "annotations": annotations,
+        "evidenceRefs": evidence_refs,
+        "completeness": {**completeness, "complete": fully_complete},
+        "gaps": gap_list,
         "authority": {"status": "none", "allowedEffects": []},
     }
 

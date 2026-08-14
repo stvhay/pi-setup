@@ -43,6 +43,91 @@ class FakeClient:
         return {"id": rule_id, **body}
 
 
+class FakeAnnotationClient(langfuse.LangfuseClient):
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def _request(self, method, path, body=None, params=None):
+        self.calls.append((method, path, dict(params or {})))
+        return self.responses.pop(0)
+
+
+def test_annotation_service_port_uses_current_bounded_api_fields():
+    queue = {
+        "id": "queue-quality",
+        "scoreConfigIds": ["config-quality"],
+    }
+    item = {
+        "id": "item-1",
+        "queueId": "queue-quality",
+        "objectId": "trace-private",
+        "objectType": "TRACE",
+        "status": "COMPLETED",
+    }
+    score = {
+        "id": "score-1",
+        "source": "ANNOTATION",
+        "queueId": "queue-quality",
+        "authorUserId": "reviewer-private",
+        "configId": "config-quality",
+        "dataType": "NUMERIC",
+        "value": 1,
+        "subject": {"kind": "trace", "id": "trace-private"},
+    }
+    config = {"id": "config-quality", "dataType": "NUMERIC"}
+    client = FakeAnnotationClient([
+        queue,
+        {"data": [item], "meta": {"totalItems": 1}},
+        {"data": [score], "meta": {"cursor": None}},
+        config,
+    ])
+
+    assert client.get_annotation_queue("queue-quality") == queue
+    assert client.list_annotation_queue_items("queue-quality", limit=2) == {
+        "items": [item],
+        "complete": True,
+    }
+    assert client.list_annotation_scores("queue-quality", limit=2) == {
+        "scores": [score],
+        "complete": True,
+    }
+    assert client.get_score_config("config-quality") == config
+    assert client.calls == [
+        ("GET", "/api/public/annotation-queues/queue-quality", {}),
+        ("GET", "/api/public/annotation-queues/queue-quality/items", {
+            "limit": 3,
+            "page": 1,
+        }),
+        ("GET", "/api/public/v3/scores", {
+            "fields": "details,subject,annotation",
+            "queueId": "queue-quality",
+            "source": "ANNOTATION",
+            "limit": 3,
+        }),
+        ("GET", "/api/public/score-configs/config-quality", {}),
+    ]
+
+
+def test_annotation_item_port_rejects_total_below_returned_rows_as_incomplete():
+    item = {
+        "id": "item-1",
+        "queueId": "queue-quality",
+        "objectId": "trace-private",
+        "objectType": "TRACE",
+        "status": "COMPLETED",
+    }
+    client = FakeAnnotationClient([{
+        "data": [item],
+        "meta": {"totalItems": 0},
+    }])
+
+    assert client.list_annotation_queue_items("queue-quality", limit=2) == {
+        "items": [item],
+        "complete": False,
+    }
+
+
 def test_manifest_contains_default_evaluators():
     manifest = langfuse.load_manifest(MANIFEST)
     assert {item["name"] for item in manifest["evaluators"]} == {

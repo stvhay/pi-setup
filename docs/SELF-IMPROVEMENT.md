@@ -113,6 +113,25 @@ skills include this step:
 Outcomes: `accepted`, `rejected`, `verified-pass`, `verified-fail`,
 `escalated`. Unlabeled records stay `unknown` and carry no routing signal.
 
+Optional Langfuse human annotation imports use current documented queue and v3
+score APIs:
+
+```bash
+~/.pi/agent/bin/agnt improve annotations <queue-id> --json
+```
+
+Import reads at most 16 queue items and 16 `source=ANNOTATION` scores with
+`details,subject,annotation`, plus queue score configs. Numeric/categorical/text/
+boolean scores, score comments, and `CORRECTION`/`output` rows become private
+opaque EvidenceRefs; values, comments, corrected outputs, project/subject IDs,
+and reviewer IDs are not copied. Output keeps reviewer refs, score-config types,
+queue scope counts, completeness, and fixed gaps. Unavailable, truncated,
+pending, or incompletely bound queues stay `unavailable`/`partial`; imported
+evidence has empty authority and never means acceptance or authorization. API
+contracts: [Annotation Queues](https://langfuse.com/docs/evaluation/evaluation-methods/annotation-queues),
+[Scores API v3](https://langfuse.com/docs/api-and-data-platform/features/scores-api),
+and [Corrections](https://langfuse.com/docs/observability/features/corrections).
+
 Code review also records finding-level verification instead of treating invocation
 acceptance as defect evidence:
 
