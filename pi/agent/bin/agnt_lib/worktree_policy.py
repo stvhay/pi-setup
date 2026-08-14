@@ -121,11 +121,11 @@ def worktree_snapshot_for_bead(
         return {"schemaVersion": 1, "policy": policy, "status": "blocked", "dispatchable": False, "reason": "implementation work requires a valid epic-worktree policy and epicId"}
     title = str(bead.get("epicTitle") or bead.get("parentTitle") or "")
     spec = epic_worktree_spec(epic_id, title, repo_root=repo_root)
-    human_approval = normalized.get("humanApproval") if isinstance(normalized.get("humanApproval"), dict) else None
+    authority = normalized.get("authority") if isinstance(normalized.get("authority"), dict) else None
     return resolve_epic_worktree(
         spec,
         worktrees=worktrees,
-        creation_approval=human_approval if normalized.get("approved") is True else None,
+        creation_approval=authority if authority and authority.get("status") == "active" else None,
     )
 
 

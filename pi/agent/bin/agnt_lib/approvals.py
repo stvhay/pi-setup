@@ -790,24 +790,6 @@ def resolve_beads_approval_request(
 
     blocker_visible = outcome in BLOCKED_OUTCOMES
     target_update_result = None
-    if kind == "approval" and outcome == "approved":
-        target_bead = _require_nonempty("target_bead", approval.get("targetBead"))
-        target_code, target_data, target_err = beads_runner(["show", target_bead])
-        target = _require_beads_success(target_code, target_data, target_err, "show approval target")
-        target_metadata = _metadata_from_bead(target)
-        target_pi = target_metadata.setdefault("pi", {})
-        if not isinstance(target_pi, dict):
-            target_metadata["pi"] = target_pi = {}
-        target_pi["approved"] = True
-        target_pi["humanApproval"] = {
-            "decisionBead": decision,
-            "resolver": {"kind": str((resolver or {}).get("kind") or "")},
-        }
-        target_update_code, target_update_data, target_update_err = beads_runner([
-            "update", target_bead, "--metadata", _json_arg(target_metadata),
-            "--append-notes", f"Human approval {decision} recorded with UI resolver provenance.",
-        ])
-        target_update_result = _require_beads_success(target_update_code, target_update_data, target_update_err, "update approval target")
 
     close_result = None
     if not blocker_visible:

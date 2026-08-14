@@ -56,8 +56,11 @@ def test_worktree_snapshot_carries_initial_human_approval_to_creation(agnt, tmp_
     validation = {
         "normalized": {
             "action": "implement",
-            "approved": True,
-            "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
+            "authority": {
+                "decisionBead": "pi-approval.1",
+                "status": "active",
+                "resolver": {"kind": "human-ui"},
+            },
             "epicId": "pi-6yg",
             "worktreePolicy": "epic-worktree",
         }

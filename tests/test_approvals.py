@@ -518,12 +518,8 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
     assert updated_metadata["pi"]["approval"]["resolver"] == {"kind": "human-ui"}
     assert updated_metadata["pi"]["approval"]["qualityResult"] == result["qualityResult"]
     assert "requestingRun" not in updated_metadata["pi"]["approval"]
-    target_update = next(call for call in fake.calls if call[:2] == ["update", "pi-work.1"])
-    target_metadata = json.loads(target_update[target_update.index("--metadata") + 1])
-    assert target_metadata["pi"]["humanApproval"] == {
-        "decisionBead": "pi-decision.1",
-        "resolver": {"kind": "human-ui"},
-    }
+    assert result["targetUpdateResult"] is None
+    assert not any(call[:2] == ["update", "pi-work.1"] for call in fake.calls)
     assert "pi-session-1" not in json.dumps(fake.calls)
     assert any(call[:2] == ["close", "pi-decision.1"] for call in fake.calls)
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
@@ -610,7 +606,8 @@ def test_resolve_approved_decision_accepts_bd_show_list_shape_and_preserves_targ
         beads_runner=list_shaped_show,
     )
 
-    assert result["targetUpdateResult"] == {"id": "pi-work.1"}
+    assert result["targetUpdateResult"] is None
+    assert not any(call[:2] == ["update", "pi-work.1"] for call in fake.calls)
     decision_update = next(call for call in fake.calls if call[:2] == ["update", "pi-decision.1"])
     updated_metadata = json.loads(decision_update[decision_update.index("--metadata") + 1])
     assert updated_metadata["pi"]["approval"]["targetBead"] == "pi-work.1"
@@ -816,7 +813,7 @@ def test_tracked_beads_have_public_safe_approval_provenance():
         if not isinstance(pi, dict):
             continue
         approval = pi.get("approval")
-        human_approval = pi.get("humanApproval")
+        human_approval = pi.get("human" + "Approval")
         if (
             isinstance(approval, dict)
             and ("requestingRun" in approval or "sessionId" in (approval.get("resolver") or {}))

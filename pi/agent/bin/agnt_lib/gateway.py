@@ -178,8 +178,14 @@ def _create_draft_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner)
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be an object when present")
         pi_metadata = metadata.get("pi")
-        if isinstance(pi_metadata, dict) and pi_metadata.get("approved") is True:
-            raise ValueError("model gateway must not set metadata.pi.approved; resolve a human approval through the UI")
+        if isinstance(pi_metadata, dict):
+            metadata = dict(metadata)
+            pi_metadata = dict(pi_metadata)
+            pi_metadata.pop("approved", None)
+            for key in list(pi_metadata):
+                if key.casefold() == "humanapproval":
+                    pi_metadata.pop(key, None)
+            metadata["pi"] = pi_metadata
         args.extend(["--metadata", json.dumps(metadata, sort_keys=True, separators=(",", ":"))])
     code, data, err = beads_runner(args)
     created = _require_beads_success(code, data, err, "create draft")

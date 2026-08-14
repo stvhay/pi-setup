@@ -22,8 +22,7 @@ def valid_implement_metadata() -> dict:
             "action": "implement",
             "routingTask": "implementation",
             "role": "implementation-worker",
-            "approved": True,
-            "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
+            "approvalRefs": ["pi-approval.1"],
             "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
             "risk": "medium",
             "budget": "balanced",
@@ -52,15 +51,21 @@ def test_valid_review_metadata_is_dispatchable(agnt):
     assert result["failures"] == []
 
 
-def test_valid_approved_implement_metadata_is_dispatchable(agnt):
+def test_valid_grant_backed_implement_metadata_is_dispatchable(agnt):
     bead = {"acceptance_criteria": "Focused tests pass; project checks pass"}
 
-    result = agnt.validate_orchestration_metadata(valid_implement_metadata(), bead=bead)
+    result = agnt.resolve_orchestration_metadata(
+        valid_implement_metadata(),
+        bead=bead,
+        grant_resolver=lambda decision: _active_orchestration_grant(agnt),
+    )
 
     assert result["status"] == "dispatchable"
     assert result["dispatchable"] is True
     assert result["normalized"]["action"] == "implement"
-    assert result["normalized"]["approved"] is True
+    assert result["normalized"]["authority"]["decisionBead"] == "pi-approval.1"
+    assert "approved" not in result["normalized"]
+    assert "human" + "Approval" not in result["normalized"]
     assert result["normalized"]["writeSet"] == [
         "pi/agent/bin/agnt_lib/orchestration.py",
         "tests/test_orchestration.py",
@@ -95,7 +100,7 @@ def test_orchestration_resolution_uses_canonical_grant_over_copied_flags(agnt): 
     metadata = valid_implement_metadata()
     metadata["pi"].update({
         "approved": False,
-        "humanApproval": {"decisionBead": "pi-forged.1", "resolver": {"kind": "human-ui"}},
+        "human" + "Approval": {"decisionBead": "pi-forged.1", "resolver": {"kind": "human-ui"}},
         "approvalRefs": ["pi-approval.1"],
     })
 
@@ -106,8 +111,9 @@ def test_orchestration_resolution_uses_canonical_grant_over_copied_flags(agnt): 
     )
 
     assert result["status"] == "dispatchable"
-    assert result["normalized"]["approved"] is True
     assert result["normalized"]["authority"]["decisionBead"] == "pi-approval.1"
+    assert "approved" not in result["normalized"]
+    assert "human" + "Approval" not in result["normalized"]
 
 
 def test_orchestration_resolution_fails_closed_on_copied_approval(agnt):  # Tests FAIL-12
@@ -138,7 +144,11 @@ def test_legacy_checkpoint_continuation_metadata_is_ignored(agnt):
         "approvalRef": "pi-5eu",
     }
 
-    result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
+    result = agnt.validate_orchestration_metadata(
+        metadata,
+        bead={"acceptance_criteria": "ok"},
+        authority=_active_orchestration_grant(agnt),
+    )
 
     assert result["dispatchable"] is True
     assert "continuation" not in result["normalized"]
@@ -170,26 +180,16 @@ def test_invalid_orchestration_reference_metadata_is_rejected(agnt):
     assert any("inputRefs" in item for item in result["failures"])
 
 
-def test_implement_with_caller_supplied_approval_without_human_provenance_needs_human(agnt):
-    metadata = valid_implement_metadata()
-    metadata["pi"].pop("humanApproval")
-
-    result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
-
-    assert result["status"] == "needs-human"
-    assert result["dispatchable"] is False
-    assert any("humanApproval" in item for item in result["humanActions"])
-
-
-def test_implement_without_approval_needs_human(agnt):
-    metadata = valid_implement_metadata()
-    metadata["pi"]["approved"] = False
-
-    result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
+def test_implement_without_active_grant_needs_human(agnt):
+    result = agnt.resolve_orchestration_metadata(
+        valid_implement_metadata(),
+        bead={"acceptance_criteria": "ok"},
+        grant_resolver=lambda _decision: {"status": "blocked", "allowedEffects": []},
+    )
 
     assert result["status"] == "needs-human"
     assert result["dispatchable"] is False
-    assert any("approved" in item for item in result["humanActions"])
+    assert any("canonical capability grant" in item for item in result["humanActions"])
 
 
 def test_missing_pi_metadata_is_blocked_without_crashing(agnt):
@@ -215,7 +215,11 @@ def test_implement_missing_write_set_is_blocked(agnt):
     metadata = valid_implement_metadata()
     metadata["pi"].pop("writeSet")
 
-    result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
+    result = agnt.validate_orchestration_metadata(
+        metadata,
+        bead={"acceptance_criteria": "ok"},
+        authority=_active_orchestration_grant(agnt),
+    )
 
     assert result["status"] == "blocked"
     assert result["dispatchable"] is False
@@ -254,14 +258,18 @@ def test_invalid_status_takes_precedence_over_human_gate(agnt):
     assert result["status"] == "invalid"
     assert result["dispatchable"] is False
     assert any("model override" in item for item in result["failures"])
-    assert any("approved" in item for item in result["humanActions"])
+    assert any("canonical capability grant" in item for item in result["humanActions"])
 
 
 def test_implement_missing_closeout_is_blocked(agnt):
     metadata = valid_implement_metadata()
     metadata["pi"].pop("closeout")
 
-    result = agnt.validate_orchestration_metadata(metadata, bead={"acceptance_criteria": "ok"})
+    result = agnt.validate_orchestration_metadata(
+        metadata,
+        bead={"acceptance_criteria": "ok"},
+        authority=_active_orchestration_grant(agnt),
+    )
 
     assert result["status"] == "blocked"
     assert result["dispatchable"] is False

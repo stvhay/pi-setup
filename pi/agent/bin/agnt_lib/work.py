@@ -9,11 +9,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from .actions import load_action
 from .doctor import doctor_report
-from .orchestration import validate_bead_orchestration_metadata
+from .orchestration import resolve_bead_orchestration_metadata, validate_bead_orchestration_metadata
 from .routing import select_model
 from .runs import create_run_bundle, default_runs_dir, invoke_run_bundle, load_yaml_json, update_run_result
 from .health import check_status_passed, work_health_report
@@ -536,9 +536,21 @@ def dispatch_policy_snapshot(dispatch: Dict[str, Any], policy: Dict[str, Any]) -
     }
 
 
-def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str], claim: bool, runs_dir: Path | None, id_value: str | None) -> Dict[str, Any]:
+def start_work(
+    bead: Dict[str, Any],
+    *,
+    action_id: str | None,
+    target: List[str],
+    claim: bool,
+    runs_dir: Path | None,
+    id_value: str | None,
+    grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
     dispatch = dispatch_plan(bead, action_id, target)
-    validation = validate_bead_orchestration_metadata(bead)
+    if grant_resolver is None:
+        validation = resolve_bead_orchestration_metadata(bead)
+    else:
+        validation = resolve_bead_orchestration_metadata(bead, grant_resolver=grant_resolver)
     normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {}
     if dispatch.get("dispatchError"):
         return {"dispatch": dispatch, "validation": validation, "dispatchError": str(dispatch["dispatchError"])}
@@ -546,7 +558,7 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         return {
             "dispatch": dispatch,
             "validation": validation,
-            "dispatchError": "implement dispatch requires dispatchable implementation metadata with recorded human approval provenance",
+            "dispatchError": "implement dispatch requires a current canonical capability grant",
         }
     policy = selection_policy_from_bead(bead, validation)
     model_selection = select_model(
@@ -584,7 +596,7 @@ def start_work(bead: Dict[str, Any], *, action_id: str | None, target: List[str]
         output_contract=str(dispatch["outputContract"]),
         approval_refs=[str(item) for item in normalized.get("approvalRefs") or []],
         decision_refs=[str(item) for item in normalized.get("decisionRefs") or []],
-        human_approval=normalized.get("humanApproval") if isinstance(normalized.get("humanApproval"), dict) else None,
+        authority=normalized.get("authority") if isinstance(normalized.get("authority"), dict) else None,
         runs_dir=runs_dir,
         id_value=id_value,
     )
@@ -611,6 +623,7 @@ def run_work(
     record_session: bool = False,
     session_id: str | None = None,
     session_name: str | None = None,
+    grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     if model:
         return {"modelOverrideError": "agnt work run uses policy-selected models; pass risk/budget/local/modelPolicy constraints instead of a direct model override"}
@@ -621,6 +634,7 @@ def run_work(
         claim=claim,
         runs_dir=runs_dir,
         id_value=id_value,
+        grant_resolver=grant_resolver,
     )
     if started.get("beadUpdateError") or started.get("dispatchError") or started.get("modelSelectionError"):
         return {"started": started, **({"dispatchError": started["dispatchError"]} if started.get("dispatchError") else {})}
@@ -632,6 +646,7 @@ def run_work(
         record_session=record_session,
         session_id=session_id,
         session_name=session_name,
+        grant_resolver=grant_resolver,
     )
     closed = None
     if close_bead and invoked.get("exitCode") == 0:

@@ -93,7 +93,7 @@ def create_run_bundle(
     output_contract: str | None = None,
     approval_refs: List[str] | None = None,
     decision_refs: List[str] | None = None,
-    human_approval: Dict[str, Any] | None = None,
+    authority: Dict[str, Any] | None = None,
     parent_session_id: str | None = None,
     runs_dir: Path | None = None,
     id_value: str | None = None,
@@ -110,12 +110,20 @@ def create_run_bundle(
     lessons_path = artifacts / "lessons.md"
     handoff_path = artifacts / "handoff.md"
     normalized_input_refs = _deduplicated_refs(input_refs)
-    human_decision_ref = human_approval.get("decisionBead") if isinstance(human_approval, dict) else None
+    grant_decision_ref = authority.get("decisionBead") if isinstance(authority, dict) else None
     normalized_approval_refs = _deduplicated_refs(
         approval_refs,
-        [human_decision_ref] if isinstance(human_decision_ref, str) else None,
+        [grant_decision_ref] if isinstance(grant_decision_ref, str) else None,
     )
     normalized_decision_refs = _deduplicated_refs(decision_refs)
+    effective_envelope = None
+    if isinstance(authority, dict):
+        effective_envelope = {
+            "decisionBead": authority.get("decisionBead"),
+            "grantFingerprint": authority.get("grantFingerprint"),
+            "grant": copy.deepcopy(authority.get("grant")),
+            "allowedEffects": list(authority.get("allowedEffects") or []),
+        }
     provenance = {
         "schemaVersion": 2,
         "invocationId": invocation_id,
@@ -125,7 +133,7 @@ def create_run_bundle(
         "inputRefs": normalized_input_refs,
         "approvalRefs": normalized_approval_refs,
         "decisionRefs": normalized_decision_refs,
-        "humanApproval": copy.deepcopy(human_approval),
+        "effectiveEnvelope": effective_envelope,
         "requestedWorkerContext": {
             "role": requested_role,
             "skills": list(requested_skills or []),
@@ -426,6 +434,42 @@ def invocation_timeout_seconds(invocation: Dict[str, Any]) -> int:
     return WRITE_TIMEOUT_SECONDS if invocation_needs_write_tools(invocation) else READ_ONLY_TIMEOUT_SECONDS
 
 
+def _revalidate_invocation_authority(
+    invocation: Dict[str, Any],
+    *,
+    grant_resolver: Callable[[str], Dict[str, Any]] | None,
+) -> str | None:
+    if invocation.get("action") != "implement":
+        return None
+    provenance = invocation.get("provenance")
+    envelope = provenance.get("effectiveEnvelope") if isinstance(provenance, dict) else None
+    if not isinstance(envelope, dict):
+        return "canonical capability grant is missing from invocation provenance"
+    decision = envelope.get("decisionBead")
+    refs = provenance.get("approvalRefs") if isinstance(provenance, dict) else None
+    if not isinstance(decision, str) or not decision.strip() or refs != [decision]:
+        return "canonical capability grant reference is invalid"
+    if grant_resolver is None:
+        from .approvals import resolve_canonical_capability_grant
+
+        grant_resolver = resolve_canonical_capability_grant
+    try:
+        resolved = grant_resolver(decision)
+        if not isinstance(resolved, dict) or resolved.get("status") != "active":
+            raise ValueError("grant is not active")
+        if resolved.get("decisionBead") != decision:
+            raise ValueError("grant decision does not match provenance")
+        if resolved.get("grantFingerprint") != envelope.get("grantFingerprint"):
+            raise ValueError("grant fingerprint changed")
+        if resolved.get("allowedEffects") != envelope.get("allowedEffects"):
+            raise ValueError("grant effects changed")
+        if resolved.get("grant") != envelope.get("grant"):
+            raise ValueError("grant envelope changed")
+    except (Exception, SystemExit):
+        return "canonical capability grant is unavailable or changed"
+    return None
+
+
 def invoke_run_bundle(
     bundle: Path,
     *,
@@ -435,6 +479,7 @@ def invoke_run_bundle(
     record_session: bool = False,
     session_id: str | None = None,
     session_name: str | None = None,
+    grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     failures = validate_run_bundle(bundle)
     if failures:
@@ -449,6 +494,13 @@ def invoke_run_bundle(
         write_yaml_json(bundle / "result.yaml", result)
     else:
         invocation_id = str(invocation["invocationId"])
+    authority_failure = _revalidate_invocation_authority(invocation, grant_resolver=grant_resolver)
+    if authority_failure:
+        summary = f"Invocation blocked: {authority_failure}."
+        evidence = [authority_failure]
+        write_handoff(bundle, status="blocked", summary=summary, evidence=evidence)
+        result = update_run_result(bundle, status="blocked", summary=summary, evidence=evidence)
+        return {"exitCode": 1, "semanticOutcome": "blocked", "authorityError": authority_failure, "result": result}
     target = choose_invocation_model(invocation, model)
     artifacts_dir = bundle / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)

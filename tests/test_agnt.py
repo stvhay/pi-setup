@@ -2559,7 +2559,7 @@ def test_start_work_rejects_explicit_implement_override_of_read_only_metadata(ag
     assert not (tmp_path / "rejected-action-override").exists()
 
 
-def test_start_work_rejects_implement_without_dispatchable_human_approval(agnt, tmp_path):
+def test_start_work_rejects_implement_without_canonical_grant(agnt, tmp_path):
     bead = {
         "id": "pi-test.no-human-approval",
         "title": "Implement feature",
@@ -2569,7 +2569,7 @@ def test_start_work_rejects_implement_without_dispatchable_human_approval(agnt, 
             "pi": {
                 "action": "implement",
                 "routingTask": "implementation",
-                "approved": True,
+                "approvalRefs": ["pi-missing-approval"],
                 "allowedEffects": ["read_workspace", "write_artifacts", "edit_files"],
                 "epicId": "pi-6yg",
                 "worktreePolicy": "epic-worktree",
@@ -2593,7 +2593,7 @@ def test_start_work_rejects_implement_without_dispatchable_human_approval(agnt, 
     )
 
     assert "dispatchError" in result
-    assert "dispatchable implementation metadata" in result["dispatchError"]
+    assert "canonical capability grant" in result["dispatchError"]
     assert result["validation"]["status"] == "needs-human"
     assert not (tmp_path / "rejected-human-gate").exists()
 
@@ -2667,11 +2667,6 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
                 "routingTask": "implementation",
                 "role": "implementation-worker",
                 "skills": ["test-driven-development"],
-                "approved": True,
-                "humanApproval": {
-                    "decisionBead": "pi-human.1",
-                    "resolver": {"kind": "human-ui"},
-                },
                 "inputRefs": ["pi-predecessor.1", "shared-ref"],
                 "approvalRefs": ["pi-declared-approval.1"],
                 "decisionRefs": ["pi-decision.1"],
@@ -2690,6 +2685,29 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
         }),
     }
 
+    grant = {
+        "schemaVersion": 1,
+        "action": "implement",
+        "effects": ["edit_files"],
+        "model": "openai/gpt-5",
+        "thinking": "high",
+        "toolset": ["read", "edit", "bash"],
+        "contextPolicy": "task-scoped",
+        "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
+        "rollout": {"maxActions": 1, "maxEffects": 1},
+        "expiry": "2099-01-01T00:00:00Z",
+        "revocation": {"status": "active", "reason": None, "at": None},
+    }
+    authority = {
+        "schemaVersion": 1,
+        "decisionBead": "pi-declared-approval.1",
+        "status": "active",
+        "grant": grant,
+        "grantFingerprint": agnt.capability_grant_fingerprint(grant),
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": ["edit_files"],
+    }
+
     result = agnt.start_work(
         bead,
         action_id="implement",
@@ -2697,6 +2715,7 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
         claim=False,
         runs_dir=tmp_path,
         id_value="provenance-work",
+        grant_resolver=lambda _decision: authority,
     )
 
     bundle = Path(result["bundle"])
@@ -2705,12 +2724,15 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
     provenance = invocation["provenance"]
     assert invocation["inputRefs"] == ["pi-predecessor.1", "shared-ref", "cli-plan-ref"]
     assert provenance["inputRefs"] == invocation["inputRefs"]
-    assert provenance["approvalRefs"] == ["pi-declared-approval.1", "pi-human.1"]
+    assert provenance["approvalRefs"] == ["pi-declared-approval.1"]
     assert provenance["decisionRefs"] == ["pi-decision.1"]
-    assert provenance["humanApproval"] == {
-        "decisionBead": "pi-human.1",
-        "resolver": {"kind": "human-ui"},
+    assert provenance["effectiveEnvelope"] == {
+        "decisionBead": "pi-declared-approval.1",
+        "grantFingerprint": authority["grantFingerprint"],
+        "grant": grant,
+        "allowedEffects": ["edit_files"],
     }
+    assert "human" + "Approval" not in provenance
     assert "continuation" not in provenance
     assert provenance["requestedWorkerContext"]["role"] == "implementation-worker"
     assert provenance["effectiveWorkerContext"]["role"] == "implementation-worker"
@@ -2768,11 +2790,7 @@ def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
             "pi": {
                 "action": "implement",
                 "routingTask": "implementation",
-                "approved": True,
-                "humanApproval": {
-                    "decisionBead": "pi-approval.3",
-                    "resolver": {"kind": "human-ui"},
-                },
+                "approvalRefs": ["pi-approval.3"],
                 "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
                 "epicId": "pi-6yg",
                 "worktreePolicy": "epic-worktree",
@@ -2784,6 +2802,27 @@ def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
                 },
             }
         }),
+    }
+    grant = {
+        "schemaVersion": 1,
+        "action": "implement",
+        "effects": ["edit_files"],
+        "model": "openai/gpt-5",
+        "thinking": "high",
+        "toolset": ["read", "edit", "bash"],
+        "contextPolicy": "task-scoped",
+        "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
+        "rollout": {"maxActions": 1, "maxEffects": 1},
+        "expiry": "2099-01-01T00:00:00Z",
+        "revocation": {"status": "active", "reason": None, "at": None},
+    }
+    authority = {
+        "decisionBead": "pi-approval.3",
+        "status": "active",
+        "grant": grant,
+        "grantFingerprint": agnt.capability_grant_fingerprint(grant),
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": ["edit_files"],
     }
     calls = []
 
@@ -2799,6 +2838,7 @@ def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
             claim=True,
             runs_dir=tmp_path,
             id_value="work-start",
+            grant_resolver=lambda _decision: authority,
         )
 
     assert Path(result["bundle"]).name == "work-start"

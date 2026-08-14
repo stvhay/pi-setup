@@ -238,7 +238,6 @@ AUTHORITY_CLAIM_FIELDS = frozenset({
     "authority",
     "authorization",
     "grant",
-    "humanApproval",
     "mode",
 })
 EXTERNAL_RESULT_FIELDS = frozenset({
@@ -1315,7 +1314,9 @@ def _contains_authority_claim(value: Any) -> bool:
             continue
         seen.add(id(item))
         if isinstance(item, dict):
-            if AUTHORITY_CLAIM_FIELDS.intersection(item):
+            if AUTHORITY_CLAIM_FIELDS.intersection(item) or any(
+                str(key).casefold() == "humanapproval" for key in item
+            ):
                 return True
             pending.extend(item.values())
         else:

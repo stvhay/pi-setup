@@ -309,38 +309,14 @@ def validate_orchestration_metadata(
         failures.append(f"metadata.pi.memoryPolicy must be one of {sorted(VALID_MEMORY_POLICIES)}")
         memory_policy = "auto"
 
-    approved = bool(pi_meta.get("approved", False))
-    human_approval = pi_meta.get("humanApproval")
-    human_approval_valid = (
-        isinstance(human_approval, dict)
-        and isinstance(human_approval.get("decisionBead"), str)
-        and bool(human_approval["decisionBead"].strip())
-        and human_approval.get("resolver") == {"kind": "human-ui"}
-    )
-    if authority is not None:
-        approved = authority.get("status") == "active"
-        human_approval = (
-            {
-                "decisionBead": authority.get("decisionBead"),
-                "resolver": authority.get("resolver"),
-            }
-            if approved
-            else None
-        )
-        human_approval_valid = approved
     epic_id = pi_meta.get("epicId")
     worktree_policy = pi_meta.get("worktreePolicy")
     write_set = _string_list(pi_meta.get("writeSet"))
     closeout = _validate_closeout(pi_meta, blockers, required=action == "implement")
 
     if action == "implement":
-        if authority is not None:
-            if not approved:
-                human_actions.append("canonical capability grant must be active before implement dispatch")
-        elif approved is not True:
-            human_actions.append("metadata.pi.approved must be true before implement dispatch")
-        elif not human_approval_valid:
-            human_actions.append("metadata.pi.humanApproval with human-ui resolver provenance is required before implement dispatch")
+        if authority is None or authority.get("status") != "active":
+            human_actions.append("canonical capability grant must be active before implement dispatch")
         if not isinstance(epic_id, str) or not epic_id:
             blockers.append("metadata.pi.epicId is required for implement dispatch")
             epic_id = None
@@ -366,8 +342,6 @@ def validate_orchestration_metadata(
         "routingTask": routing_task,
         "role": role,
         "skills": list(skills),
-        "approved": approved,
-        "humanApproval": human_approval if human_approval_valid else None,
         "authority": dict(authority) if authority is not None else None,
         "inputRefs": reference_lists["inputRefs"],
         "approvalRefs": reference_lists["approvalRefs"],
@@ -440,9 +414,33 @@ def validate_bead_orchestration_metadata(bead: Mapping[str, Any]) -> Dict[str, A
     return result
 
 
+def resolve_bead_orchestration_metadata(
+    bead: Mapping[str, Any],
+    *,
+    grant_resolver: Callable[[str], Mapping[str, Any]] = _default_grant_resolver,
+) -> Dict[str, Any]:
+    """Resolve current Beads authority before implementation dispatch."""
+    bead_id = str(bead.get("id") or "") if isinstance(bead, Mapping) else ""
+    raw = _bead_metadata(bead)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw.strip() else {}
+        except json.JSONDecodeError as exc:
+            return _result(
+                status="invalid",
+                failures=[f"metadata JSON is invalid: {exc}"],
+                bead_id=bead_id or None,
+            )
+    result = resolve_orchestration_metadata(raw, bead=bead, grant_resolver=grant_resolver)
+    if bead_id:
+        result["bead"] = bead_id
+    return result
+
+
 __all__ = [
     "resolve_orchestration_authority",
     "resolve_orchestration_metadata",
+    "resolve_bead_orchestration_metadata",
     "validate_orchestration_metadata",
     "validate_bead_orchestration_metadata",
 ]

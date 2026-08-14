@@ -15,8 +15,7 @@ def test_dispatch_plan_uses_metadata_action_before_title_heuristics(agnt):
             "pi": {
                 "action": "implement",
                 "routingTask": "implementation",
-                "approved": True,
-                "humanApproval": {"decisionBead": "pi-approval.1", "resolver": {"kind": "human-ui"}},
+                "approvalRefs": ["pi-approval.1"],
                 "allowedEffects": ["read_workspace", "write_artifacts", "edit_files", "update_beads"],
                 "epicId": "pi-epic",
                 "worktreePolicy": "epic-worktree",
@@ -223,12 +222,33 @@ def test_invoke_one_can_record_named_session(agnt, monkeypatch, tmp_path):
 def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkeypatch, tmp_path):
     worktree = tmp_path / "worktree"
     worktree.mkdir()
+    grant = {
+        "action": "implement",
+        "effects": ["edit_files"],
+        "model": "openai/gpt-5",
+        "thinking": "high",
+        "toolset": ["read", "edit", "bash"],
+        "contextPolicy": "task-scoped",
+        "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
+        "rollout": {"maxActions": 1, "maxEffects": 1},
+        "expiry": "2099-01-01T00:00:00Z",
+        "revocation": {"status": "active", "reason": None, "at": None},
+    }
+    authority = {
+        "decisionBead": "pi-approval.1",
+        "status": "active",
+        "grant": grant,
+        "grantFingerprint": agnt.capability_grant_fingerprint(grant),
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": ["edit_files"],
+    }
     bundle = agnt.create_run_bundle(
         action="implement",
         routing_task="implementation",
         bead="pi-ready.1",
         selected_model="openrouter/minimax/minimax-m3",
         thinking_level="high",
+        authority=authority,
         worktree={"schemaVersion": 1, "path": str(worktree), "dispatchable": True, "status": "ready"},
         allowed_effects=["read_workspace", "write_artifacts", "edit_files", "write_workspace", "update_beads"],
         output_contract="implementation-report",
@@ -243,7 +263,13 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
 
     monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", fake_invoke_one)
 
-    result = agnt.invoke_run_bundle(bundle, metrics=False, record_session=True, session_id="run-implement")
+    result = agnt.invoke_run_bundle(
+        bundle,
+        metrics=False,
+        record_session=True,
+        session_id="run-implement",
+        grant_resolver=lambda _decision: authority,
+    )
 
     assert result["exitCode"] == 0
     kwargs = calls[0][2]
@@ -253,6 +279,55 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
     assert "--tools" in kwargs["pi_args"]
     tools = kwargs["pi_args"][kwargs["pi_args"].index("--tools") + 1].split(",")
     assert {"read", "bash", "edit", "write", "grep", "find", "ls"}.issubset(set(tools))
+
+
+def test_invoke_run_bundle_revalidates_canonical_grant_before_dispatch(agnt, monkeypatch, tmp_path):
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    grant = {
+        "action": "implement",
+        "effects": ["edit_files"],
+        "model": "openai/gpt-5",
+        "thinking": "high",
+        "toolset": ["read", "edit", "bash"],
+        "contextPolicy": "task-scoped",
+        "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
+        "rollout": {"maxActions": 1, "maxEffects": 1},
+        "expiry": "2099-01-01T00:00:00Z",
+        "revocation": {"status": "active", "reason": None, "at": None},
+    }
+    authority = {
+        "schemaVersion": 1,
+        "decisionBead": "pi-approval.1",
+        "status": "active",
+        "grant": grant,
+        "grantFingerprint": agnt.capability_grant_fingerprint(grant),
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": ["edit_files"],
+    }
+    bundle = agnt.create_run_bundle(
+        action="implement",
+        routing_task="implementation",
+        bead="pi-ready.1",
+        authority=authority,
+        worktree={"schemaVersion": 1, "path": str(worktree), "dispatchable": True, "status": "ready"},
+        allowed_effects=["read_workspace", "write_artifacts", "edit_files"],
+        output_contract="implementation-report",
+        runs_dir=tmp_path / "runs",
+        id_value="run-revocation",
+    )
+    invoked = []
+    monkeypatch.setitem(agnt.invoke_run_bundle.__globals__, "invoke_one", lambda *args, **kwargs: invoked.append(args) or (0, "OK", "", None))
+
+    result = agnt.invoke_run_bundle(
+        bundle,
+        metrics=False,
+        grant_resolver=lambda _decision: {"status": "revoked", "allowedEffects": []},
+    )
+
+    assert result["exitCode"] == 1
+    assert "canonical capability grant" in result["authorityError"]
+    assert invoked == []
 
 
 def test_invoke_run_bundle_review_stays_read_only(agnt, monkeypatch, tmp_path):
