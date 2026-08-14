@@ -110,6 +110,37 @@ CORE_METRIC_FIELDS = frozenset({
     "retirementCondition",
 })
 MAX_CORE_METRICS = 12
+RISK_POLICY_FIELDS = frozenset({
+    "version",
+    "bands",
+    "hardGuards",
+    "resourceCeilings",
+    "canaryRequirements",
+})
+RISK_BAND_FIELDS = frozenset({
+    "failureProbability",
+    "consequence",
+    "benefit",
+    "informationValue",
+    "resourceCost",
+    "uncertainty",
+})
+RISK_REQUEST_FIELDS = frozenset({
+    "failureProbability",
+    "consequence",
+    "benefit",
+    "informationValue",
+    "resourceCost",
+    "reversibility",
+    "uncertainty",
+    "hardGuards",
+    "requestedMode",
+    "resourceSharePercent",
+    "canary",
+})
+HARD_GUARD_STATUSES = frozenset({"pass", "fail", "unknown"})
+RISK_MODES = frozenset({"disabled", "observe", "canary", "autonomous"})
+REVERSIBILITY_BANDS = frozenset({"irreversible", "bounded", "reversible"})
 CONTROL_PLAN_PATH = Path(__file__).resolve().parents[2] / "quality" / "control-plan.json"
 LEDGER_NAME = "ledger.jsonl"
 RECEIPTS_NAME = "receipts.jsonl"
@@ -1886,11 +1917,247 @@ def derive_core_metrics(
     return report
 
 
+def _validate_risk_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != RISK_POLICY_FIELDS:
+        raise ValueError("quality control plan risk policy fields are invalid")
+    if not _text(value.get("version")) or not OPAQUE_ID.fullmatch(value["version"]):
+        raise ValueError("quality control plan risk policy version is invalid")
+
+    bands = value.get("bands")
+    expected_bands = {
+        "failureProbability": {"rare", "possible", "likely"},
+        "consequence": {"low", "medium", "high", "critical"},
+        "benefit": {"low", "medium", "high"},
+        "informationValue": {"low", "medium", "high"},
+        "resourceCost": {"low", "medium", "high"},
+        "uncertainty": {"low", "medium", "high"},
+    }
+    if not isinstance(bands, dict) or set(bands) != RISK_BAND_FIELDS:
+        raise ValueError("quality control plan risk policy bands are invalid")
+    for field, expected_names in expected_bands.items():
+        field_bands = bands[field]
+        if (
+            not isinstance(field_bands, dict)
+            or set(field_bands) != expected_names
+            or any(
+                type(number) not in {int, float}
+                or not math.isfinite(number)
+                or not 0 < number <= 1
+                for number in field_bands.values()
+            )
+        ):
+            raise ValueError("quality control plan risk policy bands are invalid")
+
+    if value.get("hardGuards") != ["safety", "authority", "privacy", "correctness"]:
+        raise ValueError("quality control plan risk policy hard guards are invalid")
+    ceilings = value.get("resourceCeilings")
+    if not isinstance(ceilings, dict) or set(ceilings) != {"normal", "high-consequence"}:
+        raise ValueError("quality control plan risk policy resource ceilings are invalid")
+    for name, maximum in (("normal", 10), ("high-consequence", 20)):
+        ceiling = ceilings[name]
+        if (
+            not isinstance(ceiling, dict)
+            or set(ceiling) != {"minPercent", "maxPercent"}
+            or ceiling.get("minPercent") != 5
+            or ceiling.get("maxPercent") != maximum
+        ):
+            raise ValueError("quality control plan risk policy resource ceilings are invalid")
+    if value.get("canaryRequirements") != [
+        "hypothesis",
+        "evidenceRefs",
+        "stopRule",
+        "errorBudget",
+    ]:
+        raise ValueError("quality control plan risk policy canary requirements are invalid")
+    return value
+
+
+def _risk_band_value(value: Any, field: str, bands: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(value, str) and value in bands:
+        return {"band": value, "value": bands[value]}
+    if type(value) in {int, float} and math.isfinite(value) and 0 <= value <= 1:
+        return {"band": "numeric", "value": float(value)}
+    raise ValueError(f"quality risk {field} band is invalid")
+
+
+def _validate_risk_request(value: Any, risk_policy: dict[str, Any]) -> dict[str, Any]:
+    required = RISK_REQUEST_FIELDS - {"canary"}
+    if (
+        not isinstance(value, dict)
+        or not required.issubset(value)
+        or set(value) - RISK_REQUEST_FIELDS
+    ):
+        raise ValueError("quality risk assessment fields are invalid")
+    for field in (
+        "failureProbability",
+        "consequence",
+        "benefit",
+        "informationValue",
+        "resourceCost",
+        "uncertainty",
+    ):
+        _risk_band_value(value[field], field, risk_policy["bands"][field])
+    if value["reversibility"] not in REVERSIBILITY_BANDS:
+        raise ValueError("quality risk reversibility is invalid")
+    if value["requestedMode"] not in RISK_MODES:
+        raise ValueError("quality risk requested mode is invalid")
+    guards = value["hardGuards"]
+    if (
+        not isinstance(guards, dict)
+        or set(guards) != set(risk_policy["hardGuards"])
+        or any(status not in HARD_GUARD_STATUSES for status in guards.values())
+    ):
+        raise ValueError("quality risk hard guards are invalid")
+    share = value["resourceSharePercent"]
+    if share is not None and (
+        type(share) not in {int, float}
+        or not math.isfinite(share)
+        or not 0 <= share <= 100
+    ):
+        raise ValueError("quality risk resource share is invalid")
+    canary = value.get("canary")
+    if value["requestedMode"] == "canary":
+        if not isinstance(canary, dict) or set(canary) != {
+            "hypothesis",
+            "evidenceRefs",
+            "stopRule",
+            "errorBudget",
+        }:
+            raise ValueError("quality canary contract is required")
+        if not _text(canary["hypothesis"]) or not _text(canary["stopRule"]):
+            raise ValueError("quality canary contract is invalid")
+        if not canary["evidenceRefs"]:
+            raise ValueError("quality canary evidence is required")
+        _evidence_refs(canary["evidenceRefs"])
+        error_budget = canary["errorBudget"]
+        if (
+            not isinstance(error_budget, dict)
+            or set(error_budget) != {"maxFailures"}
+            or type(error_budget["maxFailures"]) is not int
+            or error_budget["maxFailures"] < 0
+        ):
+            raise ValueError("quality canary error budget is invalid")
+        if value["reversibility"] == "irreversible":
+            raise ValueError("quality canary requires bounded reversibility")
+    elif canary is not None:
+        raise ValueError("quality canary contract is only valid for canary mode")
+    return value
+
+
+def assess_risk(
+    request: Any,
+    *,
+    plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assess coarse risk and utility without granting authority or persisting state."""
+    plan = validate_control_plan(plan or load_control_plan())
+    risk_policy = plan["riskPolicy"]
+    request = _validate_risk_request(request, risk_policy)
+    components = {
+        field: _risk_band_value(request[field], field, risk_policy["bands"][field])
+        for field in (
+            "failureProbability",
+            "consequence",
+            "benefit",
+            "informationValue",
+            "resourceCost",
+            "uncertainty",
+        )
+    }
+    expected_loss = round(
+        components["failureProbability"]["value"] * components["consequence"]["value"],
+        12,
+    )
+    expected_benefit = round(
+        components["benefit"]["value"] + components["informationValue"]["value"],
+        12,
+    )
+    expected_utility = round(
+        expected_benefit - expected_loss - components["resourceCost"]["value"],
+        12,
+    )
+
+    failed = sorted(
+        name for name, status in request["hardGuards"].items() if status == "fail"
+    )
+    unknown = sorted(
+        name for name, status in request["hardGuards"].items() if status == "unknown"
+    )
+    guard_status = "pass" if not failed and not unknown else "blocked"
+    consequence_class = (
+        "high-consequence"
+        if components["consequence"]["value"] >= 0.8
+        else "normal"
+    )
+    ceiling = risk_policy["resourceCeilings"][consequence_class]
+    requested_percent = request["resourceSharePercent"]
+    budget_status = (
+        "unknown"
+        if requested_percent is None
+        else "exceeded"
+        if requested_percent > ceiling["maxPercent"]
+        else "within"
+    )
+    if budget_status == "exceeded" and request["requestedMode"] in {"canary", "autonomous"}:
+        raise ValueError("quality resource ceiling is exceeded")
+
+    decision = request["requestedMode"]
+    route = "none"
+    reason = "positive-utility"
+    if failed:
+        decision, route, reason = "disabled", "human", "hard-guard-failed"
+    elif unknown:
+        decision, route, reason = "human", "human", "hard-guard-unknown"
+    elif components["uncertainty"]["value"] >= 0.9:
+        decision, route, reason = "human", "human", "uncertainty-high"
+    elif (
+        request["requestedMode"] in {"canary", "autonomous"}
+        and request["reversibility"] == "irreversible"
+    ):
+        decision, route, reason = "human", "human", "irreversible-effect"
+    elif budget_status == "unknown" and request["requestedMode"] in {"canary", "autonomous"}:
+        decision, route, reason = "human", "human", "resource-measurement-unknown"
+    elif budget_status == "exceeded":
+        decision, route, reason = "human", "human", "resource-ceiling-exceeded"
+    elif expected_utility <= 0:
+        decision, reason = "observe", "non-positive-utility"
+    elif request["requestedMode"] == "disabled":
+        decision, reason = "disabled", "disabled-by-request"
+
+    return {
+        "schemaVersion": 1,
+        "decisionTreeVersion": risk_policy["version"],
+        **components,
+        "reversibility": request["reversibility"],
+        "expectedLoss": expected_loss,
+        "expectedBenefit": expected_benefit,
+        "expectedUtility": expected_utility,
+        "guards": {
+            "status": guard_status,
+            "failed": failed,
+            "unknown": unknown,
+        },
+        "resourceBudget": {
+            "class": consequence_class,
+            "minPercent": ceiling["minPercent"],
+            "maxPercent": ceiling["maxPercent"],
+            "requestedPercent": requested_percent,
+            "status": budget_status,
+        },
+        "requestedMode": request["requestedMode"],
+        "decision": decision,
+        "route": route,
+        "reason": reason,
+        "canary": request.get("canary"),
+    }
+
+
 def validate_control_plan(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {
         "schemaVersion",
         "policyVersion",
         "mode",
+        "riskPolicy",
         "activities",
         "metrics",
     }:
@@ -1901,6 +2168,7 @@ def validate_control_plan(value: Any) -> dict[str, Any]:
         raise ValueError("quality control plan version is invalid")
     if value.get("mode") not in {"disabled", "observe"}:
         raise ValueError("quality control plan mode is invalid")
+    _validate_risk_policy(value.get("riskPolicy"))
     metrics = value.get("metrics")
     if (
         not isinstance(metrics, list)

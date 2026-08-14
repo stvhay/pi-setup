@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Provide one Git-tracked quality control plan, one deterministic local entry point for quality assessment, one bounded private semantic-review contract, typed agent/interview/decision/editor/takeover result adapters, one shared actionable Finding/EvidenceRef core, and at most 12 decision-linked core metrics. Current policy supports only `disabled` and `observe`; it cannot authorize or perform external effects.
+Provide one Git-tracked quality control plan, one deterministic local entry point for quality assessment, one versioned coarse risk/utility decision tree, one bounded private semantic-review contract, typed agent/interview/decision/editor/takeover result adapters, one shared actionable Finding/EvidenceRef core, and at most 12 decision-linked core metrics. Current policy supports only `disabled` and `observe`; risk assessment can recommend `canary` or `autonomous` but cannot authorize or perform external effects.
 
 ## Core Mechanism
 
-`control-plan.json` defines five activities and the 12-metric ceiling with owner, type, numerator, denominator, missingness, decision, cadence, gaming-risk, and retirement metadata. `durable_activity_snapshots()` maps bounded Beads, Git, run, health, context, and eligible-session signals into those activities. `agnt_lib.quality.assess()` validates a bounded snapshot, fingerprints snapshot and policy, and appends one immutable receipt to private runtime state. `apply()` reloads that receipt and current policy, then records a no-op result or one private review assignment. `derive_core_metrics()` computes metric observations from supplied receipts, results, annotations, and monitoring without writing another store. Unknown and lower-bound observations are never decision-eligible; privacy and unauthorized-mutation metrics are zero-tolerance guards. `quality_status()` reports policy identity and private record counts.
+`control-plan.json` defines five activities, the 12-metric ceiling, and a versioned risk policy with coarse bands, hard guards, adaptive resource ceilings, and canary requirements. `durable_activity_snapshots()` maps bounded Beads, Git, run, health, context, and eligible-session signals into those activities. `agnt_lib.quality.assess_risk()` computes expected loss (`failure probability × consequence`) and expected utility (`benefit + information value − expected loss − resource cost`) without persistence or authority. Hard guards, uncertainty, and resource ceilings dominate positive utility; unknown measurement cannot claim autonomous budget. `agnt_lib.quality.assess()` validates a bounded snapshot, fingerprints snapshot and policy, and appends one immutable receipt to private runtime state. `apply()` reloads that receipt and current policy, then records a no-op result or one private review assignment. `derive_core_metrics()` computes metric observations from supplied receipts, results, annotations, and monitoring without writing another store. Unknown and lower-bound observations are never decision-eligible; privacy and unauthorized-mutation metrics are zero-tolerance guards. `quality_status()` reports policy identity and private record counts.
 
 `validate_finding()` and `validate_evidence_ref()` define only fields shared by actionable findings. Review, health, and improvement adapters retain their domain fields; this contract does not replace their enclosing result schemas. Public adapters may carry only core fields plus an explicit safe extension allowlist, so raw private evidence stays behind bounded EvidenceRefs. Improvement schema-3 packets expose one private EvidenceRef per session and deterministically emit one colocated ReviewAssignment. That assignment fixes scope, rubric, private evidence, demonstrated-capability and provider-authorization constraints, output, one-attempt stop rules, and empty effect authority. Policy-v4 results must cite the exact assignment and packet evidence. Policy-v1/v2/v3 decisions remain readable through compatibility validation, with unknown evidence stage preserved where older formats omitted it.
 
@@ -39,7 +39,7 @@ quality/
 
 | Interface | Contract |
 |---|---|
-| `validate_control_plan(value)` | Accept only exact root/activity fields, five ordered activity IDs, `disabled`/`observe`, bounded inputs/evidence, and valid budgets. |
+| `validate_control_plan(value)` | Accept only exact root/activity fields, five ordered activity IDs, `disabled`/`observe`, the versioned risk policy, bounded inputs/evidence, and valid budgets. |
 | `load_control_plan(plan_path=None)` | Load and validate tracked policy or an explicit test/operator path. |
 | `durable_activity_snapshots(...)` | Derive exact snapshots for all five activities while preserving unknown, lower-bound, and duplicate-suppression state. |
 | `validate_evidence_ref(value)` | Require one bounded opaque pointer plus source, availability, provenance, integrity, sensitivity, and retention metadata. Raw content and unknown fields are rejected. |
@@ -54,6 +54,7 @@ quality/
 | `improvement.review_assignment(packet)` | Bind a current private scan packet to the existing non-mutating `review` action and policy-v4 rubric. |
 | `improvement.validate_decisions(packet, result)` | Validate an exact assignment-bound policy-v4 result or normalize historical policy-v1/v2/v3 private findings without copying evidence bodies or guessing missing stage. |
 | `improvement.review_gap_result(packet, status)` | Record unavailable, timed-out, privacy-uncertain, or schema-invalid review as one explicit human route with no findings or retry. |
+| `assess_risk(request, ...)` | Return one deterministic coarse risk/utility result with hard-guard, uncertainty, resource-budget, and canary checks; never persist or authorize. |
 | `assess(snapshot, activity, ...)` | Persist and return one deterministic receipt with zero or one `workPacket`. |
 | `apply(receipt_id, ...)` | Reload current policy and a persisted receipt; record only disabled/no-op state or one private assignment. |
 | `derive_core_metrics(...)` | Derive all 12 bounded metric observations from existing evidence sources; never persist a metric store and never treat unknown/lower-bound data as success. |
@@ -84,6 +85,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | INV-10 | Langfuse human scores, score comments, and corrected outputs remain bounded private `review` evidence. Normalized output carries only opaque evidence/reviewer/subject/config refs, config types, scope counts, completeness, gaps, and empty authority. | Authenticated current-API reads, 16-row caps, exact queue/subject/config binding, hashed refs, body omission, and fixed category/authority output. |
 | INV-11 | Editor review and human-takeover results cross one metadata-only boundary with exact source/category, relative artifact path, scope, EvidenceRefs, human adapter/session provenance, state, gaps, and empty authority. Partial/lost/uncertain takeover state retains a safe resumption path. | Exact-field validation, sensitivity ordering, source/category/adapter binding, canonical relative paths, and fixed non-authorizing output. |
 | INV-12 | The control plan contains exactly the approved 12 metric definitions. Derived observations retain numerator, denominator, state, and decision eligibility; unknown/lower-bound evidence is never eligible, and privacy/unauthorized-mutation guards are zero-tolerance. | Control-plan validation, pure `derive_core_metrics()`, existing evidence-source inputs, and no metric-store writes. |
+| INV-13 | Risk assessment is versioned and component-based: expected loss is failure probability × consequence; expected utility includes benefit, information value, and resource cost; hard guards and uncertainty dominate utility; normal and high-consequence resource ceilings are enforced; canary requests bind hypothesis, evidence, stop rule, and error budget. | `assess_risk()` and control-plan risk-policy validation. |
 
 ## Failure Modes
 
@@ -99,6 +101,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-8 | Langfuse annotation evidence is unavailable, partial, unbound, or claims authority. | Queue/service reads fail or truncate, items remain pending, score/config/subject/reviewer bindings are missing, or imported fields claim acceptance, authorization, mode, grant, or effects. | Return unavailable/partial evidence with fixed gaps when provenance is still safe; reject malformed or authority-bearing input; never infer completion or effects. |
 | FAIL-9 | Editor/takeover result normalization fails. | Artifact or resumption path is absolute, non-canonical, or escaping; evidence exceeds artifact sensitivity; provenance/state is malformed; raw evidence or nested authority fields are embedded. | Reject whole result, persist nothing, and leave native editor/browser ownership and resumption external. |
 | FAIL-10 | A quality metric cannot be decided. | Source evidence is missing, unknown, lower-bound, or incomplete; a zero-tolerance guard lacks complete coverage. | Return explicit non-eligible state; never convert missingness into zero or success. |
+| FAIL-11 | Risk assessment cannot safely recommend an effect. | A hard guard fails or is unknown, uncertainty is high, measurement is unknown/exceeded, or a canary request lacks its bounded learning contract. | Disable or route human; reject malformed canary requests; never trade a guard for positive utility. |
 
 ## Adapter Boundaries
 
@@ -124,6 +127,9 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | Policy mode is `observe` and trigger is true | Emit one packet; apply records one private assignment. | INV-2, INV-3 |
 | Trigger is false | Emit receipt without packet; apply records not-due no-op. | INV-3 |
 | Policy changed after assessment | Return blocked policy mismatch. | INV-4, FAIL-3 |
+| Positive utility with a failed or unknown hard guard | Disable or route human; utility does not override the guard. | INV-13, FAIL-11 |
+| Normal or high-consequence resource share exceeds its ceiling | Reject canary/autonomous request or route bounded work to human; preserve guards. | INV-13, FAIL-11 |
+| Canary learning contract is absent or irreversible | Reject request; require hypothesis, evidence, stop rule, error budget, and bounded reversibility. | INV-13, FAIL-11 |
 | Evidence is incomplete | Preserve explicit gaps and unknown authority; never widen effects. | INV-3 |
 | Review is unavailable, timed out, privacy-uncertain, or invalid | Stop after one attempt and return an explicit human route without findings or effects. | FAIL-6 |
 | Langfuse queue is unavailable, truncated, pending, or incompletely bound | Return unavailable/partial review evidence plus fixed gaps; do not count it as acceptance or authorization. | INV-10, FAIL-8 |
@@ -153,6 +159,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-8 | `tests/test_quality.py::test_fail8_langfuse_annotation_partiality_and_authority_claims_fail_closed` and optional-service gap checks in `tests/test_improvement.py` |
 | FAIL-9 | `tests/test_quality.py::test_fail9_external_result_rejects_unsafe_or_authorizing_artifacts` |
 | INV-12, FAIL-10 | `tests/test_quality.py::test_inv12_core_metrics_are_decision_linked_and_bounded`, `test_inv12_unknown_and_lower_bound_metrics_cannot_count_as_success`, and `test_inv12_zero_tolerance_metrics_require_complete_evidence`; summary integration in `tests/test_review.py`. |
+| INV-13, FAIL-11 | `tests/test_quality.py::test_inv13_risk_assessment_reports_components_and_normal_ceiling`, `test_fail11_hard_guard_blocks_positive_utility`, `test_inv13_high_consequence_ceiling_and_unknown_budget_fail_closed`, and `test_fail11_canary_requires_learning_contract_and_ceiling`. |
 | CLI/boundaries | `tests/test_quality.py::test_quality_assess_apply_status_cli_contract`, `tests/test_ticket_gateway.py`, and quality checks in `tests/test_context_architecture.py` |
 
 Focused command:

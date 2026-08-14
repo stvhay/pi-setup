@@ -1,7 +1,49 @@
 {
   "schemaVersion": 1,
-  "policyVersion": "observe-v3",
+  "policyVersion": "observe-v4",
   "mode": "observe",
+  "riskPolicy": {
+    "version": "risk-v1",
+    "bands": {
+      "failureProbability": {
+        "rare": 0.1,
+        "possible": 0.5,
+        "likely": 0.8
+      },
+      "consequence": {
+        "low": 0.25,
+        "medium": 0.5,
+        "high": 0.8,
+        "critical": 1.0
+      },
+      "benefit": {
+        "low": 0.25,
+        "medium": 0.5,
+        "high": 0.75
+      },
+      "informationValue": {
+        "low": 0.25,
+        "medium": 0.5,
+        "high": 0.75
+      },
+      "resourceCost": {
+        "low": 0.1,
+        "medium": 0.3,
+        "high": 0.6
+      },
+      "uncertainty": {
+        "low": 0.1,
+        "medium": 0.5,
+        "high": 0.9
+      }
+    },
+    "hardGuards": ["safety", "authority", "privacy", "correctness"],
+    "resourceCeilings": {
+      "normal": {"minPercent": 5, "maxPercent": 10},
+      "high-consequence": {"minPercent": 5, "maxPercent": 20}
+    },
+    "canaryRequirements": ["hypothesis", "evidenceRefs", "stopRule", "errorBudget"]
+  },
   "activities": [
     {
       "id": "capture",

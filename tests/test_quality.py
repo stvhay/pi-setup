@@ -816,9 +816,17 @@ def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1
     plan = quality.load_control_plan()
 
     assert QUALITY_PLAN.is_file()
-    assert set(plan) == {"schemaVersion", "policyVersion", "mode", "activities", "metrics"}
+    assert set(plan) == {
+        "schemaVersion",
+        "policyVersion",
+        "mode",
+        "riskPolicy",
+        "activities",
+        "metrics",
+    }
     assert plan["schemaVersion"] == 1
     assert plan["mode"] in {"disabled", "observe"}
+    assert plan["riskPolicy"]["version"] == "risk-v1"
     assert [activity["id"] for activity in plan["activities"]] == ACTIVITY_IDS
     assert all(set(activity) == ACTIVITY_FIELDS for activity in plan["activities"])
     assert len(plan["metrics"]) == 12
@@ -841,6 +849,8 @@ def test_fail1_control_plan_rejects_missing_unknown_and_invalid_fields():  # Tes
     bad_escalation["activities"][0]["escalation"] = ""
     bad_retirement = deepcopy(plan)
     bad_retirement["activities"][0]["retirementCondition"] = ""
+    bad_risk_policy = deepcopy(plan)
+    bad_risk_policy["riskPolicy"]["resourceCeilings"]["normal"]["maxPercent"] = 11
     too_many_metrics = deepcopy(plan)
     too_many_metrics["metrics"].append(deepcopy(plan["metrics"][0]))
     bad_metric = deepcopy(plan)
@@ -854,6 +864,7 @@ def test_fail1_control_plan_rejects_missing_unknown_and_invalid_fields():  # Tes
         bad_budget,
         bad_escalation,
         bad_retirement,
+        bad_risk_policy,
         too_many_metrics,
         bad_metric,
     ):
@@ -894,6 +905,146 @@ def test_inv12_zero_tolerance_metrics_require_complete_evidence():  # Tests INV-
         metric = report["metrics"][metric_id]
         assert metric["state"] == "unknown"
         assert metric["decisionEligible"] is False
+
+
+def _risk_request(**overrides):
+    request = {
+        "failureProbability": "possible",
+        "consequence": "medium",
+        "benefit": "high",
+        "informationValue": "medium",
+        "resourceCost": "low",
+        "reversibility": "bounded",
+        "uncertainty": "low",
+        "hardGuards": {
+            "safety": "pass",
+            "authority": "pass",
+            "privacy": "pass",
+            "correctness": "pass",
+        },
+        "requestedMode": "observe",
+        "resourceSharePercent": 7,
+    }
+    request.update(overrides)
+    return request
+
+
+def test_inv13_risk_assessment_reports_components_and_normal_ceiling():  # Tests INV-13
+    assessment = quality.assess_risk(_risk_request())
+
+    assert assessment["schemaVersion"] == 1
+    assert assessment["decisionTreeVersion"] == "risk-v1"
+    assert assessment["expectedLoss"] == 0.25
+    assert assessment["expectedBenefit"] == 1.25
+    assert assessment["expectedUtility"] == 0.9
+    assert assessment["reversibility"] == "bounded"
+    assert assessment["uncertainty"] == {"band": "low", "value": 0.1}
+    assert assessment["guards"] == {
+        "status": "pass",
+        "failed": [],
+        "unknown": [],
+    }
+    assert assessment["resourceBudget"] == {
+        "class": "normal",
+        "minPercent": 5,
+        "maxPercent": 10,
+        "requestedPercent": 7,
+        "status": "within",
+    }
+    assert assessment["decision"] == "observe"
+    assert assessment["route"] == "none"
+
+
+def test_fail11_hard_guard_blocks_positive_utility():  # Tests FAIL-11
+    assessment = quality.assess_risk(_risk_request(
+        failureProbability="rare",
+        consequence="critical",
+        benefit="high",
+        informationValue="high",
+        hardGuards={
+            "safety": "pass",
+            "authority": "pass",
+            "privacy": "fail",
+            "correctness": "pass",
+        },
+    ))
+
+    assert assessment["expectedUtility"] > 0
+    assert assessment["guards"]["status"] == "blocked"
+    assert assessment["guards"]["failed"] == ["privacy"]
+    assert assessment["decision"] == "disabled"
+    assert assessment["route"] == "human"
+
+    irreversible = quality.assess_risk(_risk_request(
+        requestedMode="autonomous",
+        reversibility="irreversible",
+    ))
+    assert irreversible["decision"] == "human"
+    assert irreversible["reason"] == "irreversible-effect"
+
+
+def test_inv13_high_consequence_ceiling_and_unknown_budget_fail_closed():  # Tests INV-13
+    canary = {
+        "hypothesis": "A bounded review catches one known regression.",
+        "evidenceRefs": ["artifact:canary-evidence"],
+        "stopRule": "Stop after first privacy or correctness gap.",
+        "errorBudget": {"maxFailures": 1},
+    }
+    assessment = quality.assess_risk(_risk_request(
+        consequence="high",
+        requestedMode="canary",
+        resourceSharePercent=20,
+        canary=canary,
+    ))
+    assert assessment["resourceBudget"]["maxPercent"] == 20
+    assert assessment["resourceBudget"]["status"] == "within"
+    assert assessment["decision"] == "canary"
+
+    unknown = quality.assess_risk(_risk_request(
+        requestedMode="autonomous",
+        resourceSharePercent=None,
+    ))
+    assert unknown["resourceBudget"]["status"] == "unknown"
+    assert unknown["decision"] == "human"
+    assert unknown["route"] == "human"
+
+
+def test_fail11_canary_requires_learning_contract_and_ceiling():  # Tests FAIL-11
+    with pytest.raises(ValueError, match="canary"):
+        quality.assess_risk(_risk_request(
+            consequence="high",
+            requestedMode="canary",
+            resourceSharePercent=20,
+        ))
+
+    canary = {
+        "hypothesis": "A bounded review catches one known regression.",
+        "evidenceRefs": ["artifact:canary-evidence"],
+        "stopRule": "Stop after first privacy or correctness gap.",
+        "errorBudget": {"maxFailures": 1},
+    }
+    with pytest.raises(ValueError, match="ceiling"):
+        quality.assess_risk(_risk_request(
+            consequence="medium",
+            requestedMode="canary",
+            resourceSharePercent=11,
+            canary=canary,
+        ))
+    with pytest.raises(ValueError, match="canary"):
+        quality.assess_risk(_risk_request(
+            consequence="high",
+            requestedMode="canary",
+            resourceSharePercent=20,
+            reversibility="irreversible",
+            canary=canary,
+        ))
+    with pytest.raises(ValueError, match="evidence"):
+        quality.assess_risk(_risk_request(
+            consequence="high",
+            requestedMode="canary",
+            resourceSharePercent=20,
+            canary={**canary, "evidenceRefs": []},
+        ))
 
 
 def _snapshot(*, triggered=True, gaps=None):
