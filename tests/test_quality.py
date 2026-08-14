@@ -678,6 +678,140 @@ def test_fail8_langfuse_annotation_partiality_and_authority_claims_fail_closed()
         quality.normalize_langfuse_annotation_result(**claimed)
 
 
+def _external_human_result(source="editor"):
+    result = {
+        "schemaVersion": 1,
+        "source": source,
+        "artifact": {
+            "path": ".pi/quality-results/review-123.json",
+            "sensitivity": "private",
+        },
+        "scope": {"kind": "review-assignment", "id": "review-123"},
+        "category": "review",
+        "status": "completed",
+        "evidenceRefs": [_shared_evidence_ref(source="editor")],
+        "provenance": {
+            "adapter": "nvim",
+            "actor": "human",
+            "sessionRef": "invocation:session-123",
+        },
+        "gaps": [],
+        "resumptionPath": None,
+    }
+    if source == "takeover":
+        result.update({
+            "artifact": {
+                "path": ".pi/quality-results/takeover-123.json",
+                "sensitivity": "private",
+            },
+            "category": "execution",
+            "status": "partial",
+            "evidenceRefs": [_shared_evidence_ref(source="betterwright", availability="partial")],
+            "provenance": {
+                "adapter": "betterwright",
+                "actor": "human",
+                "sessionRef": "invocation:session-123",
+            },
+            "gaps": ["takeover-incomplete"],
+            "resumptionPath": ".pi/takeovers/session-123.json",
+        })
+    return result
+
+
+def test_inv11_editor_and_takeover_results_preserve_external_evidence_state():  # Tests INV-11
+    editor = quality.normalize_external_result(_external_human_result())
+    takeover = quality.normalize_external_result(_external_human_result("takeover"))
+
+    assert editor == {
+        **_external_human_result(),
+        "resultType": "evidence",
+        "authority": {"status": "none", "allowedEffects": []},
+    }
+    assert takeover["category"] == "execution"
+    assert takeover["status"] == "partial"
+    assert takeover["gaps"] == ["takeover-incomplete"]
+    assert takeover["resumptionPath"] == ".pi/takeovers/session-123.json"
+    assert takeover["authority"] == {"status": "none", "allowedEffects": []}
+    assert takeover["category"] not in {"acceptance", "authorization"}
+
+    for status in ("partial", "lost", "uncertain"):
+        interrupted = _external_human_result("takeover")
+        interrupted["status"] = status
+        interrupted["gaps"] = [f"takeover-{status}"]
+        normalized = quality.normalize_external_result(interrupted)
+        assert normalized["status"] == status
+        assert normalized["resumptionPath"] == ".pi/takeovers/session-123.json"
+
+
+def test_fail9_external_result_rejects_unsafe_or_authorizing_artifacts():  # Tests FAIL-9
+    for path in (
+        "/tmp/result.json",
+        "../private/result.json",
+        "safe/../../private/result.json",
+        "~/.pi/private/result.json",
+    ):
+        invalid = _external_human_result()
+        invalid["artifact"]["path"] = path
+        with pytest.raises(ValueError, match="path"):
+            quality.normalize_external_result(invalid)
+
+    public_leak = _external_human_result()
+    public_leak["artifact"]["sensitivity"] = "public"
+    with pytest.raises(ValueError, match="sensitivity"):
+        quality.normalize_external_result(public_leak)
+
+    claimed = _external_human_result()
+    claimed["provenance"]["authorization"] = {"status": "approved"}
+    with pytest.raises(ValueError, match="authority"):
+        quality.normalize_external_result(claimed)
+
+    raw = _external_human_result()
+    raw["rawEvidence"] = "private editor contents"
+    with pytest.raises(ValueError, match="fields"):
+        quality.normalize_external_result(raw)
+
+    nested = None
+    for _ in range(600):
+        nested = [nested]
+    raw["rawEvidence"] = nested
+    with pytest.raises(ValueError, match="fields"):
+        quality.normalize_external_result(raw)
+
+    missing_resume = _external_human_result("takeover")
+    missing_resume["resumptionPath"] = None
+    with pytest.raises(ValueError, match="resumption"):
+        quality.normalize_external_result(missing_resume)
+
+    malformed_types = []
+    for field in ("source", "status"):
+        malformed = _external_human_result()
+        malformed[field] = []
+        malformed_types.append(malformed)
+    for container, field in (("artifact", "sensitivity"), ("provenance", "adapter")):
+        malformed = _external_human_result()
+        malformed[container][field] = []
+        malformed_types.append(malformed)
+    malformed = _external_human_result()
+    malformed["gaps"] = [[]]
+    malformed_types.append(malformed)
+    for malformed in malformed_types:
+        with pytest.raises(ValueError):
+            quality.normalize_external_result(malformed)
+
+
+def test_inv11_quality_cli_normalizes_external_result_without_persistence(
+    monkeypatch, tmp_path, capsys
+):  # Tests INV-11
+    monkeypatch.setattr(quality.sys, "stdin", io.StringIO(json.dumps(_external_human_result())))
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda kind: tmp_path)
+
+    assert quality.cmd_quality(["normalize-result", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["source"] == "editor"
+    assert result["resultType"] == "evidence"
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1
     plan = quality.load_control_plan()
 

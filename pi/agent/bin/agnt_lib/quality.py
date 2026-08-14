@@ -155,15 +155,30 @@ LANGFUSE_ANNOTATION_GAPS = frozenset({
     "scores-unavailable",
     "unmatched-annotations",
 })
-LANGFUSE_ANNOTATION_AUTHORITY_FIELDS = frozenset({
+AUTHORITY_CLAIM_FIELDS = frozenset({
     "accepted",
     "acceptance",
     "allowedEffects",
+    "approved",
     "authority",
     "authorization",
     "grant",
+    "humanApproval",
     "mode",
 })
+EXTERNAL_RESULT_FIELDS = frozenset({
+    "schemaVersion",
+    "source",
+    "artifact",
+    "scope",
+    "category",
+    "status",
+    "evidenceRefs",
+    "provenance",
+    "gaps",
+    "resumptionPath",
+})
+EXTERNAL_RESULT_STATUSES = frozenset({"completed", "partial", "lost", "uncertain"})
 
 
 class SessionWorkItemConflict(ValueError):
@@ -1098,14 +1113,133 @@ def _langfuse_annotation_ref(kind: str, value: Any) -> str:
     return f"langfuse-{kind}-{digest}"
 
 
-def _langfuse_annotation_authority_claim(value: Any) -> bool:
-    if isinstance(value, list):
-        return any(_langfuse_annotation_authority_claim(item) for item in value)
-    if not isinstance(value, dict):
-        return False
-    return bool(LANGFUSE_ANNOTATION_AUTHORITY_FIELDS.intersection(value)) or any(
-        _langfuse_annotation_authority_claim(item) for item in value.values()
-    )
+def _contains_authority_claim(value: Any) -> bool:
+    pending = [value]
+    seen: set[int] = set()
+    while pending:
+        item = pending.pop()
+        if not isinstance(item, (dict, list)) or id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, dict):
+            if AUTHORITY_CLAIM_FIELDS.intersection(item):
+                return True
+            pending.extend(item.values())
+        else:
+            pending.extend(item)
+    return False
+
+
+def _relative_result_path(value: Any) -> str:
+    path = Path(value) if isinstance(value, str) else Path()
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 256
+        or value != value.strip()
+        or path.is_absolute()
+        or path == Path(".")
+        or ".." in path.parts
+        or "\\" in value
+        or any(character in value for character in "\0\r\n")
+        or ":" in path.parts[0]
+        or path.parts[0].startswith("~")
+        or path.as_posix() != value
+    ):
+        raise ValueError("external result path is invalid")
+    return value
+
+
+def normalize_external_result(result: Any) -> dict[str, Any]:
+    """Normalize editor review or browser takeover metadata without importing bodies."""
+    if _contains_authority_claim(result):
+        raise ValueError("external result authority fields are forbidden")
+    if not isinstance(result, dict) or set(result) != EXTERNAL_RESULT_FIELDS:
+        raise ValueError("external result fields are invalid")
+    if result.get("schemaVersion") != 1 or type(result.get("schemaVersion")) is not int:
+        raise ValueError("external result schema is invalid")
+
+    contracts = {
+        "editor": ("review", {"editor", "nvim"}),
+        "takeover": ("execution", {"betterwright"}),
+    }
+    source = result.get("source")
+    category = result.get("category")
+    if not isinstance(source, str) or source not in contracts or category != contracts[source][0]:
+        raise ValueError("external result category is invalid")
+
+    artifact = result.get("artifact")
+    if (
+        not isinstance(artifact, dict)
+        or set(artifact) != {"path", "sensitivity"}
+        or not isinstance(artifact.get("sensitivity"), str)
+        or artifact["sensitivity"] not in EVIDENCE_SENSITIVITY
+    ):
+        raise ValueError("external result artifact is invalid")
+    _relative_result_path(artifact.get("path"))
+
+    scope = result.get("scope")
+    if (
+        not isinstance(scope, dict)
+        or set(scope) != {"kind", "id"}
+        or any(
+            not isinstance(scope.get(field), str)
+            or not OPAQUE_ID.fullmatch(scope[field])
+            for field in ("kind", "id")
+        )
+    ):
+        raise ValueError("external result scope is invalid")
+
+    evidence_refs = _finding_evidence_refs(result.get("evidenceRefs"))
+    sensitivity_rank = {"public": 0, "internal": 1, "private": 2, "restricted": 3}
+    if any(
+        sensitivity_rank[item["sensitivity"]] > sensitivity_rank[artifact["sensitivity"]]
+        for item in evidence_refs
+    ):
+        raise ValueError("external result artifact sensitivity is invalid")
+
+    provenance = result.get("provenance")
+    if (
+        not isinstance(provenance, dict)
+        or set(provenance) != {"adapter", "actor", "sessionRef"}
+        or not isinstance(provenance.get("adapter"), str)
+        or provenance["adapter"] not in contracts[source][1]
+        or provenance.get("actor") != "human"
+    ):
+        raise ValueError("external result provenance is invalid")
+    try:
+        _evidence_refs([provenance.get("sessionRef")])
+    except ValueError as exc:
+        raise ValueError("external result provenance is invalid") from exc
+    if not provenance["sessionRef"].startswith("invocation:"):
+        raise ValueError("external result provenance is invalid")
+
+    status = result.get("status")
+    gaps = result.get("gaps")
+    if (
+        not isinstance(status, str)
+        or status not in EXTERNAL_RESULT_STATUSES
+        or not isinstance(gaps, list)
+        or len(gaps) > 32
+        or any(not isinstance(gap, str) or not OPAQUE_ID.fullmatch(gap) for gap in gaps)
+        or len(set(gaps)) != len(gaps)
+        or (status == "completed") != (gaps == [])
+    ):
+        raise ValueError("external result state is invalid")
+
+    resumption_path = result.get("resumptionPath")
+    if resumption_path is not None:
+        _relative_result_path(resumption_path)
+    if status == "completed" and resumption_path is not None:
+        raise ValueError("external result resumption path is invalid")
+    if source == "takeover" and status != "completed" and resumption_path is None:
+        raise ValueError("external result resumption path is required")
+
+    return {
+        **result,
+        "resultType": "evidence",
+        "authority": {"status": "none", "allowedEffects": []},
+    }
 
 
 def normalize_langfuse_annotation_result(
@@ -1119,9 +1253,7 @@ def normalize_langfuse_annotation_result(
     gaps: Any,
 ) -> dict[str, Any]:
     """Normalize current Langfuse queue API rows without copying annotation bodies."""
-    if _langfuse_annotation_authority_claim(
-        [queue, items, scores, score_configs, completeness]
-    ):
+    if _contains_authority_claim([queue, items, scores, score_configs, completeness]):
         raise ValueError("Langfuse annotation authority fields are forbidden")
     if not _text(queue_id):
         raise ValueError("Langfuse annotation queue ID is invalid")
@@ -1916,6 +2048,11 @@ def cmd_quality(argv: list[str]) -> int:
     )
     normalize_ask_cmd.add_argument("--payload", help="JSON result array; defaults to stdin")
     normalize_ask_cmd.add_argument("--json", action="store_true")
+    normalize_result_cmd = sub.add_parser(
+        "normalize-result", help="normalize editor or takeover result evidence"
+    )
+    normalize_result_cmd.add_argument("--payload", help="JSON result; defaults to stdin")
+    normalize_result_cmd.add_argument("--json", action="store_true")
     assess_cmd = sub.add_parser("assess", help="persist one deterministic decision receipt")
     assess_cmd.add_argument("--activity", required=True)
     assess_input = assess_cmd.add_mutually_exclusive_group()
@@ -1941,6 +2078,9 @@ def cmd_quality(argv: list[str]) -> int:
         elif args.action == "normalize-ask":
             raw = args.payload if args.payload is not None else sys.stdin.read()
             result = normalize_ask_results(json.loads(raw))
+        elif args.action == "normalize-result":
+            raw = args.payload if args.payload is not None else sys.stdin.read()
+            result = normalize_external_result(json.loads(raw))
         elif args.action == "assess":
             if args.activity not in ACTIVITY_IDS:
                 raise ValueError("quality activity is unknown")
