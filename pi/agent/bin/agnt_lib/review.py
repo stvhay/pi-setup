@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from .quality import FINDING_STATUSES, VERIFICATION_METHODS, validate_evidence_ref, validate_finding
+
 
 REVIEW_SCOPES = {"behavioral", "boundary"}
 FINDING_SEVERITIES = {"critical", "important", "minor"}
-FINDING_STATUSES = {"unverified", "confirmed", "refuted", "unresolved"}
-VERIFICATION_METHODS = {"test", "reproducer", "inspection", "profile", "specification"}
 
 _ROOT_FIELDS = {"schemaVersion", "reviewId", "scope", "reviewer", "findings"}
 _REVIEWER_FIELDS = {"target", "family", "recordId"}
@@ -151,6 +152,46 @@ def summarize_review_findings(document: Dict[str, Any]) -> Dict[str, Any]:
     return summary
 
 
+def _review_finding_output(document: Dict[str, Any], finding: Dict[str, Any]) -> Dict[str, Any]:
+    digest = hashlib.sha256(document["reviewId"].encode("utf-8")).hexdigest()[:16]
+    evidence_ref = validate_evidence_ref({
+        "ref": f"artifact:review-{digest}",
+        "source": "review",
+        "availability": "available",
+        "provenance": f'review:{document["reviewId"]}:{finding["id"]}',
+        "integrity": "unverified" if finding["status"] == "unverified" else "verified",
+        "sensitivity": "internal",
+        "retention": "work-item",
+    })
+    domain_verification = finding.get("verification") if isinstance(finding.get("verification"), dict) else {}
+    item = {
+        "schemaVersion": 1,
+        "id": finding["id"],
+        "activity": "code-review",
+        "source": "review",
+        "category": finding["category"],
+        "severity": finding["severity"],
+        "claim": finding["claim"],
+        "status": finding["status"],
+        "evidenceRefs": [evidence_ref],
+        "verification": (
+            None
+            if finding["status"] == "unverified"
+            else {"method": domain_verification.get("method"), "evidenceRefs": [evidence_ref]}
+        ),
+        "proposedIntervention": (
+            f'Investigate and address: {finding["failureScenario"]}'[:1000]
+        ),
+        "verificationMethod": domain_verification.get("method"),
+        "verifierFamily": domain_verification.get("verifierFamily"),
+    }
+    return validate_finding(
+        item,
+        public=True,
+        public_extensions={"verificationMethod", "verifierFamily"},
+    )
+
+
 def review_annotation_fields(
     document: Dict[str, Any],
     *,
@@ -175,19 +216,7 @@ def review_annotation_fields(
         raise ValueError(
             f"reviewer family {reviewer.get('family')!r} does not match invocation {expected_family!r}"
         )
-    findings = []
-    for finding in document["findings"]:
-        verification = finding.get("verification") if isinstance(finding.get("verification"), dict) else {}
-        findings.append(
-            {
-                "id": finding["id"],
-                "severity": finding["severity"],
-                "category": finding["category"],
-                "status": finding["status"],
-                "verificationMethod": verification.get("method"),
-                "verifierFamily": verification.get("verifierFamily"),
-            }
-        )
+    findings = [_review_finding_output(document, finding) for finding in document["findings"]]
     return {
         "reviewId": document["reviewId"],
         "reviewScope": document["scope"],

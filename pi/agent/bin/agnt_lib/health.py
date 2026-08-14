@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
+from .quality import validate_evidence_ref, validate_finding
 from .runs import default_runs_dir
 from .worktree_policy import default_status_runner, list_git_worktrees
 
@@ -59,7 +60,35 @@ def _finding(
     path: str | None = None,
     detail: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    item: Dict[str, Any] = {"id": finding_id, "severity": severity, "category": category, "message": message}
+    pointer = f"run:{run_id}" if run_id else "artifact:work-health"
+    evidence_ref = {
+        "ref": pointer,
+        "source": "health",
+        "availability": "available",
+        "provenance": "health:local-inspection",
+        "integrity": "verified",
+        "sensitivity": "private",
+        "retention": "session",
+    }
+    try:
+        validate_evidence_ref(evidence_ref)
+    except ValueError:
+        evidence_ref["ref"] = "artifact:work-health"
+        validate_evidence_ref(evidence_ref)
+    item: Dict[str, Any] = {
+        "schemaVersion": 1,
+        "id": finding_id,
+        "activity": "work-health",
+        "source": "health",
+        "severity": severity,
+        "category": category,
+        "claim": message[:1000],
+        "status": "confirmed",
+        "evidenceRefs": [evidence_ref],
+        "verification": {"method": "inspection", "evidenceRefs": [evidence_ref]},
+        "proposedIntervention": f"Resolve {finding_id} before closeout.",
+        "message": message,
+    }
     if run_id:
         item["run"] = run_id
     if bundle:
@@ -70,7 +99,7 @@ def _finding(
         item["path"] = path
     if detail:
         item["detail"] = detail
-    return item
+    return validate_finding(item)
 
 
 def _is_closed(status: Any) -> bool:

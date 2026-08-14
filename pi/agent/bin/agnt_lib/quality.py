@@ -90,6 +90,34 @@ MAX_EVIDENCE_REFS = 16
 MAX_LEDGER_BYTES = 16 * 1024 * 1024
 MAX_SNAPSHOT_BYTES = 64 * 1024
 HASH_REF = re.compile(r"sha256:[0-9a-f]{64}\Z")
+FINDING_STATUSES = ("unverified", "confirmed", "refuted", "unresolved")
+VERIFICATION_METHODS = frozenset({"test", "reproducer", "inspection", "profile", "specification"})
+EVIDENCE_REF_FIELDS = frozenset({
+    "ref",
+    "source",
+    "availability",
+    "provenance",
+    "integrity",
+    "sensitivity",
+    "retention",
+})
+EVIDENCE_AVAILABILITY = frozenset({"available", "partial", "unavailable", "unknown"})
+EVIDENCE_INTEGRITY = frozenset({"verified", "unverified", "unknown"})
+EVIDENCE_SENSITIVITY = frozenset({"public", "internal", "private", "restricted"})
+EVIDENCE_RETENTION = frozenset({"session", "work-item", "cohort", "durable"})
+FINDING_CORE_FIELDS = frozenset({
+    "schemaVersion",
+    "id",
+    "activity",
+    "source",
+    "category",
+    "severity",
+    "claim",
+    "status",
+    "evidenceRefs",
+    "verification",
+    "proposedIntervention",
+})
 
 
 class SessionWorkItemConflict(ValueError):
@@ -803,6 +831,83 @@ def _text_list(value: Any) -> bool:
         and all(_text(item) for item in value)
         and len(set(value)) == len(value)
     )
+
+
+def validate_evidence_ref(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != EVIDENCE_REF_FIELDS:
+        raise ValueError("evidence reference fields are invalid")
+    try:
+        _evidence_refs([value.get("ref")])
+    except ValueError as exc:
+        raise ValueError("evidence reference pointer is invalid") from exc
+    if any(
+        not isinstance(value.get(field), str)
+        or not OPAQUE_ID.fullmatch(value[field])
+        for field in ("source", "provenance")
+    ):
+        raise ValueError("evidence reference provenance is invalid")
+    for field, allowed in (
+        ("availability", EVIDENCE_AVAILABILITY),
+        ("integrity", EVIDENCE_INTEGRITY),
+        ("sensitivity", EVIDENCE_SENSITIVITY),
+        ("retention", EVIDENCE_RETENTION),
+    ):
+        if value.get(field) not in allowed:
+            raise ValueError(f"evidence reference {field} is invalid")
+    return value
+
+
+def _finding_evidence_refs(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value or len(value) > MAX_EVIDENCE_REFS:
+        raise ValueError("finding evidence references are invalid")
+    refs = [validate_evidence_ref(item) for item in value]
+    if len({_canonical(item) for item in refs}) != len(refs):
+        raise ValueError("finding evidence references are invalid")
+    return refs
+
+
+def validate_finding(
+    value: Any,
+    *,
+    public: bool = False,
+    public_extensions: set[str] | frozenset[str] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or not FINDING_CORE_FIELDS.issubset(value):
+        raise ValueError("finding core fields are invalid")
+    if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
+        raise ValueError("finding schema is invalid")
+    for field in ("id", "category", "severity", "claim", "proposedIntervention"):
+        if not _text(value.get(field)):
+            label = "intervention" if field == "proposedIntervention" else field
+            raise ValueError(f"finding {label} is invalid")
+    for field in ("activity", "source"):
+        if not isinstance(value.get(field), str) or not OPAQUE_ID.fullmatch(value[field]):
+            raise ValueError(f"finding {field} is invalid")
+    status = value.get("status")
+    if status not in FINDING_STATUSES:
+        raise ValueError("finding status is invalid")
+    evidence_refs = _finding_evidence_refs(value.get("evidenceRefs"))
+    verification = value.get("verification")
+    if status == "unverified":
+        if verification is not None:
+            raise ValueError("finding verification must be absent while unverified")
+    elif (
+        not isinstance(verification, dict)
+        or set(verification) != {"method", "evidenceRefs"}
+        or verification.get("method") not in VERIFICATION_METHODS
+    ):
+        raise ValueError("finding verification is invalid")
+    else:
+        verification_refs = _finding_evidence_refs(verification.get("evidenceRefs"))
+        if any(ref not in evidence_refs for ref in verification_refs):
+            raise ValueError("finding verification references unknown evidence")
+    if public:
+        allowed = set(public_extensions or ())
+        if any(not isinstance(field, str) or not field for field in allowed):
+            raise ValueError("public finding extension fields are invalid")
+        if set(value) - FINDING_CORE_FIELDS - allowed:
+            raise ValueError("public finding cannot copy raw private evidence")
+    return value
 
 
 def validate_control_plan(value: Any) -> dict[str, Any]:

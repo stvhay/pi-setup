@@ -127,16 +127,45 @@ def test_review_annotation_fields_link_findings_to_invocation(agnt):
     assert fields["reviewId"] == "review-123"
     assert fields["reviewScope"] == "behavioral"
     assert fields["reviewFindingStats"]["unverified"] == 1
-    assert fields["reviewFindings"] == [
-        {
-            "id": "F-001",
-            "severity": "important",
-            "category": "behavior-preservation",
-            "status": "unverified",
-            "verificationMethod": None,
-            "verifierFamily": None,
-        }
-    ]
+    finding = fields["reviewFindings"][0]
+    assert {
+        key: finding[key]
+        for key in (
+            "id",
+            "severity",
+            "category",
+            "status",
+            "verificationMethod",
+            "verifierFamily",
+        )
+    } == {
+        "id": "F-001",
+        "severity": "important",
+        "category": "behavior-preservation",
+        "status": "unverified",
+        "verificationMethod": None,
+        "verifierFamily": None,
+    }
+    assert finding["activity"] == "code-review"
+    assert finding["source"] == "review"
+    assert finding["claim"] == document["findings"][0]["claim"]
+    assert finding["verification"] is None
+    assert finding["proposedIntervention"].startswith("Investigate and address:")
+    assert finding["evidenceRefs"][0] == {
+        "ref": finding["evidenceRefs"][0]["ref"],
+        "source": "review",
+        "availability": "available",
+        "provenance": "review:review-123:F-001",
+        "integrity": "unverified",
+        "sensitivity": "internal",
+        "retention": "work-item",
+    }
+    assert finding["evidenceRefs"][0]["ref"].startswith("artifact:review-")
+    assert agnt.validate_finding(
+        finding,
+        public=True,
+        public_extensions={"verificationMethod", "verifierFamily"},
+    ) == finding
 
     with pytest.raises(ValueError, match="does not match"):
         agnt.review_annotation_fields(document, expected_record_id="different")
@@ -261,6 +290,7 @@ def test_metrics_annotation_accepts_validated_findings_file(agnt, tmp_path, caps
     assert output["annotation"]["reviewFindingStats"]["unverified"] == 1
     stored = json.loads(annotations.read_text(encoding="utf-8"))
     assert stored["reviewFindings"][0]["id"] == "F-001"
+    assert stored["reviewFindings"][0]["evidenceRefs"][0]["sensitivity"] == "internal"
 
 
 def test_tracked_schema_matches_required_discovery_fields():

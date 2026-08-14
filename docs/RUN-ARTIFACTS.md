@@ -50,6 +50,28 @@ ref count, and at most 12,000 characters of parent-held result content; raw refs
 never enter the evaluator prompt. A published artifact containing neither final
 output nor error is explicitly content-unavailable.
 
+## Finding and evidence references
+
+Review metrics and work-health reports expose one common Finding core while keeping their existing domain fields. This is not a universal result schema: run results, review documents, and health reports retain their own enclosing contracts.
+
+A normalized finding carries identity, activity/source, category, severity, claim, status, EvidenceRefs, verification, and a proposed intervention. Each EvidenceRef is metadata only:
+
+```json
+{
+  "ref": "run:20260627-010203-pi-8su-3",
+  "source": "health",
+  "availability": "available",
+  "provenance": "health:local-inspection",
+  "integrity": "verified",
+  "sensitivity": "private",
+  "retention": "session"
+}
+```
+
+Pointers are bounded opaque `artifact:`, `invocation:`, `observation:`, `result:`, `run:`, or `trace:` references. They never contain absolute paths, evidence bodies, credentials, or transcripts. Availability (`available`, `partial`, `unavailable`, `unknown`), integrity (`verified`, `unverified`, `unknown`), sensitivity (`public`, `internal`, `private`, `restricted`), and retention (`session`, `work-item`, `cohort`, `durable`) remain explicit.
+
+Public Finding adapters accept only core fields plus adapter-declared safe extensions. Private/restricted EvidenceRefs may remain as tagged opaque pointers, but copied raw evidence is rejected. Review-specific location, failure scenario, verifier family, and method remain review-owned; health-specific message, run, bundle, path, ref, and detail remain health-owned. Metrics continue to aggregate existing review status/severity fields.
+
 ## Bundle shape
 
 ```text

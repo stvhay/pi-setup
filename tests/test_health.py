@@ -73,6 +73,18 @@ def test_work_health_report_detects_closeout_blockers(agnt, tmp_path):
         "failed-closeout-check",
         "raw-tool-bypass-marker",
     }.issubset(_finding_ids(report))
+    finding = next(item for item in report["findings"] if item["id"] == "missing-verification-evidence")
+    assert finding["message"] == "succeeded run is missing verification evidence"
+    assert finding["activity"] == "work-health"
+    assert finding["source"] == "health"
+    assert finding["claim"] == finding["message"]
+    assert finding["status"] == "confirmed"
+    assert finding["evidenceRefs"][0]["ref"] == "run:closeout-blockers"
+    assert finding["verification"] == {
+        "method": "inspection",
+        "evidenceRefs": finding["evidenceRefs"],
+    }
+    assert agnt.validate_finding(finding) == finding
 
 
 def test_work_health_report_detects_orphaned_stale_dirty_runs(agnt, tmp_path):

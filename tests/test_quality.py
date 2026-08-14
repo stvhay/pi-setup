@@ -299,6 +299,71 @@ def test_capture_cli_accepts_only_validated_json(monkeypatch, tmp_path, capsys):
     assert "private body" not in output
 
 
+def _shared_evidence_ref(**overrides):
+    return {
+        "ref": "artifact:review-123",
+        "source": "review",
+        "availability": "available",
+        "provenance": "review:review-123",
+        "integrity": "verified",
+        "sensitivity": "private",
+        "retention": "work-item",
+        **overrides,
+    }
+
+
+def _shared_finding(**overrides):
+    evidence_ref = _shared_evidence_ref()
+    return {
+        "schemaVersion": 1,
+        "id": "F-001",
+        "activity": "code-review",
+        "source": "review",
+        "category": "behavior-preservation",
+        "severity": "important",
+        "claim": "Retry path is skipped.",
+        "status": "confirmed",
+        "evidenceRefs": [evidence_ref],
+        "verification": {"method": "inspection", "evidenceRefs": [evidence_ref]},
+        "proposedIntervention": "Restore retry before returning.",
+        **overrides,
+    }
+
+
+def test_shared_finding_and_evidence_ref_validate_common_contract():  # Tests INV-6
+    evidence_ref = _shared_evidence_ref()
+    finding = _shared_finding(domainLocation="src/example.py:42")
+
+    assert quality.validate_evidence_ref(evidence_ref) == evidence_ref
+    assert quality.validate_finding(finding) == finding
+
+    for field, invalid in (
+        ("availability", "sometimes"),
+        ("provenance", "private provenance body"),
+        ("integrity", "trusted"),
+        ("sensitivity", "secret"),
+        ("retention", "forever"),
+        ("ref", "/tmp/raw-private-evidence"),
+    ):
+        with pytest.raises(ValueError, match="evidence reference"):
+            quality.validate_evidence_ref(_shared_evidence_ref(**{field: invalid}))
+
+    with pytest.raises(ValueError, match="verification"):
+        quality.validate_finding(_shared_finding(verification=None))
+    with pytest.raises(ValueError, match="intervention"):
+        quality.validate_finding(_shared_finding(proposedIntervention=""))
+
+
+def test_public_finding_rejects_copied_raw_private_evidence():  # Tests FAIL-4
+    core = _shared_finding()
+
+    assert quality.validate_finding(core, public=True) == core
+    with pytest.raises(ValueError, match="public finding"):
+        quality.validate_finding({**core, "evidence": "copied private tool payload"}, public=True)
+    with pytest.raises(ValueError, match="evidence reference"):
+        quality.validate_evidence_ref({**_shared_evidence_ref(), "content": "raw payload"})
+
+
 def test_inv1_control_plan_has_exact_five_activity_contract():  # Tests INV-1
     plan = quality.load_control_plan()
 

@@ -14,6 +14,7 @@ from uuid import uuid4
 import _agnt_common as common
 
 from .core import VALID_OUTCOMES, split_target
+from .quality import FINDING_STATUSES
 from .review import load_review_document, review_annotation_fields
 from .runtime_paths import resolve_runtime_directory
 
@@ -92,18 +93,11 @@ def estimate_tokens(text: str) -> int:
 
 
 def empty_review_finding_stats() -> Dict[str, Any]:
-    return {
-        "total": 0,
-        "unverified": 0,
-        "confirmed": 0,
-        "refuted": 0,
-        "unresolved": 0,
-        "bySeverity": {},
-    }
+    return {"total": 0, **{status: 0 for status in FINDING_STATUSES}, "bySeverity": {}}
 
 
 def add_review_finding_stats(total: Dict[str, Any], value: Dict[str, Any]) -> None:
-    for key in ("total", "unverified", "confirmed", "refuted", "unresolved"):
+    for key in ("total", *FINDING_STATUSES):
         total[key] += int(value.get(key) or 0)
     severities = value.get("bySeverity") if isinstance(value.get("bySeverity"), dict) else {}
     for severity, count in severities.items():
