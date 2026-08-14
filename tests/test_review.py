@@ -7,7 +7,8 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "pi" / "agent" / "skills" / "requesting-code-review" / "review-findings.schema.json"
+REVIEW_SKILL = ROOT / "pi" / "agent" / "skills" / "requesting-code-review" / "SKILL.md"
+SCHEMA = REVIEW_SKILL.with_name("review-findings.schema.json")
 
 
 def discovery_document() -> dict:
@@ -165,10 +166,17 @@ def test_review_cli_validates_and_summarizes_document(agnt, tmp_path, capsys):
     assert agnt.cmd_review(["validate", str(path)]) == 0
     validated = json.loads(capsys.readouterr().out)
     assert validated["valid"] is True
+    assert validated["summary"]["total"] == 1
 
-    assert agnt.cmd_review(["summary", str(path)]) == 0
-    summary = json.loads(capsys.readouterr().out)
-    assert summary["summary"]["total"] == 1
+    with pytest.raises(SystemExit):
+        agnt.cmd_review(["summary", str(path)])
+
+
+def test_review_workflow_uses_single_validate_command():
+    workflow = REVIEW_SKILL.read_text(encoding="utf-8")
+
+    assert workflow.count("agnt review validate") == 1
+    assert "agnt review " + "summary" not in workflow
 
 
 def test_metrics_summary_exposes_verified_finding_yield_per_cost(agnt):

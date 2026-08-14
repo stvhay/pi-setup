@@ -100,11 +100,10 @@ For structured review findings:
 
 ```bash
 agnt review validate .pi/reviews/<id>/findings.json
-agnt review summary .pi/reviews/<id>/findings.json
 agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json --outcome accepted
 ```
 
-`agnt review` validates the tracked discovery/adjudication contract. Findings begin `unverified`; `confirmed`, `refuted`, and `unresolved` require verifier family, method, and evidence. Confidence is not part of the schema. Findings-linked metric summaries report status counts and confirmed-findings-per-dollar when cost is available.
+`agnt review validate` validates the tracked discovery/adjudication contract and emits its summary in the same payload. Findings begin `unverified`; `confirmed`, `refuted`, and `unresolved` require verifier family, method, and evidence. Confidence is not part of the schema. Findings-linked metric summaries report status counts and confirmed-findings-per-dollar when cost is available.
 
 ## Prompt tooling
 

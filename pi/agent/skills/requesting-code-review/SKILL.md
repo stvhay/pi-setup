@@ -153,11 +153,10 @@ When inline output is truncated or malformed and the tool result reports a persi
 
 Complete valid persisted output finishes that pass with zero reviewer retries. Only resolution, read, schema, identity, or usable-output failure permits the one concise format-repair retry below; missing or unavailable artifact metadata is such a failure.
 
-Validate every output before counting it:
+Validate every output before counting it; validation and summary share one payload:
 
 ```bash
 agnt review validate "$ReviewDir/kimi-findings.json"
-agnt review summary "$ReviewDir/kimi-findings.json"
 ```
 
 Invalid JSON, stubs, generic advice, missing failure scenarios, or unsupported findings do not count as completed review. One concise format-repair retry is acceptable; do not fall back to an open-ended autonomous cloud agent merely to repair formatting.

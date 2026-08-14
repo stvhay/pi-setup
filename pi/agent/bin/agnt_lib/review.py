@@ -200,7 +200,6 @@ def cmd_review(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt review", description="Validate and summarize structured review findings.")
     sub = parser.add_subparsers(dest="action")
     sub.add_parser("validate")
-    sub.add_parser("summary")
     if not argv:
         parser.print_help()
         return 0
@@ -208,7 +207,7 @@ def cmd_review(argv: List[str]) -> int:
     if action in {"-h", "--help"}:
         parser.print_help()
         return 0
-    if action not in {"validate", "summary"}:
+    if action != "validate":
         parser.error(f"unknown action: {action}")
     command = argparse.ArgumentParser(prog=f"agnt review {action}")
     command.add_argument("findings_file")
