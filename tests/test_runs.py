@@ -4,16 +4,39 @@ import hashlib
 import json
 from uuid import UUID
 
+import pytest
 
-def _claim_context():
-    grant_fingerprint = "sha256:" + "a" * 64
+
+def _work_target_fingerprint(*, work_item, worktree, input_refs):
+    return "sha256:" + hashlib.sha256(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "workItem": work_item,
+                "worktree": worktree,
+                "inputRefs": input_refs,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _claim_context(
+    *,
+    action="edit",
+    effects=None,
+    target_fingerprint=None,
+    decision_bead="pi-claim.1",
+    grant_fingerprint=None,
+):
+    grant_fingerprint = grant_fingerprint or "sha256:" + "a" * 64
     allowance_id = "allowance-" + hashlib.sha256(
-        f"pi-claim.1:{grant_fingerprint}".encode("utf-8")
+        f"{decision_bead}:{grant_fingerprint}".encode("utf-8")
     ).hexdigest()
     policy_fingerprint = "sha256:" + "b" * 64
-    action = "edit"
-    effects = ["workspace.write"]
-    target_fingerprint = "sha256:" + "c" * 64
+    effects = list(effects or ["workspace.write"])
+    target_fingerprint = target_fingerprint or "sha256:" + "c" * 64
     claim_id = "claim-" + hashlib.sha256(
         json.dumps(
             {
@@ -32,7 +55,7 @@ def _claim_context():
         "schemaVersion": 1,
         "claimId": claim_id,
         "receiptId": "quality-receipt-1",
-        "decisionBead": "pi-claim.1",
+        "decisionBead": decision_bead,
         "grantFingerprint": grant_fingerprint,
         "allowanceId": allowance_id,
         "policyFingerprint": policy_fingerprint,
@@ -91,6 +114,88 @@ def _claim_row(claim_context):
             "requiredProof": claim_context["requiredProof"],
         })
     return row
+
+
+def _claim_bound_bundle(
+    agnt,
+    tmp_path,
+    *,
+    invocation_action="implement",
+    invocation_effects=None,
+    invocation_input_refs=None,
+    claim_action="edit",
+):
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    worktree = {
+        "schemaVersion": 1,
+        "path": str(worktree_path),
+        "dispatchable": True,
+        "status": "ready",
+    }
+    work_item = "pi-ready.claim-bound"
+    claim_effects = ["read_workspace", "write_artifacts", "workspace.write"]
+    canonical_input_refs = ["src/feature.py"]
+    grant = {
+        "schemaVersion": 1,
+        "action": claim_action,
+        "effects": claim_effects,
+        "model": "openai/gpt-5",
+        "thinking": "high",
+        "toolset": ["read", "edit", "bash"],
+        "contextPolicy": "task-scoped",
+        "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
+        "rollout": {"maxActions": 1, "maxEffects": len(claim_effects)},
+        "expiry": "2099-01-01T00:00:00Z",
+        "revocation": {"status": "active", "reason": None, "at": None},
+    }
+    grant_fingerprint = agnt.capability_grant_fingerprint(grant)
+    authority = {
+        "schemaVersion": 1,
+        "decisionBead": "pi-claim.1",
+        "status": "active",
+        "grant": grant,
+        "grantFingerprint": grant_fingerprint,
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": claim_effects,
+    }
+    claim_context = _claim_context(
+        action=claim_action,
+        effects=claim_effects,
+        target_fingerprint=_work_target_fingerprint(
+            work_item=work_item,
+            worktree=worktree,
+            input_refs=canonical_input_refs,
+        ),
+        grant_fingerprint=grant_fingerprint,
+    )
+    claim_directory = tmp_path / "quality"
+    claim_directory.mkdir()
+    claims_path = claim_directory / "claims.jsonl"
+    claims_path.write_text(json.dumps(_claim_row(claim_context)) + "\n", encoding="utf-8")
+    claims_path.chmod(0o600)
+    bundle = agnt.create_run_bundle(
+        action=invocation_action,
+        routing_task="implementation",
+        input_refs=(
+            canonical_input_refs
+            if invocation_input_refs is None
+            else invocation_input_refs
+        ),
+        bead=work_item,
+        authority=authority,
+        claim_context=claim_context,
+        worktree=worktree,
+        allowed_effects=(
+            ["read_workspace", "write_artifacts", "edit_files"]
+            if invocation_effects is None
+            else invocation_effects
+        ),
+        output_contract="implementation-report",
+        runs_dir=tmp_path / "runs",
+        id_value="claim-bound",
+    )
+    return bundle, claim_directory, authority
 
 
 def test_dispatch_plan_uses_metadata_action_before_title_heuristics(agnt):
@@ -484,6 +589,78 @@ def test_invoke_run_bundle_rejects_forged_claim_provenance(agnt, monkeypatch, tm
 
     assert result["exitCode"] == 1
     assert "claim context" in result["authorityError"]
+    assert invoked == []
+
+
+def test_invoke_run_bundle_accepts_exact_claim_invocation_binding(agnt, monkeypatch, tmp_path):
+    bundle, claim_directory, authority = _claim_bound_bundle(agnt, tmp_path)
+    invoked = []
+    monkeypatch.setitem(
+        agnt.invoke_run_bundle.__globals__,
+        "invoke_one",
+        lambda *args, **kwargs: invoked.append(args) or (0, "OK: bound", "", None),
+    )
+
+    result = agnt.invoke_run_bundle(
+        bundle,
+        metrics=False,
+        claim_directory=claim_directory,
+        grant_resolver=lambda _decision: authority,
+    )
+
+    assert result["exitCode"] == 0
+    assert len(invoked) == 1
+
+
+@pytest.mark.parametrize(
+    ("bundle_overrides", "expected_error"),
+    [
+        (
+            {"invocation_action": "review"},
+            "explicit claim action does not match invocation action",
+        ),
+        (
+            {"invocation_effects": ["read_workspace", "edit_files"]},
+            "explicit claim effects do not match invocation allowed effects",
+        ),
+        (
+            {"invocation_input_refs": ["src/other.py"]},
+            "explicit claim target does not match invocation target",
+        ),
+        (
+            {"invocation_effects": [{"malformed": "effect"}]},
+            "explicit claim effects do not match invocation allowed effects",
+        ),
+        (
+            {"claim_action": "unsupported", "invocation_action": None},
+            "explicit claim action does not match invocation action",
+        ),
+    ],
+)
+def test_invoke_run_bundle_rejects_claim_invocation_mismatch_before_worker(
+    agnt, monkeypatch, tmp_path, bundle_overrides, expected_error
+):
+    bundle, claim_directory, authority = _claim_bound_bundle(
+        agnt,
+        tmp_path,
+        **bundle_overrides,
+    )
+    invoked = []
+    monkeypatch.setitem(
+        agnt.invoke_run_bundle.__globals__,
+        "invoke_one",
+        lambda *args, **kwargs: invoked.append(args) or (0, "OK", "", None),
+    )
+
+    result = agnt.invoke_run_bundle(
+        bundle,
+        metrics=False,
+        claim_directory=claim_directory,
+        grant_resolver=lambda _decision: authority,
+    )
+
+    assert result["exitCode"] == 1
+    assert result["authorityError"] == expected_error
     assert invoked == []
 
 

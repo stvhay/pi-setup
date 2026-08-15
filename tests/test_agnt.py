@@ -2752,8 +2752,18 @@ def test_start_work_passes_explicit_claim_context_to_run_provenance(agnt, tmp_pa
     ).hexdigest()
     policy_fingerprint = "sha256:" + "b" * 64
     action = "review"
-    effects = ["workspace.write"]
-    target_fingerprint = "sha256:" + "c" * 64
+    effects = ["read_workspace", "write_artifacts"]
+    target_fingerprint = agnt.work_target_fingerprint(
+        work_item="pi-test.claim-context",
+        worktree={
+            "schemaVersion": 1,
+            "policy": "none",
+            "status": "ready",
+            "dispatchable": True,
+            "path": str(Path.cwd()),
+        },
+        input_refs=[],
+    )
     claim_context = {
         "schemaVersion": 1,
         "claimId": "claim-" + hashlib.sha256(

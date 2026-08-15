@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import re
 import shutil
@@ -23,6 +24,21 @@ VALID_SESSION_POLICIES = {"recorded", "no-session"}
 VALID_MEMORY_POLICIES = {"auto", "active", "passive", "disabled"}
 DEFAULT_ALLOWED_EFFECTS = ["read_workspace", "write_artifacts"]
 WRITE_EFFECTS = {"edit_files", "write_workspace", "update_beads", "external_write", "push", "deploy", "delete_files"}
+CLAIM_ACTION_TO_RUN_ACTION = {
+    "edit": "implement",
+    "implement": "implement",
+    "review": "review",
+    "verify": "verify",
+    "plan": "plan",
+    "research": "research",
+    "finish": "finish",
+}
+CLAIM_EFFECT_TO_RUN_EFFECT = {
+    "workspace.write": "edit_files",
+    **{effect: effect for effect in DEFAULT_ALLOWED_EFFECTS},
+    **{effect: effect for effect in WRITE_EFFECTS},
+    "external_read": "external_read",
+}
 READ_ONLY_WORKER_TOOLS = ["read", "grep", "find", "ls"]
 READ_COMMAND_WORKER_TOOLS = ["read", "bash", "grep", "find", "ls"]
 WRITE_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"]
@@ -48,6 +64,22 @@ def run_id(action: str, bead: str | None = None) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     suffix = slugify(bead or action)
     return f"{stamp}-{suffix}"
+
+
+def work_target_fingerprint(
+    *,
+    work_item: str | None,
+    worktree: Dict[str, Any] | None,
+    input_refs: List[str],
+) -> str:
+    identity = {
+        "schemaVersion": 1,
+        "workItem": work_item,
+        "worktree": worktree,
+        "inputRefs": input_refs,
+    }
+    canonical = json.dumps(identity, separators=(",", ":"), sort_keys=True)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def write_yaml_json(path: Path, data: Dict[str, Any]) -> None:
@@ -441,6 +473,34 @@ def invocation_timeout_seconds(invocation: Dict[str, Any]) -> int:
     return WRITE_TIMEOUT_SECONDS if invocation_needs_write_tools(invocation) else READ_ONLY_TIMEOUT_SECONDS
 
 
+def _claim_invocation_binding_failure(
+    claim_context: Dict[str, Any],
+    invocation: Dict[str, Any],
+) -> str | None:
+    mapped_action = CLAIM_ACTION_TO_RUN_ACTION.get(claim_context["action"])
+    if mapped_action is None or mapped_action != invocation.get("action"):
+        return "explicit claim action does not match invocation action"
+    allowed_effects = invocation.get("allowedEffects")
+    mapped_effects = [CLAIM_EFFECT_TO_RUN_EFFECT.get(effect) for effect in claim_context["effects"]]
+    if (
+        not isinstance(allowed_effects, list)
+        or any(not isinstance(effect, str) for effect in allowed_effects)
+        or any(effect is None for effect in mapped_effects)
+        or len(set(mapped_effects)) != len(mapped_effects)
+        or len(set(allowed_effects)) != len(allowed_effects)
+        or set(mapped_effects) != set(allowed_effects)
+    ):
+        return "explicit claim effects do not match invocation allowed effects"
+    input_refs = invocation.get("inputRefs")
+    if not isinstance(input_refs, list) or claim_context["targetFingerprint"] != work_target_fingerprint(
+        work_item=invocation.get("workItem") or invocation.get("bead"),
+        worktree=invocation.get("worktree") if isinstance(invocation.get("worktree"), dict) else None,
+        input_refs=input_refs,
+    ):
+        return "explicit claim target does not match invocation target"
+    return None
+
+
 def _revalidate_invocation_authority(
     invocation: Dict[str, Any],
     *,
@@ -465,6 +525,9 @@ def _revalidate_invocation_authority(
             or claim_context["grantFingerprint"] != envelope.get("grantFingerprint")
         ):
             return "explicit claim context does not match grant provenance"
+        binding_failure = _claim_invocation_binding_failure(claim_context, invocation)
+        if binding_failure:
+            return binding_failure
     if invocation.get("action") != "implement":
         return None
     envelope = provenance.get("effectiveEnvelope") if isinstance(provenance, dict) else None
