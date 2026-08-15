@@ -46,6 +46,7 @@ def _evidence_claim_context():
     context = _claim_context()
     context["authorizationEvidence"] = ["artifact:grant-proof"]
     context["executionEvidence"] = ["artifact:execution-proof"]
+    context["requiredProof"] = ["tests"]
     identity = {
         "receiptId": context["receiptId"],
         "allowanceId": context["allowanceId"],
@@ -87,6 +88,7 @@ def _claim_row(claim_context):
         row.update({
             "authorizationEvidence": claim_context["authorizationEvidence"],
             "executionEvidence": claim_context["executionEvidence"],
+            "requiredProof": claim_context["requiredProof"],
         })
     return row
 

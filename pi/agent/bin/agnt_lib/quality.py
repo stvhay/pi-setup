@@ -169,6 +169,7 @@ CLAIM_FIELDS = frozenset({
     "at",
 })
 CLAIM_EVIDENCE_FIELDS = frozenset({"authorizationEvidence", "executionEvidence"})
+CLAIM_PROOF_FIELDS = frozenset({"requiredProof"})
 CLAIM_TOKEN_FIELDS = frozenset({
     "schemaVersion",
     "claimId",
@@ -182,6 +183,7 @@ CLAIM_TOKEN_FIELDS = frozenset({
     "targetFingerprint",
 })
 CLAIM_TOKEN_EVIDENCE_FIELDS = frozenset({"authorizationEvidence", "executionEvidence"})
+CLAIM_TOKEN_PROOF_FIELDS = frozenset({"requiredProof"})
 CANARY_PACKET_FIELDS = frozenset({
     "schemaVersion",
     "activity",
@@ -2938,6 +2940,7 @@ def _validate_claim(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) not in {
         CLAIM_FIELDS,
         CLAIM_FIELDS | CLAIM_EVIDENCE_FIELDS,
+        CLAIM_FIELDS | CLAIM_EVIDENCE_FIELDS | CLAIM_PROOF_FIELDS,
     }:
         raise ValueError("quality claim row is invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
@@ -2965,6 +2968,8 @@ def _validate_claim(value: Any) -> dict[str, Any]:
     _evidence_refs(value.get("evidenceRefs"))
     for field in CLAIM_EVIDENCE_FIELDS.intersection(value):
         _evidence_contract_refs(value[field], field)
+    if "requiredProof" in value and not _text_list(value["requiredProof"]):
+        raise ValueError("quality claim row is invalid")
     reason = value.get("reason")
     if reason is not None and not _text(reason):
         raise ValueError("quality claim row is invalid")
@@ -3004,6 +3009,7 @@ def _validate_claim_token(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) not in {
         CLAIM_TOKEN_FIELDS,
         CLAIM_TOKEN_FIELDS | CLAIM_TOKEN_EVIDENCE_FIELDS,
+        CLAIM_TOKEN_FIELDS | CLAIM_TOKEN_EVIDENCE_FIELDS | CLAIM_TOKEN_PROOF_FIELDS,
     }:
         raise ValueError("quality claim token is invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
@@ -3021,7 +3027,7 @@ def _validate_claim_token(value: Any) -> dict[str, Any]:
         f"{value['decisionBead']}:{value['grantFingerprint']}".encode("utf-8")
     ).hexdigest()
     evidence_kwargs = {}
-    if set(value) == CLAIM_TOKEN_FIELDS | CLAIM_TOKEN_EVIDENCE_FIELDS:
+    if CLAIM_TOKEN_EVIDENCE_FIELDS.issubset(value):
         evidence_kwargs = {
             "authorization_evidence": _evidence_contract_refs(
                 value["authorizationEvidence"], "authorizationEvidence"
@@ -3042,6 +3048,8 @@ def _validate_claim_token(value: Any) -> dict[str, Any]:
     legacy_claim = "claim-" + hashlib.sha256(
         f"{value['receiptId']}:{expected_allowance}".encode("utf-8")
     ).hexdigest()
+    if "requiredProof" in value and not _text_list(value["requiredProof"]):
+        raise ValueError("quality claim token is invalid")
     valid_claim_ids = {expected_claim}
     if set(value) == CLAIM_TOKEN_FIELDS:
         valid_claim_ids.add(legacy_claim)
@@ -3095,6 +3103,10 @@ def _latest_claims(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 previous[field] != row[field] for field in CLAIM_EVIDENCE_FIELDS
             ):
                 raise ValueError("quality claim identity conflicts")
+            if CLAIM_PROOF_FIELDS.issubset(previous) != CLAIM_PROOF_FIELDS.issubset(row):
+                raise ValueError("quality claim identity conflicts")
+            if CLAIM_PROOF_FIELDS.issubset(previous) and previous["requiredProof"] != row["requiredProof"]:
+                raise ValueError("quality claim identity conflicts")
             if previous["state"] != "claimed" or row["state"] not in CLAIM_STATES - {"claimed"}:
                 raise ValueError("quality claim transition is invalid")
         latest[row["receiptId"]] = row
@@ -3139,6 +3151,8 @@ def _claim_token(row: dict[str, Any]) -> dict[str, Any]:
             "authorizationEvidence": list(row["authorizationEvidence"]),
             "executionEvidence": list(row["executionEvidence"]),
         })
+    if "requiredProof" in row:
+        token["requiredProof"] = list(row["requiredProof"])
     return token
 
 
@@ -3248,7 +3262,10 @@ def _claim_canary(
     grant: dict[str, Any],
     directory: str | os.PathLike[str] | None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    claim = _canary_claim_record(receipt, packet)
+    claim = {
+        **_canary_claim_record(receipt, packet),
+        "requiredProof": list(grant["proof"]["required"]),
+    }
     with _locked_store(directory, CLAIMS_NAME, exclusive=True) as (fd, root):
         assert fd is not None
         latest = _latest_claims(_read_json_rows(fd, _validate_claim, "claim"))
@@ -3349,12 +3366,18 @@ def settle(
             if result_status == "succeeded":
                 raise ValueError(str(exc)) from exc
             result_status, result_refs = "unknown", []
-        if result_status == "succeeded" and (
-            not isinstance(result, dict)
-            or not isinstance(result.get("proof"), list)
-            or not result["proof"]
-        ):
-            raise ValueError("quality claim execution proof is invalid")
+        if result_status == "succeeded":
+            proof = result.get("proof") if isinstance(result, dict) else None
+            required_proof = token.get("requiredProof")
+            if (
+                not isinstance(proof, list)
+                or not proof
+                or len(set(proof)) != len(proof)
+                or any(not _text(item) for item in proof)
+                or not isinstance(required_proof, list)
+                or any(item not in proof for item in required_proof)
+            ):
+                raise ValueError("missing-proof")
         if state == "dispatched" and result_status != "succeeded":
             state, reason = "uncertain", "claim-uncertain"
         elif state == "failed" and result_status != "failed":
@@ -3417,6 +3440,20 @@ def _execution_proof_refs(
     return refs
 
 
+def _dispatcher_accepts_claim_token(dispatcher: Callable[..., Any]) -> bool:
+    try:
+        parameters = list(inspect.signature(dispatcher).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    if len(parameters) < 2:
+        return False
+    return parameters[1].kind in {
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    }
+
+
 def _invoke_dispatcher(
     dispatcher: Callable[..., Any],
     packet: dict[str, Any],
@@ -3426,8 +3463,6 @@ def _invoke_dispatcher(
         parameters = list(inspect.signature(dispatcher).parameters.values())
     except (TypeError, ValueError):
         return dispatcher(packet, claim_token)
-    if len(parameters) < 2:
-        return dispatcher(packet)
     claim_parameter = parameters[1]
     if claim_parameter.kind == inspect.Parameter.KEYWORD_ONLY:
         return dispatcher(packet, **{claim_parameter.name: claim_token})
@@ -3628,7 +3663,9 @@ def _apply_canary(
     if EVIDENCE_CONTRACT_FIELDS.issubset(packet):
         authorization_refs = list(packet["authorizationEvidence"])
         if not set(grant["proof"]["evidenceRefs"]).issubset(authorization_refs):
-            return blocked("evidence-incomplete")
+            result = _persist_canary_revocation(receipt, packet, directory, "missing-proof")
+            _revoke_canary_grant(packet, "missing-proof", revoke_grant)
+            return result
         try:
             authorization_records = _resolve_evidence_contract(
                 authorization_refs,
@@ -3637,6 +3674,16 @@ def _apply_canary(
             )
         except ValueError as exc:
             reason = str(exc)
+            if reason in {
+                "evidence-deleted",
+                "evidence-stale",
+                "evidence-malformed",
+                "evidence-mismatched",
+                "evidence-incomplete",
+            }:
+                result = _persist_canary_revocation(receipt, packet, directory, reason)
+                _revoke_canary_grant(packet, reason, revoke_grant)
+                return result
             return blocked(reason if reason.startswith("evidence-") else "evidence-unavailable")
     if target_resolver is None:
         return blocked("target-unavailable")
@@ -3650,6 +3697,8 @@ def _apply_canary(
         return result
     if dispatcher is None:
         return blocked("dispatcher-unavailable")
+    if not _dispatcher_accepts_claim_token(dispatcher):
+        return blocked("dispatcher-claim-token-required")
 
     claim_token, denial = _claim_canary(receipt, packet, grant, directory)
     if denial is not None:
@@ -3717,6 +3766,23 @@ def _apply_canary(
     else:
         try:
             dispatched = _invoke_dispatcher(dispatcher, packet, claim_token)
+        except ValueError as exc:
+            candidate_reason = str(exc)
+            if candidate_reason in {
+                "missing-proof",
+                "evidence-deleted",
+                "evidence-stale",
+                "evidence-malformed",
+                "evidence-mismatched",
+                "evidence-incomplete",
+            }:
+                dispatched = {"status": "blocked", "evidenceRefs": []}
+                state = "revoked"
+                reason = candidate_reason
+            else:
+                dispatched = {"status": "unknown", "evidenceRefs": []}
+                state = "uncertain"
+                reason = "claim-uncertain"
         except Exception:
             dispatched = {"status": "unknown", "evidenceRefs": []}
             state = "uncertain"
@@ -3771,6 +3837,15 @@ def apply(
     receipt = _load_receipt(receipt_id, directory)
     plan = load_control_plan(plan_path)
     if receipt["policyFingerprint"] != _fingerprint(plan):
+        if receipt["mode"] == "canary" and receipt.get("workPacket") is not None:
+            result = _persist_canary_revocation(
+                receipt,
+                receipt["workPacket"],
+                directory,
+                "policy-mismatch",
+            )
+            _revoke_canary_grant(receipt["workPacket"], "policy-mismatch", revoke_grant)
+            return result
         return {
             "schemaVersion": 1,
             "status": "blocked",
