@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import socket
 import subprocess
 from pathlib import Path
 
@@ -21,7 +22,37 @@ def _request_fingerprint(approval: dict) -> str:
     }
     if "grantFingerprint" in approval:
         identity["grantFingerprint"] = approval["grantFingerprint"]
+    if "resolverBinding" in approval:
+        identity["resolverBinding"] = approval["resolverBinding"]
     return _fingerprint(identity)
+
+
+RESOLVER_SECRET = "test-only-resolver-secret"
+
+
+def resolver_binding(session_id: str = "pi-session-1", secret: str = RESOLVER_SECRET) -> dict:
+    return {
+        "sessionFingerprint": "sha256:" + hashlib.sha256(session_id.encode()).hexdigest(),
+        "secretFingerprint": "sha256:" + hashlib.sha256(secret.encode()).hexdigest(),
+    }
+
+
+def human_ui_resolver(session_id: str = "pi-session-1", secret: str = RESOLVER_SECRET) -> dict:
+    return {"kind": "human-ui", "sessionId": session_id, "secret": secret}
+
+
+def private_resolver_proof(
+    session_id: str = "pi-session-1",
+    secret: str = RESOLVER_SECRET,
+    tool_call_id: str = "call-approval",
+    tool_name: str = "ticket_approval",
+) -> dict:
+    return {
+        **human_ui_resolver(session_id, secret),
+        "sessionFile": "/tmp/pi-session.jsonl",
+        "toolCallId": tool_call_id,
+        "toolName": tool_name,
+    }
 
 
 class FakeBeads:
@@ -114,6 +145,7 @@ def approval_record(**overrides) -> dict:
         "default": "reject",
         "preview": preview,
         "previewFingerprint": _fingerprint(preview),
+        "resolverBinding": resolver_binding(),
         "status": "pending",
         **overrides,
     }
@@ -230,7 +262,7 @@ def test_revoked_grant_cannot_be_reapproved(agnt):
         agnt.resolve_beads_approval_request(
             decision_bead="pi-decision.1",
             outcome="approved",
-            resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+            resolver=human_ui_resolver(),
             beads_runner=FakeBeads(show_metadata={"pi": {"approval": approval}}),
         )
 
@@ -410,6 +442,24 @@ def test_question_selection_mode_is_required_and_validated(agnt):
         agnt.approval_request_payload(**kwargs, selection_mode="either")
 
 
+def test_approval_request_binds_resolver_secret_without_persisting_it(agnt):
+    payload = agnt.approval_request_payload(
+        kind="approval",
+        target_bead="pi-work.1",
+        question="Approve?",
+        context="Need approval.",
+        options=["approve", "reject"],
+        default="reject",
+        preview=approval_preview(),
+        resolver_binding=human_ui_resolver(),
+    )
+
+    approval = payload["metadata"]["pi"]["approval"]
+    assert approval["resolverBinding"] == resolver_binding()
+    assert RESOLVER_SECRET not in json.dumps(payload)
+    assert approval["requestFingerprint"] == _request_fingerprint(approval)
+
+
 def test_approval_preview_requires_informed_consent_fields(agnt):
     preview = approval_preview()
     preview.pop("reversibility")
@@ -447,7 +497,7 @@ def test_approvals_request_help_omits_requesting_run(agnt, capsys):
     assert "--requesting-run" not in capsys.readouterr().out
 
 
-def test_cli_human_ui_resolution_binds_current_pi_session(agnt, monkeypatch):
+def test_cli_human_ui_resolution_rejects_forgeable_resolver_flags(agnt, monkeypatch):
     import agnt_lib.approvals as approvals
 
     monkeypatch.setenv("PI_SESSION_ID", "session-1")
@@ -460,9 +510,141 @@ def test_cli_human_ui_resolution_binds_current_pi_session(agnt, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         agnt.cmd_approvals([
             "resolve", "pi-decision.1", "--outcome", "approved", "--json",
-            "--resolver-kind", "human-ui", "--resolver-session", "forged",
+            "--resolver-kind", "human-ui", "--resolver-session", "session-1",
         ])
     assert exc.value.code == 2
+
+
+def test_cli_human_ui_resolution_rejects_caller_created_socket(agnt, monkeypatch):
+    import agnt_lib.approvals as approvals
+
+    monkeypatch.setenv("AGNT_HUMAN_UI_RESOLVER_FD", "3")
+    monkeypatch.setattr(
+        approvals,
+        "resolve_beads_approval_request",
+        lambda **kwargs: pytest.fail("unbound socket reached approval resolution"),
+    )
+    reader, writer = socket.socketpair()
+    writer.sendall(json.dumps(private_resolver_proof()).encode("utf-8"))
+    writer.close()
+    try:
+        saved_fd = os.dup(3)
+    except OSError:
+        saved_fd = None
+    os.dup2(reader.fileno(), 3)
+    reader.close()
+    try:
+        with pytest.raises(SystemExit) as exc:
+            agnt.cmd_approvals([
+                "resolve", "pi-decision.1", "--outcome", "approved", "--json",
+            ])
+        assert exc.value.code == 2
+    finally:
+        if saved_fd is None:
+            os.close(3)
+        else:
+            os.dup2(saved_fd, 3)
+            os.close(saved_fd)
+
+
+def test_tool_call_attestation_accepts_only_pending_active_call(tmp_path):
+    import agnt_lib.approvals as approvals
+
+    session_file = tmp_path / "session.jsonl"
+    header = {"type": "session", "version": 3, "id": "pi-session-1", "cwd": str(tmp_path)}
+    assistant = {
+        "type": "message",
+        "id": "assistant",
+        "parentId": None,
+        "message": {
+            "role": "assistant",
+            "content": [{
+                "type": "toolCall",
+                "id": "call-approval",
+                "name": "ticket_approval",
+                "arguments": {},
+            }],
+        },
+    }
+    session_file.write_text(
+        "\n".join(json.dumps(item) for item in (header, assistant)) + "\n",
+        encoding="utf-8",
+    )
+    proof = {**private_resolver_proof(), "sessionFile": str(session_file)}
+
+    assert approvals._verify_pending_tool_call(proof) is True
+
+    result = {
+        "type": "message",
+        "id": "result",
+        "parentId": "assistant",
+        "message": {
+            "role": "toolResult",
+            "toolCallId": "call-approval",
+            "toolName": "ticket_approval",
+            "content": [],
+            "isError": False,
+        },
+    }
+    with session_file.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(result) + "\n")
+
+    assert approvals._verify_pending_tool_call(proof) is False
+
+
+def test_cli_human_ui_resolution_accepts_private_fd_proof(agnt, monkeypatch, capsys):
+    import agnt_lib.approvals as approvals
+
+    monkeypatch.setenv("AGNT_HUMAN_UI_RESOLVER_FD", "3")
+    monkeypatch.setattr(approvals, "_private_fd_peer_pid", lambda _fd: os.getppid())
+    monkeypatch.setattr(approvals, "_verify_pending_tool_call", lambda _proof: True)
+    captured = {}
+    monkeypatch.setattr(
+        approvals,
+        "resolve_beads_approval_request",
+        lambda **kwargs: captured.update(kwargs) or {
+            "decisionBead": kwargs["decision_bead"],
+            "outcome": kwargs["outcome"],
+        },
+    )
+    reader, writer = socket.socketpair()
+    writer.sendall(json.dumps(private_resolver_proof(
+        session_id="session-private",
+        secret="private-secret",
+    )).encode("utf-8"))
+    writer.close()
+    try:
+        saved_fd = os.dup(3)
+    except OSError:
+        saved_fd = None
+    os.dup2(reader.fileno(), 3)
+    reader.close()
+    try:
+        assert agnt.cmd_approvals([
+            "resolve", "pi-decision.1", "--outcome", "approved", "--json",
+        ]) == 0
+    finally:
+        if saved_fd is None:
+            os.close(3)
+        else:
+            os.dup2(saved_fd, 3)
+            os.close(saved_fd)
+
+    assert captured["resolver"] == private_resolver_proof(
+        session_id="session-private",
+        secret="private-secret",
+    )
+    assert json.loads(capsys.readouterr().out)["outcome"] == "approved"
+
+
+def test_resolve_approved_decision_rejects_forged_request_secret(agnt):
+    with pytest.raises(ValueError, match="resolver binding"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            resolver=human_ui_resolver(secret="forged"),
+            beads_runner=FakeBeads(),
+        )
 
 
 def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_path):
@@ -479,7 +661,7 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
         decision_bead="pi-decision.1",
         outcome="approved",
         answer="Approved for the stated write set.",
-        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+        resolver=human_ui_resolver(),
         run_bundle=bundle,
         beads_runner=fake,
     )
@@ -512,6 +694,9 @@ def test_resolve_approved_decision_closes_bead_and_records_run_result(agnt, tmp_
     assert updated_metadata["pi"]["approval"]["status"] == "approved"
     assert updated_metadata["pi"]["approval"]["answer"] == "Approved for the stated write set."
     assert updated_metadata["pi"]["approval"]["resolver"] == {"kind": "human-ui"}
+    assert updated_metadata["pi"]["approval"]["resolverSessionFingerprint"] == (
+        "sha256:" + hashlib.sha256(b"pi-session-1").hexdigest()
+    )
     assert updated_metadata["pi"]["approval"]["qualityResult"] == result["qualityResult"]
     assert "requestingRun" not in updated_metadata["pi"]["approval"]
     assert result["targetUpdateResult"] is None
@@ -533,7 +718,7 @@ def test_fail7_changed_approval_preview_requires_new_request(agnt):  # Tests FAI
         agnt.resolve_beads_approval_request(
             decision_bead="pi-decision.1",
             outcome="approved",
-            resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+            resolver=human_ui_resolver(),
             beads_runner=fake,
         )
 
@@ -555,7 +740,7 @@ def test_fail7_recomputed_fingerprint_still_requires_new_request(agnt):  # Tests
         agnt.resolve_beads_approval_request(
             decision_bead="pi-decision.1",
             outcome="approved",
-            resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+            resolver=human_ui_resolver(),
             beads_runner=fake,
         )
 
@@ -577,7 +762,7 @@ def test_fail7_retargeted_approval_requires_new_request(agnt):  # Tests FAIL-7
         agnt.resolve_beads_approval_request(
             decision_bead="pi-decision.1",
             outcome="approved",
-            resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+            resolver=human_ui_resolver(),
             beads_runner=fake,
         )
 
@@ -598,7 +783,7 @@ def test_resolve_approved_decision_accepts_bd_show_list_shape_and_preserves_targ
         decision_bead="pi-decision.1",
         outcome="approved",
         answer="Approved through the human UI.",
-        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+        resolver=human_ui_resolver(),
         beads_runner=list_shaped_show,
     )
 
@@ -633,6 +818,7 @@ def test_custom_response_resolution_persists_structured_question_answer(
                 "status": "pending",
                 "selectionMode": selection_mode,
                 "options": ["CLI core", "Pi extension"],
+                "resolverBinding": resolver_binding(),
             }
         }
     })
@@ -642,7 +828,7 @@ def test_custom_response_resolution_persists_structured_question_answer(
         outcome="answered",
         selected_options=selected_options,
         custom_input=custom_input,
-        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+        resolver=human_ui_resolver(),
         beads_runner=fake,
     )
 
@@ -660,7 +846,7 @@ def test_custom_response_resolution_persists_structured_question_answer(
 
 
 def test_empty_custom_response_and_approval_custom_text_are_rejected(agnt):
-    resolver = {"kind": "human-ui", "sessionId": "pi-session-1"}
+    resolver = human_ui_resolver()
     question = FakeBeads(show_metadata={
         "pi": {
             "approval": {
@@ -723,6 +909,7 @@ def test_legacy_question_resolution_defaults_to_single_selection_mode(agnt):
                 "kind": "question",
                 "targetBead": "pi-work.2",
                 "status": "pending",
+                "resolverBinding": resolver_binding(),
             }
         }
     })
@@ -731,7 +918,7 @@ def test_legacy_question_resolution_defaults_to_single_selection_mode(agnt):
         decision_bead="pi-decision.1",
         outcome="answered",
         answer="CLI core",
-        resolver={"kind": "human-ui", "sessionId": "pi-session-1"},
+        resolver=human_ui_resolver(),
         beads_runner=fake,
     )
 
@@ -742,7 +929,7 @@ def test_legacy_question_resolution_defaults_to_single_selection_mode(agnt):
 
 
 def test_question_cannot_approve_and_approval_cannot_answer(agnt):
-    resolver = {"kind": "human-ui", "sessionId": "pi-session-1"}
+    resolver = human_ui_resolver()
     question = FakeBeads(show_metadata={"pi": {"approval": {"kind": "question", "targetBead": "pi-work.2"}}})
     with pytest.raises(ValueError, match="question decisions cannot resolve as approved"):
         agnt.resolve_beads_approval_request(
@@ -831,6 +1018,7 @@ def test_beads_question_bridge_preserves_custom_response_multi_selection_and_can
         """#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE_AGNT_CALLS"
 if [ "$2" = request ]; then
+  if [ "${AGNT_HUMAN_UI_RESOLVER_FD:-}" = 3 ]; then cat <&3 >/dev/null; fi
   printf '%s\\n' '{"decisionBead":"pi-decision.1"}'
 else
   printf '%s\\n' '{"blockerVisible":false}'
@@ -848,8 +1036,20 @@ fi
       const loader = await import(pathToFileURL(resolve(dirname(piEntry), "core/extensions/loader.js")).href);
       const loaded = await loader.loadExtensions([{str(extension)!r}], process.cwd());
       assert.deepEqual(loaded.errors, []);
-      const tool = loaded.extensions[0].tools.get("ticket_question").definition;
-      const resolveTool = loaded.extensions[0].tools.get("ticket_decision_resolve").definition;
+      const extensionInstance = loaded.extensions[0];
+      const tool = extensionInstance.tools.get("ticket_question").definition;
+      const resolveTool = extensionInstance.tools.get("ticket_decision_resolve").definition;
+      assert.equal(typeof extensionInstance.handlers.get("session_start")?.[0], "function", JSON.stringify([...extensionInstance.handlers.keys()]));
+      await extensionInstance.handlers.get("session_start")[0]({{ reason: "startup" }}, {{
+        cwd: process.cwd(),
+        mode: "tui",
+        hasUI: true,
+        ui: {{}},
+        sessionManager: {{
+          getSessionId: () => "session-1",
+          getSessionFile: () => "/tmp/session-1.jsonl",
+        }},
+      }});
       assert(tool.parameters.required.includes("selectionMode"));
       assert.equal("requestingRun" in tool.parameters.properties, false);
       await assert.rejects(() => resolveTool.execute("unsafe", {{
@@ -886,7 +1086,10 @@ fi
           input: async () => customInputs.shift(),
           notify: (message, level) => warnings.push([message, level]),
         }},
-        sessionManager: {{ getSessionId: () => "session-1" }},
+        sessionManager: {{
+          getSessionId: () => "session-1",
+          getSessionFile: () => "/tmp/session-1.jsonl",
+        }},
       }});
       assert.match(result.content[0].text, /answered/);
       assert.deepEqual(warnings, [["Custom response cannot be empty.", "warning"]]);
@@ -895,7 +1098,10 @@ fi
         cwd: {str(tmp_path)!r},
         hasUI: true,
         ui: {{ select: async () => undefined }},
-        sessionManager: {{ getSessionId: () => "session-1" }},
+        sessionManager: {{
+          getSessionId: () => "session-1",
+          getSessionFile: () => "/tmp/session-1.jsonl",
+        }},
       }});
       assert.match(cancelled.content[0].text, /cancelled/);
 
@@ -903,7 +1109,10 @@ fi
         cwd: {str(tmp_path)!r},
         hasUI: true,
         ui: {{ select: async (_title, options) => options[1] }},
-        sessionManager: {{ getSessionId: () => "session-1" }},
+        sessionManager: {{
+          getSessionId: () => "session-1",
+          getSessionFile: () => "/tmp/session-1.jsonl",
+        }},
       }});
       assert.match(empty.content[0].text, /answered/);
 
@@ -918,7 +1127,10 @@ fi
           input: async () => singleInputs.shift(),
           notify: (message, level) => singleWarnings.push([message, level]),
         }},
-        sessionManager: {{ getSessionId: () => "session-1" }},
+        sessionManager: {{
+          getSessionId: () => "session-1",
+          getSessionFile: () => "/tmp/session-1.jsonl",
+        }},
       }});
       assert.match(single.content[0].text, /answered/);
       assert.deepEqual(singleWarnings, [["Custom response cannot be empty.", "warning"]]);
@@ -930,8 +1142,13 @@ fi
         customInput: "typed",
       }}, undefined, undefined, {{
         cwd: {str(tmp_path)!r},
+        mode: "tui",
         hasUI: true,
         ui: {{ confirm: async () => false }},
+        sessionManager: {{
+          getSessionId: () => "session-1",
+          getSessionFile: () => "/tmp/session-1.jsonl",
+        }},
       }});
       assert.match(declined.content[0].text, /cancelled/);
 
@@ -947,7 +1164,10 @@ fi
           select: async (_title, options) => options[0],
           input: async () => assert.fail("predefined option was mistaken for custom input"),
         }},
-        sessionManager: {{ getSessionId: () => "session-1" }},
+        sessionManager: {{
+          getSessionId: () => "session-1",
+          getSessionFile: () => "/tmp/session-1.jsonl",
+        }},
       }});
       assert.match(collision.content[0].text, /answered/);
     """
@@ -997,6 +1217,126 @@ fi
     assert "--selection-mode single" in collision_request
     assert "--selected-option Other… (type a custom response)" in collision_resolve
     assert "--custom-input" not in collision_resolve
+
+
+def test_beads_ask_bridge_binds_dialog_and_private_proof_to_extension_session(tmp_path):
+    agent_dir = tmp_path / "agent"
+    bin_dir = agent_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    calls = tmp_path / "agnt-calls.txt"
+    proof = tmp_path / "resolver-proof.json"
+    agnt = bin_dir / "agnt"
+    agnt.write_text(
+        """#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE_AGNT_CALLS"
+if [ "$2" = request ]; then
+  if [ "${AGNT_HUMAN_UI_RESOLVER_FD:-}" = 3 ]; then cat <&3 >/dev/null; fi
+  printf '%s\\n' '{"decisionBead":"pi-decision.1"}'
+else
+  if ! cat <&3 > "$FAKE_RESOLVER_PROOF" 2>/dev/null; then
+    printf '%s\\n' 'missing' > "$FAKE_RESOLVER_PROOF"
+  fi
+  printf '%s\\n' '{"blockerVisible":false}'
+fi
+""",
+        encoding="utf-8",
+    )
+    agnt.chmod(0o755)
+    extension = Path("pi/agent/extensions/beads-ask-bridge.ts").resolve()
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ dirname, resolve }} from "node:path";
+      import {{ fileURLToPath, pathToFileURL }} from "node:url";
+      const piEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+      const loader = await import(pathToFileURL(resolve(dirname(piEntry), "core/extensions/loader.js")).href);
+      const first = await loader.loadExtensions([{str(extension)!r}], process.cwd());
+      const second = await loader.loadExtensions([{str(extension)!r}], process.cwd());
+      assert.deepEqual(first.errors, []);
+      assert.deepEqual(second.errors, []);
+      const firstExtension = first.extensions[0];
+      const secondExtension = second.extensions[0];
+      const firstTool = firstExtension.tools.get("ticket_approval").definition;
+      const secondTool = secondExtension.tools.get("ticket_approval").definition;
+      const secondResolveTool = secondExtension.tools.get("ticket_decision_resolve").definition;
+      const confirmations = [];
+      const context = (sessionId) => ({{
+        cwd: {str(tmp_path)!r},
+        mode: "tui",
+        hasUI: true,
+        ui: {{ confirm: async () => {{ confirmations.push(sessionId); return true; }} }},
+        sessionManager: {{
+          getSessionId: () => sessionId,
+          getSessionFile: () => `/tmp/${{sessionId}}.jsonl`,
+        }},
+      }});
+      assert.equal(typeof firstExtension.handlers.get("session_start")?.[0], "function", JSON.stringify([...firstExtension.handlers.keys()]));
+      assert.equal(typeof secondExtension.handlers.get("session_start")?.[0], "function", JSON.stringify([...secondExtension.handlers.keys()]));
+      await firstExtension.handlers.get("session_start")[0]({{ reason: "startup" }}, context("session-1"));
+      await secondExtension.handlers.get("session_start")[0]({{ reason: "startup" }}, context("session-2"));
+      const params = {{
+        targetBead: "pi-work.1",
+        question: "Approve exact action?",
+        context: "Need durable approval.",
+        options: ["approve", "reject"],
+        promptUser: true,
+        preview: {{
+          action: "Exact action",
+          scope: "Named files only",
+          consequences: "One bounded mutation",
+          reversibility: "Revert commit",
+          closeoutPath: "Verify and close",
+        }},
+      }};
+      const staleFirst = await firstTool.execute("stale-first", params, undefined, undefined, context("session-2"));
+      const staleSecond = await secondTool.execute("stale-second", params, undefined, undefined, context("session-1"));
+      assert.match(staleFirst.content[0].text, /blocker remains visible/);
+      assert.match(staleSecond.content[0].text, /blocker remains visible/);
+      await assert.rejects(() => secondResolveTool.execute("stale-resolve", {{
+        decisionBead: "pi-decision.1",
+        outcome: "approved",
+      }}, undefined, undefined, context("session-1")), /bound to this Pi session/);
+      assert.deepEqual(confirmations, []);
+      const switchingContext = context("session-2");
+      switchingContext.ui.confirm = async () => {{
+        confirmations.push("session-2-switch");
+        await secondExtension.handlers.get("session_shutdown")[0]({{ reason: "new" }}, switchingContext);
+        return true;
+      }};
+      const switched = await secondTool.execute("switched", params, undefined, undefined, switchingContext);
+      assert.match(switched.content[0].text, /blocker remains visible/);
+      assert.deepEqual(confirmations, ["session-2-switch"]);
+      confirmations.length = 0;
+      await secondExtension.handlers.get("session_start")[0]({{ reason: "startup" }}, context("session-2"));
+      const approved = await secondTool.execute("approved", params, undefined, undefined, context("session-2"));
+      assert.match(approved.content[0].text, /approved/);
+      assert.deepEqual(confirmations, ["session-2"]);
+    """
+    subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PI_CODING_AGENT_DIR": str(agent_dir),
+            "FAKE_AGNT_CALLS": str(calls),
+            "FAKE_RESOLVER_PROOF": str(proof),
+        },
+    )
+    resolver_proof = json.loads(proof.read_text(encoding="utf-8"))
+    resolver_secret = resolver_proof.pop("secret")
+    assert len(resolver_secret) >= 32
+    assert resolver_secret not in calls.read_text(encoding="utf-8")
+    assert resolver_proof == {
+        "kind": "human-ui",
+        "sessionId": "session-2",
+        "sessionFile": "/tmp/session-2.jsonl",
+        "toolCallId": "approved",
+        "toolName": "ticket_approval",
+    }
+    resolve_call = calls.read_text(encoding="utf-8").splitlines()[-1]
+    assert "--resolver-kind" not in resolve_call
+    assert "--resolver-session" not in resolve_call
 
 
 def test_beads_ask_bridge_extension_registers_ticket_tools():

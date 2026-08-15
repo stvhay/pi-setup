@@ -4,6 +4,10 @@ import argparse
 import hashlib
 import json
 import os
+import socket
+import stat
+import struct
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
@@ -26,6 +30,8 @@ BLOCKED_OUTCOMES = VALID_OUTCOMES - CLOSING_OUTCOMES
 REQUIRED_PREVIEW_FIELDS = ["action", "scope", "consequences", "reversibility", "closeoutPath"]
 BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
 CANONICAL_GRANT_LOOKUP_LIMIT = 2
+HUMAN_UI_RESOLVER_FD = 3
+MAX_RESOLVER_PROOF_BYTES = 4096
 
 
 def utc_now() -> str:
@@ -62,6 +68,165 @@ def _fingerprint(value: Dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def _session_fingerprint(session_id: str) -> str:
+    return "sha256:" + hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+def _resolver_binding(value: Any) -> Dict[str, str]:
+    if (
+        not isinstance(value, dict)
+        or not {"kind", "sessionId", "secret"}.issubset(value)
+        or value.get("kind") != "human-ui"
+        or not isinstance(value.get("sessionId"), str)
+        or not value["sessionId"].strip()
+        or not isinstance(value.get("secret"), str)
+        or not value["secret"].strip()
+    ):
+        raise ValueError("human-ui resolver proof is invalid")
+    return {
+        "sessionFingerprint": _session_fingerprint(value["sessionId"].strip()),
+        "secretFingerprint": _session_fingerprint(value["secret"].strip()),
+    }
+
+
+def _stored_resolver_binding(value: Any) -> Dict[str, str]:
+    if not isinstance(value, dict) or set(value) != {
+        "sessionFingerprint", "secretFingerprint"
+    }:
+        raise ValueError("human-ui resolver binding is invalid")
+    for key in ("sessionFingerprint", "secretFingerprint"):
+        fingerprint = value.get(key)
+        if (
+            not isinstance(fingerprint, str)
+            or not fingerprint.startswith("sha256:")
+            or len(fingerprint) != 71
+            or any(char not in "0123456789abcdef" for char in fingerprint[7:])
+        ):
+            raise ValueError("human-ui resolver binding is invalid")
+    return dict(value)
+
+
+def _verify_pending_tool_call(proof: Dict[str, Any]) -> bool:
+    session_file = proof.get("sessionFile")
+    session_id = proof.get("sessionId")
+    tool_call_id = proof.get("toolCallId")
+    tool_name = proof.get("toolName")
+    if (
+        not isinstance(session_file, str)
+        or not session_file.strip()
+        or not isinstance(session_id, str)
+        or not session_id.strip()
+        or not isinstance(tool_call_id, str)
+        or not tool_call_id.strip()
+        or tool_name not in {
+            "ticket_approval", "ticket_question", "ticket_decision_resolve"
+        }
+    ):
+        return False
+    try:
+        entries: Dict[str, Dict[str, Any]] = {}
+        header_session_id = None
+        leaf_id = None
+        with Path(session_file).open(encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                entry = json.loads(line)
+                if not isinstance(entry, dict):
+                    return False
+                if entry.get("type") == "session":
+                    header_session_id = entry.get("id")
+                elif isinstance(entry.get("id"), str):
+                    entries[entry["id"]] = entry
+                    leaf_id = entry["id"]
+    except (OSError, json.JSONDecodeError):
+        return False
+    if header_session_id != session_id or leaf_id is None:
+        return False
+    current = entries.get(leaf_id)
+    while current is not None:
+        message = current.get("message")
+        if isinstance(message, dict):
+            if (
+                message.get("role") == "toolResult"
+                and message.get("toolCallId") == tool_call_id
+            ):
+                return False
+            if message.get("role") == "assistant" and isinstance(
+                message.get("content"), list
+            ):
+                for item in message["content"]:
+                    if (
+                        isinstance(item, dict)
+                        and item.get("type") == "toolCall"
+                        and item.get("id") == tool_call_id
+                        and item.get("name") == tool_name
+                    ):
+                        return True
+        parent_id = current.get("parentId")
+        current = entries.get(parent_id) if isinstance(parent_id, str) else None
+    return False
+
+
+def _private_fd_peer_pid(fd: int) -> int | None:
+    try:
+        duplicate = os.dup(fd)
+        with socket.socket(fileno=duplicate) as channel:
+            if sys.platform == "darwin":
+                return struct.unpack("i", channel.getsockopt(0, 2, 4))[0]
+            if sys.platform.startswith("linux") and hasattr(socket, "SO_PEERCRED"):
+                size = struct.calcsize("3i")
+                return struct.unpack(
+                    "3i", channel.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, size)
+                )[0]
+    except OSError:
+        return None
+    return None
+
+
+def _resolver_from_private_fd() -> Dict[str, str] | None:
+    if os.environ.get("AGNT_HUMAN_UI_RESOLVER_FD") != str(HUMAN_UI_RESOLVER_FD):
+        return None
+    try:
+        mode = os.fstat(HUMAN_UI_RESOLVER_FD).st_mode
+        if (
+            not stat.S_ISSOCK(mode)
+            or _private_fd_peer_pid(HUMAN_UI_RESOLVER_FD) != os.getppid()
+        ):
+            return None
+        chunks = []
+        size = 0
+        while True:
+            chunk = os.read(HUMAN_UI_RESOLVER_FD, MAX_RESOLVER_PROOF_BYTES + 1 - size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > MAX_RESOLVER_PROOF_BYTES:
+                raise ValueError("human-ui resolver proof is too large")
+    except OSError:
+        return None
+    if not chunks:
+        return None
+    try:
+        value = json.loads(b"".join(chunks).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("human-ui resolver proof is invalid") from exc
+    if not isinstance(value, dict) or set(value) != {
+        "kind", "sessionId", "secret", "sessionFile", "toolCallId", "toolName"
+    }:
+        raise ValueError("human-ui resolver proof is invalid")
+    _resolver_binding(value)
+    if not _verify_pending_tool_call(value):
+        return None
+    return {
+        key: value[key].strip()
+        for key in (
+            "kind", "sessionId", "secret", "sessionFile", "toolCallId", "toolName"
+        )
+    }
+
+
 def _request_fingerprint(approval: Dict[str, Any]) -> str:
     kind = approval.get("kind")
     if kind not in VALID_KINDS:
@@ -85,6 +250,10 @@ def _request_fingerprint(approval: Dict[str, Any]) -> str:
     if "grantFingerprint" in approval:
         identity["grantFingerprint"] = _require_nonempty(
             "grant_fingerprint", approval.get("grantFingerprint")
+        )
+    if "resolverBinding" in approval:
+        identity["resolverBinding"] = _stored_resolver_binding(
+            approval.get("resolverBinding")
         )
     return _fingerprint(identity)
 
@@ -221,6 +390,7 @@ def approval_request_payload(
     default: str | None,
     preview: Dict[str, Any],
     grant: Dict[str, Any] | None = None,
+    resolver_binding: Dict[str, str] | None = None,
     created_at: str | None = None,
 ) -> Dict[str, Any]:
     """Build the durable Beads decision payload for a human gate.
@@ -277,6 +447,8 @@ def approval_request_payload(
     if normalized_selection_mode is not None:
         approval["selectionMode"] = normalized_selection_mode
         approval["customResponseAllowed"] = True
+    if resolver_binding is not None:
+        approval["resolverBinding"] = _resolver_binding(resolver_binding)
     approval["requestFingerprint"] = _request_fingerprint(approval)
     metadata = {"pi": {"approval": approval}}
     description = "\n".join([
@@ -348,6 +520,7 @@ def create_beads_approval_request(
     default: str | None = None,
     preview: Dict[str, Any],
     grant: Dict[str, Any] | None = None,
+    resolver_binding: Dict[str, str] | None = None,
     run_bundle: Path | None = None,
     beads_runner: BeadsRunner = run_beads_json,
 ) -> Dict[str, Any]:
@@ -361,6 +534,7 @@ def create_beads_approval_request(
         default=default,
         preview=preview,
         grant=grant,
+        resolver_binding=resolver_binding,
     )
     metadata_arg = _json_arg(payload["metadata"])
     labels_arg = ",".join(payload["labels"])
@@ -734,9 +908,22 @@ def resolve_beads_approval_request(
         else:
             approval.pop("customInput", None)
 
+    resolver_session_fingerprint = None
     if outcome in CLOSING_OUTCOMES:
-        if not isinstance(resolver, dict) or resolver.get("kind") != "human-ui" or not isinstance(resolver.get("sessionId"), str) or not resolver["sessionId"].strip():
+        if not isinstance(resolver, dict):
             raise ValueError("approved or answered outcomes require human-ui resolver provenance")
+        try:
+            expected_binding = _stored_resolver_binding(
+                approval.get("resolverBinding")
+            )
+            actual_binding = _resolver_binding(resolver)
+        except ValueError as exc:
+            raise ValueError(
+                "human-ui resolver binding is unavailable; create a new approval request"
+            ) from exc
+        if actual_binding != expected_binding:
+            raise ValueError("human-ui resolver binding does not match approval request")
+        resolver_session_fingerprint = actual_binding["sessionFingerprint"]
     approval.pop("requestingRun", None)
     approval.update({
         "status": outcome,
@@ -745,6 +932,7 @@ def resolve_beads_approval_request(
     })
     if resolver is not None:
         approval["resolver"] = {"kind": resolver["kind"]}
+        approval["resolverSessionFingerprint"] = resolver_session_fingerprint
     if grant is not None:
         if outcome == "approved":
             resolved_grant = dict(grant)
@@ -876,16 +1064,21 @@ def cmd_approvals(argv: List[str]) -> int:
                 default=args.default,
                 preview=_preview_from_args(args),
                 grant=grant,
+                resolver_binding=_resolver_from_private_fd(),
                 run_bundle=args.run_bundle,
             )
         else:
-            resolver = None
             if args.resolver_kind is not None or args.resolver_session is not None:
-                resolver = {"kind": args.resolver_kind or "", "sessionId": args.resolver_session or ""}
-                if resolver["kind"] == "human-ui":
-                    current_session = os.environ.get("PI_SESSION_ID")
-                    if not current_session or resolver["sessionId"] != current_session:
-                        raise ValueError("human-ui resolver is not bound to the current Pi session")
+                raise ValueError("human-ui resolver CLI flags are not accepted")
+            resolver = (
+                _resolver_from_private_fd()
+                if args.outcome in CLOSING_OUTCOMES
+                else None
+            )
+            if args.outcome in CLOSING_OUTCOMES and resolver is None:
+                raise ValueError(
+                    "approved or answered outcomes require process-bound human-ui resolver provenance"
+                )
             result = resolve_beads_approval_request(
                 decision_bead=args.decision_bead,
                 outcome=args.outcome,
