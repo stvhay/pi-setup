@@ -11,6 +11,7 @@ EXTENSION = ROOT / "pi" / "agent" / "extensions" / "agent-os-compat.ts"
 ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
 MATRIX = ROOT / "docs" / "extension-web-compatibility.md"
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
+LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality-port-contract.md"
 
 
 def package_fixture(tmp_path: Path, global_packages: list[str] | None = None):
@@ -911,6 +912,36 @@ def test_compatibility_matrix_covers_every_configured_package():
         if "@" not in source.split(":", 1)[1].lstrip("@"):
             assert "Intentional rolling" in row
             assert "2026-08-13" in row
+
+
+def test_pi_langfuse_quality_port_contract_is_public_bounded_and_non_authoritative():
+    contract = LANGFUSE_QUALITY_PORT.read_text(encoding="utf-8")
+
+    for public_export in (
+        '"./quality"',
+        "createObservationCapturePort",
+        "createServiceEvidencePort",
+    ):
+        assert public_export in contract
+    for capture_owner in (
+        "capture policy and redaction",
+        "observation lifecycle",
+        "session propagation",
+        "export and requested flush",
+        "completion and gaps",
+    ):
+        assert capture_owner in contract
+    for evidence in (
+        "traces",
+        "observations",
+        "scores",
+        "annotation queue",
+        "score configs",
+        "complete",
+        "gaps",
+    ):
+        assert evidence in contract
+    assert "Authorization, Bead closeout, and pi-setup quality policy are out of scope" in contract
 
 
 def test_tracked_extensions_use_only_portable_ui_calls():

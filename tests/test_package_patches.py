@@ -14,6 +14,8 @@ ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
 ARCHIMEDES_VENDOR_HEAD = "f04aadaed17746da7650a217b645ede249eecfd3"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "c5da10a7cd0bced92ffc70e419d0198829a7a36c"
+LANGFUSE_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--gooyoung--pi-langfuse.md"
+LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality-port-contract.md"
 
 
 def _package(root: Path, relative: str, name: str, version: str, source: str) -> Path:
@@ -419,6 +421,24 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert ".test.ts" not in archimedes + footer + meta
     assert '"--mode", "json", "--no-session", "-p"' in archimedes
     assert "invocationId" not in added
+
+
+def test_langfuse_quality_port_release_gate_requires_exact_public_evidence():
+    profile = LANGFUSE_PROFILE.read_text(encoding="utf-8")
+    contract = LANGFUSE_QUALITY_PORT.read_text(encoding="utf-8")
+
+    assert "quality_port_status: proposed-unreleased" in profile
+    assert "No released package currently satisfies this contract." in profile
+    for evidence in (
+        "exact npm version",
+        "npm tarball integrity",
+        "reviewed source commit",
+        'public package export `"./quality"`',
+        "published type declarations",
+        "installed-package contract tests",
+    ):
+        assert evidence in contract
+    assert "A fork branch, draft PR, or local package patch is not release evidence." in contract
 
 
 def test_langfuse_runtime_patch_uses_zero_context_without_losing_source_removals():

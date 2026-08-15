@@ -5,6 +5,7 @@ last_checked_utc: 2026-08-12T08:49:25Z
 target_ref: v1.5.12
 source_commit: c79c527a7294e1d4b8153525d5218e87354cbcb1
 status: current-for-target-ref
+quality_port_status: proposed-unreleased
 recheck_every_use:
   - permissions
   - fork-state
@@ -97,6 +98,14 @@ source_files:
 - Tests use `node:test`, `assert`, synthetic IDs, fake runtimes, captured handlers, and `try/finally` cleanup.
 - Validate `unknown` at runtime boundaries; avoid unrelated modernization of existing `any`, array-style, or brace conventions.
 - Keep lifecycle, session isolation, privacy shaping, trace fallback, and shutdown ordering changes narrowly tested.
+
+## Proposed quality ports
+
+- Normative proposal: `.pi/plans/2026-08-15-pi-langfuse-quality-port-contract.md`.
+- Target: this repository's `main` branch and public package subpath `pi-langfuse/quality`; no upstream issue, branch, commit, PR, tag, or publication is authorized by the proposal.
+- Required public factories: `createObservationCapturePort` and `createServiceEvidencePort`. pi-langfuse owns capture redaction, observation lifecycle, session propagation, export/flush completion, and explicit gaps; bounded private service evidence covers traces, observations, scores, annotation queue items/scores, score configs, completeness, and gaps.
+- Authorization, Bead closeout, result acceptance, and pi-setup quality policy remain outside the package contract.
+- No released package currently satisfies this contract. Q18R must record the exact npm version, tarball integrity/provenance, reviewed source commit and tag, published `"./quality"` export and types, and passing installed-package contract tests before Q20 adoption.
 
 ## PR implications
 
