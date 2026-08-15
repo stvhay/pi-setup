@@ -5,6 +5,7 @@ last_checked_utc: 2026-08-12T12:22:39Z
 target_ref: main
 source_commit: a2bd4d6041206e9f5c0b17168a9e41749c90409d
 status: current-for-target-ref
+result_port_status: proposed-unreleased
 recheck_every_use:
   - permissions
   - fork-state
@@ -107,6 +108,14 @@ Verified on 2026-08-12 after normal fast-forward pushes; all three PRs remain fo
 | `stvhay/pi-archimedes#1` | `main@a2bd4d6` | `feat/subagent-execution-limits@2315b2e` | subagent TypeScript PASS; workspace TypeScript PASS; 185 subagent tests PASS; 666 monorepo tests PASS; diff check PASS | Body records a 10-request child ceiling with parent completion/result visibility. |
 | `stvhay/pi-archimedes#2` | `feat/subagent-execution-limits@2315b2e` | `feat/subagent-one-shot-mode-stacked@8090d0c` | subagent TypeScript PASS; workspace TypeScript PASS; 229 subagent tests PASS; 710 monorepo tests PASS; focused output-limit suite 54 tests PASS; diff check PASS | Includes deployed exact effective-ceiling fix without repeated-error code. Body records failed provider-length classification with usable partial output/usage retained, without publishing content or private identifiers. |
 | `stvhay/pi-archimedes#3` | `feat/subagent-execution-limits@2315b2e` | `fix/subagent-repeated-errors@47e30b7` | subagent TypeScript PASS; workspace TypeScript PASS; 203 subagent tests PASS; 684 monorepo tests PASS; diff check PASS | Body claims synthetic threshold/boundary tests only and explicitly records no live repeated-error recurrence. |
+
+## Proposed result ports
+
+- Normative proposal: `.pi/plans/2026-08-15-pi-archimedes-result-port-contract.md`.
+- Target: this repository's `main` branch and public package subpaths `@pi-archimedes/subagent/types`, `@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`; no upstream issue, plan, branch, commit, PR, tag, or publication is authorized by the proposal.
+- Required public result evidence covers output contracts, resolved limits, termination, usage, final output, child session/trace refs, ordered `details.results[]`, and the enclosing Pi tool-result type. The existing Pi `tool_result` remains transport; no result bus or service is proposed.
+- The public agent seam resolves only a named agent's configured model, and the typed bus surface exposes current UI/cost payloads. pi-setup keeps routing, billing classification, authority, Bead closeout, acceptance, and quality policy.
+- No released package set currently satisfies this contract. Q19R must record exact npm package versions, tarball integrity/provenance, reviewed source commit and tag, published `"./types"`, `"./agents"`, and `"./bus"` exports and declarations, and passing installed-package contract tests before Q21 adoption.
 
 ## PR implications
 

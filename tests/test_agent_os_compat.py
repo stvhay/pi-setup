@@ -12,6 +12,7 @@ ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
 MATRIX = ROOT / "docs" / "extension-web-compatibility.md"
 SETTINGS = ROOT / "pi" / "agent" / "settings.json"
 LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality-port-contract.md"
+ARCHIMEDES_RESULT_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-archimedes-result-port-contract.md"
 
 
 def package_fixture(tmp_path: Path, global_packages: list[str] | None = None):
@@ -942,6 +943,34 @@ def test_pi_langfuse_quality_port_contract_is_public_bounded_and_non_authoritati
     ):
         assert evidence in contract
     assert "Authorization, Bead closeout, and pi-setup quality policy are out of scope" in contract
+
+
+def test_pi_archimedes_result_port_contract_is_public_transport_preserving_and_non_authoritative():
+    assert ARCHIMEDES_RESULT_PORT.exists(), "tracked pi-archimedes result port contract is required"
+    contract = ARCHIMEDES_RESULT_PORT.read_text(encoding="utf-8")
+
+    for public_export in (
+        '"./types"',
+        '"./agents"',
+        '"./bus"',
+    ):
+        assert public_export in contract
+    for public_type in (
+        "SubagentOutputContract",
+        "SubagentLimits",
+        "SubagentTermination",
+        "SubagentUsage",
+        "SubagentChildTraceRef",
+        "SubagentResult",
+        "SubagentDetails",
+        "SubagentToolResult",
+        "ArchimedesEventPayloadMap",
+        "AskRequestPayload",
+    ):
+        assert public_type in contract
+    assert "`details.results[]` remains the canonical complete per-child execution evidence" in contract
+    assert "Pi `tool_result` remains the only result transport" in contract
+    assert "Routing, billing, authority, and pi-setup quality policy are out of scope" in contract
 
 
 def test_tracked_extensions_use_only_portable_ui_calls():

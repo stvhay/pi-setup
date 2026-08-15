@@ -16,6 +16,8 @@ LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "c5da10a7cd0bced92ffc70e419d0198829a7a36c"
 LANGFUSE_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--gooyoung--pi-langfuse.md"
 LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality-port-contract.md"
+ARCHIMEDES_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--danielcherubini--pi-archimedes.md"
+ARCHIMEDES_RESULT_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-archimedes-result-port-contract.md"
 
 
 def _package(root: Path, relative: str, name: str, version: str, source: str) -> Path:
@@ -434,6 +436,25 @@ def test_langfuse_quality_port_release_gate_requires_exact_public_evidence():
         "npm tarball integrity",
         "reviewed source commit",
         'public package export `"./quality"`',
+        "published type declarations",
+        "installed-package contract tests",
+    ):
+        assert evidence in contract
+    assert "A fork branch, draft PR, or local package patch is not release evidence." in contract
+
+
+def test_archimedes_result_port_release_gate_requires_exact_public_evidence():
+    profile = ARCHIMEDES_PROFILE.read_text(encoding="utf-8")
+    assert ARCHIMEDES_RESULT_PORT.exists(), "tracked pi-archimedes result port contract is required"
+    contract = ARCHIMEDES_RESULT_PORT.read_text(encoding="utf-8")
+
+    assert "result_port_status: proposed-unreleased" in profile
+    assert "No released package set currently satisfies this contract." in profile
+    for evidence in (
+        "exact npm versions",
+        "npm tarball integrity",
+        "reviewed source commit",
+        'public package exports `"./types"`, `"./agents"`, and `"./bus"`',
         "published type declarations",
         "installed-package contract tests",
     ):

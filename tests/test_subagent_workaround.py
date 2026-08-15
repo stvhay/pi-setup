@@ -11,6 +11,7 @@ EXTENSION = ROOT / "pi" / "agent" / "extensions" / "subagent-error-workaround.ts
 LANGFUSE_CONFIG_EXTENSION = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 QUALITY_LIFECYCLE_EXTENSION = ROOT / "pi" / "agent" / "extensions" / "quality-lifecycle.ts"
 RUNTIME_ARTIFACTS = ROOT / "pi" / "agent" / "extensions" / "lib" / "runtime-artifacts.ts"
+ARCHIMEDES_RESULT_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-archimedes-result-port-contract.md"
 SUBAGENT_HARNESS = f"""
       import assert from "node:assert/strict";
       import install from {EXTENSION.as_uri()!r};
@@ -53,6 +54,35 @@ def test_subagent_observer_has_no_root_interactive_handlers_or_projection_startu
       assert.deepEqual(circuits, [{{ action: "success", provider: "openrouter", reason: undefined }}]);
     """
     run_node(script)
+
+
+def test_pi_archimedes_result_contract_covers_observed_execution_evidence():
+    assert ARCHIMEDES_RESULT_PORT.exists(), "tracked pi-archimedes result port contract is required"
+    contract = ARCHIMEDES_RESULT_PORT.read_text(encoding="utf-8")
+
+    for evidence in (
+        "maxProviderRequests",
+        "maxToolCalls",
+        "maxTotalTokens",
+        "maxOutputTokens",
+        "maxCostUsd",
+        "maxDurationMs",
+        "usageState",
+        "childSessionId",
+        "traceId",
+        "finalOutput",
+        "progressSummary",
+    ):
+        assert evidence in contract
+    for output_contract in (
+        '"inline"',
+        '"artifact"',
+        '"status-only"',
+        '"pass-no-findings"',
+    ):
+        assert output_contract in contract
+    assert "Result array order remains request order" in contract
+    assert "Presentation content may be bounded or truncated without changing `details.results[]`" in contract
 
 
 def test_subagent_workaround_exposes_failures_without_touching_successes():
