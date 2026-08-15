@@ -1718,3 +1718,231 @@ def test_inv15_canary_noncritical_failure_does_not_revoke_grant(tmp_path):  # Te
         "reason": "effect-failure",
     }
     assert revoked == []
+
+
+def test_inv15_claim_dispatch_settle_passes_explicit_token_and_releases_lock(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    proof = {
+        "status": "succeeded",
+        "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+        "effects": ["workspace.write"],
+        "proof": ["tests"],
+        "targetFingerprint": "sha256:" + "1" * 64,
+    }
+    seen = []
+
+    def dispatcher(packet, claim_token):
+        seen.append((packet, claim_token))
+        settled = quality.settle(claim_token, proof, directory=tmp_path)
+        assert settled["status"] == "applied"
+        return proof
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=dispatcher,
+    )
+
+    assert result["status"] == "applied"
+    assert seen[0][0] == receipt["workPacket"]
+    assert seen[0][1]["receiptId"] == receipt["receiptId"]
+    assert seen[0][1]["claimId"]
+    assert seen[0][1]["policyFingerprint"] == receipt["policyFingerprint"]
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert [row["state"] for row in rows] == ["claimed", "dispatched"]
+    assert rows[0]["claimId"] == seen[0][1]["claimId"]
+
+
+def test_inv15_concurrent_same_grant_claims_reserve_one_allowance(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    first_receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    second_snapshot = _canary_snapshot()
+    second_snapshot["evidenceRefs"] = ["artifact:canary-proof", "artifact:grant-proof", "run:quality-2"]
+    second_receipt = quality.assess(second_snapshot, "work-learning", directory=tmp_path, plan_path=plan_path)
+    entered = threading.Event()
+    release = threading.Event()
+    proof = {
+        "status": "succeeded",
+        "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+        "effects": ["workspace.write"],
+        "proof": ["tests"],
+        "targetFingerprint": "sha256:" + "1" * 64,
+    }
+
+    def dispatcher(_packet):
+        entered.set()
+        release.wait(timeout=2)
+        return proof
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            quality.apply,
+            first_receipt["receiptId"],
+            directory=tmp_path,
+            plan_path=plan_path,
+            grant_resolver=_canary_resolver,
+            target_resolver=lambda target: target,
+            dispatcher=dispatcher,
+        )
+        assert entered.wait(timeout=2)
+        second = pool.submit(
+            quality.apply,
+            second_receipt["receiptId"],
+            directory=tmp_path,
+            plan_path=plan_path,
+            grant_resolver=_canary_resolver,
+            target_resolver=lambda target: target,
+            dispatcher=lambda _packet: pytest.fail("same grant must not dispatch concurrently"),
+        )
+        assert second.result(timeout=2)["reason"] == "grant-uncertain"
+        release.set()
+        assert first.result(timeout=2)["status"] == "applied"
+
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert len(rows) == 2
+    assert [row["state"] for row in rows] == ["claimed", "dispatched"]
+
+
+def test_fail13_dispatch_exception_settles_uncertain_and_blocks_retry(tmp_path):  # Tests FAIL-13
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    calls = []
+
+    def failing_dispatcher(_packet):
+        calls.append("dispatch")
+        raise TimeoutError("adapter timed out")
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=failing_dispatcher,
+    )
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "blocked",
+        "receiptId": receipt["receiptId"],
+        "reason": "claim-uncertain",
+    }
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert [row["state"] for row in rows] == ["claimed", "uncertain"]
+    retry = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda _packet: calls.append("retry"),
+    )
+    assert retry["reason"] == "claim-uncertain"
+    assert calls == ["dispatch"]
+
+
+def test_fail13_settlement_rejects_forged_claim_context(tmp_path):  # Tests FAIL-13
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    proof = {
+        "status": "succeeded",
+        "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+        "effects": ["workspace.write"],
+        "proof": ["tests"],
+        "targetFingerprint": "sha256:" + "1" * 64,
+    }
+
+    def dispatcher(_packet, claim_token):
+        forged = {**claim_token, "effects": ["workspace.delete"]}
+        with pytest.raises(ValueError, match="unavailable or conflicts"):
+            quality.settle(forged, proof, directory=tmp_path)
+        return proof
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=dispatcher,
+    )
+
+    assert result["status"] == "applied"
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert rows[-1]["state"] == "dispatched"
+    assert rows[-1]["effectSet"] == ["workspace.write"]
+
+
+def test_fail13_settlement_downgrades_unknown_dispatched_state_to_uncertain(tmp_path):  # Tests FAIL-13
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    proof = {
+        "status": "succeeded",
+        "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+        "effects": ["workspace.write"],
+        "proof": ["tests"],
+        "targetFingerprint": "sha256:" + "1" * 64,
+    }
+
+    def dispatcher(_packet, claim_token):
+        settled = quality.settle(
+            claim_token,
+            {"status": "unknown", "evidenceRefs": []},
+            directory=tmp_path,
+            state="dispatched",
+        )
+        assert settled["reason"] == "claim-uncertain"
+        return proof
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=dispatcher,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "claim-uncertain"
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert rows[-1]["state"] == "uncertain"
+
+
+def test_inv15_settlement_is_idempotent_after_terminal_state(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    proof = {
+        "status": "succeeded",
+        "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+        "effects": ["workspace.write"],
+        "proof": ["tests"],
+        "targetFingerprint": "sha256:" + "1" * 64,
+    }
+    calls = []
+
+    first = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda _packet: calls.append("dispatch") or proof,
+    )
+    second = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda _packet: calls.append("retry") or proof,
+    )
+
+    assert first["status"] == second["status"] == "applied"
+    assert calls == ["dispatch"]
+    rows = (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()
+    assert len(rows) == 2

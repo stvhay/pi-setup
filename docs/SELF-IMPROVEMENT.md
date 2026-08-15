@@ -451,6 +451,8 @@ open-duplicate detection; no new work emits them.
 
 Current tracked policy is observe-only: it writes at most one private assignment with empty allowed effects. A separately reviewed canary policy may be used by a programmatic caller to dispatch one bounded reversible packet only through an existing action/work adapter after exact Beads grant, target, evidence, proof, budget, and stop-rule checks; CLI has no implicit dispatcher. It never edits workspace directly, creates a competing authority store, or enables autonomous mode; follow-up work still uses normal Beads and approval paths.
 
+Canary effects use `claims.jsonl` as one durable claim/dispatch/settle state machine. Claim and settlement hold short private locks; adapter dispatch runs outside them with an explicit `claimId` token. Terminal states are `dispatched`, `failed`, `uncertain`, and `revoked`; unresolved claims fail closed and never retry automatically. This guarantees at-most-one dispatch attempt. Exactly-once external effects require the adapter to use `claimId` as an idempotency key or equivalent transaction boundary.
+
 ### 8. Decision-linked quality metrics
 
 `control-plan.json` carries one approved ceiling of 12 core metrics. Each definition
