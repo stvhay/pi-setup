@@ -21,7 +21,7 @@
 - [ ] Core metrics never exceed 12, state missingness explicitly, retain zero-tolerance privacy/authority guards, and link each metric to a decision and retirement condition.
 - [ ] Normal quality work stays within 5–10% of measured resources; high-consequence work may use up to 20%; budget exhaustion suppresses or escalates work rather than being hidden.
 - [ ] Autonomous effects require a current exact capability grant, per-action revalidation, bounded reversibility, evidence capture, a stop rule, and automatic revocation on critical failure, drift, or missing proof.
-- [ ] Concurrent application of one receipt or grant allowance yields at most one debit and one dispatch through an atomic private claim; uncertain claim state fails closed.
+- [ ] Concurrent application of one receipt or grant allowance yields at most one durable claim and one dispatch attempt through an atomic private claim; uncertain claim state fails closed. Exactly-once external effect is claimed only when the adapter supplies idempotency or transactional semantics.
 - [ ] Post-change cohorts mark findings validated, recurrent, or still monitoring; recurrence can revoke authority and create or deduplicate sanitized follow-up work.
 - [ ] Langfuse, pi-langfuse, pi-archimedes, observational memory, BetterWright, editor, and scheduler integrations remain replaceable adapters. None may authorize work, close Beads, or override deterministic local state.
 - [ ] No background daemon, scheduler, service protocol, TUI lifecycle manager, vendorized external extension, parallel work registry, or new model-facing typed tool is added.
@@ -694,25 +694,35 @@ pi/agent/bin/agnt action validate
 ! rg -n 'metadata\.pi\.approved|humanApproval' pi/agent/bin/agnt_lib docs/RUN-ARTIFACTS.md docs/AGNT-SYSTEM.md
 ```
 
-### Q14: Execute canaries and revoke on drift [Depends on: Q13B]
+### Q14: Redesign canary execution around claim/dispatch/settle [Depends on: Q13B]
 
-**Context:** Permit the first effects beyond observe. Reuse existing action/work dispatch and effect checks; kernel never edits directly.
+**Context:** The first Q14 implementation proved policy, grant, revocation, and concurrent-claim mechanics, but coupled durable claims to an external effect under lock. That creates avoidable deadlock/reentrancy risk and cannot guarantee exactly-once external effects without adapter support. This redesign is the Q14 completion target; do not add more lock choreography to the prior shape.
+
+**Interface contract:**
+- `claim(receipt)` performs short, atomic admission and returns one claim token or a fail-closed denial.
+- `dispatch(packet, claimToken)` runs outside all claims locks and may be attempted at most once for that token.
+- `settle(claimToken, result)` performs short, idempotent terminal persistence.
+- Crash, timeout, or uncertain persistence leaves `uncertain`; no automatic retry is allowed.
+- Exactly-once external effect is available only when the selected adapter accepts the claim token as an idempotency key or supplies an equivalent transaction. Otherwise guarantee at-most-one dispatch attempt, not exactly-once effect.
 
 **Files:**
-- Modify: `pi/agent/bin/agnt_lib/quality.py`, `pi/agent/bin/agnt_lib/work.py`, `pi/agent/bin/agnt_lib/runs.py`
+- Modify: `pi/agent/bin/agnt_lib/quality.py`, `pi/agent/bin/agnt_lib/runs.py`
+- Reuse as adapter seam: `pi/agent/bin/agnt_lib/work.py`
 - Test: `tests/test_quality.py`, `tests/test_agnt.py`, `tests/test_runs.py`
 - Docs: `pi/agent/quality/SPEC.md`, `docs/SELF-IMPROVEMENT.md`
 
 **Steps:**
-1. Revalidate policy/grant/effects/evidence/budget/target immediately before one dispatch.
-2. Require reversible bounded effect, exact hypothesis, evidence capture, stop rule, and error budget.
-3. Claim the decision receipt and consume rollout allowance atomically before dispatch using one project-private `fcntl` lock plus durable claim state; the lock serializes but does not grant authority.
-4. Test two concurrent applies against one receipt/grant allowance: exactly one debit and dispatch; uncertain claim persistence fails closed.
-5. Revoke on critical failure, drift, expiry, missing proof, unknown result, or stop-rule breach.
+1. Replace the effect-wide canary lock and process-global reentrancy marker with one durable claim state machine: `claimed -> dispatched|failed|uncertain|revoked`.
+2. Hold the private `fcntl` lock only while claiming or settling; never hold it across an injected dispatcher or existing work/run adapter.
+3. Bind `claimId`, receipt identity, grant fingerprint, policy fingerprint, target fingerprint, and bounded effects into dispatch provenance. Downstream adapters receive this context explicitly; they do not infer ownership from process state or recursively call `quality.apply()`.
+4. Separate precondition authorization evidence from post-dispatch execution evidence. Resolve and freshness-check required preconditions before claim; resolve and bind execution proof during settlement. Structural refs alone do not prove evidence existence.
+5. Revalidate policy, exact grant, target, effects, stop rule, and remaining budget before claim and again immediately before dispatch. If state changes after that boundary, settle uncertain/revoked; do not pretend local state and external effects are atomic.
+6. Test concurrent same-receipt and same-grant applies, concurrent budget consumption, crash points before/after dispatch, stale evidence, policy/grant/target drift, recursive dispatch, idempotent settlement, and unknown results.
+7. Keep noncritical failures as settled `failed` claims until the grant-scoped error budget is exhausted; revoke on critical failure, drift, expiry, missing proof, unknown result, or stop-rule breach.
 
 **Focused verification:**
 ```bash
-.venv/bin/python -m pytest tests/test_quality.py tests/test_agnt.py tests/test_runs.py -k 'canary or revoke or dispatch or effect'
+.venv/bin/python -m pytest tests/test_quality.py tests/test_agnt.py tests/test_runs.py -k 'canary or revoke or dispatch or effect or claim or settle or evidence'
 ```
 
 ### Q15: Enable external autonomous quality cycles [Depends on: Q14]
@@ -726,7 +736,7 @@ pi/agent/bin/agnt action validate
 
 **Steps:**
 1. Make `assess/apply --json` idempotent, receipt-bound, and stable for external invocation.
-2. Auto-create/deduplicate sanitized Beads and dispatch only one packet within current autonomous grant and Q14's atomic claim.
+2. Auto-create/deduplicate sanitized Beads and dispatch only one packet within current autonomous grant and Q14's durable claim/idempotency contract; require adapter idempotency before claiming exactly-once external effects.
 3. Retire `agnt improve promote` as a primary or independent mutation path after `quality apply` covers manual and automatic creation; keep only a bounded import/repair path if an executable caller remains.
 4. Use signal triggers plus periodic backstop inputs supplied by caller; never sleep, poll, or run a service.
 5. Return stable no-op/due/needs-review/needs-human/applied/blocked exit classes and gaps.
