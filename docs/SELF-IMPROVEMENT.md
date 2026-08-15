@@ -346,18 +346,22 @@ findings and schema-1/2/3 packets remain readable: validation normalizes older
 private JSON pointers to packet EvidenceRefs and leaves unavailable
 `evidenceStage` as `unknown` rather than guessing.
 
-Promoting a finding stores a private cohort fingerprint derived from available
-task, risk, role, model, and prompt dimensions. Existing promotion-state schemas
-remain readable. Later scan packets list monitored finding IDs only in the private
-packet and expose count-only monitoring status in safe stdout. A finding enters
-monitoring only after its linked Bead closes. Five
-distinct reviewed sessions from the exact stored post-change cohort mark it
-`validated`; fewer remain monitoring. A reviewer marks explicit recurrence by
-giving the new private finding a `relatedFindingId` from the packet's matched
-monitoring list. `review --apply` checks the implementation boundary and cohort,
-writes idempotent private Langfuse markers, and updates private monitoring state.
-It never updates public work. Recurrent follow-up uses the new finding's normal
-receipt-bound quality assessment and exact capability grant.
+Promoting a finding stores private source-available task, risk, context-shape,
+role, model, prompt, policy, and effect dimensions plus their cohort fingerprint.
+Existing promotion-state schemas remain readable. Later scan packets list
+monitored finding IDs only in the private packet and expose count-only monitoring
+status in safe stdout. Bead closure alone is insufficient: monitoring starts only
+after the latest authoritative local result for the linked correction is
+`success`. Five distinct, settled, fully captured reviewed sessions matching every
+stored dimension mark it `validated`; fewer, capture-gapped, or lower-bound
+samples remain monitoring. A reviewer marks explicit recurrence by giving the new
+private finding a `relatedFindingId` from the packet's matched monitoring list.
+`review --apply` checks the result boundary and cohort, writes idempotent private
+Langfuse markers, and updates private monitoring state. First confirmed recurrence
+revokes the exact capability grant whose dispatched claim created the correction
+Bead and returns one content-addressed sanitized follow-up; repeated review emits
+no second follow-up. Public creation still uses normal receipt-bound quality
+assessment/apply authority.
 
 Legacy promotion preview remains a non-mutating import adapter. Public creation
 accepts only allowlisted, generalized work content and runs through `quality

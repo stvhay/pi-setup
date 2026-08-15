@@ -2111,7 +2111,17 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
             "createdAt": "2026-07-26T12:00:00Z",
             "routingTask": "review",
             "effectiveRole": "quality-reviewer",
+            "effectiveSkills": ["verification-before-completion"],
+            "inputRefs": ["artifact:review-plan"],
+            "sessionPolicy": "recorded",
+            "memoryPolicy": "auto",
+            "outputContract": "artifact",
+            "selectedModel": "openai-codex/gpt-5.3-codex",
+            "allowedEffects": ["read_workspace", "write_artifacts"],
             "dispatchPolicy": {"risk": "medium"},
+            "provenance": {
+                "claimContext": {"policyFingerprint": "sha256:" + "c" * 64},
+            },
         }),
         encoding="utf-8",
     )
@@ -2176,6 +2186,10 @@ def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path
     assert session["correlation"]["routingTask"] == "review"
     assert session["correlation"]["role"] == "quality-reviewer"
     assert session["correlation"]["risk"] == "medium"
+    assert re.fullmatch(r"[0-9a-f]{64}", session["correlation"]["contextShape"])
+    assert session["correlation"]["model"] == "openai-codex/gpt-5.3-codex"
+    assert session["correlation"]["policyFingerprint"] == "sha256:" + "c" * 64
+    assert session["correlation"]["effects"] == ["read_workspace", "write_artifacts"]
     assert session["features"]["tokens"] == {"freshInput": 100, "cacheRead": 80, "output": 20}
     assert session["features"]["toolCalls"] == 2
     assert session["features"]["toolErrors"] == 1
@@ -2921,27 +2935,42 @@ def _current_review_result(packet=None):
     }
 
 
-def _monitoring_session(session_id, *, model="private-model"):
+def _monitoring_session(
+    session_id,
+    *,
+    model="private-model",
+    routing_task="review",
+    risk="medium",
+    context_shape="b" * 64,
+    role="quality-reviewer",
+    prompt_hash="a" * 64,
+    policy_fingerprint="sha256:" + "c" * 64,
+    effects=None,
+    capture_gaps=None,
+):
     return {
         "sessionId": session_id,
         "traceIds": [f"trace-{session_id}"],
         "correlation": {
             "status": "linked",
             "beadId": "pi-source",
-            "routingTask": "review",
-            "risk": "medium",
-            "role": "quality-reviewer",
+            "routingTask": routing_task,
+            "risk": risk,
+            "contextShape": context_shape,
+            "role": role,
+            "policyFingerprint": policy_fingerprint,
+            "effects": effects or ["read_workspace", "write_artifacts"],
         },
         "features": {
             "toolErrors": 0,
             "models": [model],
-            "promptHash": "a" * 64,
-            "captureGaps": [],
+            "promptHash": prompt_hash,
+            "captureGaps": list(capture_gaps or []),
         },
     }
 
 
-def _monitoring_packet(report_id, session_ids, *, model="private-model"):
+def _monitoring_packet(report_id, session_ids, *, model="private-model", lower_bound=False, **session_kwargs):
     return {
         "schemaVersion": 2,
         "reportId": report_id,
@@ -2952,8 +2981,12 @@ def _monitoring_packet(report_id, session_ids, *, model="private-model"):
             "limit": len(session_ids),
             "recheck": False,
             "reviewPolicyVersion": "v1",
+            "cohortHealth": {"completeness": {"lowerBound": lower_bound}},
         },
-        "sessions": [_monitoring_session(session_id, model=model) for session_id in session_ids],
+        "sessions": [
+            _monitoring_session(session_id, model=model, **session_kwargs)
+            for session_id in session_ids
+        ],
     }
 
 
@@ -2970,7 +3003,31 @@ def _no_action_decisions(packet):
     }
 
 
-def _promote_monitoring_source(tmp_path):
+def _write_quality_result(tmp_path, bead_id, outcome):
+    quality_dir = tmp_path / "quality"
+    quality_dir.mkdir(mode=0o700, exist_ok=True)
+    rows = [{
+        "schemaVersion": 1,
+        "recordType": "invocation",
+        "sessionId": "correction-session",
+        "beadId": bead_id,
+        "evidenceRefs": [],
+        "capturedAt": "2026-07-28T00:00:00Z",
+    }, {
+        "schemaVersion": 1,
+        "recordType": "result",
+        "sessionId": "correction-session",
+        "beadId": bead_id,
+        "outcome": outcome,
+        "evidenceRefs": [],
+        "capturedAt": "2026-07-28T00:00:01Z",
+    }]
+    ledger = quality_dir / quality.LEDGER_NAME
+    ledger.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    ledger.chmod(0o600)
+
+
+def _promote_monitoring_source(tmp_path, *, outcome="success"):
     packet = _monitoring_packet("source-report", ["2026-07-27T00-00-00-000Z_source"])
     decisions = _review_decisions()
     decisions["reportId"] = packet["reportId"]
@@ -2998,6 +3055,8 @@ def _promote_monitoring_source(tmp_path):
     result = improvement.promote_finding(
         FakeReviewClient(), packet, decisions, apply=True, approval=_approved_preview(preview), **base
     )
+    if outcome is not None:
+        _write_quality_result(tmp_path, result["beadId"], outcome)
     return packet, decisions, state_dir, beads_runner, result["beadId"]
 
 
@@ -3439,7 +3498,7 @@ def test_promotion_initializes_private_monitoring_state(tmp_path):
     state = json.loads((state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8"))
 
     assert state == {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "findingId": "finding-0123456789ab",
         "beadId": bead_id,
         "creationPending": False,
@@ -3447,13 +3506,48 @@ def test_promotion_initializes_private_monitoring_state(tmp_path):
         "monitoring": {
             "status": "promoted",
             "cohortKey": state["monitoring"]["cohortKey"],
+            "cohortDimensions": {
+                "contextShape": "b" * 64,
+                "effects": ["read_workspace", "write_artifacts"],
+                "models": ["private-model"],
+                "policyFingerprint": "sha256:" + "c" * 64,
+                "promptHash": "a" * 64,
+                "risk": "medium",
+                "role": "quality-reviewer",
+                "task": "review",
+            },
             "minimumSamples": 5,
             "implementedAt": None,
             "sampleIds": [],
             "recurrentFindingIds": [],
+            "followUpTarget": None,
         },
     }
     assert re.fullmatch(r"[0-9a-f]{64}", state["monitoring"]["cohortKey"])
+
+
+@pytest.mark.parametrize("outcome", [None, "partial", "failure", "unclear"])
+def test_inv17_monitoring_waits_for_successful_correction_result(tmp_path, outcome):  # Tests INV-17
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(
+        tmp_path, outcome=outcome
+    )
+    packet = _monitoring_packet("later-report", ["2026-07-29T00-00-00-000Z_case"])
+
+    summary = improvement.review_sessions(
+        FakeReviewClient(),
+        packet,
+        _no_action_decisions(packet),
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=beads_runner,
+    )
+    state = json.loads(
+        (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
+    )
+
+    assert summary["monitoring"] == {"monitoring": 0, "validated": 0, "recurrent": 0}
+    assert state["monitoring"]["status"] == "promoted"
+    assert state["monitoring"]["sampleIds"] == []
 
 
 def test_reviewed_matched_cohorts_stay_monitoring_until_minimum_then_validate(tmp_path):
@@ -3478,7 +3572,7 @@ def test_reviewed_matched_cohorts_stay_monitoring_until_minimum_then_validate(tm
     assert first["monitoring"] == {"monitoring": 1, "validated": 0, "recurrent": 0}
     assert state["monitoring"]["status"] == "monitoring"
     assert len(state["monitoring"]["sampleIds"]) == 4
-    assert state["monitoring"]["implementedAt"] == "2026-07-28T00:00:00Z"
+    assert state["monitoring"]["implementedAt"] == "2026-07-28T00:00:01Z"
 
     final_packet = _monitoring_packet("later-report-2", ["2026-07-30T00-00-00-000Z_case"])
     final = improvement.review_sessions(
@@ -3496,8 +3590,8 @@ def test_reviewed_matched_cohorts_stay_monitoring_until_minimum_then_validate(tm
     assert len(state["monitoring"]["sampleIds"]) == 5
 
 
-def test_related_later_finding_marks_recurrence_without_public_mutation(tmp_path):
-    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+def test_inv17_recurrence_revokes_grant_and_emits_one_sanitized_follow_up(tmp_path):  # Tests INV-17
+    _source, _decisions, state_dir, beads_runner, bead_id = _promote_monitoring_source(tmp_path)
     packet = _monitoring_packet("recurrent-report", ["2026-07-29T00-00-00-000Z_case"])
     decisions = _review_decisions()
     decisions["reportId"] = packet["reportId"]
@@ -3506,42 +3600,133 @@ def test_related_later_finding_marks_recurrence_without_public_mutation(tmp_path
     finding = decisions["sessions"][0]["findings"][0]
     finding["findingId"] = "finding-abcdef012345"
     finding["relatedFindingId"] = "finding-0123456789ab"
-    calls = []
+    bead_calls = []
+    revoked = []
 
     def no_public_mutation(args):
-        calls.append(args)
+        bead_calls.append(args)
         return beads_runner(args)
+
+    kwargs = {
+        "apply": True,
+        "state_dir": state_dir,
+        "beads_runner": no_public_mutation,
+        "tracked_paths": {"pi/agent/AGENTS.md"},
+        "correction_revoker": lambda correction: revoked.append(correction) or {
+            "decisionBead": "pi-grant.1"
+        },
+    }
+    first = improvement.review_sessions(FakeReviewClient(), packet, decisions, **kwargs)
+    second = improvement.review_sessions(FakeReviewClient(), packet, decisions, **kwargs)
+    state = json.loads(
+        (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
+    )
+
+    assert first["monitoring"] == {"monitoring": 0, "validated": 0, "recurrent": 1}
+    assert first["grantRevoked"] is True
+    assert first["followUp"] == {
+        "work": {
+            "title": "Improve coordination instruction targeting",
+            "description": (
+                "Category: coordination-error\n\n"
+                "Affected tracked paths:\n- pi/agent/AGENTS.md\n\n"
+                "Sanitized aggregate: Repeated coordination failures occurred across reviewed work items.\n\n"
+                "Proposed intervention: Clarify one conflicting coordination instruction.\n\n"
+                "Evaluation requirement: Run routing and role-context smoke evaluations."
+            ),
+            "acceptance": "- A deterministic regression case passes.",
+            "labels": [
+                "continuous-improvement",
+                "coordination-error",
+                "quality:work-learning",
+            ],
+        },
+        "target": first["followUp"]["target"],
+    }
+    assert first["followUp"]["target"] == quality.quality_work_target(first["followUp"]["work"])
+    assert "followUp" not in second
+    assert "grantRevoked" not in second
+    assert state["monitoring"]["status"] == "recurrent"
+    assert state["monitoring"]["recurrentFindingIds"] == ["finding-abcdef012345"]
+    assert state["monitoring"]["followUpTarget"] == first["followUp"]["target"]["id"]
+    assert revoked == [bead_id]
+    assert all(args[0] == "show" for args in bead_calls)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("task", "implementation"),
+        ("risk", "high"),
+        ("contextShape", "d" * 64),
+        ("role", "implementer"),
+        ("models", "other-model"),
+        ("promptHash", "e" * 64),
+        ("policyFingerprint", "sha256:" + "f" * 64),
+        ("effects", ["edit_files"]),
+    ],
+)
+def test_inv17_monitoring_matches_every_available_cohort_dimension(tmp_path, field, value):  # Tests INV-17
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+    packet = _monitoring_packet("dimension-report", ["2026-07-29T00-00-00-000Z_case"])
+    session = packet["sessions"][0]
+    if field == "models":
+        session["features"]["models"] = [value]
+    elif field == "promptHash":
+        session["features"][field] = value
+    elif field == "task":
+        session["correlation"]["routingTask"] = value
+    else:
+        session["correlation"][field] = value
 
     summary = improvement.review_sessions(
         FakeReviewClient(),
         packet,
-        decisions,
+        _no_action_decisions(packet),
         apply=True,
         state_dir=state_dir,
-        beads_runner=no_public_mutation,
+        beads_runner=beads_runner,
     )
     state = json.loads(
         (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
     )
 
-    assert summary["monitoring"] == {"monitoring": 0, "validated": 0, "recurrent": 1}
-    assert state["monitoring"]["status"] == "recurrent"
-    assert state["monitoring"]["recurrentFindingIds"] == ["finding-abcdef012345"]
-    assert all(args[0] == "show" for args in calls)
+    assert summary["monitoring"] == {"monitoring": 1, "validated": 0, "recurrent": 0}
+    assert state["monitoring"]["sampleIds"] == []
 
-    with pytest.raises(ValueError, match="exact human approval"):
-        improvement.promote_finding(
-            FakeReviewClient(),
-            packet,
-            decisions,
-            finding_id="finding-abcdef012345",
-            state_dir=state_dir,
-            repository_root=tmp_path / "repo",
-            tracked_paths={"pi/agent/AGENTS.md"},
-            apply=True,
-            approval=None,
-            beads_runner=beads_runner,
-        )
+
+@pytest.mark.parametrize(
+    "packet",
+    [
+        _monitoring_packet(
+            "capture-gap-report",
+            ["2026-07-29T00-00-00-000Z_case"],
+            capture_gaps=["missing-outcome"],
+        ),
+        _monitoring_packet(
+            "lower-bound-report",
+            ["2026-07-29T00-00-00-000Z_case"],
+            lower_bound=True,
+        ),
+    ],
+)
+def test_fail15_incomplete_or_lower_bound_samples_remain_monitoring(tmp_path, packet):  # Tests FAIL-15
+    _source, _decisions, state_dir, beads_runner, _bead_id = _promote_monitoring_source(tmp_path)
+
+    summary = improvement.review_sessions(
+        FakeReviewClient(),
+        packet,
+        _no_action_decisions(packet),
+        apply=True,
+        state_dir=state_dir,
+        beads_runner=beads_runner,
+    )
+    state = json.loads(
+        (state_dir / "promotion-finding-0123456789ab.json").read_text(encoding="utf-8")
+    )
+
+    assert summary["monitoring"] == {"monitoring": 1, "validated": 0, "recurrent": 0}
+    assert state["monitoring"]["sampleIds"] == []
 
 
 def test_invalid_related_finding_fails_before_review_marker_write(tmp_path):
@@ -3737,7 +3922,7 @@ def test_scan_projects_matched_monitoring_privately_but_summary_is_count_only(tm
     preview = improvement.promote_finding(
         None, source_packet, decisions, apply=False, **base
     )["approvalPreview"]
-    improvement.promote_finding(
+    promoted = improvement.promote_finding(
         FakeReviewClient(),
         source_packet,
         decisions,
@@ -3745,6 +3930,7 @@ def test_scan_projects_matched_monitoring_privately_but_summary_is_count_only(tm
         approval=_approved_preview(preview),
         **base,
     )
+    _write_quality_result(tmp_path, promoted["beadId"], "success")
 
     later_id = "2026-07-29T00-00-00-000Z_later"
     later_client = FakeScanClient(

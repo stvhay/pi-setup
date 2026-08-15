@@ -141,6 +141,58 @@ def test_same_session_rejects_another_bead_before_append(tmp_path):
     assert ledger.read_bytes() == before
 
 
+def test_inv17_control_plan_closes_correction_cohorts():  # Tests INV-17
+    plan = quality.load_control_plan()
+    work_learning = next(
+        activity for activity in plan["activities"] if activity["id"] == "work-learning"
+    )
+
+    assert plan["policyVersion"] == "observe-v5"
+    assert "matched correction cohorts" in work_learning["inputs"]
+    assert "successful corrective result" in work_learning["trigger"]
+    assert "revoke applicable grants" in work_learning["method"]
+    assert "incomplete cohorts remain monitoring" in work_learning["acceptanceRule"]
+
+
+def test_inv17_latest_work_item_result_is_required_for_correction_success(
+    monkeypatch, tmp_path
+):  # Tests INV-17
+    captured = iter([
+        "2026-07-28T00:00:00Z",
+        "2026-07-28T00:00:00Z",
+        "2026-07-28T00:00:00.050000Z",
+        "2026-07-28T00:00:00.100000Z",
+    ])
+    monkeypatch.setattr(quality, "_captured_at", lambda: next(captured))
+    quality.capture_session_link(
+        "session-1", "pi-work.1", beads_runner=beads_ok, directory=tmp_path
+    )
+    quality.capture_session_outcome(
+        "session-1",
+        "pi-work.1",
+        "success",
+        beads_runner=beads_ok,
+        directory=tmp_path,
+    )
+    quality.capture_session_link(
+        "session-2", "pi-work.1", beads_runner=beads_ok, directory=tmp_path
+    )
+    quality.capture_session_outcome(
+        "session-2",
+        "pi-work.1",
+        "failure",
+        beads_runner=beads_ok,
+        directory=tmp_path,
+    )
+
+    result = quality.latest_work_item_result("pi-work.1", directory=tmp_path)
+
+    assert result["beadId"] == "pi-work.1"
+    assert result["outcome"] == "failure"
+    assert result["capturedAt"].endswith("Z")
+    assert quality.latest_work_item_result("pi-missing.1", directory=tmp_path) is None
+
+
 def test_missing_and_malformed_local_authority_fail_closed(tmp_path):
     with pytest.raises(quality.SessionUnassigned, match="no linked work item"):
         quality.session_handoff_source("session-1", directory=tmp_path)
@@ -2919,6 +2971,57 @@ def test_inv16_autonomous_apply_creates_or_deduplicates_one_sanitized_bead(
     serialized = json.dumps(beads[receipt["workPacket"]["target"]["id"]], sort_keys=True)
     for private in ("session", "trace", "https://", str(tmp_path)):
         assert private not in serialized.lower()
+
+
+def test_inv17_recurrence_revokes_grant_that_created_correction_bead(tmp_path):  # Tests INV-17
+    plan_path = _autonomous_plan(tmp_path)
+    receipt = quality.assess(
+        _autonomous_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    target = receipt["workPacket"]["target"]
+    work = receipt["workPacket"]["work"]
+    beads = {"pi-grant.1": {"id": "pi-grant.1"}}
+
+    def beads_runner(args):
+        if args[0] == "show":
+            bead = beads.get(args[1])
+            return (0, bead, "") if bead else (1, None, "not found")
+        bead_id = args[args.index("--id") + 1]
+        beads[bead_id] = {
+            "id": bead_id,
+            **work,
+            "acceptance_criteria": work["acceptance"],
+        }
+        return 0, {"id": bead_id}, ""
+
+    assert quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_autonomous_resolver,
+        beads_runner=beads_runner,
+    )["status"] == "applied"
+    revoked = []
+
+    result = quality.revoke_correction_grant(
+        target["id"],
+        directory=tmp_path,
+        revoke_grant=lambda decision, reason: revoked.append((decision, reason)),
+    )
+
+    assert result == {
+        "decisionBead": "pi-grant.1",
+        "grantFingerprint": receipt["workPacket"]["authority"]["grantFingerprint"],
+    }
+    assert revoked == [("pi-grant.1", "corrective-action-recurrence")]
+    assert quality.revoke_correction_grant(
+        "pi-unrelated.1",
+        directory=tmp_path,
+        revoke_grant=lambda *_args: pytest.fail("unrelated work has no grant"),
+    ) is None
 
 
 def test_fail14_autonomous_public_work_rejects_private_or_unsafe_text(tmp_path):  # Tests FAIL-14

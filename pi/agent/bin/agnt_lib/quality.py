@@ -661,6 +661,28 @@ def session_handoff_source(
     return {"beadId": owner, "outcome": outcome}
 
 
+def latest_work_item_result(
+    bead_id: str,
+    *,
+    directory: str | os.PathLike[str] | None = None,
+) -> dict[str, str] | None:
+    bead_id = _bead_id(bead_id)
+    with _locked_ledger(directory, exclusive=False) as (fd, _root):
+        rows = _read_rows(fd) if fd is not None else []
+    results = [
+        row for row in rows
+        if row["recordType"] == "result" and row["beadId"] == bead_id
+    ]
+    if not results:
+        return None
+    latest = results[-1]
+    return {
+        "beadId": bead_id,
+        "outcome": latest["outcome"],
+        "capturedAt": latest["capturedAt"],
+    }
+
+
 def _validate_capture_payload(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("quality capture payload must be an object")
@@ -3264,6 +3286,36 @@ def _grant_locally_revoked(
         and row["state"] == "revoked"
         for row in latest.values()
     )
+
+
+def revoke_correction_grant(
+    bead_id: str,
+    *,
+    directory: str | os.PathLike[str] | None = None,
+    revoke_grant: Callable[[str, str], Any] | None = None,
+) -> dict[str, str] | None:
+    bead_id = _bead_id(bead_id)
+    evidence_ref = f"artifact:bead-{bead_id}"
+    with _locked_store(directory, CLAIMS_NAME, exclusive=False) as (fd, _root):
+        rows = _read_json_rows(fd, _validate_claim, "claim") if fd is not None else []
+    matches = {
+        (row["decisionBead"], row["grantFingerprint"])
+        for row in _latest_claims(rows).values()
+        if row["state"] == "dispatched"
+        and row["action"] == "create-bead"
+        and row["effectSet"] == ["update_beads"]
+        and evidence_ref in row["evidenceRefs"]
+    }
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError("correction grant identity conflicts")
+    decision_bead, grant_fingerprint = next(iter(matches))
+    (revoke_grant or _default_grant_revoker)(decision_bead, "corrective-action-recurrence")
+    return {
+        "decisionBead": decision_bead,
+        "grantFingerprint": grant_fingerprint,
+    }
 
 
 def _claim_token(row: dict[str, Any]) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "policyVersion": "observe-v4",
+  "policyVersion": "observe-v5",
   "mode": "observe",
   "riskPolicy": {
     "version": "risk-v1",
@@ -66,13 +66,13 @@
     {
       "id": "work-learning",
       "source": "Settled direct-work and invocation results",
-      "inputs": ["accepted outcomes", "avoidable failures", "user corrections", "repeated friction"],
-      "trigger": "A deterministic correction, failure, or friction signal is present, or an external backstop requests aggregate review.",
+      "inputs": ["accepted outcomes", "avoidable failures", "user corrections", "repeated friction", "matched correction cohorts"],
+      "trigger": "A deterministic correction, failure, or friction signal is present, a successful corrective result opens matched monitoring, or an external backstop requests aggregate review.",
       "owner": "Harness quality policy",
-      "method": "Assign retrospective for bounded session judgment or session-to-skill-extractor for policy-qualified reusable learning.",
+      "method": "Assign retrospective or session-to-skill-extractor for bounded learning review, validate settled matched correction cohorts, and revoke applicable grants on confirmed recurrence.",
       "output": "One decision receipt and at most one private review assignment",
       "receiver": "Assigned retrospective or session-to-skill-extractor reviewer",
-      "acceptanceRule": "Claim is evidence-linked, actionable, and separates unknown attribution from observed facts.",
+      "acceptanceRule": "Claims are evidence-linked and actionable; incomplete cohorts remain monitoring, and recurrence emits at most one sanitized follow-up.",
       "evidence": ["settled result", "correction signal", "review result"],
       "budget": {
         "unit": "invocation-share",

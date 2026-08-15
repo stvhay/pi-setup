@@ -33,10 +33,14 @@ from .quality import (
     capture_session_link,
     capture_session_outcome,
     current_session_id,
+    latest_work_item_result,
     normalize_assigned_review_result,
     normalize_langfuse_annotation_result,
+    quality_work_target,
+    revoke_correction_grant,
     validate_evidence_ref,
     validate_finding,
+    validate_public_work,
 )
 from .runs import default_runs_dir
 
@@ -159,7 +163,7 @@ PUBLIC_FIELDS = {
 IMPROVEMENT_FINDING_ID = re.compile(r"finding-[a-f0-9]{12}\Z")
 PROMOTION_STATE_FIELDS = {"schemaVersion", "findingId", "beadId", "creationPending", "linkRepairNeeded"}
 MONITORED_PROMOTION_STATE_FIELDS = PROMOTION_STATE_FIELDS | {"monitoring"}
-MONITORING_FIELDS = {
+LEGACY_MONITORING_FIELDS = {
     "status",
     "cohortKey",
     "minimumSamples",
@@ -167,9 +171,21 @@ MONITORING_FIELDS = {
     "sampleIds",
     "recurrentFindingIds",
 }
+MONITORING_FIELDS = LEGACY_MONITORING_FIELDS | {"cohortDimensions", "followUpTarget"}
+MONITORING_DIMENSION_FIELDS = {
+    "task",
+    "risk",
+    "contextShape",
+    "role",
+    "models",
+    "promptHash",
+    "policyFingerprint",
+    "effects",
+}
 MONITORING_STATUSES = {"promoted", "monitoring", "validated", "recurrent"}
 MONITORING_MINIMUM_SAMPLES = 5
 SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
+SHA256_REF = re.compile(r"sha256:[0-9a-f]{64}\Z")
 COHORT_DIMENSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}\Z")
 COHORT_CREDENTIAL_PREFIX = re.compile(r"(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|npm_|pypi-)", re.IGNORECASE)
 PRIVATE_PUBLIC_TEXT = re.compile(
@@ -1326,6 +1342,29 @@ def _cohort_health(
     }
 
 
+def _run_context_shape(invocation: dict[str, Any]) -> str | None:
+    shape: dict[str, Any] = {}
+    for field in ("sessionPolicy", "memoryPolicy", "outputContract"):
+        value = invocation.get(field)
+        if dimension := _cohort_dimension(value):
+            shape[field] = dimension
+    skills = invocation.get("effectiveSkills")
+    if isinstance(skills, list):
+        normalized = sorted({item for item in (_cohort_dimension(value) for value in skills) if item})
+        if normalized:
+            shape["skills"] = normalized
+    refs = invocation.get("inputRefs")
+    if isinstance(refs, list):
+        kinds = sorted({
+            value.partition(":")[0]
+            for value in refs
+            if isinstance(value, str) and ":" in value and _cohort_dimension(value.partition(":")[0])
+        })
+        if kinds:
+            shape["inputKinds"] = kinds
+    return _hash(shape) if shape else None
+
+
 def _correlate(session_id: str, runs_dir: Path, scores: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     if session_id.startswith("run-"):
         run_id = session_id[4:]
@@ -1343,13 +1382,42 @@ def _correlate(session_id: str, runs_dir: Path, scores: list[dict[str, Any]] | N
                     "bundle": str(bundle),
                 }
                 dispatch_policy = invocation.get("dispatchPolicy")
+                provenance = invocation.get("provenance")
+                claim_context = provenance.get("claimContext") if isinstance(provenance, dict) else None
+                policy_fingerprint = (
+                    claim_context.get("policyFingerprint")
+                    if isinstance(claim_context, dict)
+                    else None
+                )
+                effects = invocation.get("allowedEffects")
+                normalized_effects = (
+                    sorted({
+                        item for item in (_cohort_dimension(value) for value in effects)
+                        if item
+                    })
+                    if isinstance(effects, list)
+                    else []
+                )
                 dimensions = {
                     "routingTask": invocation.get("routingTask"),
                     "role": invocation.get("effectiveRole") or invocation.get("role"),
                     "risk": dispatch_policy.get("risk") if isinstance(dispatch_policy, dict) else None,
                     "startedAt": invocation.get("createdAt"),
+                    "contextShape": _run_context_shape(invocation),
+                    "model": invocation.get("selectedModel") or invocation.get("model"),
+                    "policyFingerprint": (
+                        policy_fingerprint
+                        if isinstance(policy_fingerprint, str) and SHA256_REF.fullmatch(policy_fingerprint)
+                        else None
+                    ),
                 }
-                correlation.update({key: value for key, value in dimensions.items() if isinstance(value, str) and value})
+                correlation.update({
+                    key: value
+                    for key, value in dimensions.items()
+                    if isinstance(value, str) and value
+                })
+                if isinstance(effects, list) and normalized_effects and len(normalized_effects) == len(effects):
+                    correlation["effects"] = normalized_effects
                 return correlation
     return _score_work_correlation(session_id, scores or [])
 
@@ -1846,6 +1914,8 @@ def review_sessions(
     apply: bool = False,
     state_dir: Path | None = None,
     beads_runner: Any = None,
+    tracked_paths: set[str] | None = None,
+    correction_revoker: Any = None,
 ) -> dict[str, Any]:
     current = packet.get("scan", {}).get("reviewPolicyVersion") == REVIEW_POLICY_VERSION
     try:
@@ -1880,6 +1950,8 @@ def review_sessions(
             state_dir=state_dir,
             beads_runner=beads_runner,
             persist=False,
+            tracked_paths=tracked_paths,
+            correction_revoker=correction_revoker,
         )
     written = 0
     if apply:
@@ -1911,12 +1983,19 @@ def review_sessions(
             review_assignment(packet), validated
         )
     if monitoring_enabled:
-        summary["monitoring"] = _update_monitoring_states(
+        monitoring_result = _update_monitoring_states(
             packet,
             validated,
             state_dir=state_dir,
             beads_runner=beads_runner,
+            tracked_paths=tracked_paths,
+            correction_revoker=correction_revoker,
         )
+        summary["monitoring"] = monitoring_result["counts"]
+        if monitoring_result["followUp"] is not None:
+            summary["followUp"] = monitoring_result["followUp"]
+        if monitoring_result["grantRevoked"]:
+            summary["grantRevoked"] = True
     return summary
 
 
@@ -2034,21 +2113,44 @@ def _created_bead_id(data: Any) -> str:
     raise RuntimeError("Bead creation did not return an ID")
 
 
-def _monitoring_cohort_key(session: dict[str, Any]) -> str | None:
+def _monitoring_cohort_dimensions(session: dict[str, Any]) -> dict[str, Any]:
     correlation = session.get("correlation") if isinstance(session.get("correlation"), dict) else {}
     features = session.get("features") if isinstance(session.get("features"), dict) else {}
+    dimensions: dict[str, Any] = {}
+    for source, target in (("routingTask", "task"), ("risk", "risk"), ("role", "role")):
+        if value := _cohort_dimension(correlation.get(source)):
+            dimensions[target] = value
+    for source, target, pattern in (
+        ("contextShape", "contextShape", SHA256_HEX),
+        ("promptHash", "promptHash", SHA256_HEX),
+        ("policyFingerprint", "policyFingerprint", SHA256_REF),
+    ):
+        owner = features if source == "promptHash" else correlation
+        value = owner.get(source)
+        if isinstance(value, str) and pattern.fullmatch(value):
+            dimensions[target] = value
     models = features.get("models") if isinstance(features.get("models"), list) else []
-    normalized_models = sorted({str(model) for model in models if isinstance(model, str) and model})
-    prompt_hash = features.get("promptHash")
-    if not normalized_models or not isinstance(prompt_hash, str) or not SHA256_HEX.fullmatch(prompt_hash):
-        return None
-    return _hash({
-        "routingTask": correlation.get("routingTask"),
-        "risk": correlation.get("risk"),
-        "role": correlation.get("role"),
-        "models": normalized_models,
-        "promptHash": prompt_hash,
+    if model := _cohort_dimension(correlation.get("model")):
+        models = [*models, model]
+    normalized_models = sorted({
+        value for value in (_cohort_dimension(model) for model in models) if value
     })
+    if normalized_models:
+        dimensions["models"] = normalized_models
+    effects = correlation.get("effects")
+    normalized_effects = (
+        sorted({value for value in (_cohort_dimension(effect) for effect in effects) if value})
+        if isinstance(effects, list)
+        else []
+    )
+    if isinstance(effects, list) and normalized_effects and len(normalized_effects) == len(effects):
+        dimensions["effects"] = normalized_effects
+    return dimensions
+
+
+def _monitoring_cohort_key(session: dict[str, Any]) -> str | None:
+    dimensions = _monitoring_cohort_dimensions(session)
+    return _hash(dimensions) if dimensions else None
 
 
 def _new_monitoring_state(packet: dict[str, Any], owner: dict[str, Any]) -> dict[str, Any]:
@@ -2060,13 +2162,16 @@ def _new_monitoring_state(packet: dict[str, Any], owner: dict[str, Any]) -> dict
         ),
         {},
     )
+    dimensions = _monitoring_cohort_dimensions(source)
     return {
         "status": "promoted",
-        "cohortKey": _monitoring_cohort_key(source),
+        "cohortKey": _hash(dimensions) if dimensions else None,
+        "cohortDimensions": dimensions or None,
         "minimumSamples": MONITORING_MINIMUM_SAMPLES,
         "implementedAt": None,
         "sampleIds": [],
         "recurrentFindingIds": [],
+        "followUpTarget": None,
     }
 
 
@@ -2074,8 +2179,42 @@ def _promotion_state_path(state_dir: Path, finding_id: str) -> Path:
     return state_dir / f"promotion-{finding_id}.json"
 
 
-def _valid_monitoring_state(value: Any) -> bool:
-    if not isinstance(value, dict) or set(value) != MONITORING_FIELDS:
+def _valid_monitoring_dimensions(value: Any) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, dict) or not value or not set(value).issubset(MONITORING_DIMENSION_FIELDS):
+        return False
+    for key in ("task", "risk", "role"):
+        if key in value and _cohort_dimension(value[key]) != value[key]:
+            return False
+    for key in ("contextShape", "promptHash"):
+        if key in value and (
+            not isinstance(value[key], str)
+            or not SHA256_HEX.fullmatch(value[key])
+        ):
+            return False
+    if "policyFingerprint" in value and (
+        not isinstance(value["policyFingerprint"], str)
+        or not SHA256_REF.fullmatch(value["policyFingerprint"])
+    ):
+        return False
+    for key in ("models", "effects"):
+        items = value.get(key)
+        if key in value and (
+            not isinstance(items, list)
+            or not items
+            or any(not isinstance(item, str) for item in items)
+            or items != sorted(items)
+            or len(items) != len(set(items))
+            or any(_cohort_dimension(item) != item for item in items)
+        ):
+            return False
+    return True
+
+
+def _valid_monitoring_state(value: Any, *, legacy: bool = False) -> bool:
+    expected = LEGACY_MONITORING_FIELDS if legacy else MONITORING_FIELDS
+    if not isinstance(value, dict) or set(value) != expected:
         return False
     implemented_at = value.get("implementedAt")
     if implemented_at is not None:
@@ -2088,9 +2227,12 @@ def _valid_monitoring_state(value: Any) -> bool:
     sample_ids = value.get("sampleIds")
     recurrent_ids = value.get("recurrentFindingIds")
     cohort_key = value.get("cohortKey")
+    follow_up = value.get("followUpTarget") if not legacy else None
     return (
         value.get("status") in MONITORING_STATUSES
         and (cohort_key is None or isinstance(cohort_key, str) and bool(SHA256_HEX.fullmatch(cohort_key)))
+        and (legacy or _valid_monitoring_dimensions(value.get("cohortDimensions")))
+        and (legacy or follow_up is None or isinstance(follow_up, str) and bool(BEAD_ID.fullmatch(follow_up)))
         and type(value.get("minimumSamples")) is int
         and value["minimumSamples"] > 0
         and isinstance(sample_ids, list)
@@ -2117,12 +2259,13 @@ def _load_promotion_state(path: Path, finding_id: str) -> dict[str, Any] | None:
         and isinstance(value.get("creationPending"), bool)
         and isinstance(value.get("linkRepairNeeded"), bool)
     )
+    schema_version = value.get("schemaVersion") if isinstance(value, dict) else None
     valid = common_valid and (
-        (value.get("schemaVersion") == 1 and set(value) == PROMOTION_STATE_FIELDS)
+        (schema_version == 1 and set(value) == PROMOTION_STATE_FIELDS)
         or (
-            value.get("schemaVersion") == 2
+            schema_version in {2, 3}
             and set(value) == MONITORED_PROMOTION_STATE_FIELDS
-            and _valid_monitoring_state(value.get("monitoring"))
+            and _valid_monitoring_state(value.get("monitoring"), legacy=schema_version == 2)
         )
     )
     if not valid:
@@ -2149,7 +2292,7 @@ def _monitored_promotion_states(state_dir: Path) -> dict[str, dict[str, Any]]:
         if not IMPROVEMENT_FINDING_ID.fullmatch(finding_id):
             raise ValueError("private promotion state is invalid")
         state = _load_promotion_state(path, finding_id)
-        if state and state.get("schemaVersion") == 2 and not state["creationPending"]:
+        if state and state.get("schemaVersion") in {2, 3} and not state["creationPending"]:
             states[finding_id] = state
     return states
 
@@ -2193,6 +2336,78 @@ def _monitoring_session_time(session: dict[str, Any]) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _correction_boundary(bead: dict[str, Any], result: Any) -> tuple[str, datetime] | None:
+    closed = _closed_boundary(bead)
+    if closed is None or not isinstance(result, dict) or result.get("beadId") != bead.get("id"):
+        return None
+    if result.get("outcome") != "success" or not isinstance(result.get("capturedAt"), str):
+        return None
+    try:
+        result_time = datetime.fromisoformat(result["capturedAt"].replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if result_time.tzinfo is None:
+        result_time = result_time.replace(tzinfo=timezone.utc)
+    boundary_time = max(closed[1], result_time.astimezone(timezone.utc))
+    return boundary_time.isoformat().replace("+00:00", "Z"), boundary_time
+
+
+def _complete_monitoring_evidence(packet: dict[str, Any], session: dict[str, Any]) -> bool:
+    features = session.get("features") if isinstance(session.get("features"), dict) else {}
+    gaps = features.get("captureGaps")
+    scan = packet.get("scan") if isinstance(packet.get("scan"), dict) else {}
+    health = scan.get("cohortHealth") if isinstance(scan.get("cohortHealth"), dict) else {}
+    completeness = health.get("completeness") if isinstance(health.get("completeness"), dict) else {}
+    return gaps == [] and completeness.get("lowerBound") is False
+
+
+def _monitoring_matches(session: dict[str, Any], monitoring: dict[str, Any]) -> bool:
+    expected = monitoring.get("cohortDimensions")
+    if isinstance(expected, dict) and expected:
+        observed = _monitoring_cohort_dimensions(session)
+        return all(observed.get(key) == value for key, value in expected.items())
+    return (
+        monitoring["cohortKey"] is not None
+        and _monitoring_cohort_key(session) == monitoring["cohortKey"]
+    )
+
+
+def _upgrade_promotion_state(state: dict[str, Any]) -> dict[str, Any]:
+    if state.get("schemaVersion") != 2:
+        return state
+    return {
+        **state,
+        "schemaVersion": 3,
+        "monitoring": {
+            **state["monitoring"],
+            "cohortDimensions": None,
+            "followUpTarget": None,
+        },
+    }
+
+
+def _recurrent_follow_up(
+    packet: dict[str, Any],
+    decisions: dict[str, Any],
+    related_findings: list[dict[str, Any]],
+    tracked_paths: set[str],
+) -> dict[str, Any]:
+    finding = min(related_findings, key=lambda item: item["id"])
+    bead, _owner, _validated = _public_bead(
+        packet,
+        decisions,
+        finding["id"],
+        tracked_paths,
+    )
+    work = validate_public_work({
+        "title": bead["title"],
+        "description": bead["description"],
+        "acceptance": bead["acceptance"],
+        "labels": ["continuous-improvement", bead["category"], "quality:work-learning"],
+    })
+    return {"work": work, "target": quality_work_target(work)}
+
+
 def _update_monitoring_states(
     packet: dict[str, Any],
     decisions: dict[str, Any],
@@ -2200,7 +2415,9 @@ def _update_monitoring_states(
     state_dir: Path,
     beads_runner: Any,
     persist: bool = True,
-) -> dict[str, int]:
+    tracked_paths: set[str] | None = None,
+    correction_revoker: Any = None,
+) -> dict[str, Any]:
     states = _monitored_promotion_states(state_dir)
     related_ids = {
         finding["relatedFindingId"]
@@ -2211,28 +2428,35 @@ def _update_monitoring_states(
     unknown_related = related_ids - set(states)
     if unknown_related:
         raise ValueError("relatedFindingId does not match monitored private state")
+    if related_ids and tracked_paths is None:
+        tracked_paths = _git_tracked_paths(git_root())
     packet_sessions = {
         session.get("sessionId"): session
         for session in packet.get("sessions", [])
         if isinstance(session, dict) and isinstance(session.get("sessionId"), str)
     }
     counts = {"monitoring": 0, "validated": 0, "recurrent": 0}
+    follow_up = None
+    grant_revoked = False
     for finding_id, initial_state in states.items():
         lock = _promotion_lock(state_dir, finding_id) if persist else nullcontext()
         with lock:
-            state = initial_state
+            state = _upgrade_promotion_state(initial_state)
             if persist:
                 current = _load_promotion_state(_promotion_state_path(state_dir, finding_id), finding_id)
-                if current is None or current.get("schemaVersion") != 2 or current["creationPending"]:
+                if current is None or current.get("schemaVersion") not in {2, 3} or current["creationPending"]:
                     continue
-                state = current
+                state = _upgrade_promotion_state(current)
             before = _canonical(state)
             code, data, _error = beads_runner(["show", state["beadId"]])
             bead = _bead_record(data) if code == 0 else None
-            boundary = _closed_boundary(bead) if bead else None
+            result = latest_work_item_result(state["beadId"]) if bead else None
+            boundary = _correction_boundary(bead, result) if bead else None
             monitoring = state["monitoring"]
             if finding_id in related_ids and not boundary:
                 raise ValueError("related finding implementation boundary is unavailable")
+            recurrent_findings: list[dict[str, Any]] = []
+            was_recurrent = monitoring["status"] == "recurrent"
             if boundary:
                 boundary_text, boundary_time = boundary
                 monitoring["implementedAt"] = monitoring["implementedAt"] or boundary_text
@@ -2249,8 +2473,8 @@ def _update_monitoring_states(
                     matched = (
                         started is not None
                         and started > boundary_time
-                        and monitoring["cohortKey"] is not None
-                        and _monitoring_cohort_key(packet_session) == monitoring["cohortKey"]
+                        and _complete_monitoring_evidence(packet, packet_session)
+                        and _monitoring_matches(packet_session, monitoring)
                     )
                     if related_findings and decision_session["decision"] != "actions-created":
                         raise ValueError("related finding requires an actions-created decision")
@@ -2259,6 +2483,7 @@ def _update_monitoring_states(
                     if not matched:
                         continue
                     if related_findings:
+                        recurrent_findings.extend(related_findings)
                         monitoring["recurrentFindingIds"] = sorted({
                             *monitoring["recurrentFindingIds"],
                             *(finding["id"] for finding in related_findings),
@@ -2272,11 +2497,27 @@ def _update_monitoring_states(
                     monitoring["status"] = "recurrent"
                 elif len(monitoring["sampleIds"]) >= monitoring["minimumSamples"]:
                     monitoring["status"] = "validated"
+            became_recurrent = not was_recurrent and monitoring["status"] == "recurrent"
+            candidate_follow_up = None
+            if became_recurrent and monitoring["followUpTarget"] is None:
+                assert tracked_paths is not None
+                candidate_follow_up = _recurrent_follow_up(
+                    packet,
+                    decisions,
+                    recurrent_findings,
+                    tracked_paths,
+                )
+            if persist and became_recurrent:
+                revoked = (correction_revoker or revoke_correction_grant)(state["beadId"])
+                grant_revoked = grant_revoked or revoked is not None
+                if candidate_follow_up is not None and follow_up is None:
+                    follow_up = candidate_follow_up
+                    monitoring["followUpTarget"] = candidate_follow_up["target"]["id"]
             if persist and _canonical(state) != before:
                 _write_private_json(state_dir, _promotion_state_path(state_dir, finding_id).name, state)
             if monitoring["status"] in counts:
                 counts[monitoring["status"]] += 1
-    return counts
+    return {"counts": counts, "followUp": follow_up, "grantRevoked": grant_revoked}
 
 
 def _monitoring_projection(
@@ -2287,25 +2528,27 @@ def _monitoring_projection(
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     rows: list[dict[str, Any]] = []
     counts = {"promoted": 0, "monitoring": 0, "validated": 0, "recurrent": 0, "matchedSessions": 0}
-    for finding_id, state in _monitored_promotion_states(state_dir).items():
+    for finding_id, raw_state in _monitored_promotion_states(state_dir).items():
+        state = _upgrade_promotion_state(raw_state)
         monitoring = state["monitoring"]
         status = monitoring["status"]
         boundary = None
         if beads_runner is not None:
             code, data, _error = beads_runner(["show", state["beadId"]])
             bead = _bead_record(data) if code == 0 else None
-            boundary = _closed_boundary(bead) if bead else None
+            result = latest_work_item_result(state["beadId"]) if bead else None
+            boundary = _correction_boundary(bead, result) if bead else None
             if boundary and status == "promoted":
                 status = "monitoring"
         matched = []
-        if boundary and monitoring["cohortKey"] is not None:
+        if boundary:
             _boundary_text, boundary_time = boundary
             for index, session in enumerate(sessions):
                 started = _monitoring_session_time(session)
                 if (
                     started is not None
                     and started > boundary_time
-                    and _monitoring_cohort_key(session) == monitoring["cohortKey"]
+                    and _monitoring_matches(session, monitoring)
                 ):
                     matched.append(index)
         counts[status] += 1
@@ -2402,7 +2645,10 @@ def _apply_promotion(
     state_path = _promotion_state_path(state_dir, finding_id)
     state = _load_promotion_state(state_path, finding_id)
     if state and state.get("schemaVersion") == 1:
-        state = {**state, "schemaVersion": 2, "monitoring": monitoring}
+        state = {**state, "schemaVersion": 3, "monitoring": monitoring}
+        _write_private_json(state_dir, state_path.name, state)
+    elif state and state.get("schemaVersion") == 2:
+        state = _upgrade_promotion_state(state)
         _write_private_json(state_dir, state_path.name, state)
     if state and state["creationPending"] and not _repair_creation(beads_runner, state_dir, state_path, state):
         return {"schemaVersion": 1, "status": "creation-repair-needed", "created": False}
@@ -2413,7 +2659,7 @@ def _apply_promotion(
         if not _has_exact_human_approval(approval, approval_preview):
             raise ValueError("promotion apply requires exact human approval")
         state = {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "findingId": finding_id,
             "beadId": _new_bead_id(),
             "creationPending": True,
