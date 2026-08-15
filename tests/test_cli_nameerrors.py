@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import sys
 from pathlib import Path
 
@@ -35,6 +36,58 @@ def test_route_eval_omits_unused_output_directory():
     from agnt_lib import evals
 
     assert list(inspect.signature(evals.run_route_eval).parameters) == ["eval_path", "spec", "dry_run"]
+
+
+def test_pytest_eval_dry_run_reuses_named_deterministic_tests(tmp_path, capsys):
+    from agnt_lib import evals
+
+    eval_path = tmp_path / "eval.json"
+    eval_path.write_text(
+        '{"id":"quality-test","kind":"pytest","tests":["tests/test_quality.py::test_example"]}',
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+
+    assert evals.cmd_eval(["run", str(eval_path), "--dry-run", "-o", str(output)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["passed"] is True
+    assert result["results"] == [{
+        "dryRun": True,
+        "plannedCommand": [sys.executable, "-m", "pytest", "-q", "tests/test_quality.py::test_example"],
+    }]
+
+
+@pytest.mark.parametrize("node_id", ["../outside.py", "tests/", "tests/test_quality.py"])
+def test_pytest_eval_rejects_unbounded_node_ids(tmp_path, capsys, node_id):
+    from agnt_lib import evals
+
+    eval_path = tmp_path / "eval.json"
+    eval_path.write_text(
+        json.dumps({"id": "unsafe-test", "kind": "pytest", "tests": [node_id]}),
+        encoding="utf-8",
+    )
+
+    assert evals.cmd_eval(["run", str(eval_path), "--dry-run", "-o", str(tmp_path / "out")]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["failures"] == ["pytest eval requires bounded tests/ node ids"]
+
+
+def test_pytest_eval_caps_named_node_ids(tmp_path, capsys):
+    from agnt_lib import evals
+
+    eval_path = tmp_path / "eval.json"
+    eval_path.write_text(
+        json.dumps({
+            "id": "too-many-tests",
+            "kind": "pytest",
+            "tests": [f"tests/test_quality.py::test_case_{index}" for index in range(33)],
+        }),
+        encoding="utf-8",
+    )
+
+    assert evals.cmd_eval(["run", str(eval_path), "--dry-run", "-o", str(tmp_path / "out")]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["failures"] == ["pytest eval requires 1-32 bounded tests/ node ids"]
 
 
 def test_invoke_eval_records_metrics_without_nameerror(monkeypatch, tmp_path):

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "quality-process-smoke",
+  "summary": "Smoke-test deterministic quality-kernel evidence, authority, deduplication, and revocation guards.",
+  "kind": "pytest",
+  "tests": [
+    "tests/test_quality.py::test_durable_work_learning_preserves_lower_bound_and_unknown_evidence",
+    "tests/test_quality.py::test_inv3_apply_is_private_observe_only_and_idempotent",
+    "tests/test_quality.py::test_inv15_noncritical_failures_consume_grant_error_budget",
+    "tests/test_quality.py::test_inv2_assessment_is_deterministic_and_emits_at_most_one_packet",
+    "tests/test_quality.py::test_inv15_concurrent_canary_apply_consumes_one_allowance",
+    "tests/test_quality.py::test_fail13_canary_unknown_result_revokes_grant"
+  ]
+}

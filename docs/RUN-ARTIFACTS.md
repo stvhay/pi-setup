@@ -72,6 +72,21 @@ Pointers are bounded opaque `artifact:`, `invocation:`, `observation:`, `result:
 
 Public Finding adapters accept only core fields plus adapter-declared safe extensions. Private/restricted EvidenceRefs may remain as tagged opaque pointers, but copied raw evidence is rejected. Review-specific location, failure scenario, verifier family, and method remain review-owned; health-specific message, run, bundle, path, ref, and detail remain health-owned. Metrics continue to aggregate existing review status/severity fields.
 
+## Quality governance evidence
+
+Quality evidence stays beside, not inside, optional run bundles. Private runtime
+storage holds immutable `receipts.jsonl`, idempotent `applications.jsonl`, the
+claim/dispatch/settle `claims.jsonl`, private `assignments/`, and cohort state.
+A receipt fingerprints its bounded snapshot, records EvidenceRefs and gaps, and
+contains at most one work packet. A claim binds receipt, grant, policy, target,
+action, effects, and proof to at most one dispatch attempt. Run adapters carry
+that binding only as validated `provenance.claimContext`.
+
+Beads remains the source for durable work and resolved human grants. Neither a
+run bundle, receipt, reviewer result, nor EvidenceRef grants authority or
+certifies an outcome. External callers may invoke receipt-bound assessment and
+application, but this repository contains no scheduler or background service.
+
 ## Bundle shape
 
 ```text
@@ -307,7 +322,7 @@ Those effects require explicit approval and stronger verification gates.
 
 ## Relationship to beads and plans
 
-- Beads hold work state, dependencies, approvals, blockers, maintenance checkpoints, and closeout.
+- Beads hold work state, dependencies, approvals, blockers, quality checkpoints, exact grants, and closeout.
 - `.pi/plans/` holds larger design/implementation plans.
 - Resolved private runs directory holds per-run invocation/result evidence and recorded session refs.
 - Observational-memory ledgers are session-local recall aids; promote important findings into Beads or private run bundles before relying on them.

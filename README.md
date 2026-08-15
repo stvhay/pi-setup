@@ -16,7 +16,8 @@ Review the tracked settings, provider assumptions, and model policy before deplo
 | **`agnt` controls** | Model routing, context composition, run artifacts, evidence-backed review, operational health, private improvement analysis, metrics, and deterministic evals. |
 | **Durable work and evidence** | Beads for work state, `.pi/plans/` for plans, private runtime metrics for outcomes, and optional private run bundles for replayable execution evidence. |
 | **Optional orchestration** | Manual artifact-backed dispatch, Beads-backed approvals, and constrained gateways for delegated or unusually strict work. |
-| **Feedback loop** | Runtime metrics and private Langfuse reviews inform human-approved, eval-gated changes to tracked routing, prompts, tools, and policy. Telemetry does not edit policy automatically. |
+| **Quality governance** | One five-activity control plan turns bounded evidence into deterministic receipts, private review, and exact-grant correction packets. This is internal control, not certification or an in-repo scheduler. |
+| **Feedback loop** | Runtime metrics and private Langfuse reviews inform eval-gated changes to tracked routing, prompts, tools, and policy. Telemetry never authorizes or edits policy by itself. |
 
 For the narrative overview, read [The agnt System](docs/AGNT-SYSTEM.md). For subsystem boundaries and data flow, read [Architecture](docs/ARCHITECTURE.md).
 

@@ -195,6 +195,42 @@ def test_quality_kernel_remains_cli_only_without_scheduler_or_service():
         assert forbidden not in source
 
 
+def test_quality_process_eval_reuses_deterministic_kernel_checks():
+    spec = json.loads(
+        (AGENT / "evals" / "quality-process-smoke" / "eval.json").read_text(encoding="utf-8")
+    )
+
+    assert spec["kind"] == "pytest"
+    assert spec["tests"] == [
+        "tests/test_quality.py::test_durable_work_learning_preserves_lower_bound_and_unknown_evidence",
+        "tests/test_quality.py::test_inv3_apply_is_private_observe_only_and_idempotent",
+        "tests/test_quality.py::test_inv15_noncritical_failures_consume_grant_error_budget",
+        "tests/test_quality.py::test_inv2_assessment_is_deterministic_and_emits_at_most_one_packet",
+        "tests/test_quality.py::test_inv15_concurrent_canary_apply_consumes_one_allowance",
+        "tests/test_quality.py::test_fail13_canary_unknown_result_revokes_grant",
+    ]
+    assert "defaultModels" not in spec
+    assert "prompt" not in spec
+
+
+def test_quality_kernel_docs_disclaim_certification_and_in_repo_scheduling():
+    docs = {
+        path.name: path.read_text(encoding="utf-8").lower()
+        for path in (
+            ROOT / "docs" / "ARCHITECTURE.md",
+            ROOT / "docs" / "SELF-IMPROVEMENT.md",
+            ROOT / "docs" / "AGNT-SYSTEM.md",
+            ROOT / "docs" / "RUN-ARTIFACTS.md",
+        )
+    }
+
+    assert "not certification" in docs["ARCHITECTURE.md"]
+    assert "not certification" in docs["SELF-IMPROVEMENT.md"]
+    assert "not certification" in docs["AGNT-SYSTEM.md"]
+    assert "certifies an outcome" in docs["RUN-ARTIFACTS.md"]
+    assert all("no scheduler" in text for text in docs.values())
+
+
 def test_quality_apply_replaces_improve_promote_mutation_cli():
     improvement = (AGENT / "bin" / "agnt_lib" / "improvement.py").read_text(encoding="utf-8")
     promote_parser = improvement.split('sub.add_parser("promote"', 1)[1].split("args = parser.parse_args", 1)[0]

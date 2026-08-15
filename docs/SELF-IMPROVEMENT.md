@@ -5,6 +5,10 @@ tracked policy and Beads. It improves routing, prompts, tools, and monitoring.
 For broader workflow/context design principles, see
 [Self-Improvement Principles](SELF-IMPROVEMENT-PRINCIPLES.md).
 
+This is an internal governance and evidence loop, not certification or a
+quality-management system. External callers own cadence; this repository ships
+no scheduler, daemon, or background service.
+
 Principle: telemetry is runtime state; policy is config. Consolidated metrics
 live in `~/.pi/metrics/`; raw records use the resolver-selected private metrics
 directory and are never tracked. Project `.pi/metrics/` is used only when Git
@@ -492,6 +496,7 @@ When a model family shows a repeatable behavioral failure:
 
    ```bash
    pi/agent/bin/agnt eval run role-context-smoke
+   pi/agent/bin/agnt eval run quality-process-smoke
    .venv/bin/python -m pytest tests/
    # manual behavioral canary; costs model calls:
    ./scripts/eval-workflow-compliance.sh --skill-mode candidate --case <case>

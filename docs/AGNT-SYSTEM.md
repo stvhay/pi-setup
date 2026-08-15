@@ -93,9 +93,12 @@ Both subagent and internal headless workers emit the same normalized metric shap
 
 ```text
 execute -> record -> annotate -> consolidate -> review -> change policy -> eval
+capture -> assess -> receipt -> apply within exact grant -> matched-cohort validation
 ```
 
-Telemetry is evidence, not authority. Human outcome labels remain separate from objective execution status, and raw prompts, outputs, IDs, URLs, credentials, and private traces stay outside tracked source.
+The five-activity quality control plan owns triggers and receivers. `assess()` records explicit evidence gaps and emits at most one packet; `apply()` revalidates policy, proof, budget, target, and one human Beads grant before an existing adapter can act. Current tracked policy is observe-only. External callers own cadence because this repository contains no scheduler, daemon, or background service. The kernel is internal governance, not certification or a quality-management system.
+
+Telemetry and reviewer output are evidence, not authority. Human outcome labels remain separate from objective execution status, and raw prompts, outputs, IDs, URLs, credentials, and private traces stay outside tracked source.
 
 ## Relationship to Pi
 

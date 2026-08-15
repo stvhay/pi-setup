@@ -48,6 +48,7 @@ bash -n scripts/*.sh
 # deterministic agnt evals (no model calls)
 pi/agent/bin/agnt eval run routing-smoke
 pi/agent/bin/agnt eval run role-context-smoke
+pi/agent/bin/agnt eval run quality-process-smoke
 ```
 
 Manual behavioral canary (runs real models; not a routine completion gate): run

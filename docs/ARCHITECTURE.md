@@ -257,14 +257,22 @@ Beads adapter and Q14 claim/settlement state machine; other effects use existing
 injected adapters. Caller supplies signal or periodic-backstop inputs and owns
 cadence. Repository provides no scheduler, poll loop, daemon, or service.
 
+This kernel is internal governance and evidence handling, not certification or a
+parallel quality-management system. Git owns the control plan and code, private
+runtime storage owns receipts, assignments, claims, and cohort state, and Beads
+owns durable work and human grants. None can substitute for another.
+
 ## Quality gates
 
 Three test tiers, cheapest first:
 
 1. `tests/` (pytest) — pure-function coverage of catalog lookups, routing
    ranks, cost attribution, overlay resolution. Free, instant.
-2. `agnt eval run routing-smoke|role-context-smoke` — deterministic CLI-level
-   checks of routing policy and instruction composition. Free, instant.
+2. `agnt eval run routing-smoke`, `role-context-smoke`, or
+   `quality-process-smoke` — deterministic CLI checks. The quality smoke gate
+   reuses six named pytest checks for evidence gaps, observe suppression, grant
+   bounds, one-packet emission, atomic duplicate suppression, and revocation.
+   Free, instant, and model-free.
 3. `scripts/eval-workflow-compliance.sh --skill-mode candidate|deployed` —
    opt-in manual behavioral canary running real models in throwaway git repos,
    asserting filesystem effects (no writes before approval, plans actually

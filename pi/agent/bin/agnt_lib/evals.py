@@ -128,6 +128,39 @@ def run_instructions_eval(eval_path: Path, spec: Dict[str, Any], out_dir: Path, 
     return {"evalPath": str(eval_path), "kind": "instructions", "results": results, "failures": failures}
 
 
+def run_pytest_eval(eval_path: Path, spec: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
+    tests = spec.get("tests") or []
+    if not isinstance(tests, list) or not 1 <= len(tests) <= 32:
+        return {
+            "evalPath": str(eval_path),
+            "kind": "pytest",
+            "results": [],
+            "failures": ["pytest eval requires 1-32 bounded tests/ node ids"],
+        }
+    if any(
+        not isinstance(test, str)
+        or ".." in test
+        or "::test_" not in test
+        or re.fullmatch(r"tests/[A-Za-z0-9_./-]+\.py(?:::[A-Za-z_][A-Za-z0-9_\[\].-]*)+", test) is None
+        for test in tests
+    ):
+        return {
+            "evalPath": str(eval_path),
+            "kind": "pytest",
+            "results": [],
+            "failures": ["pytest eval requires bounded tests/ node ids"],
+        }
+    command = [sys.executable, "-m", "pytest", "-q", *tests]
+    if dry_run:
+        results = [{"dryRun": True, "plannedCommand": command}]
+        failures: List[str] = []
+    else:
+        proc = subprocess.run(command, cwd=git_root(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        results = [{"dryRun": False, "exitCode": proc.returncode, "stdout": proc.stdout[-4000:], "stderr": proc.stderr[-2000:]}]
+        failures = [] if proc.returncode == 0 else [f"pytest exited {proc.returncode}"]
+    return {"evalPath": str(eval_path), "kind": "pytest", "results": results, "failures": failures}
+
+
 def run_invoke_eval(eval_path: Path, spec: Dict[str, Any], out_dir: Path, dry_run: bool, models: List[str]) -> Dict[str, Any]:
     eval_dir = eval_path.parent
     prompt_file = eval_dir / str(spec.get("prompt") or "prompt.md")
@@ -217,6 +250,8 @@ def cmd_eval(argv: List[str]) -> int:
             result = run_route_eval(eval_path, spec, args.dry_run)
         elif kind == "instructions":
             result = run_instructions_eval(eval_path, spec, out_dir, args.dry_run)
+        elif kind == "pytest":
+            result = run_pytest_eval(eval_path, spec, args.dry_run)
         elif kind == "invoke":
             result = run_invoke_eval(eval_path, spec, out_dir, args.dry_run, split_models(args.models))
         else:
