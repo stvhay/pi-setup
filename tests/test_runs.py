@@ -42,8 +42,28 @@ def _claim_context():
     }
 
 
+def _evidence_claim_context():
+    context = _claim_context()
+    context["authorizationEvidence"] = ["artifact:grant-proof"]
+    context["executionEvidence"] = ["artifact:execution-proof"]
+    identity = {
+        "receiptId": context["receiptId"],
+        "allowanceId": context["allowanceId"],
+        "policyFingerprint": context["policyFingerprint"],
+        "action": context["action"],
+        "effects": context["effects"],
+        "targetFingerprint": context["targetFingerprint"],
+        "authorizationEvidence": context["authorizationEvidence"],
+        "executionEvidence": context["executionEvidence"],
+    }
+    context["claimId"] = "claim-" + hashlib.sha256(
+        json.dumps(identity, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return context
+
+
 def _claim_row(claim_context):
-    return {
+    row = {
         "schemaVersion": 1,
         "claimId": claim_context["claimId"],
         "receiptId": claim_context["receiptId"],
@@ -63,6 +83,12 @@ def _claim_row(claim_context):
         "reason": None,
         "at": "2026-08-15T00:00:00Z",
     }
+    if "authorizationEvidence" in claim_context:
+        row.update({
+            "authorizationEvidence": claim_context["authorizationEvidence"],
+            "executionEvidence": claim_context["executionEvidence"],
+        })
+    return row
 
 
 def test_dispatch_plan_uses_metadata_action_before_title_heuristics(agnt):
@@ -356,6 +382,33 @@ def test_create_run_bundle_preserves_explicit_claim_provenance(agnt, tmp_path):
     invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
     assert invocation["provenance"]["claimContext"] == claim_context
     assert agnt.validate_run_bundle(bundle) == []
+
+
+def test_create_run_bundle_binds_split_evidence_contract_to_result(agnt, tmp_path):
+    claim_context = _evidence_claim_context()
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        bead="pi-ready.claim-evidence",
+        claim_context=claim_context,
+        runs_dir=tmp_path / "runs",
+        id_value="claim-evidence",
+    )
+
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    result = agnt.load_yaml_json(bundle / "result.yaml")
+    assert invocation["provenance"]["claimContext"] == claim_context
+    assert result["claimContext"] == claim_context
+    assert agnt.validate_run_bundle(bundle) == []
+
+    missing = dict(result)
+    missing.pop("claimContext")
+    agnt.write_yaml_json(bundle / "result.yaml", missing)
+    assert any("result claimContext" in failure for failure in agnt.validate_run_bundle(bundle))
+
+    result["claimContext"] = {**claim_context, "targetFingerprint": "sha256:" + "f" * 64}
+    agnt.write_yaml_json(bundle / "result.yaml", result)
+    assert any("result claimContext" in failure for failure in agnt.validate_run_bundle(bundle))
 
 
 def test_invoke_run_bundle_rejects_recomputed_claim_provenance(agnt, monkeypatch, tmp_path):

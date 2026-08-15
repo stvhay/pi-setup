@@ -168,6 +168,7 @@ CLAIM_FIELDS = frozenset({
     "reason",
     "at",
 })
+CLAIM_EVIDENCE_FIELDS = frozenset({"authorizationEvidence", "executionEvidence"})
 CLAIM_TOKEN_FIELDS = frozenset({
     "schemaVersion",
     "claimId",
@@ -180,6 +181,7 @@ CLAIM_TOKEN_FIELDS = frozenset({
     "effects",
     "targetFingerprint",
 })
+CLAIM_TOKEN_EVIDENCE_FIELDS = frozenset({"authorizationEvidence", "executionEvidence"})
 CANARY_PACKET_FIELDS = frozenset({
     "schemaVersion",
     "activity",
@@ -194,8 +196,27 @@ CANARY_PACKET_FIELDS = frozenset({
     "authority",
     "target",
     "effect",
+    "authorizationEvidence",
+    "executionEvidence",
 })
 CANARY_AUTHORITY_FIELDS = frozenset({"decisionBead", "grantFingerprint", "allowedEffects"})
+EVIDENCE_CONTRACT_FIELDS = frozenset({"authorizationEvidence", "executionEvidence"})
+EVIDENCE_RECORD_FIELDS = frozenset({
+    "ref",
+    "exists",
+    "available",
+    "fresh",
+    "capturedAt",
+    "observedAt",
+    "expiresAt",
+    "fingerprint",
+    "availability",
+    "integrity",
+    "provenance",
+    "source",
+    "sensitivity",
+    "retention",
+})
 CANARY_TARGET_FIELDS = frozenset({"kind", "id", "fingerprint"})
 CANARY_EFFECT_FIELDS = frozenset({"action", "effects", "reversibility"})
 MAX_EVIDENCE_REFS = 16
@@ -2426,9 +2447,119 @@ def _gaps(value: Any) -> list[str]:
     return value
 
 
+def _evidence_contract_refs(value: Any, field: str) -> list[str]:
+    if isinstance(value, dict):
+        allowed = {"required", "refs", "evidenceRefs"}
+        if set(value) - allowed:
+            raise ValueError(f"quality {field} is malformed")
+        candidates = value.get("required", value.get("refs", value.get("evidenceRefs")))
+    else:
+        candidates = value
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError(f"quality {field} is incomplete")
+    refs = []
+    for item in candidates:
+        ref = item.get("ref") if isinstance(item, dict) else item
+        if not isinstance(ref, str):
+            raise ValueError(f"quality {field} is malformed")
+        _evidence_refs([ref])
+        if ref in refs:
+            raise ValueError(f"quality {field} is malformed")
+        refs.append(ref)
+    return refs
+
+
+def _invoke_evidence_resolver(
+    resolver: Callable[..., Any],
+    ref: str,
+    phase: str,
+) -> Any:
+    try:
+        parameters = list(inspect.signature(resolver).parameters.values())
+    except (TypeError, ValueError):
+        return resolver(ref, phase)
+    positional = [
+        parameter for parameter in parameters
+        if parameter.kind in {inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
+    ]
+    if len(positional) >= 2:
+        return resolver(ref, phase)
+    return resolver(ref)
+
+
+def _resolve_evidence_contract(
+    refs: list[str],
+    resolver: Callable[..., Any] | None,
+    *,
+    phase: str,
+) -> list[dict[str, Any]]:
+    if not refs:
+        raise ValueError("evidence-incomplete")
+    if resolver is None:
+        raise ValueError("evidence-unavailable")
+    now = datetime.now(timezone.utc)
+    resolved = []
+    for ref in refs:
+        try:
+            record = _invoke_evidence_resolver(resolver, ref, phase)
+        except Exception as exc:
+            raise ValueError("evidence-unavailable") from exc
+        if record is None:
+            raise ValueError("evidence-deleted")
+        if not isinstance(record, dict) or set(record) - EVIDENCE_RECORD_FIELDS:
+            raise ValueError("evidence-malformed")
+        if record.get("ref") != ref:
+            raise ValueError("evidence-mismatched")
+        availability_values = []
+        for field in ("exists", "available", "availability"):
+            if field not in record:
+                continue
+            value = record[field]
+            if isinstance(value, bool):
+                availability_values.append(value)
+            elif isinstance(value, str) and value in EVIDENCE_AVAILABILITY:
+                availability_values.append(value == "available")
+            else:
+                raise ValueError("evidence-malformed")
+        if not availability_values or len(set(availability_values)) != 1:
+            raise ValueError("evidence-malformed")
+        available = availability_values[0]
+        if available is False or (
+            isinstance(available, str)
+            and available in {"unavailable", "unknown", "missing"}
+        ):
+            raise ValueError("evidence-deleted")
+        if not isinstance(available, (bool, str)) or (
+            isinstance(available, str) and available not in EVIDENCE_AVAILABILITY
+        ):
+            raise ValueError("evidence-malformed")
+        fresh = record.get("fresh")
+        if fresh is not None and type(fresh) is not bool:
+            raise ValueError("evidence-malformed")
+        fingerprint = record.get("fingerprint")
+        if fingerprint is not None and not HASH_REF.fullmatch(str(fingerprint)):
+            raise ValueError("evidence-malformed")
+        expires_at = record.get("expiresAt")
+        if expires_at is not None:
+            parsed_expiry = _parse_time(expires_at)
+            if parsed_expiry is None:
+                raise ValueError("evidence-malformed")
+            if parsed_expiry <= now:
+                raise ValueError("evidence-stale")
+        elif fresh is None:
+            raise ValueError("evidence-malformed")
+        if fresh is False:
+            raise ValueError("evidence-stale")
+        for timestamp in (record.get("capturedAt"), record.get("observedAt")):
+            if timestamp is not None and _parse_time(timestamp) is None:
+                raise ValueError("evidence-malformed")
+        resolved.append({key: record[key] for key in EVIDENCE_RECORD_FIELDS if key in record})
+    return resolved
+
+
 def _validate_snapshot(value: Any) -> dict[str, Any]:
     fields = {"schemaVersion", "triggered", "evidenceRefs", "gaps", "signals"}
-    optional = {"riskRequest", "authority", "target", "effect"}
+    optional = {"riskRequest", "authority", "target", "effect", *EVIDENCE_CONTRACT_FIELDS}
     if not isinstance(value, dict) or not fields.issubset(value) or set(value) - fields - optional:
         raise ValueError("quality snapshot fields are invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
@@ -2439,9 +2570,14 @@ def _validate_snapshot(value: Any) -> dict[str, Any]:
         raise ValueError("quality snapshot signals are invalid")
     _evidence_refs(value.get("evidenceRefs"))
     _gaps(value.get("gaps"))
-    for field in optional:
+    for field in optional - EVIDENCE_CONTRACT_FIELDS:
         if field in value and not isinstance(value[field], dict):
             raise ValueError(f"quality snapshot {field} is invalid")
+    present_contract_fields = EVIDENCE_CONTRACT_FIELDS.intersection(value)
+    if present_contract_fields and present_contract_fields != EVIDENCE_CONTRACT_FIELDS:
+        raise ValueError("quality evidence contract is incomplete")
+    for field in present_contract_fields:
+        _evidence_contract_refs(value[field], field)
     if len(_canonical(value).encode("utf-8")) > MAX_SNAPSHOT_BYTES:
         raise ValueError("quality snapshot exceeds bounded size")
     return value
@@ -2534,6 +2670,13 @@ def _validate_work_packet(value: Any, *, activity: str, mode: str) -> dict[str, 
         raise ValueError("quality receipt work packet is invalid")
     refs = _evidence_refs(value.get("evidenceRefs"))
     if not refs or _gaps(value.get("gaps")):
+        raise ValueError("quality canary evidence is incomplete")
+    authorization_refs = _evidence_contract_refs(value["authorizationEvidence"], "authorizationEvidence")
+    execution_refs = _evidence_contract_refs(value["executionEvidence"], "executionEvidence")
+    if (
+        not set(authorization_refs + execution_refs).issubset(refs)
+        or not set(value["canary"]["evidenceRefs"]).issubset(execution_refs)
+    ):
         raise ValueError("quality canary evidence is incomplete")
     authority = _validate_canary_authority(value.get("authority"))
     target = _validate_canary_target(value.get("target"))
@@ -2667,6 +2810,8 @@ def assess(
         raise ValueError("quality activity is unknown")
     triggered = snapshot["triggered"]
     packet = None
+    if plan["mode"] == "canary" and triggered and not EVIDENCE_CONTRACT_FIELDS.issubset(snapshot):
+        raise ValueError("quality evidence contract is incomplete")
     if plan["mode"] == "observe" and triggered:
         packet = {
             "schemaVersion": 1,
@@ -2700,6 +2845,14 @@ def assess(
                 "target": snapshot["target"],
                 "effect": snapshot["effect"],
             }
+            packet.update({
+                "authorizationEvidence": _evidence_contract_refs(
+                    snapshot["authorizationEvidence"], "authorizationEvidence"
+                ),
+                "executionEvidence": _evidence_contract_refs(
+                    snapshot["executionEvidence"], "executionEvidence"
+                ),
+            })
     core = {
         "schemaVersion": 1,
         "policyVersion": plan["policyVersion"],
@@ -2782,7 +2935,10 @@ def _write_private_assignment(
 
 
 def _validate_claim(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != CLAIM_FIELDS:
+    if not isinstance(value, dict) or set(value) not in {
+        CLAIM_FIELDS,
+        CLAIM_FIELDS | CLAIM_EVIDENCE_FIELDS,
+    }:
         raise ValueError("quality claim row is invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
         raise ValueError("quality claim row is invalid")
@@ -2807,6 +2963,8 @@ def _validate_claim(value: Any) -> dict[str, Any]:
     if value.get("resultStatus") not in {None, "succeeded", "failed", "blocked", "unknown"}:
         raise ValueError("quality claim row is invalid")
     _evidence_refs(value.get("evidenceRefs"))
+    for field in CLAIM_EVIDENCE_FIELDS.intersection(value):
+        _evidence_contract_refs(value[field], field)
     reason = value.get("reason")
     if reason is not None and not _text(reason):
         raise ValueError("quality claim row is invalid")
@@ -2822,21 +2980,31 @@ def _claim_id_for_context(
     action: str,
     effects: list[str],
     target_fingerprint: str,
+    *,
+    authorization_evidence: list[str] | None = None,
+    execution_evidence: list[str] | None = None,
 ) -> str:
-    return "claim-" + hashlib.sha256(
-        _canonical({
-            "receiptId": receipt_id,
-            "allowanceId": allowance_id,
-            "policyFingerprint": policy_fingerprint,
-            "action": action,
-            "effects": effects,
-            "targetFingerprint": target_fingerprint,
-        }).encode("utf-8")
-    ).hexdigest()
+    identity = {
+        "receiptId": receipt_id,
+        "allowanceId": allowance_id,
+        "policyFingerprint": policy_fingerprint,
+        "action": action,
+        "effects": effects,
+        "targetFingerprint": target_fingerprint,
+    }
+    if authorization_evidence is not None and execution_evidence is not None:
+        identity.update({
+            "authorizationEvidence": authorization_evidence,
+            "executionEvidence": execution_evidence,
+        })
+    return "claim-" + hashlib.sha256(_canonical(identity).encode("utf-8")).hexdigest()
 
 
 def _validate_claim_token(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != CLAIM_TOKEN_FIELDS:
+    if not isinstance(value, dict) or set(value) not in {
+        CLAIM_TOKEN_FIELDS,
+        CLAIM_TOKEN_FIELDS | CLAIM_TOKEN_EVIDENCE_FIELDS,
+    }:
         raise ValueError("quality claim token is invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
         raise ValueError("quality claim token is invalid")
@@ -2852,6 +3020,16 @@ def _validate_claim_token(value: Any) -> dict[str, Any]:
     expected_allowance = "allowance-" + hashlib.sha256(
         f"{value['decisionBead']}:{value['grantFingerprint']}".encode("utf-8")
     ).hexdigest()
+    evidence_kwargs = {}
+    if set(value) == CLAIM_TOKEN_FIELDS | CLAIM_TOKEN_EVIDENCE_FIELDS:
+        evidence_kwargs = {
+            "authorization_evidence": _evidence_contract_refs(
+                value["authorizationEvidence"], "authorizationEvidence"
+            ),
+            "execution_evidence": _evidence_contract_refs(
+                value["executionEvidence"], "executionEvidence"
+            ),
+        }
     expected_claim = _claim_id_for_context(
         value["receiptId"],
         expected_allowance,
@@ -2859,11 +3037,15 @@ def _validate_claim_token(value: Any) -> dict[str, Any]:
         value["action"],
         value["effects"],
         value["targetFingerprint"],
+        **evidence_kwargs,
     )
     legacy_claim = "claim-" + hashlib.sha256(
         f"{value['receiptId']}:{expected_allowance}".encode("utf-8")
     ).hexdigest()
-    if value["allowanceId"] != expected_allowance or value["claimId"] not in {expected_claim, legacy_claim}:
+    valid_claim_ids = {expected_claim}
+    if set(value) == CLAIM_TOKEN_FIELDS:
+        valid_claim_ids.add(legacy_claim)
+    if value["allowanceId"] != expected_allowance or value["claimId"] not in valid_claim_ids:
         raise ValueError("quality claim token is invalid")
     return value
 
@@ -2907,6 +3089,12 @@ def _latest_claims(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             )
             if any(previous[field] != row[field] for field in identity):
                 raise ValueError("quality claim identity conflicts")
+            if CLAIM_EVIDENCE_FIELDS.issubset(previous) != CLAIM_EVIDENCE_FIELDS.issubset(row):
+                raise ValueError("quality claim identity conflicts")
+            if CLAIM_EVIDENCE_FIELDS.issubset(previous) and any(
+                previous[field] != row[field] for field in CLAIM_EVIDENCE_FIELDS
+            ):
+                raise ValueError("quality claim identity conflicts")
             if previous["state"] != "claimed" or row["state"] not in CLAIM_STATES - {"claimed"}:
                 raise ValueError("quality claim transition is invalid")
         latest[row["receiptId"]] = row
@@ -2934,7 +3122,7 @@ def _grant_locally_revoked(
 
 
 def _claim_token(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    token = {
         "schemaVersion": 1,
         "claimId": row["claimId"],
         "receiptId": row["receiptId"],
@@ -2946,6 +3134,12 @@ def _claim_token(row: dict[str, Any]) -> dict[str, Any]:
         "effects": list(row["effectSet"]),
         "targetFingerprint": row["targetFingerprint"],
     }
+    if CLAIM_EVIDENCE_FIELDS.issubset(row):
+        token.update({
+            "authorizationEvidence": list(row["authorizationEvidence"]),
+            "executionEvidence": list(row["executionEvidence"]),
+        })
+    return token
 
 
 def locally_revoked_capability_grant(
@@ -2963,12 +3157,15 @@ def locally_revoked_capability_grant(
 def _claim_result(row: dict[str, Any]) -> dict[str, Any]:
     state = row["state"]
     if state == "dispatched":
-        return {
+        result = {
             "schemaVersion": 1,
             "status": "applied",
             "receiptId": row["receiptId"],
             "evidenceRefs": row["evidenceRefs"],
         }
+        if "executionEvidence" in row:
+            result["executionEvidence"] = list(row["evidenceRefs"])
+        return result
     if state == "failed":
         return {
             "schemaVersion": 1,
@@ -2998,6 +3195,16 @@ def _canary_claim_record(
     allowance_id = "allowance-" + hashlib.sha256(
         f"{decision_bead}:{grant_fingerprint}".encode("utf-8")
     ).hexdigest()
+    evidence_fields = {}
+    if EVIDENCE_CONTRACT_FIELDS.issubset(packet):
+        evidence_fields = {
+            "authorization_evidence": _evidence_contract_refs(
+                packet["authorizationEvidence"], "authorizationEvidence"
+            ),
+            "execution_evidence": _evidence_contract_refs(
+                packet["executionEvidence"], "executionEvidence"
+            ),
+        }
     claim_id = _claim_id_for_context(
         receipt["receiptId"],
         allowance_id,
@@ -3005,8 +3212,9 @@ def _canary_claim_record(
         packet["effect"]["action"],
         packet["effect"]["effects"],
         packet["target"]["fingerprint"],
+        **evidence_fields,
     )
-    return {
+    record = {
         "schemaVersion": 1,
         "claimId": claim_id,
         "receiptId": receipt["receiptId"],
@@ -3026,6 +3234,12 @@ def _canary_claim_record(
         "reason": reason,
         "at": _captured_at(),
     }
+    if EVIDENCE_CONTRACT_FIELDS.issubset(packet):
+        record.update({
+            "authorizationEvidence": list(evidence_fields["authorization_evidence"]),
+            "executionEvidence": list(evidence_fields["execution_evidence"]),
+        })
+    return record
 
 
 def _claim_canary(
@@ -3102,6 +3316,7 @@ def settle(
     directory: str | os.PathLike[str] | None = None,
     state: str | None = None,
     reason: str | None = None,
+    evidence_resolver: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     try:
         token = _validate_claim_token(claim_token)
@@ -3123,14 +3338,19 @@ def settle(
             return _claim_result(current)
         try:
             result_status = result.get("status") if isinstance(result, dict) else "unknown"
-            result_refs = _evidence_refs(result.get("evidenceRefs", [])) if isinstance(result, dict) else []
-        except (TypeError, ValueError):
+            result_refs = _execution_proof_refs(
+                result,
+                token,
+                evidence_resolver=evidence_resolver,
+            ) if result_status == "succeeded" else (
+                _evidence_refs(result.get("evidenceRefs", [])) if isinstance(result, dict) else []
+            )
+        except ValueError as exc:
+            if result_status == "succeeded":
+                raise ValueError(str(exc)) from exc
             result_status, result_refs = "unknown", []
         if result_status == "succeeded" and (
             not isinstance(result, dict)
-            or result.get("effects") != token["effects"]
-            or result.get("targetFingerprint") != token["targetFingerprint"]
-            or not result_refs
             or not isinstance(result.get("proof"), list)
             or not result["proof"]
         ):
@@ -3155,6 +3375,46 @@ def settle(
         }
         _append_row(fd, root, terminal)
     return _claim_result(terminal)
+
+
+def _execution_proof_refs(
+    result: Any,
+    token: dict[str, Any],
+    *,
+    evidence_resolver: Callable[..., Any] | None = None,
+) -> list[str]:
+    payload = result.get("executionEvidence") if isinstance(result, dict) else None
+    is_contract_result = payload is not None or "executionEvidence" in token
+    if is_contract_result:
+        if isinstance(payload, dict):
+            refs_value = payload.get("evidenceRefs", payload.get("refs"))
+            claim_id = payload.get("claimId", result.get("claimId"))
+            target_fingerprint = payload.get("targetFingerprint", result.get("targetFingerprint"))
+            effects = payload.get("effects", result.get("effects"))
+        else:
+            refs_value = payload
+            claim_id = result.get("claimId") if isinstance(result, dict) else None
+            target_fingerprint = result.get("targetFingerprint") if isinstance(result, dict) else None
+            effects = result.get("effects") if isinstance(result, dict) else None
+        try:
+            refs = _evidence_contract_refs(refs_value, "executionEvidence")
+        except ValueError as exc:
+            reason = "evidence-malformed" if "malformed" in str(exc) else "evidence-incomplete"
+            raise ValueError(reason) from exc
+        if "executionEvidence" in token and not set(token["executionEvidence"]).issubset(refs):
+            raise ValueError("evidence-incomplete")
+        if claim_id != token["claimId"]:
+            raise ValueError("evidence-mismatched")
+        if target_fingerprint != token["targetFingerprint"] or effects != token["effects"]:
+            raise ValueError("evidence-mismatched")
+        if isinstance(result, dict) and result.get("gaps"):
+            raise ValueError("evidence-incomplete")
+        if evidence_resolver is None:
+            raise ValueError("evidence-unavailable")
+        _resolve_evidence_contract(refs, evidence_resolver, phase="execution")
+        return refs
+    refs = _evidence_refs(result.get("evidenceRefs", [])) if isinstance(result, dict) else []
+    return refs
 
 
 def _invoke_dispatcher(
@@ -3251,6 +3511,7 @@ def _canary_failure_reason(
     packet: dict[str, Any],
     *,
     grant: dict[str, Any],
+    claim_token: dict[str, Any] | None = None,
 ) -> str | None:
     if not isinstance(result, dict):
         return "unknown-result"
@@ -3267,15 +3528,31 @@ def _canary_failure_reason(
         return "critical-failure" if result.get("criticalFailure") is True or result.get("failureClass") in {"authority", "correctness", "privacy", "security", "critical"} else "effect-failure"
     if status != "succeeded":
         return "unknown-result"
-    try:
-        refs = _evidence_refs(result.get("evidenceRefs"))
-    except ValueError:
-        return "missing-proof"
-    if not refs or not isinstance(result.get("gaps", []), list) or result.get("gaps"):
-        return "missing-proof"
-    required_refs = set(packet["canary"]["evidenceRefs"]) | set(grant["proof"]["evidenceRefs"])
-    if not required_refs.issubset(refs):
-        return "missing-proof"
+    if EVIDENCE_CONTRACT_FIELDS.issubset(packet):
+        payload = result.get("executionEvidence")
+        try:
+            refs = _evidence_contract_refs(
+                payload.get("evidenceRefs", payload.get("refs")) if isinstance(payload, dict) else payload,
+                "executionEvidence",
+            )
+        except ValueError as exc:
+            return "evidence-malformed" if "malformed" in str(exc) else "evidence-incomplete"
+        if claim_token is not None:
+            claim_id = payload.get("claimId", result.get("claimId")) if isinstance(payload, dict) else result.get("claimId")
+            if claim_id != claim_token["claimId"]:
+                return "evidence-mismatched"
+        if not set(packet["executionEvidence"]).issubset(refs):
+            return "evidence-incomplete"
+    else:
+        try:
+            refs = _evidence_refs(result.get("evidenceRefs"))
+        except ValueError:
+            return "missing-proof"
+        if not refs or not isinstance(result.get("gaps", []), list) or result.get("gaps"):
+            return "missing-proof"
+        required_refs = set(packet["canary"]["evidenceRefs"]) | set(grant["proof"]["evidenceRefs"])
+        if not required_refs.issubset(refs):
+            return "missing-proof"
     proof = result.get("proof")
     required_proof = grant["proof"]["required"]
     if (
@@ -3285,13 +3562,15 @@ def _canary_failure_reason(
         or any(item not in proof for item in required_proof)
     ):
         return "missing-proof"
+    proof_payload = result.get("executionEvidence") if isinstance(result.get("executionEvidence"), dict) else {}
     try:
-        effects = result.get("effects")
+        effects = proof_payload.get("effects", result.get("effects"))
+        target_fingerprint = proof_payload.get("targetFingerprint", result.get("targetFingerprint"))
         if effects != packet["effect"]["effects"] or any(effect not in packet["allowedEffects"] for effect in effects):
             return "drift"
     except (TypeError, KeyError):
         return "drift"
-    if result.get("targetFingerprint") != packet["target"]["fingerprint"]:
+    if target_fingerprint != packet["target"]["fingerprint"]:
         return "drift"
     return None
 
@@ -3303,6 +3582,7 @@ def _apply_canary(
     plan_path: str | os.PathLike[str] | None,
     grant_resolver: Callable[[str], dict[str, Any]] | None,
     target_resolver: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    evidence_resolver: Callable[..., Any] | None,
     dispatcher: Callable[..., Any] | None,
     revoke_grant: Callable[[str, str], Any] | None,
 ) -> dict[str, Any]:
@@ -3344,6 +3624,20 @@ def _apply_canary(
         result = _persist_canary_revocation(receipt, packet, directory, "grant-drift")
         _revoke_canary_grant(packet, "grant-drift", revoke_grant)
         return result
+    authorization_records = None
+    if EVIDENCE_CONTRACT_FIELDS.issubset(packet):
+        authorization_refs = list(packet["authorizationEvidence"])
+        if not set(grant["proof"]["evidenceRefs"]).issubset(authorization_refs):
+            return blocked("evidence-incomplete")
+        try:
+            authorization_records = _resolve_evidence_contract(
+                authorization_refs,
+                evidence_resolver,
+                phase="authorization",
+            )
+        except ValueError as exc:
+            reason = str(exc)
+            return blocked(reason if reason.startswith("evidence-") else "evidence-unavailable")
     if target_resolver is None:
         return blocked("target-unavailable")
     try:
@@ -3388,9 +3682,36 @@ def _apply_canary(
             refreshed_target = None
         if refreshed_target != packet["target"]:
             preflight_reason = "drift"
+    if preflight_reason is None and authorization_records is not None:
+        authorization_refs = list(packet["authorizationEvidence"])
+        for ref in refreshed_grant["proof"]["evidenceRefs"]:
+            if ref not in authorization_refs:
+                authorization_refs.append(ref)
+        try:
+            refreshed_records = _resolve_evidence_contract(
+                authorization_refs,
+                evidence_resolver,
+                phase="authorization",
+            )
+        except ValueError as exc:
+            preflight_reason = str(exc)
+        else:
+            if _fingerprint(refreshed_records) != _fingerprint(authorization_records):
+                preflight_reason = "evidence-mismatched"
 
     if preflight_reason is not None:
-        state = "revoked" if preflight_reason in {"policy-mismatch", "grant-drift", "grant-expired", "grant-revoked", "drift"} else "uncertain"
+        state = "revoked" if preflight_reason in {
+            "policy-mismatch",
+            "grant-drift",
+            "grant-expired",
+            "grant-revoked",
+            "drift",
+            "evidence-deleted",
+            "evidence-stale",
+            "evidence-malformed",
+            "evidence-mismatched",
+            "evidence-incomplete",
+        } else "uncertain"
         dispatched = {"status": "blocked", "evidenceRefs": []}
         reason = preflight_reason
     else:
@@ -3401,16 +3722,32 @@ def _apply_canary(
             state = "uncertain"
             reason = "claim-uncertain"
         else:
-            reason = _canary_failure_reason(dispatched, packet, grant=refreshed_grant)
+            proof_error = None
+            if EVIDENCE_CONTRACT_FIELDS.issubset(packet) and isinstance(dispatched, dict) and dispatched.get("status") == "succeeded":
+                try:
+                    _execution_proof_refs(
+                        dispatched,
+                        claim_token,
+                        evidence_resolver=evidence_resolver,
+                    )
+                except ValueError as exc:
+                    proof_error = str(exc)
+            reason = proof_error or _canary_failure_reason(
+                dispatched,
+                packet,
+                grant=refreshed_grant,
+                claim_token=claim_token,
+            )
             state = "dispatched" if reason is None else "failed" if reason == "effect-failure" else "revoked"
 
     try:
         settled = settle(
             claim_token,
-            dispatched,
+            {"status": "blocked", "evidenceRefs": []} if state == "revoked" else dispatched,
             directory=directory,
             state=state,
             reason=reason,
+            evidence_resolver=evidence_resolver,
         )
     except Exception:
         return blocked("claim-uncertain")
@@ -3426,6 +3763,7 @@ def apply(
     plan_path: str | os.PathLike[str] | None = None,
     grant_resolver: Callable[[str], dict[str, Any]] | None = None,
     target_resolver: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    evidence_resolver: Callable[..., Any] | None = None,
     dispatcher: Callable[..., Any] | None = None,
     revoke_grant: Callable[[str, str], Any] | None = None,
     dispatch: Callable[..., Any] | None = None,
@@ -3452,6 +3790,7 @@ def apply(
             directory=directory,
             grant_resolver=grant_resolver,
             target_resolver=target_resolver,
+            evidence_resolver=evidence_resolver,
             plan_path=plan_path,
             dispatcher=dispatcher or dispatch,
             revoke_grant=revoke_grant,

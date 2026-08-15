@@ -231,6 +231,8 @@ def create_run_bundle(
         "closeoutChecks": [],
         "completedAt": None,
     }
+    if normalized_claim_context is not None:
+        result["claimContext"] = copy.deepcopy(normalized_claim_context)
     write_yaml_json(bundle / "invocation.yaml", invocation)
     write_yaml_json(bundle / "result.yaml", result)
     return bundle
@@ -797,6 +799,21 @@ def validate_run_bundle(bundle: Path, *, followup_checker: Callable[[str], Tuple
         failures.append(f"result status must be one of {sorted(VALID_STATUSES)}")
     failures.extend(_optional_string_failures("result", result, ["sessionRef", "transcriptRef", "memorySummaryRef"]))
     failures.extend(_optional_list_failures("result", result, ["approvalRefs", "decisionRefs", "healthChecks", "closeoutChecks"]))
+    invocation_claim = invocation.get("provenance", {}).get("claimContext") if isinstance(invocation.get("provenance"), dict) else None
+    result_claim = result.get("claimContext")
+    split_claim = isinstance(invocation_claim, dict) and {
+        "authorizationEvidence",
+        "executionEvidence",
+    }.issubset(invocation_claim)
+    if split_claim and result_claim is None:
+        failures.append("result claimContext is missing")
+    if result_claim is not None:
+        try:
+            validate_claim_token(result_claim)
+        except (TypeError, ValueError):
+            failures.append("result claimContext is invalid")
+        if split_claim and result_claim != invocation_claim:
+            failures.append("result claimContext does not match invocation provenance")
     follow_ups = result.get("followUps")
     if not isinstance(follow_ups, list):
         failures.append("result followUps must be a list")
