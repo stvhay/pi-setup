@@ -500,6 +500,8 @@ def _claim_invocation_binding_failure(
 def _revalidate_invocation_authority(
     invocation: Dict[str, Any],
     *,
+    selected_model: str,
+    worker_tools: List[str],
     grant_resolver: Callable[[str], Dict[str, Any]] | None,
     claim_directory: Path | None,
 ) -> str | None:
@@ -524,7 +526,7 @@ def _revalidate_invocation_authority(
         binding_failure = _claim_invocation_binding_failure(claim_context, invocation)
         if binding_failure:
             return binding_failure
-    if invocation.get("action") != "implement":
+    if invocation.get("action") != "implement" and claim_context is None:
         return None
     envelope = provenance.get("effectiveEnvelope") if isinstance(provenance, dict) else None
     if not isinstance(envelope, dict):
@@ -551,10 +553,21 @@ def _revalidate_invocation_authority(
             raise ValueError("grant envelope changed")
         from .quality import locally_revoked_capability_grant
 
-        if locally_revoked_capability_grant(decision, str(resolved.get("grantFingerprint") or "")):
+        if locally_revoked_capability_grant(
+            decision,
+            str(resolved.get("grantFingerprint") or ""),
+            directory=claim_directory,
+        ):
             raise ValueError("grant is locally revoked")
     except (Exception, SystemExit):
         return "canonical capability grant is unavailable or changed"
+    grant = resolved["grant"]
+    if grant["model"] != selected_model:
+        return "canonical grant model does not match invocation model"
+    if grant["thinking"] != invocation.get("thinkingLevel"):
+        return "canonical grant thinking does not match invocation thinking"
+    if not set(worker_tools).issubset(grant["toolset"]):
+        return "canonical grant toolset does not permit invocation tools"
     return None
 
 
@@ -583,8 +596,13 @@ def invoke_run_bundle(
         write_yaml_json(bundle / "result.yaml", result)
     else:
         invocation_id = str(invocation["invocationId"])
+    target = choose_invocation_model(invocation, model)
+    pi_args = invocation_pi_args(invocation)
+    worker_tools = pi_args[pi_args.index("--tools") + 1].split(",")
     authority_failure = _revalidate_invocation_authority(
         invocation,
+        selected_model=target,
+        worker_tools=worker_tools,
         grant_resolver=grant_resolver,
         claim_directory=claim_directory,
     )
@@ -594,7 +612,6 @@ def invoke_run_bundle(
         write_handoff(bundle, status="blocked", summary=summary, evidence=evidence)
         result = update_run_result(bundle, status="blocked", summary=summary, evidence=evidence)
         return {"exitCode": 1, "semanticOutcome": "blocked", "authorityError": authority_failure, "result": result}
-    target = choose_invocation_model(invocation, model)
     artifacts_dir = bundle / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     prompt = render_invocation_prompt(invocation)
@@ -602,7 +619,6 @@ def invoke_run_bundle(
     prompt_path.write_text(prompt, encoding="utf-8")
     timeout_seconds = invocation_timeout_seconds(invocation)
     timeout_deadline = (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat().replace("+00:00", "Z")
-    pi_args = invocation_pi_args(invocation)
     append_live_event(bundle, {"event": "worker_invocation_started", "phase": "running", "invocationId": invocation_id, "model": target, "timeoutSeconds": timeout_seconds})
     write_live_status(
         bundle,

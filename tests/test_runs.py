@@ -29,6 +29,7 @@ def _claim_context(
     target_fingerprint=None,
     decision_bead="pi-claim.1",
     grant_fingerprint=None,
+    receipt_id="quality-receipt-1",
 ):
     grant_fingerprint = grant_fingerprint or "sha256:" + "a" * 64
     allowance_id = "allowance-" + hashlib.sha256(
@@ -40,7 +41,7 @@ def _claim_context(
     claim_id = "claim-" + hashlib.sha256(
         json.dumps(
             {
-                "receiptId": "quality-receipt-1",
+                "receiptId": receipt_id,
                 "allowanceId": allowance_id,
                 "policyFingerprint": policy_fingerprint,
                 "action": action,
@@ -54,7 +55,7 @@ def _claim_context(
     return {
         "schemaVersion": 1,
         "claimId": claim_id,
-        "receiptId": "quality-receipt-1",
+        "receiptId": receipt_id,
         "decisionBead": decision_bead,
         "grantFingerprint": grant_fingerprint,
         "allowanceId": allowance_id,
@@ -123,6 +124,9 @@ def _claim_bound_bundle(
     invocation_action="implement",
     invocation_effects=None,
     invocation_input_refs=None,
+    invocation_model="openai/gpt-5",
+    invocation_thinking="high",
+    grant_toolset=None,
     claim_action="edit",
 ):
     worktree_path = tmp_path / "worktree"
@@ -142,7 +146,9 @@ def _claim_bound_bundle(
         "effects": claim_effects,
         "model": "openai/gpt-5",
         "thinking": "high",
-        "toolset": ["read", "edit", "bash"],
+        "toolset": list(
+            grant_toolset or ["read", "bash", "edit", "write", "grep", "find", "ls"]
+        ),
         "contextPolicy": "task-scoped",
         "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
         "rollout": {"maxActions": 1, "maxEffects": len(claim_effects)},
@@ -183,6 +189,8 @@ def _claim_bound_bundle(
             else invocation_input_refs
         ),
         bead=work_item,
+        selected_model=invocation_model,
+        thinking_level=invocation_thinking,
         authority=authority,
         claim_context=claim_context,
         worktree=worktree,
@@ -419,9 +427,9 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
     grant = {
         "action": "implement",
         "effects": ["edit_files"],
-        "model": "openai/gpt-5",
+        "model": "openrouter/minimax/minimax-m3",
         "thinking": "high",
-        "toolset": ["read", "edit", "bash"],
+        "toolset": ["read", "bash", "edit", "write", "grep", "find", "ls"],
         "contextPolicy": "task-scoped",
         "proof": {"required": ["tests"], "evidenceRefs": ["artifact:grant-proof"]},
         "rollout": {"maxActions": 1, "maxEffects": 1},
@@ -635,11 +643,31 @@ def test_invoke_run_bundle_accepts_exact_claim_invocation_binding(agnt, monkeypa
             {"claim_action": "unsupported", "invocation_action": None},
             "explicit claim action does not match invocation action",
         ),
+        (
+            {"invocation_model": "openai/other"},
+            "canonical grant model does not match invocation model",
+        ),
+        (
+            {
+                "claim_action": "review",
+                "invocation_action": "review",
+                "invocation_model": "openai/other",
+            },
+            "canonical grant model does not match invocation model",
+        ),
+        (
+            {"invocation_thinking": "minimal"},
+            "canonical grant thinking does not match invocation thinking",
+        ),
+        (
+            {"grant_toolset": ["read", "bash", "edit"]},
+            "canonical grant toolset does not permit invocation tools",
+        ),
     ],
 )
 def test_invoke_run_bundle_rejects_claim_invocation_mismatch_before_worker(
     agnt, monkeypatch, tmp_path, bundle_overrides, expected_error
-):
+):  # Tests INV-14, INV-15
     bundle, claim_directory, authority = _claim_bound_bundle(
         agnt,
         tmp_path,
@@ -710,6 +738,49 @@ def test_invoke_run_bundle_revalidates_canonical_grant_before_dispatch(agnt, mon
 
     assert result["exitCode"] == 1
     assert "canonical capability grant" in result["authorityError"]
+    assert invoked == []
+
+
+def test_fail13_run_adapter_checks_local_revocation_in_claim_store(
+    agnt, monkeypatch, tmp_path
+):  # Tests FAIL-13
+    bundle, claim_directory, authority = _claim_bound_bundle(agnt, tmp_path)
+    active = agnt.load_yaml_json(bundle / "invocation.yaml")["provenance"]["claimContext"]
+    revoked = _claim_context(
+        action=active["action"],
+        effects=active["effects"],
+        target_fingerprint=active["targetFingerprint"],
+        decision_bead=active["decisionBead"],
+        grant_fingerprint=active["grantFingerprint"],
+        receipt_id="quality-receipt-revoked",
+    )
+    claimed_row = _claim_row(revoked)
+    revoked_row = {
+        **claimed_row,
+        "state": "revoked",
+        "resultStatus": "blocked",
+        "reason": "missing-proof",
+        "at": "2026-08-15T00:00:01Z",
+    }
+    with (claim_directory / "claims.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(claimed_row) + "\n")
+        handle.write(json.dumps(revoked_row) + "\n")
+    invoked = []
+    monkeypatch.setitem(
+        agnt.invoke_run_bundle.__globals__,
+        "invoke_one",
+        lambda *args, **kwargs: invoked.append(args) or (0, "OK", "", None),
+    )
+
+    result = agnt.invoke_run_bundle(
+        bundle,
+        metrics=False,
+        claim_directory=claim_directory,
+        grant_resolver=lambda _decision: authority,
+    )
+
+    assert result["exitCode"] == 1
+    assert result["authorityError"] == "canonical capability grant is unavailable or changed"
     assert invoked == []
 
 
