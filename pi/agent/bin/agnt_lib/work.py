@@ -26,10 +26,9 @@ from .quality import (
     SessionOutcomeUnavailable,
     SessionUnassigned,
     SessionWorkItemConflict,
-    current_session_closeout_source,
-    current_session_handoff_source,
     current_session_id,
-    current_session_work_item,
+    session_handoff_source,
+    session_work_item,
 )
 from .integration import integrate_local_commit
 from .worktree_policy import worktree_snapshot_for_bead
@@ -796,7 +795,7 @@ def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, A
     if not session_id or len(session_id) > 200:
         return failed("current Pi session is unavailable")
     try:
-        source = current_session_handoff_source(session_id)
+        source = session_handoff_source(session_id)
     except SessionUnassigned:
         source = None
     except (OSError, RuntimeError, ValueError):
@@ -981,7 +980,7 @@ def work_status(session_id: str) -> Dict[str, Any]:
     return {
         "schemaVersion": 1,
         "status": "ok",
-        "activeBeadId": current_session_work_item(session_id),
+        "activeBeadId": session_work_item(session_id),
         "items": items,
     }
 
@@ -1136,7 +1135,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         stages["outcome"]["evidenceGaps"] = outcome_result["evidenceGaps"]
 
     try:
-        source = current_session_closeout_source(current_session_id())
+        source = session_handoff_source(current_session_id())
     except SessionWorkItemConflict:
         return failed("ownership", "session belongs to another work item")
     except SessionOutcomeUnavailable:

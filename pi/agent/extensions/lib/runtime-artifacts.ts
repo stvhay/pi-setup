@@ -4,7 +4,14 @@ import { join } from "node:path";
 
 const INVOCATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export type DelegatedArtifactPayload = {
+async function privateDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  const info = await lstat(path);
+  if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("runtime artifact path is not a private directory");
+  await chmod(path, 0o700);
+}
+
+export async function persistDelegatedResult(root: string, payload: {
   invocationId: string;
   parentSessionId: string | null;
   childSessionId?: string | null;
@@ -15,16 +22,7 @@ export type DelegatedArtifactPayload = {
   model: string | null;
   finalOutput: string | null;
   error: string | null;
-};
-
-async function privateDirectory(path: string): Promise<void> {
-  await mkdir(path, { recursive: true, mode: 0o700 });
-  const info = await lstat(path);
-  if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("runtime artifact path is not a private directory");
-  await chmod(path, 0o700);
-}
-
-export async function persistDelegatedResult(root: string, payload: DelegatedArtifactPayload): Promise<string> {
+}): Promise<string> {
   if (!INVOCATION_ID.test(payload.invocationId) || !Number.isSafeInteger(payload.childIndex) || payload.childIndex < 0) {
     throw new Error("invalid delegated artifact identity");
   }

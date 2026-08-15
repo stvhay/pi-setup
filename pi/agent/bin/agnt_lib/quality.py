@@ -16,6 +16,7 @@ from pathlib import Path
 from subprocess import run as run_process
 from typing import Any, Callable, Iterator, NamedTuple
 
+from .core import parse_time
 from .runtime_paths import resolve_runtime_directory
 
 BEAD_ID = re.compile(r"[a-z][a-z0-9]*-[A-Za-z0-9._-]+\Z")
@@ -649,18 +650,6 @@ def session_handoff_source(
     return {"beadId": owner, "outcome": outcome}
 
 
-def current_session_work_item(session_id: str) -> str | None:
-    return session_work_item(session_id)
-
-
-def current_session_handoff_source(session_id: str) -> dict[str, str]:
-    return session_handoff_source(session_id)
-
-
-def current_session_closeout_source(session_id: str) -> dict[str, str]:
-    return session_handoff_source(session_id)
-
-
 def _validate_capture_payload(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("quality capture payload must be an object")
@@ -756,15 +745,6 @@ def open_quality_activities(beads: list[dict[str, Any]]) -> set[str]:
     }
 
 
-def _parse_time(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
 def _latest_closed_time(
     beads: list[dict[str, Any]],
     *,
@@ -779,7 +759,7 @@ def _latest_closed_time(
             or any(QUALITY_ACTIVITY_LABELS[activity] in bead_labels for activity in activities)
         ):
             continue
-        timestamp = _parse_time(bead.get("closed_at") or bead.get("closedAt"))
+        timestamp = parse_time(bead.get("closed_at") or bead.get("closedAt"))
         if timestamp is not None:
             times.append(timestamp)
     return max(times) if times else None
@@ -1045,7 +1025,7 @@ def _text_list(value: Any) -> bool:
 
 
 def _capability_time(value: Any, field: str) -> str:
-    parsed = _parse_time(value)
+    parsed = parse_time(value)
     if parsed is None or parsed.tzinfo is None:
         raise ValueError(f"capability grant {field} is invalid")
     return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -1055,7 +1035,7 @@ def _capability_now(value: datetime | str | None) -> datetime:
     if value is None:
         return datetime.now(timezone.utc)
     if isinstance(value, str):
-        value = _parse_time(value)
+        value = parse_time(value)
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError("capability grant time is invalid")
     return value.astimezone(timezone.utc)
@@ -1124,7 +1104,7 @@ def normalize_capability_grant(
         raise ValueError("capability grant rollout ceiling is invalid")
 
     expiry = _capability_time(value.get("expiry"), "expiry")
-    expiry_time = _parse_time(expiry)
+    expiry_time = parse_time(expiry)
     current = _capability_now(now)
     if require_future and (expiry_time is None or expiry_time <= current):
         raise ValueError("capability grant expiry must be in the future")
@@ -1155,7 +1135,7 @@ def capability_grant_status(value: Any, *, now: datetime | str | None = None) ->
     grant = normalize_capability_grant(value, now=now)
     status = grant["revocation"]["status"]
     if status == "active":
-        expiry = _parse_time(grant["expiry"])
+        expiry = parse_time(grant["expiry"])
         current = _capability_now(now)
         if expiry is not None and expiry <= current:
             return "expired"
@@ -2543,7 +2523,7 @@ def _resolve_evidence_contract(
             raise ValueError("evidence-malformed")
         expires_at = record.get("expiresAt")
         if expires_at is not None:
-            parsed_expiry = _parse_time(expires_at)
+            parsed_expiry = parse_time(expires_at)
             if parsed_expiry is None:
                 raise ValueError("evidence-malformed")
             if parsed_expiry <= now:
@@ -2553,7 +2533,7 @@ def _resolve_evidence_contract(
         if fresh is False:
             raise ValueError("evidence-stale")
         for timestamp in (record.get("capturedAt"), record.get("observedAt")):
-            if timestamp is not None and _parse_time(timestamp) is None:
+            if timestamp is not None and parse_time(timestamp) is None:
                 raise ValueError("evidence-malformed")
         resolved.append({key: record[key] for key in EVIDENCE_RECORD_FIELDS if key in record})
     return resolved
@@ -2973,7 +2953,7 @@ def _validate_claim(value: Any) -> dict[str, Any]:
     reason = value.get("reason")
     if reason is not None and not _text(reason):
         raise ValueError("quality claim row is invalid")
-    if not isinstance(value.get("at"), str) or _parse_time(value["at"]) is None:
+    if not isinstance(value.get("at"), str) or parse_time(value["at"]) is None:
         raise ValueError("quality claim row is invalid")
     return value
 

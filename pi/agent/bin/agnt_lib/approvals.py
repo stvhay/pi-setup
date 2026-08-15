@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
-from .core import die
+from .core import die, require_beads_success
 from .quality import (
     capability_grant_fingerprint,
     capability_grant_status,
@@ -60,10 +60,6 @@ def _normalize_preview(preview: Dict[str, Any] | None) -> Dict[str, str]:
 def _fingerprint(value: Dict[str, Any]) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
-
-
-def _preview_fingerprint(preview: Dict[str, str]) -> str:
-    return _fingerprint(preview)
 
 
 def _request_fingerprint(approval: Dict[str, Any]) -> str:
@@ -162,7 +158,7 @@ def _record_grant_state(
             "status": grant["revocation"]["status"],
         }),
     ])
-    _require_beads_success(code, data, err, "record capability grant state")
+    require_beads_success(code, data, err, "record capability grant state")
 
 
 def _require_unchanged_approval_preview(
@@ -173,7 +169,7 @@ def _require_unchanged_approval_preview(
     grant_fingerprint = None
     current_grant_status = None
     try:
-        preview_fingerprint = _preview_fingerprint(_normalize_preview(approval.get("preview")))
+        preview_fingerprint = _fingerprint(_normalize_preview(approval.get("preview")))
         request_fingerprint = _request_fingerprint(approval)
     except ValueError as exc:
         raise ValueError("approval preview changed; create a new approval request") from exc
@@ -192,7 +188,7 @@ def _require_unchanged_approval_preview(
     ):
         raise ValueError("approval preview changed; create a new approval request")
     code, data, err = beads_runner(["provenance", "log", decision_bead, "--kind", "cut"])
-    provenance = _require_beads_success(code, data, err, "read approval provenance")
+    provenance = require_beads_success(code, data, err, "read approval provenance")
     if _provenance_request_fingerprints(provenance) != {request_fingerprint}:
         raise ValueError("approval preview changed; create a new approval request")
     if grant_fingerprint is not None:
@@ -271,7 +267,7 @@ def approval_request_payload(
         "options": choices,
         "default": chosen_default,
         "preview": normalized_preview,
-        "previewFingerprint": _preview_fingerprint(normalized_preview),
+        "previewFingerprint": _fingerprint(normalized_preview),
         "status": "pending",
         "createdAt": timestamp,
     }
@@ -333,12 +329,6 @@ def _json_arg(value: Dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-def _require_beads_success(code: int, data: Any, err: str, action: str) -> Any:
-    if code != 0:
-        die(f"bd {action} failed: {err}", code or 1)
-    return data
-
-
 def _decision_id_from_create(data: Any) -> str:
     if isinstance(data, dict) and isinstance(data.get("id"), str) and data["id"]:
         return data["id"]
@@ -389,12 +379,12 @@ def create_beads_approval_request(
         metadata_arg,
     ]
     code, data, err = beads_runner(create_args)
-    created = _require_beads_success(code, data, err, "create approval request")
+    created = require_beads_success(code, data, err, "create approval request")
     decision_bead = _decision_id_from_create(created)
 
     dep_args = ["dep", decision_bead, "--blocks", target_bead]
     dep_code, dep_data, dep_err = beads_runner(dep_args)
-    _require_beads_success(dep_code, dep_data, dep_err, "dep approval blocker")
+    require_beads_success(dep_code, dep_data, dep_err, "dep approval blocker")
 
     approval = payload["metadata"]["pi"]["approval"]
     provenance_payload = {
@@ -413,7 +403,7 @@ def create_beads_approval_request(
         "--at", approval["createdAt"],
         "--payload", _json_arg(provenance_payload),
     ])
-    _require_beads_success(
+    require_beads_success(
         provenance_code, provenance_data, provenance_err, "record approval provenance"
     )
 
@@ -500,7 +490,7 @@ def resolve_capability_grant(
 ) -> Dict[str, Any]:
     decision = _require_nonempty("decision_bead", decision_bead)
     show_code, show_data, show_err = beads_runner(["show", decision])
-    shown = _require_beads_success(show_code, show_data, show_err, "show capability grant")
+    shown = require_beads_success(show_code, show_data, show_err, "show capability grant")
     metadata = _metadata_from_bead(shown)
     approval = _approval_from_metadata(metadata)
     if approval.get("kind") != "approval":
@@ -560,7 +550,7 @@ def resolve_capability_grant(
             "update", decision, "--metadata", _json_arg(metadata),
             "--append-notes", note,
         ])
-        _require_beads_success(update_code, update_data, update_err, "update capability grant state")
+        require_beads_success(update_code, update_data, update_err, "update capability grant state")
     allowed_effects = list(grant["effects"]) if state == "active" else []
     return {
         "schemaVersion": 1,
@@ -641,7 +631,7 @@ def revoke_capability_grant(
     revoke_reason = _require_nonempty("reason", reason)
     decision = _require_nonempty("decision_bead", decision_bead)
     show_code, show_data, show_err = beads_runner(["show", decision])
-    shown = _require_beads_success(show_code, show_data, show_err, "show capability grant")
+    shown = require_beads_success(show_code, show_data, show_err, "show capability grant")
     metadata = _metadata_from_bead(shown)
     approval = _approval_from_metadata(metadata)
     grant = _grant_from_approval(approval)
@@ -662,7 +652,7 @@ def revoke_capability_grant(
             "update", decision, "--metadata", _json_arg(metadata),
             "--append-notes", f"Capability grant revoked: {revoke_reason}",
         ])
-        _require_beads_success(update_code, update_data, update_err, "revoke capability grant")
+        require_beads_success(update_code, update_data, update_err, "revoke capability grant")
     return resolve_capability_grant(decision, beads_runner=beads_runner)
 
 
@@ -684,7 +674,7 @@ def resolve_beads_approval_request(
     answer_text = answer.strip() if isinstance(answer, str) and answer.strip() else outcome
 
     show_code, show_data, show_err = beads_runner(["show", decision])
-    shown = _require_beads_success(show_code, show_data, show_err, "show approval request")
+    shown = require_beads_success(show_code, show_data, show_err, "show approval request")
     metadata = _metadata_from_bead(shown)
     approval = _approval_from_metadata(metadata)
     kind = str(approval.get("kind") or "approval")
@@ -786,7 +776,7 @@ def resolve_beads_approval_request(
     if grant is not None:
         _record_grant_state(decision, grant, beads_runner)
     update_code, update_data, update_err = beads_runner(update_args)
-    _require_beads_success(update_code, update_data, update_err, "update approval resolution")
+    require_beads_success(update_code, update_data, update_err, "update approval resolution")
 
     blocker_visible = outcome in BLOCKED_OUTCOMES
     target_update_result = None
@@ -794,7 +784,7 @@ def resolve_beads_approval_request(
     close_result = None
     if not blocker_visible:
         close_code, close_data, close_err = beads_runner(["close", decision, "--reason", note])
-        close_result = _require_beads_success(close_code, close_data, close_err, "close approval request")
+        close_result = require_beads_success(close_code, close_data, close_err, "close approval request")
 
     run_result = None
     if run_bundle is not None:

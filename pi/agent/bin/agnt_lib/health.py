@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
+from .core import parse_time
 from .quality import validate_evidence_ref, validate_finding
 from .runs import default_runs_dir
 from .worktree_policy import default_status_runner, list_git_worktrees
@@ -25,15 +26,6 @@ RAW_TOOL_PATTERNS = [
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _parse_time(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 def _read_json_object(path: Path) -> Tuple[Dict[str, Any] | None, str | None]:
@@ -398,7 +390,7 @@ def scan_run_bundle_health(
     _append_raw_tool_findings(findings, run_id=run_id, bundle=bundle, result=result)
 
     completed = result.get("completedAt")
-    created_at = _parse_time(invocation.get("createdAt"))
+    created_at = parse_time(invocation.get("createdAt"))
     active = not completed and status not in TERMINAL_RUN_STATUSES
     if active and result.get("sessionRef") and created_at and now - created_at > stale_after:
         findings.append(_finding(

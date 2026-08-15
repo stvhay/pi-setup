@@ -3,10 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, parse } from "node:path";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
-import {
-  persistDelegatedResult as persistRuntimeDelegatedResult,
-  type DelegatedArtifactPayload,
-} from "./lib/runtime-artifacts.ts";
+import { persistDelegatedResult as persistRuntimeDelegatedResult } from "./lib/runtime-artifacts.ts";
 
 const agentDir = getAgentDir();
 
@@ -112,12 +109,11 @@ type ProviderCircuit = (
   cwd: string,
 ) => void | Promise<void>;
 type ActiveProviderCircuits = (cwd: string) => string[] | Promise<string[]>;
-type PersistDelegatedResult = (root: string, payload: DelegatedArtifactPayload) => Promise<string>;
 type Dependencies = {
   observe?: Observe;
   providerCircuit?: ProviderCircuit;
   activeProviderCircuits?: ActiveProviderCircuits;
-  persistDelegatedResult?: PersistDelegatedResult;
+  persistDelegatedResult?: typeof persistRuntimeDelegatedResult;
 };
 
 type InvocationStart = {
@@ -473,7 +469,7 @@ async function persistSubagentArtifacts(
   details: SubagentDetails,
   invocation: InvocationStart,
   ctx: ExtensionContext,
-  persist: PersistDelegatedResult,
+  persist: typeof persistRuntimeDelegatedResult,
 ): Promise<SubagentDetails> {
   let root: string;
   try {
@@ -557,15 +553,6 @@ function modelDimensions(
     thinkingLevel: target ? "default" : null,
     modelDimensionsStatus: target ? "available" : "unavailable",
   };
-}
-
-function targetFor(
-  input: SubagentInput,
-  result: SubagentResult,
-  index: number,
-  ctx: ExtensionContext,
-): string | undefined {
-  return modelDimensions(input, result, index, ctx).target ?? undefined;
 }
 
 function metricRecord(
@@ -688,7 +675,6 @@ async function recordSubagentMetrics(
 
 export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: Dependencies = {}): void {
   const starts = new Map<string, InvocationStart>();
-  const persistDelegatedResult = dependencies.persistDelegatedResult ?? persistRuntimeDelegatedResult;
   const providerCircuit = dependencies.providerCircuit ?? updateProviderCircuit;
   const activeProviderCircuits = dependencies.activeProviderCircuits ?? loadActiveProviderCircuits;
   const openProviders = new Set<string>();
@@ -781,11 +767,17 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     while (invocation.invocationIds.length < Math.max(1, details.results.length)) {
       invocation.invocationIds.push(randomUUID());
     }
-    details = await persistSubagentArtifacts(input, details, invocation, ctx, persistDelegatedResult);
+    details = await persistSubagentArtifacts(
+      input,
+      details,
+      invocation,
+      ctx,
+      dependencies.persistDelegatedResult ?? persistRuntimeDelegatedResult,
+    );
     const providerFailureClasses = details.results.map((result) => providerFailureClass(result.error));
     await Promise.all(details.results.map(async (result, index) => {
       if (input.tasks?.[index]?.agent ?? input.agent) return;
-      const target = targetFor(input, result, index, ctx);
+      const target = modelDimensions(input, result, index, ctx).target;
       if (!target) return;
       const provider = target.split("/", 1)[0];
       const classification = providerFailureClasses[index];

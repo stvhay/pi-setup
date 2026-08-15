@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
-from .core import die
+from .core import die, utc_now
 from .invoke import invoke_one, safe_target_name
 from .metrics import bounded_artifact_refs, default_metrics_dir, execution_outcome, new_invocation_id, write_json
 from .quality import validate_claim_token
@@ -45,10 +45,6 @@ WRITE_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"]
 UNRESOLVED_TOOL_CALL_MARKERS = ("<|tool_call>", "<tool_call|>")
 READ_ONLY_TIMEOUT_SECONDS = 300
 WRITE_TIMEOUT_SECONDS = 900
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def slugify(value: str) -> str:

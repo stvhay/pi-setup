@@ -8,10 +8,11 @@ import re
 import subprocess
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from uuid import uuid4
+
+from .core import utc_now
 
 _OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 _OPAQUE_ID = re.compile(r"[0-9a-f]{16}")
@@ -35,10 +36,6 @@ class IntegrationLockTimeout(IntegrationLockError):
 
 class IntegrationLockCancelled(IntegrationLockError):
     pass
-
-
-def _stamp() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _git(cwd: Path | str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -186,7 +183,7 @@ def integration_semaphore(
         _write_metadata(
             descriptor,
             {
-                "acquiredAt": _stamp(),
+                "acquiredAt": utc_now(),
                 "lockId": lock_id,
                 "ownerId": owner_id,
                 "state": "held",
@@ -201,7 +198,7 @@ def integration_semaphore(
                     {
                         "lockId": lock_id,
                         "ownerId": owner_id,
-                        "releasedAt": _stamp(),
+                        "releasedAt": utc_now(),
                         "state": "released",
                     },
                 )

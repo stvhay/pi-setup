@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
-from .core import die
+from .core import die, require_beads_success
 from .orchestration import validate_bead_orchestration_metadata
 from .runs import default_runs_dir
 from .work import build_work_tree, normalize_bead, run_beads_json, run_refs_by_bead
@@ -110,15 +110,9 @@ def _compact_item(bead: Dict[str, Any], *, runs_dir: Path | None = None) -> Dict
     }
 
 
-def _require_beads_success(code: int, data: Any, err: str, action: str) -> Any:
-    if code != 0:
-        die(f"bd {action} failed: {err}", code or 1)
-    return data
-
-
 def _list_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner, runs_dir: Path | None) -> Dict[str, Any]:
     code, data, err = beads_runner(["ready"])
-    ready = _require_beads_success(code, data, err, "ready")
+    ready = require_beads_success(code, data, err, "ready")
     items = [item for item in ready if isinstance(item, dict)] if isinstance(ready, list) else []
     if not bool(payload.get("includeEpics", True)):
         items = [item for item in items if item.get("issue_type") != "epic"]
@@ -134,7 +128,7 @@ def _list_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner, runs_di
 def _show_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner, runs_dir: Path | None) -> Dict[str, Any]:
     bead_id = _require_string(payload, "bead")
     code, data, err = beads_runner(["show", bead_id])
-    bead = normalize_bead(_require_beads_success(code, data, err, "show"))
+    bead = normalize_bead(require_beads_success(code, data, err, "show"))
     if not bead:
         die(f"bead not found: {bead_id}", 1)
     return {"schemaVersion": 1, "operation": "show", "item": _compact_item(bead, runs_dir=_runs_dir(payload, runs_dir))}
@@ -188,7 +182,7 @@ def _create_draft_gateway(payload: Dict[str, Any], *, beads_runner: BeadsRunner)
             metadata["pi"] = pi_metadata
         args.extend(["--metadata", json.dumps(metadata, sort_keys=True, separators=(",", ":"))])
     code, data, err = beads_runner(args)
-    created = _require_beads_success(code, data, err, "create draft")
+    created = require_beads_success(code, data, err, "create draft")
     return {"schemaVersion": 1, "operation": "create_draft", "created": created}
 
 

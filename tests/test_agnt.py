@@ -1370,7 +1370,7 @@ def test_work_status_projects_canonical_items_by_priority_and_id_without_creatio
         agnt.work_status.__globals__,
         {
             "run_beads_json": fake_beads,
-            "current_session_work_item": lambda session_id: "pi-a.1"
+            "session_work_item": lambda session_id: "pi-a.1"
             if session_id == "session-1"
             else pytest.fail("unexpected session"),
         },
@@ -1402,7 +1402,7 @@ def test_work_status_orders_parent_before_children(agnt):
         agnt.work_status.__globals__,
         {
             "run_beads_json": lambda _args: (0, beads, ""),
-            "current_session_work_item": lambda _session_id: "pi-demo-4",
+            "session_work_item": lambda _session_id: "pi-demo-4",
         },
     ):
         result = agnt.work_status("session-1")
@@ -1425,7 +1425,7 @@ def test_work_status_parent_edge_overrides_priority_and_id_order(agnt):
         agnt.work_status.__globals__,
         {
             "run_beads_json": lambda _args: (0, beads, ""),
-            "current_session_work_item": lambda _session_id: None,
+            "session_work_item": lambda _session_id: None,
         },
     ):
         result = agnt.work_status("session-1")
@@ -1442,7 +1442,7 @@ def test_work_status_does_not_infer_parent_from_id(agnt):
         agnt.work_status.__globals__,
         {
             "run_beads_json": lambda _args: (0, beads, ""),
-            "current_session_work_item": lambda _session_id: None,
+            "session_work_item": lambda _session_id: None,
         },
     ):
         result = agnt.work_status("session-1")
@@ -1471,7 +1471,7 @@ def test_work_status_empty_state_still_validates_local_authority(agnt):
         agnt.work_status.__globals__,
         {
             "run_beads_json": lambda _args: (0, [], ""),
-            "current_session_work_item": lambda _session_id: (_ for _ in ()).throw(
+            "session_work_item": lambda _session_id: (_ for _ in ()).throw(
                 ValueError("malformed local ledger")
             ),
         },
@@ -1539,7 +1539,7 @@ def test_direct_closeout_domain_rejects_non_success_before_mutation(agnt, outcom
             "record_current_session_outcome": lambda *_args: pytest.fail(
                 "non-success outcome must fail before recording"
             ),
-            "current_session_closeout_source": lambda *_args: pytest.fail(
+            "session_handoff_source": lambda *_args: pytest.fail(
                 "non-success outcome must fail before ownership readback"
             ),
             "_git": lambda *_args: pytest.fail(
@@ -1581,7 +1581,7 @@ def test_direct_closeout_records_success_before_readback_and_preflight(agnt):
         {
             "record_current_session_outcome": record,
             "current_session_id": lambda: "session-closeout",
-            "current_session_closeout_source": readback,
+            "session_handoff_source": readback,
             "_git": git,
             "run_beads_json": lambda *_args: pytest.fail(
                 "failed Git preflight must block Beads mutation"
@@ -1610,7 +1610,7 @@ def test_direct_closeout_outcome_write_failure_stops_before_readback(agnt):
         direct_closeout.__globals__,
         {
             "record_current_session_outcome": fail_record,
-            "current_session_closeout_source": lambda *_args: pytest.fail(
+            "session_handoff_source": lambda *_args: pytest.fail(
                 "failed outcome write must block ownership readback"
             ),
             "_git": lambda *_args: pytest.fail(
@@ -1649,7 +1649,7 @@ def test_direct_closeout_requires_matching_success_readback(
         {
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
-            "current_session_closeout_source": lambda _session_id: source,
+            "session_handoff_source": lambda _session_id: source,
             "_git": lambda *_args: pytest.fail(
                 "mismatched readback must block Git inspection"
             ),
@@ -1816,7 +1816,7 @@ def test_direct_closeout_reports_exhausted_visibility_wait(agnt):
         {
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
-            "current_session_closeout_source": unavailable,
+            "session_handoff_source": unavailable,
             "_git": lambda *_args: pytest.fail(
                 "unavailable outcome must block before Git inspection"
             ),
@@ -1866,7 +1866,7 @@ def test_direct_closeout_blocks_non_visibility_ownership_failures(
         {
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
-            "current_session_closeout_source": fail,
+            "session_handoff_source": fail,
             "_git": lambda *_args: pytest.fail(
                 "ownership failure must block before Git inspection"
             ),
@@ -1939,7 +1939,7 @@ def test_direct_closeout_rejects_tracked_non_beads_changes_before_mutation(
         {
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
-            "current_session_closeout_source": lambda _session_id: {
+            "session_handoff_source": lambda _session_id: {
                 "beadId": "pi-test.dirty",
                 "outcome": "success",
             },
@@ -2012,7 +2012,7 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(
             "beads_bin": lambda: str(exporter),
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
-            "current_session_closeout_source": lambda _session_id: {
+            "session_handoff_source": lambda _session_id: {
                 "beadId": "pi-test.parity",
                 "outcome": "success",
             },
@@ -2188,7 +2188,7 @@ def test_handoff_check_selects_only_ready_work_automatically(agnt):
         pytest.fail(f"unexpected Beads call: {args}")
 
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": lambda _session_id: {
+        "session_handoff_source": lambda _session_id: {
             "beadId": source["id"],
             "outcome": "success",
         },
@@ -2224,7 +2224,7 @@ def test_handoff_check_accepts_ready_target_from_genuinely_unassigned_session(ag
         pytest.fail(f"unexpected Beads call: {args}")
 
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": no_source,
+        "session_handoff_source": no_source,
         "run_beads_json": fake_beads,
     }):
         result = handoff_check(target["id"], session_id="unassigned-session")
@@ -2245,7 +2245,7 @@ def test_handoff_check_does_not_treat_generic_source_failure_as_unassigned(agnt)
     handoff_check = getattr(agnt, "handoff_check", None)
 
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": lambda _session_id: (_ for _ in ()).throw(
+        "session_handoff_source": lambda _session_id: (_ for _ in ()).throw(
             ValueError("malformed ownership")
         ),
         "run_beads_json": lambda _args: pytest.fail(
@@ -2267,7 +2267,7 @@ def test_handoff_check_rejects_incomplete_closeout(agnt):
     source = {"id": "pi-current.1", "status": "closed"}
 
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": lambda _session_id: {
+        "session_handoff_source": lambda _session_id: {
             "beadId": source["id"],
             "outcome": "success",
         },
@@ -2302,7 +2302,7 @@ def test_handoff_check_returns_one_bounded_choice_for_multiple_ready_items(agnt)
         pytest.fail(f"unexpected Beads call: {args}")
 
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": lambda _session_id: {
+        "session_handoff_source": lambda _session_id: {
             "beadId": source["id"],
             "outcome": "success",
         },
@@ -2326,7 +2326,7 @@ def test_handoff_check_returns_one_bounded_choice_for_multiple_ready_items(agnt)
 def test_handoff_check_rejects_non_success_outcome(agnt, outcome):
     handoff_check = getattr(agnt, "handoff_check", None)
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": lambda _session_id: {
+        "session_handoff_source": lambda _session_id: {
             "beadId": "pi-current.1",
             "outcome": outcome,
         },
@@ -2362,7 +2362,7 @@ def test_handoff_check_requires_closed_source_and_ready_target(agnt):
         pytest.fail(f"unexpected Beads call: {args}")
 
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": lambda _session_id: {
+        "session_handoff_source": lambda _session_id: {
             "beadId": source["id"],
             "outcome": "success",
         },
@@ -2410,7 +2410,7 @@ def test_handoff_check_fails_before_session_replacement(
         pytest.fail(f"unexpected Beads call: {args}")
 
     with patch.dict(handoff_check.__globals__, {
-        "current_session_handoff_source": lambda _session_id: {
+        "session_handoff_source": lambda _session_id: {
             "beadId": source["id"],
             "outcome": "success",
         },

@@ -14,10 +14,6 @@ def _fingerprint(value: dict) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _preview_fingerprint(preview: dict) -> str:
-    return _fingerprint(preview)
-
-
 def _request_fingerprint(approval: dict) -> str:
     identity = {
         key: approval[key]
@@ -117,7 +113,7 @@ def approval_record(**overrides) -> dict:
         "options": ["approve", "reject"],
         "default": "reject",
         "preview": preview,
-        "previewFingerprint": _preview_fingerprint(preview),
+        "previewFingerprint": _fingerprint(preview),
         "status": "pending",
         **overrides,
     }
@@ -338,7 +334,7 @@ def test_create_approval_request_creates_decision_blocks_target_and_updates_run_
     assert "approval-run" not in create_call[create_call.index("--description") + 1]
     assert metadata["pi"]["approval"]["default"] == "reject"
     assert metadata["pi"]["approval"]["preview"] == approval_preview()
-    assert metadata["pi"]["approval"]["previewFingerprint"] == _preview_fingerprint(approval_preview())
+    assert metadata["pi"]["approval"]["previewFingerprint"] == _fingerprint(approval_preview())
     assert metadata["pi"]["approval"]["requestFingerprint"] == _request_fingerprint(metadata["pi"]["approval"])
     assert fake.calls[1] == ["dep", "pi-decision.1", "--blocks", "pi-work.1"]
     provenance = fake.calls[2]
@@ -549,7 +545,7 @@ def test_fail7_recomputed_fingerprint_still_requires_new_request(agnt):  # Tests
     changed = json.loads(json.dumps(original))
     changed_preview = {**approval_preview(), "scope": "Expanded write set"}
     changed["pi"]["approval"]["preview"] = changed_preview
-    changed["pi"]["approval"]["previewFingerprint"] = _preview_fingerprint(changed_preview)
+    changed["pi"]["approval"]["previewFingerprint"] = _fingerprint(changed_preview)
     changed["pi"]["approval"]["requestFingerprint"] = _request_fingerprint(
         changed["pi"]["approval"]
     )

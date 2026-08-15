@@ -13,14 +13,10 @@ from uuid import uuid4
 
 import _agnt_common as common
 
-from .core import VALID_OUTCOMES, split_target
+from .core import VALID_OUTCOMES, split_target, utc_now
 from .quality import FINDING_STATUSES, derive_core_metrics
 from .review import load_review_document, review_annotation_fields
 from .runtime_paths import resolve_runtime_directory
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
 
 # Model facts and opportunity-cost rates live in catalog.json.
 MAX_ARTIFACT_REFS = 16

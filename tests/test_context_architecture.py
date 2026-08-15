@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT = ROOT / "pi" / "agent"
@@ -277,6 +279,46 @@ def test_approved_ponytail_surfaces_are_absent():
     assert "export default installAgentOSCompat;" in compat
 
 
+def test_simplification_sources_canonical_helpers_and_pointer():
+    library = AGENT / "bin" / "agnt_lib"
+    core = (library / "core.py").read_text(encoding="utf-8")
+
+    for helper in ("utc_now", "parse_time", "require_beads_success"):
+        assert f"def {helper}(" in core
+    for path, helpers in {
+        library / "metrics.py": ("utc_now",),
+        library / "runs.py": ("utc_now",),
+        library / "integration.py": ("_stamp",),
+        library / "health.py": ("_parse_time",),
+        library / "quality.py": ("_parse_time",),
+        library / "gateway.py": ("_require_beads_success",),
+        library / "approvals.py": ("_require_beads_success", "_preview_fingerprint"),
+    }.items():
+        source = path.read_text(encoding="utf-8")
+        for helper in helpers:
+            assert f"def {helper}(" not in source
+    assert not (ROOT / "CLAUDE.md").exists()
+
+
+def test_ponytail_code_cuts_use_direct_calls_and_types():
+    quality = (AGENT / "bin" / "agnt_lib" / "quality.py").read_text(encoding="utf-8")
+    work = (AGENT / "bin" / "agnt_lib" / "work.py").read_text(encoding="utf-8")
+    runtime_artifacts = (AGENT / "extensions" / "lib" / "runtime-artifacts.ts").read_text(encoding="utf-8")
+    subagent = (AGENT / "extensions" / "subagent-error-workaround.ts").read_text(encoding="utf-8")
+
+    for wrapper in (
+        "current_session_work_item",
+        "current_session_handoff_source",
+        "current_session_closeout_source",
+    ):
+        assert f"def {wrapper}(" not in quality
+        assert wrapper not in work
+    assert "type DelegatedArtifactPayload" not in runtime_artifacts
+    assert "type PersistDelegatedResult" not in subagent
+    assert "function targetFor(" not in subagent
+    assert "const persistDelegatedResult =" not in subagent
+
+
 def test_project_init_eval_excludes_opt_in_github_templates():
     skill = (AGENT / "skills" / "project-init" / "SKILL.md").read_text(encoding="utf-8")
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
@@ -445,224 +487,235 @@ def test_executing_plans_isolates_main_orchestration_checkout():
     assert "Must not merge; cleanup needs separate approval because initial scope excludes it" in scenario
 
 
-def test_initial_scope_covers_reversible_local_git_and_tracked_deletions():
-    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
-    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
-    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
-    worktrees = (AGENT / "skills" / "using-git-worktrees" / "SKILL.md").read_text(encoding="utf-8")
-    subagents = (AGENT / "skills" / "subagent-driven-development" / "SKILL.md").read_text(encoding="utf-8")
-    executing = (AGENT / "skills" / "executing-plans" / "SKILL.md").read_text(encoding="utf-8")
-    finishing = (AGENT / "skills" / "finishing-a-development-branch" / "SKILL.md").read_text(encoding="utf-8")
+PROSE_CONTRACT_CASES = (
+    (
+        (AGENT / "AGENTS.md",),
+        (
+            "Initial implementation approval may cover exact reversible named local branches/worktrees",
+            "post-integration removal",
+            "staged tracked/config-controlled deletions",
+            "commit-SHA recovery",
+            "untracked runtime data",
+            "backups",
+            "remote",
+            "deletion",
+            "history rewrite",
+            "Initial implementation approval may cover one exact local `agnt work integrate` action",
+            "target checkout/branch",
+            "expected target HEAD",
+            "source SHA",
+            "aborts conflicts",
+            "stops on divergence",
+            "Initial implementation approval may cover one verified local-live or named test/staging deployment",
+            "source-selection rule",
+            "resolved target identity",
+            "exact preview/effect bounds",
+            "verification, rollback, and stop conditions",
+            "rejection/cancellation/timeout fails closed",
+            "production",
+            "unknown",
+            "implementation approval includes staging and one local atomic commit",
+            "Initial implementation approval may cover one ordinary branch push after successful closeout",
+            "remote/branch identity",
+            "approved base SHA",
+            "bounded candidate-selection rule",
+            "expected remote state",
+            "First attempt consumes authority",
+            "Protected/production push",
+        ),
+        True,
+    ),
+    (
+        (
+            ROOT / "AGENTS.md",
+            AGENT / "skills" / "project-init" / "templates" / "AGENTS.md",
+            AGENT / "skills" / "dev-workflow-common" / "SKILL.md",
+        ),
+        (
+            "Initial implementation approval may preauthorize exact reversible local Git setup and cleanup",
+            "untracked runtime data",
+            "backups",
+            "remote",
+            "deletion",
+            "history rewrite",
+            "Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments",
+            "production",
+            "unknown",
+        ),
+        True,
+    ),
+    (
+        (ROOT / "AGENTS.md", AGENT / "skills" / "dev-workflow-common" / "SKILL.md"),
+        (
+            "Initial implementation approval may preauthorize one exact local integration",
+            "agnt work integrate",
+            "expected target HEAD",
+            "source commit SHA",
+        ),
+        True,
+    ),
+    (
+        (
+            AGENT / "AGENTS.md",
+            ROOT / "AGENTS.md",
+            AGENT / "skills" / "project-init" / "templates" / "AGENTS.md",
+        ),
+        ("implementation approval includes staging and one local atomic commit",),
+        True,
+    ),
+    (
+        (ROOT / "AGENTS.md", AGENT / "skills" / "project-init" / "templates" / "AGENTS.md"),
+        (
+            "Initial implementation approval may preauthorize one ordinary branch push after successful Bead closeout",
+            "exact remote and branch identity",
+        ),
+        True,
+    ),
+    (
+        (ROOT / "AGENTS.md", AGENT / "skills" / "project-init" / "templates" / "AGENTS.md"),
+        ("protected or production branch",),
+        False,
+    ),
+    (
+        (AGENT / "skills" / "dev-workflow-common" / "SKILL.md",),
+        (
+            "Tracked/config-controlled deletions included in that scope may be staged without another approval",
+            "Deletion preview (not a second approval)",
+            "git status --short --untracked-files=all",
+            "git diff --cached --name-status --diff-filter=D --no-renames",
+            'git cat-file -e "$recovery_sha:$path"',
+            'git worktree remove "$worktree_path"',
+            'git branch -d "$branch"',
+            "set -euo pipefail",
+            ': "${integration_target:?approved integration target is required}"',
+            'actual_branch=$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD)',
+            'test "$actual_branch" = "$branch"',
+            'test -z "$(git -C "$worktree_path" status --short --untracked-files=all)"',
+            "--target-branch",
+            "--expected-head",
+            "--source-sha",
+            "conflict",
+            "merge --abort",
+            "alternate integration strategy",
+            "**Action:**",
+            "**Scope:**",
+            "**Consequences:**",
+            "**Reversibility:**",
+            "**Closeout:**",
+            "Bead ID",
+            "exact preview command/options",
+            "approved expected-effect bounds",
+            "canonical environment identifier",
+            "resolved absolute destination",
+            "host, account, and user identity",
+            "post-symlink resolution",
+            "dry-run or equivalent preview",
+            "post-deploy verification",
+            "rollback",
+            "fails closed",
+            "no deadline that permits automatic deployment",
+            "single-use",
+            "Bead closes",
+            "Explicit `do not commit` instructions override this default",
+            "Never stage unrelated pre-existing changes",
+            "Do not close the Bead or claim completion while task-owned changes remain uncommitted",
+            "agnt work direct-closeout <id> --outcome success --reason",
+            "agnt improve outcome",
+            "partial|failure|unclear",
+            "shared portable Beads state",
+            "one ordinary post-closeout push",
+            "explicit approval",
+            "approved base commit SHA",
+            "candidate-selection rule limited to the task-owned implementation commit plus portable Beads closeout commit",
+            "expected remote ref state",
+            "clean tracked state",
+            "successful final gate",
+            "portable Beads state",
+            "remote SHA equals push `HEAD`",
+            "atomically mark the exact approval consumed in durable authorization state",
+            "unused-to-consumed transition",
+            "first push mutation attempt consumes the authority",
+            "no automatic retry or rollback mutation",
+            "force",
+            "tag",
+            "release",
+            "merge",
+            "remote deletion",
+            "history rewrite",
+            "forward correction",
+        ),
+        True,
+    ),
+    (
+        (AGENT / "skills" / "dev-workflow-common" / "SKILL.md",),
+        ("rejection, cancellation, or timeout",),
+        False,
+    ),
+    (
+        tuple(
+            AGENT / "skills" / skill / "SKILL.md"
+            for skill in ("using-git-worktrees", "subagent-driven-development", "executing-plans", "finishing-a-development-branch")
+        ),
+        ("initial approved scope", "exact path", "recovery", "untracked", "without another approval"),
+        True,
+    ),
+    (
+        (AGENT / "skills" / "subagent-driven-development" / "SKILL.md",),
+        ("agnt work integrate",),
+        True,
+    ),
+    (
+        (AGENT / "skills" / "subagent-driven-development" / "SKILL.md",),
+        ("one branch at a time",),
+        False,
+    ),
+    (
+        (AGENT / "bin" / "README.md",),
+        ("agnt work integrate", "target-ref-scoped", "process death"),
+        True,
+    ),
+    ((ROOT / "docs" / "ARCHITECTURE.md",), ("fcntl.flock",), True),
+    ((ROOT / "docs" / "ARCHITECTURE.md",), ("integration semaphore",), False),
+    (
+        (AGENT / "bin" / "agnt_lib" / "integration.py",),
+        ("fcntl.flock", '"merge", "--no-edit", "--no-verify"', '"merge", "--abort"'),
+        True,
+    ),
+    ((ROOT / "docs" / "AGNT-SYSTEM.md",), ("ordinary branch push",), True),
+    (
+        (ROOT / "docs" / "AGNT-SYSTEM.md",),
+        ("production and unknown targets require a new explicit approval",),
+        False,
+    ),
+    ((ROOT / "docs" / "ORCHESTRATION-LOOP.md",), ("ordinary branch push",), True),
+    (
+        (ROOT / "docs" / "ORCHESTRATION-LOOP.md",),
+        ("production and unknown targets require separate explicit approval",),
+        False,
+    ),
+    (
+        (ROOT / "scripts" / "eval-workflow-compliance.sh",),
+        (
+            "implementation_commits_task_owned_changes",
+            "implementation_honors_no_commit",
+            "push_without_exact_initial_approval_stops",
+            "push_stops_on_remote_divergence",
+            "push_stops_after_consumed_attempt",
+            "push_stops_on_extra_commit",
+        ),
+        True,
+    ),
+)
 
-    for phrase in (
-        "Initial implementation approval may cover exact reversible named local branches/worktrees",
-        "post-integration removal",
-        "staged tracked/config-controlled deletions",
-        "commit-SHA recovery",
-    ):
-        assert phrase in global_instructions
 
-    authority = "Initial implementation approval may preauthorize exact reversible local Git setup and cleanup"
-    for text in (project_instructions, template_instructions, common):
-        assert authority in text
-    for text in (global_instructions, project_instructions, template_instructions, common):
-        assert "untracked runtime data" in text
-        assert "backups" in text
-        assert "remote" in text and "deletion" in text
-        assert "history rewrite" in text
-
-    assert "Tracked/config-controlled deletions included in that scope may be staged without another approval" in common
-    assert "Deletion preview (not a second approval)" in common
-    assert "git status --short --untracked-files=all" in common
-    assert "git diff --cached --name-status --diff-filter=D --no-renames" in common
-    assert "git cat-file -e \"$recovery_sha:$path\"" in common
-    assert "git worktree remove \"$worktree_path\"" in common
-    assert "git branch -d \"$branch\"" in common
-    assert "set -euo pipefail" in common
-    assert ': "${integration_target:?approved integration target is required}"' in common
-    assert 'actual_branch=$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD)' in common
-    assert 'test "$actual_branch" = "$branch"' in common
-    assert 'test -z "$(git -C "$worktree_path" status --short --untracked-files=all)"' in common
-
-    for text in (worktrees, subagents, executing, finishing):
-        assert "initial approved scope" in text
-        assert "exact path" in text
-        assert "recovery" in text
-        assert "untracked" in text
-        assert "without another approval" in text
-
-
-def test_preapproved_local_integration_uses_guarded_semaphore():
-    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
-    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
-    subagents = (AGENT / "skills" / "subagent-driven-development" / "SKILL.md").read_text(encoding="utf-8")
-    command_reference = (AGENT / "bin" / "README.md").read_text(encoding="utf-8")
-    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-    integration = (AGENT / "bin" / "agnt_lib" / "integration.py").read_text(encoding="utf-8")
-
-    for phrase in (
-        "Initial implementation approval may cover one exact local `agnt work integrate` action",
-        "target checkout/branch",
-        "expected target HEAD",
-        "source SHA",
-        "aborts conflicts",
-        "stops on divergence",
-    ):
-        assert phrase in global_instructions
-
-    authority = "Initial implementation approval may preauthorize one exact local integration"
-    for text in (project_instructions, common):
-        assert authority in text
-        assert "agnt work integrate" in text
-        assert "expected target HEAD" in text
-        assert "source commit SHA" in text
-
-    assert "--target-branch" in common
-    assert "--expected-head" in common
-    assert "--source-sha" in common
-    assert "conflict" in common.lower() and "merge --abort" in common
-    assert "alternate integration strategy" in common
-    assert "one branch at a time" in subagents.lower()
-    assert "agnt work integrate" in subagents
-    assert "agnt work integrate" in command_reference
-    assert "target-ref-scoped" in command_reference
-    assert "process death" in command_reference
-    assert "integration semaphore" in architecture.lower()
-    assert "fcntl.flock" in architecture
-    assert "fcntl.flock" in integration
-    assert '"merge", "--no-edit", "--no-verify"' in integration
-    assert '"merge", "--abort"' in integration
-
-
-def test_initial_scope_covers_known_nonproduction_deployments_only():
-    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
-    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
-    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
-    system = (ROOT / "docs" / "AGNT-SYSTEM.md").read_text(encoding="utf-8")
-    loop = (ROOT / "docs" / "ORCHESTRATION-LOOP.md").read_text(encoding="utf-8")
-
-    for phrase in (
-        "Initial implementation approval may cover one verified local-live or named test/staging deployment",
-        "source-selection rule",
-        "resolved target identity",
-        "exact preview/effect bounds",
-        "verification, rollback, and stop conditions",
-        "rejection/cancellation/timeout fails closed",
-    ):
-        assert phrase in global_instructions
-
-    authority = "Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments"
-    for text in (project_instructions, template_instructions, common):
-        assert authority in text
-    for text in (global_instructions, project_instructions, template_instructions, common):
-        assert "production" in text
-        assert "unknown" in text
-
-    for field in ("Action", "Scope", "Consequences", "Reversibility", "Closeout"):
-        assert f"**{field}:**" in common
-    assert "Bead ID" in common
-    assert "exact preview command/options" in common
-    assert "approved expected-effect bounds" in common
-    assert "canonical environment identifier" in common
-    assert "resolved absolute destination" in common
-    assert "host, account, and user identity" in common
-    assert "post-symlink resolution" in common
-    assert "dry-run or equivalent preview" in common
-    assert "post-deploy verification" in common
-    assert "rollback" in common
-    assert "rejection, cancellation, or timeout" in common.lower()
-    assert "fails closed" in common
-    assert "no deadline that permits automatic deployment" in common
-    assert "single-use" in common
-    assert "Bead closes" in common
-    assert "production and unknown targets require a new explicit approval" in system.lower()
-    assert "production and unknown targets require separate explicit approval" in loop.lower()
-
-
-def test_approved_implementation_defaults_through_local_commit():
-    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
-    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
-    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
-
-    required_default = "implementation approval includes staging and one local atomic commit"
-    assert required_default in global_instructions
-    assert required_default in project_instructions
-    assert required_default in template_instructions
-    assert "Explicit `do not commit` instructions override this default" in common
-    assert "Never stage unrelated pre-existing changes" in common
-    assert "Do not close the Bead or claim completion while task-owned changes remain uncommitted" in common
-    assert "agnt work direct-closeout <id> --outcome success --reason" in common
-    assert "agnt improve outcome" in common and "partial|failure|unclear" in common
-    assert "shared portable Beads state" in common
-    assert "one ordinary post-closeout push" in common and "explicit approval" in common
-
-    workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
-    assert "implementation_commits_task_owned_changes" in workflow_eval
-    assert "implementation_honors_no_commit" in workflow_eval
-
-
-def test_initial_approval_can_cover_one_guarded_push_after_closeout():
-    global_instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
-    project_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    template_instructions = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
-    common = (AGENT / "skills" / "dev-workflow-common" / "SKILL.md").read_text(encoding="utf-8")
-    system = (ROOT / "docs" / "AGNT-SYSTEM.md").read_text(encoding="utf-8")
-    loop = (ROOT / "docs" / "ORCHESTRATION-LOOP.md").read_text(encoding="utf-8")
-
-    for phrase in (
-        "Initial implementation approval may cover one ordinary branch push after successful closeout",
-        "remote/branch identity",
-        "approved base SHA",
-        "bounded candidate-selection rule",
-        "expected remote state",
-        "First attempt consumes authority",
-        "Protected/production push",
-    ):
-        assert phrase in global_instructions
-
-    authority = "Initial implementation approval may preauthorize one ordinary branch push after successful Bead closeout"
-    for text in (project_instructions, template_instructions):
-        assert authority in text
-        assert "exact remote and branch identity" in text
-        assert "protected or production branch" in text.lower()
-
-    for phrase in (
-        "approved base commit SHA",
-        "candidate-selection rule limited to the task-owned implementation commit plus portable Beads closeout commit",
-        "expected remote ref state",
-        "clean tracked state",
-        "successful final gate",
-        "portable Beads state",
-        "remote SHA equals push `HEAD`",
-        "atomically mark the exact approval consumed in durable authorization state",
-        "unused-to-consumed transition",
-        "first push mutation attempt consumes the authority",
-        "no automatic retry or rollback mutation",
-    ):
-        assert phrase in common
-    for excluded in (
-        "force",
-        "tag",
-        "release",
-        "merge",
-        "remote deletion",
-        "history rewrite",
-    ):
-        assert excluded in common
-    assert "rejection, cancellation, or timeout" in common.lower()
-    assert "forward correction" in common
-    assert "ordinary branch push" in system
-    assert "ordinary branch push" in loop
-
-    workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
-    assert "push_without_exact_initial_approval_stops" in workflow_eval
-    assert "push_stops_on_remote_divergence" in workflow_eval
-    assert "push_stops_after_consumed_attempt" in workflow_eval
-    assert "push_stops_on_extra_commit" in workflow_eval
+@pytest.mark.parametrize(("paths", "phrases", "case_sensitive"), PROSE_CONTRACT_CASES)
+def test_approval_prose_contracts(paths, phrases, case_sensitive):
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        if not case_sensitive:
+            text = text.lower()
+        for phrase in phrases:
+            assert (phrase if case_sensitive else phrase.lower()) in text
 
 
 def test_nominal_approval_workflow_eval_covers_counts_and_escalations():
