@@ -207,7 +207,7 @@ def test_archimedes_custom_input_wrapper_preserves_public_components_and_one_por
     (agent_dir / "bin" / "agnt").symlink_to(ROOT / "pi" / "agent" / "bin" / "agnt")
     (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
     (package_dir / "package.json").write_text(
-        json.dumps({"name": "pi-archimedes", "version": "2.0.1", "type": "module", "main": "./index.js"}),
+        json.dumps({"name": "pi-archimedes", "version": "2.1.0", "type": "module", "main": "./index.js"}),
         encoding="utf-8",
     )
     (agent_dir / "catalog.json").write_text(
@@ -304,7 +304,7 @@ export default function registerArchimedes(pi) {
     (subagent_dir / "package.json").write_text(
         json.dumps({
             "name": "@pi-archimedes/subagent",
-            "version": "2.0.1",
+            "version": "2.1.0",
             "type": "module",
             "main": "./index.js",
         }),

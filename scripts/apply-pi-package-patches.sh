@@ -94,30 +94,42 @@ apply_preflighted_patch() {
 LANGFUSE_LABEL="pi-langfuse 1.5.14"
 LANGFUSE_DIR="$PACKAGE_ROOT/pi-langfuse"
 LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.5.14.patch"
-ARCHIMEDES_META_LABEL="pi-archimedes 2.0.1"
+ARCHIMEDES_META_LABEL="pi-archimedes 2.1.0"
 ARCHIMEDES_META_DIR="$PACKAGE_ROOT/pi-archimedes"
-ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-2.0.1.patch"
-ARCHIMEDES_FOOTER_LABEL="@pi-archimedes/footer 2.0.1"
+ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-2.1.0.patch"
+ARCHIMEDES_ASK_LABEL="@pi-archimedes/ask 2.1.0"
+ARCHIMEDES_ASK_DIR="$PACKAGE_ROOT/@pi-archimedes/ask"
+ARCHIMEDES_ASK_PATCH="$PATCH_ROOT/pi-archimedes-ask-2.1.0.patch"
+ARCHIMEDES_CORE_LABEL="@pi-archimedes/core 2.1.0"
+ARCHIMEDES_CORE_DIR="$PACKAGE_ROOT/@pi-archimedes/core"
+ARCHIMEDES_CORE_PATCH="$PATCH_ROOT/pi-archimedes-core-2.1.0.patch"
+ARCHIMEDES_FOOTER_LABEL="@pi-archimedes/footer 2.1.0"
 ARCHIMEDES_FOOTER_DIR="$PACKAGE_ROOT/@pi-archimedes/footer"
-ARCHIMEDES_FOOTER_PATCH="$PATCH_ROOT/pi-archimedes-footer-2.0.1.patch"
-ARCHIMEDES_SUBAGENT_LABEL="@pi-archimedes/subagent 2.0.1"
+ARCHIMEDES_FOOTER_PATCH="$PATCH_ROOT/pi-archimedes-footer-2.1.0.patch"
+ARCHIMEDES_SUBAGENT_LABEL="@pi-archimedes/subagent 2.1.0"
 ARCHIMEDES_SUBAGENT_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
-ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-2.0.1.patch"
+ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-2.1.0.patch"
 
 # Validate every package and patch before mutating any installed source tree.
 LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.14" "$LANGFUSE_PATCH" \
   "src/redaction.ts" "MALFORMED_MEDIA_DATA_URI" "src/langfuse.ts" "score.id ??= randomUUID()")
-ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "2.0.1" \
+ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "2.1.0" \
   "$ARCHIMEDES_META_PATCH" "src/settings.ts" "subagentMaxProviderRequests")
+ARCHIMEDES_ASK_STATE=$(patch_state "$ARCHIMEDES_ASK_LABEL" "$ARCHIMEDES_ASK_DIR" \
+  "@pi-archimedes/ask" "2.1.0" "$ARCHIMEDES_ASK_PATCH" "src/index.ts" "customInput !== undefined ? { customInput }")
+ARCHIMEDES_CORE_STATE=$(patch_state "$ARCHIMEDES_CORE_LABEL" "$ARCHIMEDES_CORE_DIR" \
+  "@pi-archimedes/core" "2.1.0" "$ARCHIMEDES_CORE_PATCH" "src/bus.ts" "ArchimedesEventPayloadMap")
 ARCHIMEDES_FOOTER_STATE=$(patch_state "$ARCHIMEDES_FOOTER_LABEL" "$ARCHIMEDES_FOOTER_DIR" \
-  "@pi-archimedes/footer" "2.0.1" "$ARCHIMEDES_FOOTER_PATCH" "src/index.ts" "getExtensionStatuses" \
+  "@pi-archimedes/footer" "2.1.0" "$ARCHIMEDES_FOOTER_PATCH" "src/index.ts" "getExtensionStatuses" \
   "src/index.ts" "ctx.ui.setFooter")
 ARCHIMEDES_SUBAGENT_STATE=$(patch_state "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDES_SUBAGENT_DIR" \
-  "@pi-archimedes/subagent" "2.0.1" "$ARCHIMEDES_SUBAGENT_PATCH" "src/types.ts" "maxOutputTokens")
+  "@pi-archimedes/subagent" "2.1.0" "$ARCHIMEDES_SUBAGENT_PATCH" "src/types.ts" "maxOutputTokens")
 
 if [ "$MODE" = check ]; then
   echo "$LANGFUSE_LABEL: $LANGFUSE_STATE"
   echo "$ARCHIMEDES_META_LABEL: $ARCHIMEDES_META_STATE"
+  echo "$ARCHIMEDES_ASK_LABEL: $ARCHIMEDES_ASK_STATE"
+  echo "$ARCHIMEDES_CORE_LABEL: $ARCHIMEDES_CORE_STATE"
   echo "$ARCHIMEDES_FOOTER_LABEL: $ARCHIMEDES_FOOTER_STATE"
   echo "$ARCHIMEDES_SUBAGENT_LABEL: $ARCHIMEDES_SUBAGENT_STATE"
   exit
@@ -125,6 +137,10 @@ fi
 
 apply_preflighted_patch "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "$LANGFUSE_PATCH" "$LANGFUSE_STATE"
 apply_preflighted_patch "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "$ARCHIMEDES_META_PATCH" "$ARCHIMEDES_META_STATE"
+apply_preflighted_patch "$ARCHIMEDES_ASK_LABEL" "$ARCHIMEDES_ASK_DIR" \
+  "$ARCHIMEDES_ASK_PATCH" "$ARCHIMEDES_ASK_STATE"
+apply_preflighted_patch "$ARCHIMEDES_CORE_LABEL" "$ARCHIMEDES_CORE_DIR" \
+  "$ARCHIMEDES_CORE_PATCH" "$ARCHIMEDES_CORE_STATE"
 apply_preflighted_patch "$ARCHIMEDES_FOOTER_LABEL" "$ARCHIMEDES_FOOTER_DIR" \
   "$ARCHIMEDES_FOOTER_PATCH" "$ARCHIMEDES_FOOTER_STATE"
 apply_preflighted_patch "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDES_SUBAGENT_DIR" \

@@ -1,15 +1,31 @@
 diff --git a/package.json b/package.json
-index a40edfc..c590f3b 100644
+index 1136426..a17f476 100644
 --- a/package.json
 +++ b/package.json
-@@ -18 +18 @@
--    "@earendil-works/pi-coding-agent": ">=0.1.0",
-+    "@earendil-works/pi-coding-agent": ">=0.74.0",
-@@ -31,0 +32,4 @@
-+  },
+@@ -12,0 +13,6 @@
 +  "exports": {
 +    ".": "./src/index.ts",
-+    "./config": "./src/config.ts"
++    "./agents": "./src/agents.ts",
++    "./config": "./src/config.ts",
++    "./types": "./src/types.ts"
++  },
+@@ -18 +24 @@
+-    "@earendil-works/pi-coding-agent": ">=0.1.0",
++    "@earendil-works/pi-coding-agent": ">=0.74.0",
+@@ -33 +39 @@
+-}
+\ No newline at end of file
++}
+diff --git a/src/agents.ts b/src/agents.ts
+index 203e1a9..b201182 100644
+--- a/src/agents.ts
++++ b/src/agents.ts
+@@ -215,0 +216,5 @@ export function findAgent(agents: AgentConfig[], name: string): AgentConfig | un
++/** Resolve one named agent's configured model through normal discovery and local overrides. */
++export function resolveAgentModel(name: string, cwd: string): string | undefined {
++  return findAgent(discoverAgents(cwd), name)?.model;
++}
++
 diff --git a/src/child-guard.ts b/src/child-guard.ts
 new file mode 100644
 index 0000000..2e71a2d
@@ -173,7 +189,7 @@ index 0000000..8e1ce98
 +  }
 +}
 diff --git a/src/execute.ts b/src/execute.ts
-index f41835a..d86ffd2 100644
+index f41835a..4aac567 100644
 --- a/src/execute.ts
 +++ b/src/execute.ts
 @@ -1 +1 @@
@@ -184,7 +200,7 @@ index f41835a..d86ffd2 100644
 +import type { Usage } from "@earendil-works/pi-ai";
 @@ -5 +7,23 @@ import type { AgentConfig } from "./agents.js";
 -import type { SubagentProgress, SubagentResult, SubagentUsage } from "./types.js";
-+import type { ResolvedChildExecution, SubagentProgress, SubagentResult, SubagentUsage } from "./types.js";
++import type { ResolvedChildExecution, SubagentOutputContract, SubagentProgress, SubagentResult, SubagentUsage } from "./types.js";
 +
 +export interface ExecutionControl {
 +  signal: AbortSignal;
@@ -207,8 +223,9 @@ index f41835a..d86ffd2 100644
 +export function aggregateUsage(results: SubagentResult[]): Usage {
 +  return addUsage(...results.map((result) => fromSubagentUsage(result.usage)));
 +}
-@@ -15,0 +40,61 @@ export interface ExecuteOptions {
+@@ -15,0 +40,62 @@ export interface ExecuteOptions {
 +  execution: ResolvedChildExecution;
++  outputContract?: SubagentOutputContract | undefined;
 +}
 +
 +function executionEvidence(
@@ -269,54 +286,56 @@ index f41835a..d86ffd2 100644
 +    };
 +  }
 +  return result;
-@@ -23,0 +109 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -23,0 +110 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +  const control = createExecutionControl(options.signal, options.execution.limits?.maxDurationMs);
-@@ -27,0 +114,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -27,0 +115,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +  let lastEmittedCacheRead = 0;
 +  let lastEmittedCacheWrite = 0;
-@@ -36 +124 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -36 +125 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -      signal: options.signal,
 +      signal: control.signal,
-@@ -37,0 +126 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -37,0 +127 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      execution: options.execution,
-@@ -42,0 +132 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -42,0 +133 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      execution: options.execution,
-@@ -46,0 +137,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -46,0 +138,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +        const cacheReadTokens = progress.cacheReadTokens ?? 0;
 +        const cacheWriteTokens = progress.cacheWriteTokens ?? 0;
 +        const deltaCacheRead = cacheReadTokens - lastEmittedCacheRead;
 +        const deltaCacheWrite = cacheWriteTokens - lastEmittedCacheWrite;
-@@ -48 +142 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -48 +143 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -        if (deltaInput > 0 || deltaOutput > 0 || deltaCost > 0) {
 +        if (deltaInput > 0 || deltaOutput > 0 || deltaCacheRead > 0 || deltaCacheWrite > 0 || deltaCost > 0) {
-@@ -51,0 +146,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -51,0 +147,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +            cacheReadTokens: deltaCacheRead,
 +            cacheWriteTokens: deltaCacheWrite,
-@@ -55,0 +152,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -55,0 +153,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +          lastEmittedCacheRead = cacheReadTokens;
 +          lastEmittedCacheWrite = cacheWriteTokens;
-@@ -64 +162 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -64 +163 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    return {
 +    return applyControlTermination({
-@@ -67,0 +166 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -67,0 +167,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      execution: executionEvidence(options.execution, result.execution?.outputLimit),
-@@ -81,0 +181,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      ...(options.outputContract ? { outputContract: options.outputContract } : {}),
+@@ -81,0 +183,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +            cacheReadTokens: 0,
 +            cacheWriteTokens: 0,
-@@ -94 +195 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -94 +197 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    };
 +    }, options, control, durationMs);
-@@ -110,0 +212 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -110,0 +214,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      execution: executionEvidence(options.execution),
-@@ -112,0 +215 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++      ...(options.outputContract ? { outputContract: options.outputContract } : {}),
+@@ -112,0 +218 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +      termination: { reason: "process-error", usageState: "unknown" },
-@@ -126,0 +230,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -126,0 +233,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 +        cacheReadTokens: 0,
 +        cacheWriteTokens: 0,
-@@ -141 +246 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -141 +249 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -    return result;
 +    return applyControlTermination(result, options, control, durationMs);
-@@ -148,5 +253,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+@@ -148,5 +256,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
 -export async function executeParallel(options: {
 -  tasks: Array<{ agent: string | undefined; agentConfig: AgentConfig | undefined; task: string; model: string | undefined; activeModel: string | undefined; cwd: string | undefined }>;
 -  signal: AbortSignal | undefined;
@@ -326,17 +345,17 @@ index f41835a..d86ffd2 100644
 +  options: ParallelExecuteOptions,
 +  runner: (options: ExecuteOptions) => Promise<SubagentResult> = executeSubagent,
 +): Promise<SubagentResult[]> {
-@@ -165,0 +270,2 @@ export async function executeParallel(options: {
+@@ -165,0 +273,2 @@ export async function executeParallel(options: {
 +    cacheReadTokens: 0,
 +    cacheWriteTokens: 0,
-@@ -175 +281,5 @@ export async function executeParallel(options: {
+@@ -175 +284,5 @@ export async function executeParallel(options: {
 -    model: taskDef.model,
 +    model: resolveEffectiveModel({
 +      agent: taskDef.agentConfig,
 +      model: taskDef.model,
 +      activeModel: taskDef.activeModel,
 +    }),
-@@ -180 +290 @@ export async function executeParallel(options: {
+@@ -180 +293 @@ export async function executeParallel(options: {
 -      executeSubagent({
 +      runner({
 diff --git a/src/execution-profile.ts b/src/execution-profile.ts
@@ -700,7 +719,7 @@ index 07868e1..8c20a4e 100644
 -  state.finalOutput = allText.length > 0 ? allText.join("\n\n") : undefined;
 +  state.finalOutput = assistantText(lastAssistant);
 diff --git a/src/index.ts b/src/index.ts
-index 964ea7f..bb41624 100644
+index 964ea7f..1fd40cd 100644
 --- a/src/index.ts
 +++ b/src/index.ts
 @@ -1 +1 @@
@@ -716,16 +735,19 @@ index 964ea7f..bb41624 100644
 +import { resolveConfiguredLimits, validateDispatchPolicy } from "./dispatch-policy.js";
 +import { executeSubagent, executeParallel, aggregateUsage } from "./execute.js";
 +import { resolveChildExecution } from "./execution-profile.js";
-@@ -8,0 +12,5 @@ import { validateModel, firstError } from "./model-validation.js";
+@@ -8,0 +12,6 @@ import { validateModel, firstError } from "./model-validation.js";
 +import {
 +  MAX_SUBAGENT_DURATION_MS,
 +  SUBAGENT_EXECUTION_MODES,
++  SUBAGENT_OUTPUT_CONTRACTS,
 +  SUBAGENT_THINKING_LEVELS,
 +} from "./types.js";
-@@ -15,0 +24,2 @@ import type {
+@@ -10,0 +20 @@ import type {
++  SubagentOutputContract,
+@@ -15,0 +26,2 @@ import type {
 +const PARALLEL_OUTPUT_MAX_CHARS = 12_000;
 +
-@@ -17,0 +28,16 @@ import type {
+@@ -17,0 +30,19 @@ import type {
 +const SubagentLimitsSchema = Type.Object({
 +  maxProviderRequests: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum provider requests for this child" })),
 +  maxToolCalls: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum tool calls for this child" })),
@@ -741,25 +763,30 @@ index 964ea7f..bb41624 100644
 +const ThinkingLevelSchema = StringEnum(SUBAGENT_THINKING_LEVELS, {
 +  description: "Child thinking level. Agent frontmatter wins, then task-level, then top-level thinking.",
 +});
++const OutputContractSchema = StringEnum(SUBAGENT_OUTPUT_CONTRACTS, {
++  description: "Caller-supplied result transport label; Archimedes reports but does not evaluate it.",
++});
 +
-@@ -24,0 +51,3 @@ const TaskItem = Type.Object({
+@@ -24,0 +56,4 @@ const TaskItem = Type.Object({
 +  limits: Type.Optional(SubagentLimitsSchema),
 +  mode: Type.Optional(ExecutionModeSchema),
 +  thinking: Type.Optional(ThinkingLevelSchema),
-@@ -45,0 +75,3 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
++  outputContract: Type.Optional(OutputContractSchema),
+@@ -45,0 +81,4 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
 +  limits: Type.Optional(SubagentLimitsSchema),
 +  mode: Type.Optional(ExecutionModeSchema),
 +  thinking: Type.Optional(ThinkingLevelSchema),
-@@ -47,0 +80,2 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
++  outputContract: Type.Optional(OutputContractSchema),
+@@ -47,0 +87,2 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
 +type SubagentParams = Static<typeof SUBAGENT_PARAMS_SCHEMA>;
 +
-@@ -57,0 +92,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -57,0 +99,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +  if (process.env.PI_SUBAGENT_SOCKET) return;
 +
-@@ -62 +98 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -62 +105 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Model override is rarely needed; the agent config or parent model is used by default.",
 +      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Use mode 'one-shot' for one isolated response from a complete packet. Model override is rarely needed; the agent config or parent model is used by default.",
-@@ -67,8 +103 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -67,8 +110 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -      params: {
 -        agent?: string;
 -        task?: string;
@@ -769,7 +796,7 @@ index 964ea7f..bb41624 100644
 -        async?: boolean;
 -      },
 +      params: SubagentParams,
-@@ -79,0 +109,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -79,0 +116,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +      let config;
 +      let configuredLimits;
 +      try {
@@ -778,7 +805,7 @@ index 964ea7f..bb41624 100644
 +      } catch (error) {
 +        return policyError(params.tasks?.length ? "parallel" : "single", error);
 +      }
-@@ -82,0 +120,24 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -82,0 +127,24 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +        let taskPlans;
 +        try {
 +          taskPlans = params.tasks.map((task) => {
@@ -803,22 +830,22 @@ index 964ea7f..bb41624 100644
 +          return policyError("parallel", error);
 +        }
 +
-@@ -87,3 +148,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -87,3 +155,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -        const unknownAgents = params.tasks
 -          .filter((t) => t.agent && !findAgent(agents, t.agent!))
 -          .map((t) => `"${t.agent}"`);
 +        const unknownAgents = taskPlans
 +          .filter(({ task, agentConfig }) => task.agent && !agentConfig)
 +          .map(({ task }) => `"${task.agent}"`);
-@@ -94,2 +155 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -94,2 +162 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -        const unknownAgentSet = new Set(unknownAgents.map((n) => n.replace(/"/g, '')));
 -        for (const t of params.tasks) {
 +        for (const { task, agentConfig } of taskPlans) {
-@@ -97,2 +157 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -97,2 +164 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          if (t.agent && unknownAgentSet.has(t.agent)) continue;
 -          const taskAgentConfig = t.agent ? findAgent(agents, t.agent) : undefined;
 +          if (task.agent && !agentConfig) continue;
-@@ -100,4 +159,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -100,4 +166,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -            validateModel(t.model, ctx.modelRegistry, { agentName: t.agent }),
 -            validateModel(taskAgentConfig?.model, ctx.modelRegistry, {
 -              agentName: t.agent,
@@ -827,7 +854,7 @@ index 964ea7f..bb41624 100644
 +            validateModel(agentConfig?.model, ctx.modelRegistry, {
 +              agentName: task.agent,
 +              agentFilePath: agentConfig?.filePath,
-@@ -120,5 +179,5 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -120,5 +186,5 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          tasks: params.tasks.map((t) => ({
 -            agent: t.agent ?? undefined,
 -            agentConfig: t.agent ? findAgent(agents, t.agent) : undefined,
@@ -838,19 +865,20 @@ index 964ea7f..bb41624 100644
 +            agentConfig,
 +            task: task.task,
 +            model: task.model,
-@@ -126 +185,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -126 +192,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -            cwd: t.cwd ?? undefined,
 +            cwd: task.cwd ?? undefined,
 +            execution,
-@@ -142 +202,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
++            outputContract: (task.outputContract ?? params.outputContract) as SubagentOutputContract | undefined,
+@@ -142 +210,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          content: [{ type: "text", text: formatResultsSummary(results) }],
 +          content: [
 +            { type: "text", text: formatResultsSummary(results) },
 +            ...formatParallelOutputs(results),
 +          ],
-@@ -151,0 +215 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -151,0 +223 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +          usage: aggregateUsage(results),
-@@ -185,0 +250,13 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -185,0 +258,13 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +        let execution;
 +        try {
 +          execution = resolveChildExecution({
@@ -864,14 +892,15 @@ index 964ea7f..bb41624 100644
 +        } catch (error) {
 +          return policyError("single", error);
 +        }
-@@ -193,0 +271 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -193,0 +279,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +          execution,
-@@ -207 +285 @@ export function registerSubagent(pi: ExtensionAPI): void {
++          outputContract: params.outputContract as SubagentOutputContract | undefined,
+@@ -207 +294 @@ export function registerSubagent(pi: ExtensionAPI): void {
 -          content: [{ type: "text", text: result.finalOutput ?? result.error ?? "completed" }],
 +          content: [{ type: "text", text: resultOutput(result) }],
-@@ -213,0 +292 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -213,0 +301 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +          usage: aggregateUsage([result]),
-@@ -282,0 +362,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
+@@ -282,0 +371,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
 +function policyError(mode: "single" | "parallel", error: unknown): SubagentToolResult {
 +  return {
 +    content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
@@ -880,12 +909,12 @@ index 964ea7f..bb41624 100644
 +  };
 +}
 +
-@@ -312,0 +400,4 @@ function formatProgressSummary(progress: SubagentProgress[]): string {
+@@ -312,0 +409,4 @@ function formatProgressSummary(progress: SubagentProgress[]): string {
 +function resultOutput(result: SubagentResult): string {
 +  return result.finalOutput ?? result.error ?? "completed";
 +}
 +
-@@ -323,0 +415,29 @@ function formatResultsSummary(results: SubagentResult[]): string {
+@@ -323,0 +424,29 @@ function formatResultsSummary(results: SubagentResult[]): string {
 +function formatParallelOutputs(results: SubagentResult[]): Array<{ type: "text"; text: string }> {
 +  const messageMaxChars = Math.floor(PARALLEL_OUTPUT_MAX_CHARS / Math.max(1, results.length));
 +  const suffix = "\n[delegated output truncated]";
@@ -1330,11 +1359,14 @@ index 0000000..2007a45
 +  }
 +}
 diff --git a/src/spawn.ts b/src/spawn.ts
-index d64d741..0c8f2f5 100644
+index d64d741..66db7b3 100644
 --- a/src/spawn.ts
 +++ b/src/spawn.ts
 @@ -5,0 +6 @@ import * as path from "node:path";
 +import { fileURLToPath } from "node:url";
+@@ -7 +8 @@ import { randomUUID } from "node:crypto";
+-import { getBus, Events } from "@pi-archimedes/core/bus";
++import { getBus, Events, type AskRequestPayload } from "@pi-archimedes/core/bus";
 @@ -8,0 +10,3 @@ import type { AgentConfig } from "./agents.js";
 +import { ONE_SHOT_SYSTEM_PROMPT } from "./execution-profile.js";
 +import { encodeLimitsEnvironment, SUBAGENT_LIMITS_ENV } from "./limits.js";
@@ -1347,6 +1379,9 @@ index d64d741..0c8f2f5 100644
 +  options: Pick<SpawnOptions, "agent" | "model" | "activeModel">,
 +): string | undefined {
 +  return options.agent?.model ?? options.model ?? options.activeModel;
+@@ -141 +152 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
+-              questions: msg.questions,
++              questions: msg.questions as AskRequestPayload["questions"],
 @@ -166,0 +178,67 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
 +export function buildSubagentArgs(
 +  options: SpawnOptions,
@@ -1498,15 +1533,16 @@ index d64d741..0c8f2f5 100644
 +    if (options.signal.aborted) abortHandler();
 +    else options.signal.addEventListener("abort", abortHandler, { once: true });
 diff --git a/src/stream.ts b/src/stream.ts
-index d3a2524..1b93c34 100644
+index d3a2524..90362b6 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
 @@ -0,0 +1 @@
 +import { createHash } from "node:crypto";
-@@ -3 +4 @@ import type { ChildProcess } from "node:child_process";
+@@ -3,2 +4,6 @@ import type { ChildProcess } from "node:child_process";
 -import type { StreamState, SubagentProgress, SubagentResult } from "./types.js";
+-import { getBus, Events } from "@pi-archimedes/core/bus";
 +import type { ResolvedChildExecution, StreamState, SubagentProgress, SubagentResult } from "./types.js";
-@@ -4,0 +6,4 @@ import { getBus, Events } from "@pi-archimedes/core/bus";
++import { getBus, Events, type TodoUpdatePayload } from "@pi-archimedes/core/bus";
 +import { decodeLimitStop } from "./limits.js";
 +import { decodeOutputLimitEvidence } from "./output-limit.js";
 +import { scheduleTerminateChild } from "./spawn.js";
@@ -1746,6 +1782,9 @@ index d3a2524..1b93c34 100644
 +              }
 +            }
 +          }
+@@ -146 +313 @@ export function streamEvents(
+-                todos: todoList,
++                todos: todoList as TodoUpdatePayload["todos"],
 @@ -152,0 +320,22 @@ export function streamEvents(
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
@@ -1803,9 +1842,15 @@ index d3a2524..1b93c34 100644
 +          reason: "process-error",
 +          usageState: state.streamingOutput ? "partial" : "unknown",
 +        };
-@@ -193,0 +402 @@ export function streamEvents(
+@@ -192 +400,4 @@ export function streamEvents(
+-        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
++        ...(state.childSessionId ? {
++          childSessionId: state.childSessionId,
++          childTrace: { sessionId: state.childSessionId },
++        } : {}),
+@@ -193,0 +405 @@ export function streamEvents(
 +        provider: state.provider,
-@@ -195,9 +404,9 @@ export function streamEvents(
+@@ -195,9 +407,9 @@ export function streamEvents(
 -        usage: {
 -          input: state.totalInput,
 -          output: state.totalOutput,
@@ -1824,19 +1869,27 @@ index d3a2524..1b93c34 100644
 +        } : {}),
 +        usage: toSubagentUsage(usage, state.turnCount),
 +        finalOutput: state.finalOutput ?? observedOutput(),
-@@ -204,0 +414 @@ export function streamEvents(
+@@ -204,0 +417 @@ export function streamEvents(
 +        termination,
-@@ -212 +422 @@ export function streamEvents(
+@@ -212 +425 @@ export function streamEvents(
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
 diff --git a/src/types.ts b/src/types.ts
-index 0217f26..e5af217 100644
+index 0217f26..e73fb8e 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,78 @@
 +import type { Usage } from "@earendil-works/pi-ai";
 +
 +export const MAX_SUBAGENT_DURATION_MS = 2_147_483_647;
++
++export const SUBAGENT_OUTPUT_CONTRACTS = [
++  "inline",
++  "artifact",
++  "status-only",
++  "pass-no-findings",
++] as const;
++export type SubagentOutputContract = (typeof SUBAGENT_OUTPUT_CONTRACTS)[number];
 +
 +export const SUBAGENT_EXECUTION_MODES = ["agentic", "one-shot"] as const;
 +export type SubagentExecutionMode = (typeof SUBAGENT_EXECUTION_MODES)[number];
@@ -1863,7 +1916,7 @@ index 0217f26..e5af217 100644
 +
 +export interface SubagentExecutionProfile {
 +  mode: SubagentExecutionMode;
-+  thinking: string | undefined;
++  thinking?: string | undefined;
 +}
 +
 +export interface OutputLimitEvidence {
@@ -1875,7 +1928,7 @@ index 0217f26..e5af217 100644
 +
 +export interface ResolvedChildExecution {
 +  profile: SubagentExecutionProfile;
-+  limits: SubagentLimits | undefined;
++  limits?: SubagentLimits | undefined;
 +  outputLimit?: OutputLimitEvidence;
 +}
 +
@@ -1904,27 +1957,56 @@ index 0217f26..e5af217 100644
 +  usageState: SubagentUsageState;
 +}
 +
-@@ -6,0 +77 @@ export interface SubagentUsage {
+@@ -6,0 +85 @@ export interface SubagentUsage {
 +  costBreakdown?: Usage["cost"];
-@@ -23,0 +95,4 @@ export interface SubagentProgress {
+@@ -9,0 +89,5 @@ export interface SubagentUsage {
++export interface SubagentChildTraceRef {
++  sessionId: string;
++  traceId?: string;
++}
++
+@@ -23,0 +108,4 @@ export interface SubagentProgress {
 +  /** Current provider turn number. Optional for external progress producers. */
 +  turnCount?: number;
 +  /** Tokens observed in the current provider turn. */
 +  turnTokens?: number;
-@@ -25,0 +101,2 @@ export interface SubagentProgress {
+@@ -25,0 +114,2 @@ export interface SubagentProgress {
 +  cacheReadTokens?: number;
 +  cacheWriteTokens?: number;
-@@ -46,0 +124 @@ export interface SubagentResult {
+@@ -39,0 +130,6 @@ export interface SubagentProgress {
++export interface SubagentProgressSummary {
++  toolCount: number;
++  tokens: number;
++  durationMs: number;
++}
++
+@@ -44,0 +141,2 @@ export interface SubagentResult {
++  /** Native child trace reference; traceId is omitted when unavailable. */
++  childTrace?: SubagentChildTraceRef;
+@@ -47,5 +145,11 @@ export interface SubagentResult {
+-  model: string | undefined;
+-  finalOutput: string | undefined;
+-  error: string | undefined;
+-  progress: SubagentProgress | undefined;
+-  progressSummary: { toolCount: number; tokens: number; durationMs: number } | undefined;
 +  provider?: string | undefined;
-@@ -47,0 +126,2 @@ export interface SubagentResult {
++  model?: string | undefined;
 +  /** Effective child profile, limits, and output-limit enforcement evidence. */
 +  execution?: ResolvedChildExecution;
-@@ -49,0 +130 @@ export interface SubagentResult {
++  /** Caller-supplied transport label; Archimedes does not evaluate it. */
++  outputContract?: SubagentOutputContract;
++  finalOutput?: string | undefined;
++  error?: string | undefined;
 +  termination?: SubagentTermination;
-@@ -57,0 +139,2 @@ export interface SubagentToolResult {
++  progress?: SubagentProgress | undefined;
++  progressSummary?: SubagentProgressSummary | undefined;
+@@ -57,0 +162,2 @@ export interface SubagentToolResult {
 +  /** Nested child-model usage for Pi versions that support tool-result accounting. */
 +  usage?: Usage;
-@@ -71,5 +154,3 @@ export interface StreamState {
+@@ -63 +169 @@ export interface SubagentDetails {
+-  progress: SubagentProgress[] | undefined;
++  progress?: SubagentProgress[] | undefined;
+@@ -71,5 +177,3 @@ export interface StreamState {
 -  totalInput: number;
 -  totalOutput: number;
 -  totalCacheRead: number;
@@ -1933,14 +2015,16 @@ index 0217f26..e5af217 100644
 +  usage: Usage;
 +  turnUsage: Usage;
 +  partialUsage: Usage;
-@@ -78,0 +160 @@ export interface StreamState {
+@@ -78,0 +183 @@ export interface StreamState {
 +  provider: string | undefined;
-@@ -80,0 +163,3 @@ export interface StreamState {
+@@ -80,0 +186,3 @@ export interface StreamState {
 +  streamingOutput: string | undefined;
 +  streamingParts: Map<number, { type: "text" | "thinking"; content: string }>;
 +  outputLimit: OutputLimitEvidence | undefined;
-@@ -83,0 +169 @@ export interface StreamState {
+@@ -83,0 +192 @@ export interface StreamState {
 +  error?: string | undefined;
+@@ -85 +193,0 @@ export interface StreamState {
+-
 diff --git a/src/usage.ts b/src/usage.ts
 new file mode 100644
 index 0000000..884279c

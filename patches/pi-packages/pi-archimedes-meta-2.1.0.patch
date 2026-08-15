@@ -1,5 +1,5 @@
 diff --git a/src/config.ts b/src/config.ts
-index af85d2e..646af3d 100644
+index e0bfcfb..85179bb 100644
 --- a/src/config.ts
 +++ b/src/config.ts
 @@ -69,0 +70,16 @@ export {
@@ -21,40 +21,40 @@ index af85d2e..646af3d 100644
 +
 @@ -76,0 +93 @@ export function loadAllConfig(): {
 +  subagent: SubagentConfig;
-@@ -82,0 +100 @@ export function loadAllConfig(): {
+@@ -83,0 +101 @@ export function loadAllConfig(): {
 +    subagent: loadSubagentConfigOrDefault(),
 diff --git a/src/settings.ts b/src/settings.ts
-index 5dedf69..c555968 100644
+index ea7612c..65a3483 100644
 --- a/src/settings.ts
 +++ b/src/settings.ts
-@@ -9,0 +10 @@ import { getNotifySettingsItems } from "@pi-archimedes/notify";
+@@ -10,0 +11 @@ import { getSessionNameSettingsItems } from "@pi-archimedes/session-name";
 +import { getSubagentSettingsItems } from "@pi-archimedes/subagent/config";
-@@ -15,0 +17 @@ import {
+@@ -17,0 +19 @@ import {
 +  saveSubagentConfig,
-@@ -20,0 +23 @@ import {
+@@ -23,0 +26 @@ import {
 +  type SubagentConfig,
-@@ -62,0 +66 @@ function createNumberSubmenu(opts: {
+@@ -65,0 +69 @@ function createNumberSubmenu(opts: {
 +  allowDecimal?: boolean;
-@@ -83,2 +87,2 @@ function createNumberSubmenu(opts: {
+@@ -86,2 +90,2 @@ function createNumberSubmenu(opts: {
 -          const n = parseInt(state.value, 10);
 -          if (Number.isFinite(n) && (!opts.min || n >= opts.min)) done(String(n));
 +          const n = opts.allowDecimal ? Number.parseFloat(state.value) : Number.parseInt(state.value, 10);
 +          if (Number.isFinite(n) && (opts.min === undefined || n >= opts.min)) done(String(n));
-@@ -89 +93,5 @@ function createNumberSubmenu(opts: {
+@@ -92 +96,5 @@ function createNumberSubmenu(opts: {
 -        else if (/^\d$/.test(data)) { state.value += data; }
 +        else {
 +          const isDigit = /^\d$/.test(data);
 +          const isDecimalPoint = opts.allowDecimal && data === "." && !state.value.includes(".");
 +          if (isDigit || isDecimalPoint) state.value += data;
 +        }
-@@ -105,0 +114,4 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -109,0 +118,4 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +  const subagentConfig: SubagentConfig = {
 +    ...allConfig.subagent,
 +    defaultLimits: { ...allConfig.subagent.defaultLimits },
 +  };
-@@ -111,0 +124 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -116,0 +129 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +  const subagentItems = getSubagentSettingsItems(subagentConfig);
-@@ -154,0 +168,8 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -159,0 +173,8 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +      } else if (item.id.startsWith("subagentMax")) {
 +        item.submenu = createNumberSubmenu({
 +          label: `Enter ${item.label} (ESC to cancel):`,
@@ -63,11 +63,11 @@ index 5dedf69..c555968 100644
 +          min: 0,
 +          allowDecimal: item.id === "subagentMaxCostUsd",
 +        });
-@@ -169,0 +191 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -175,0 +197 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +  addSubmenus(subagentItems);
-@@ -175,0 +198 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -182,0 +205 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +    ...subagentItems,
-@@ -224,0 +248,8 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -235,0 +259,8 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +        // ── Subagent settings ──
 +        case "subagentMaxParallel": subagentConfig.maxParallel = Number.parseInt(newValue, 10); break;
 +        case "subagentMaxProviderRequests": subagentConfig.defaultLimits.maxProviderRequests = Number.parseInt(newValue, 10); break;
@@ -76,5 +76,5 @@ index 5dedf69..c555968 100644
 +        case "subagentMaxCostUsd": subagentConfig.defaultLimits.maxCostUsd = Number.parseFloat(newValue); break;
 +        case "subagentMaxDurationMs": subagentConfig.defaultLimits.maxDurationMs = Number.parseInt(newValue, 10); break;
 +
-@@ -230,0 +262 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -242,0 +274 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +          saveSubagentConfig(subagentConfig);

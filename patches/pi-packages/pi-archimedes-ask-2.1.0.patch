@@ -1,0 +1,18 @@
+diff --git a/src/index.ts b/src/index.ts
+index b4ca53b..2d9b449 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -269,5 +269,8 @@ export function registerAsk(pi: ExtensionAPI) {
+-		const results = questions.map((q, i) => ({
+-			id: q.id,
+-			selectedOptions: selections[i]?.selectedOptions ?? [],
+-			customInput: selections[i]?.customInput,
+-		}));
++		const results = questions.map((q, i) => {
++			const customInput = selections[i]?.customInput;
++			return {
++				id: q.id,
++				selectedOptions: selections[i]?.selectedOptions ?? [],
++				...(customInput !== undefined ? { customInput } : {}),
++			};
++		});

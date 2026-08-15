@@ -1,9 +1,9 @@
 ---
 profile_version: 1
 repository: https://github.com/danielcherubini/pi-archimedes
-last_checked_utc: 2026-08-12T12:22:39Z
-target_ref: main
-source_commit: a2bd4d6041206e9f5c0b17168a9e41749c90409d
+last_checked_utc: 2026-08-15T17:59:10Z
+target_ref: v2.1.0
+source_commit: 2ed26aa1d3301cc01a927d9409778bbd13df4798
 status: current-for-target-ref
 result_port_status: proposed-unreleased
 recheck_every_use:
@@ -20,15 +20,21 @@ source_files:
   - path: LICENSE
     sha256: 4a69dc29421e26d9c8e50a823a1255c64441020942d4d5d0ecbc2fec8ca0b823
   - path: docs/plans/README.md
-    sha256: a0fb41844379ad5dea460808b8a48a4c250a77268d672ae224b69807fe78bc4d
+    sha256: 8903a46ec98f9fca2580c457899654a41f176d3ed0f799aa668ca60ecea454b6
   - path: package.json
     sha256: e6a216a2914bd50466ed93f39dc77a75b49b15742e0a6818e0b36c5fdb4c6c02
   - path: pnpm-workspace.yaml
     sha256: 1b6fb329ddb565dfe223fbe6e95e879ccae7b59ff22d9b826c1260096760abfc
+  - path: packages/core/package.json
+    sha256: 8f22032719059ce7822a14465c330d92231abd996726e7e096e67ed8653eeea3
+  - path: packages/core/src/bus.ts
+    sha256: 013d791ce4f2c3e157545170c35988dde84465b3fe430b4f8599ff1d8f2d2c5a
+  - path: packages/core/src/bus.test.ts
+    sha256: 26924160cb42e240d7aa8a9d1c0ee4b731c9469104702aad87ce1569aa81c093
   - path: packages/subagent/package.json
-    sha256: aedd14a7e71ead7da47ff7ce23364c53d85e38295f9969e793f5199b3ee67cd9
+    sha256: 60487b3861740fa368080acbd6f575ec18bfbcebb484c02d802f46e54816cb2b
   - path: packages/subagent/README.md
-    sha256: c2713ecb8da65150ef624dfb469cf719033defe03147c1a3dc3c97a1301042df
+    sha256: 24768f9384a0f0746e41881a411f697f5148f6bca9d276d9f67309a0c889358d
   - path: .github/workflows/ci.yml
     sha256: c602b2e35ededfd4c934b2509eb5786755cca6be7e3c419b3f3e0909e11583e2
   - path: .github/workflows/release.yml
@@ -49,77 +55,100 @@ source_files:
     sha256: 1a3bbc9079aa1f1e6b9a57ed14ffc7c252f9769de339b9c63e230cb5fc90d01e
   - path: packages/subagent/src/execute.ts
     sha256: fb171ae4c86600976f4f4bbe5bac12aec82453a3fda080e1f3519c6e64cdb816
-  - path: packages/subagent/src/stream.test.ts
-    sha256: 1873f6dd78ffb8abf950c34bda0835c5e79e17f67a76bc33c541e212748bc913
+  - path: packages/subagent/src/agents.ts
+    sha256: e1f06b59245af1b6208574dcad4da0ae4fe8d7e185ed58918a052b29859d9d4d
+  - path: packages/subagent/src/agents.test.ts
+    sha256: ce19cae77b8f54415a6c4bceb9c7a1ab59b69f87cf22823d0a021dd829203b99
+  - path: packages/subagent/src/local-config.ts
+    sha256: ba7ae08321ef860d66f20daf4628159ebb8e5ee734341ad8aacca3a15651b4d5
+  - path: packages/subagent/src/local-config.test.ts
+    sha256: 5363feff2a57ddf3ed843a3e66ba05ae19363e07f76246037c55d2133705aa71
+  - path: packages/subagent/src/save-agent.test.ts
+    sha256: daa05299c368bf94469956c683fec6441c308fdd7f2f3b585f06e6dc82f7a462
 ---
 
 # danielcherubini/pi-archimedes upstream profile
 
 ## Contribution workflow
 
-- Default branch: `main`; latest stable release `v2.0.1` resolves to `bdfeea3ed77392a2d02617fa1e0d4aa5fd8317e3`. At this refresh, `main` is `a2bd4d6041206e9f5c0b17168a9e41749c90409d`, 11 commits after the release, with README/test/session-name changes and no execution-limit overlap.
-- `v2.0.1` is published, non-draft, non-prerelease, and marked latest.
-- pnpm 10 workspace; install with `corepack pnpm install --frozen-lockfile` and use package/workspace scripts.
+- Default branch and current public tag: `main` and `v2.1.0` both resolve to `2ed26aa1d3301cc01a927d9409778bbd13df4798`.
+- npm published `pi-archimedes@2.1.0`, `@pi-archimedes/subagent@2.1.0`, and `@pi-archimedes/core@2.1.0` on 2026-08-15. GitHub's latest-release API still reports v2.0.1; source tag, successful release workflow, and npm registry are the current public package evidence.
+- pnpm 10 workspace; run `corepack pnpm install --frozen-lockfile` from the repository/worktree directory, then package/workspace scripts.
 - Non-trivial work requires a committed dated plan under `docs/plans/`, plan-index maintenance, reviewer dispatch, and completion under `docs/plans/done/`.
 - Commits are logical and use repository conventional style.
-- Required candidate checks: subagent/package TypeScript, all workspace typechecks, focused Vitest, full repository tests, and diff checks.
-- No PR template, CONTRIBUTING file, CLA/DCO requirement, issue-first rule, or repository AI-contribution policy was observed at the target.
-- User permission checked 2026-08-12: upstream repository is read-only; existing user fork `stvhay/pi-archimedes` grants ADMIN. After exact approval `pi-ujpw` and OAuth-scope approval `pi-v4ge`, fork `main` was fast-forwarded without force to current upstream `main@a2bd4d6`. Recheck before remote actions.
-- Upstream `main` was unprotected and had zero open issues when checked. Fork draft CI remains a staging signal, not proof of upstream acceptance.
+- Required candidate checks: subagent/package TypeScript, all workspace typechecks, focused Vitest, full repository tests, package dry-runs, and diff checks.
+- No PR template, CONTRIBUTING file, CLA/DCO requirement, issue-first rule, or repository AI-contribution policy exists at the target.
+- Permissions rechecked 2026-08-15: upstream is read-only; existing fork `stvhay/pi-archimedes` grants ADMIN. Recheck before any remote action.
+- Upstream `main` is unprotected. It has zero open issues and one unrelated open image-paste PR (#30). Current `main@2ed26aa` CI and v2.1.0 release workflow succeeded.
 - Release/publish workflow is tag-driven and publishes packages in dependency order; PR approval does not authorize release or publication.
 
 ## Policy findings
 
-- License: MIT `LICENSE` now exists at v2.0.1, resolving the old profile gap.
-- Branch naming, commit signing, signoff, and contributor eligibility rules remain unspecified.
-- Package interface changes should update `packages/subagent/README.md`; repository-level user-visible changes should align root `README.md`.
-- `pnpm-lock.yaml` is tracked. No generated-source update rule was observed.
-- README says Node.js >=24 while CI uses Node 22; verify both project-prescribed CI shape and the local Node 24 supported environment rather than silently rewriting guidance.
+- License: MIT `LICENSE`.
+- Branch naming, commit signing, signoff, and contributor eligibility rules are unspecified.
+- Package interface changes should update `packages/subagent/README.md`; repository-level user-visible changes should align root `README.md` only when needed.
+- `pnpm-lock.yaml` is tracked. No generated-source update rule exists.
+- README says Node.js >=24 while CI uses Node 22; verify project-prescribed CI shape and local Node 24 rather than changing guidance.
 
 ## Coding style
 
 **Confidence:** high
-**Evidence checked:** v2.0.1 source files listed above, current release metadata, CI/release workflows, and clean subagent baseline.
+**Evidence checked:** v2.1.0 source files listed above, release metadata, workflows, and clean baseline.
 
-- TypeScript ESM with explicit exported result/config types and additive optional compatibility fields.
+- TypeScript ESM with relative intra-package imports, public cross-package subpaths, explicit exported result/config types, and additive optional compatibility fields.
 - Existing architecture runs each worker as a fresh `pi --mode json --no-session -p` child process.
-- Preserve process arguments, environment inheritance, Windows `process.execPath`/`windowsHide`, abort behavior, socket cleanup, progress shape, parallel result ordering, model labels, child session correlation, and cost/usage reporting.
-- Compact and expanded renderers both show `progress.model ?? result.model`; upstream already satisfies the model-label requirement for agentic execution and supplies the seam one-shot should reuse.
-- Tests use Vitest, focused synthetic child streams, and package-level typechecks.
-- Plan and implementation/documentation commits remain separate logical units when repository workflow requires them.
+- Preserve process arguments, environment inheritance, Windows `process.execPath`/`windowsHide`, abort behavior, socket cleanup, progress shape, parallel result ordering, model labels, child session correlation, and usage reporting.
+- v2.1.0 adds local JSON thinking overrides in `agents.ts`; public agent-model resolution must reuse `discoverAgents` so those overrides remain authoritative.
+- Tests use Vitest, synthetic child streams, and package-level typechecks.
+- Plan and implementation/documentation changes should remain coherent and reviewable.
 
 ## Current baseline evidence
 
-At upstream `main@a2bd4d6` on 2026-08-12 with Node 24.15.0 and repository-pinned pnpm 10.0.0:
+At `v2.1.0@2ed26aa` on 2026-08-15 with Node 24.15.0 and repository-pinned pnpm 10.0.0:
 
-- `corepack pnpm install --frozen-lockfile` — PASS
-- `corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit` — PASS
-- `corepack pnpm -r exec -- tsc --noEmit` — PASS
-- `corepack pnpm --filter @pi-archimedes/subagent exec vitest run` — PASS, 91 tests
-- `corepack pnpm test` — PASS, 572 tests
-- Clean worktree after checks — PASS
+- `corepack pnpm install --frozen-lockfile` — PASS (from worktree cwd; invoking Corepack from another repository selected the wrong package manager and was rejected before install).
+- `corepack pnpm --filter @pi-archimedes/subagent exec tsc --noEmit` — PASS.
+- `corepack pnpm -r exec -- tsc --noEmit` — PASS.
+- `corepack pnpm --filter @pi-archimedes/subagent exec vitest run` — PASS, 112 tests.
+- `corepack pnpm test` — PASS, 593 tests.
+- Clean worktree after checks — PASS.
 
-## Current fork-draft evidence
+## Current fork-draft state
 
-Verified on 2026-08-12 after normal fast-forward pushes; all three PRs remain fork-local, OPEN+DRAFT, cleanly mergeable, and without review requests. No corresponding upstream PR exists.
+Rechecked 2026-08-15. All three fork-local PRs remain OPEN+DRAFT and report mergeable, with no review requests or status checks. Their last fresh candidate matrices were recorded on 2026-08-12; current work rebuilds new local candidates rather than rewriting these remote branches.
 
-| PR | Base | Head | Fresh candidate checks | Public-safe evidence |
-|---|---|---|---|---|
-| `stvhay/pi-archimedes#1` | `main@a2bd4d6` | `feat/subagent-execution-limits@2315b2e` | subagent TypeScript PASS; workspace TypeScript PASS; 185 subagent tests PASS; 666 monorepo tests PASS; diff check PASS | Body records a 10-request child ceiling with parent completion/result visibility. |
-| `stvhay/pi-archimedes#2` | `feat/subagent-execution-limits@2315b2e` | `feat/subagent-one-shot-mode-stacked@8090d0c` | subagent TypeScript PASS; workspace TypeScript PASS; 229 subagent tests PASS; 710 monorepo tests PASS; focused output-limit suite 54 tests PASS; diff check PASS | Includes deployed exact effective-ceiling fix without repeated-error code. Body records failed provider-length classification with usable partial output/usage retained, without publishing content or private identifiers. |
-| `stvhay/pi-archimedes#3` | `feat/subagent-execution-limits@2315b2e` | `fix/subagent-repeated-errors@47e30b7` | subagent TypeScript PASS; workspace TypeScript PASS; 203 subagent tests PASS; 684 monorepo tests PASS; diff check PASS | Body claims synthetic threshold/boundary tests only and explicitly records no live repeated-error recurrence. |
+| PR | Base | Remote head | State |
+|---|---|---|---|
+| `stvhay/pi-archimedes#1` | `main` | `feat/subagent-execution-limits@2315b2e` | Open draft; based on prior `main@a2bd4d6`. |
+| `stvhay/pi-archimedes#2` | `feat/subagent-execution-limits` | `feat/subagent-one-shot-mode-stacked@8090d0c` | Open draft; stacked on prior limits head. |
+| `stvhay/pi-archimedes#3` | `feat/subagent-execution-limits` | `fix/subagent-repeated-errors@47e30b7` | Open draft; stacked on prior limits head. |
+
+## Local v2.1.0 candidates
+
+Built locally from immutable `v2.1.0@2ed26aa` without rewriting existing fork histories or mutating remotes:
+
+| Candidate | Head | Predecessor |
+|---|---|---|
+| `rebuild/subagent-execution-limits-210` | `23d8fbf7381f2081806165e26d6b0962aef13ef9` | `2ed26aa1d3301cc01a927d9409778bbd13df4798` |
+| `rebuild/subagent-one-shot-mode-210` | `f277470d64d014b496efe7e4ae4d57275d8e1907` | `23d8fbf7381f2081806165e26d6b0962aef13ef9` |
+| `rebuild/subagent-repeated-errors-210` | `3576ddfd154fb274813a16e07607a15520ce73b7` | `f277470d64d014b496efe7e4ae4d57275d8e1907` |
+| `feat/result-ports-210` | `a9efbf159ee8b2717aae1df8742bd7382e97c1a3` | `3576ddfd154fb274813a16e07607a15520ce73b7` |
+| `vendor/pi-setup-210` | `1c4750ddb844cd8579f3076922603915098e9f96` | `a9efbf159ee8b2717aae1df8742bd7382e97c1a3` |
+
+Each row is exactly one commit above its predecessor. Final vendor verification passed all recursive TypeScript checks, 271 focused subagent tests, 754 workspace tests, and npm package previews. Exact npm 2.1.0 bases accepted the zero-context projection, idempotent reapply, reverse dry-runs, and public `./agents`, `./types`, and `./bus` imports under Pi's Jiti runtime.
 
 ## Proposed result ports
 
 - Normative proposal: `.pi/plans/2026-08-15-pi-archimedes-result-port-contract.md`.
-- Target: this repository's `main` branch and public package subpaths `@pi-archimedes/subagent/types`, `@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`; no upstream issue, plan, branch, commit, PR, tag, or publication is authorized by the proposal.
-- Required public result evidence covers output contracts, resolved limits, termination, usage, final output, child session/trace refs, ordered `details.results[]`, and the enclosing Pi tool-result type. The existing Pi `tool_result` remains transport; no result bus or service is proposed.
-- The public agent seam resolves only a named agent's configured model, and the typed bus surface exposes current UI/cost payloads. pi-setup keeps routing, billing classification, authority, Bead closeout, acceptance, and quality policy.
-- No released package set currently satisfies this contract. Q19R must record exact npm package versions, tarball integrity/provenance, reviewed source commit and tag, published `"./types"`, `"./agents"`, and `"./bus"` exports and declarations, and passing installed-package contract tests before Q21 adoption.
+- Target: public subpaths `@pi-archimedes/subagent/types`, `@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`; no upstream mutation is authorized by the proposal.
+- Required public result evidence covers output contracts, resolved limits, termination, usage, final output, child session/trace refs, ordered `details.results[]`, and the enclosing Pi tool-result type. Pi `tool_result` remains the only result transport.
+- Agent resolution returns only configured model. Typed bus exports current UI/cost payloads. pi-setup keeps routing, billing, authority, closeout, acceptance, persistence, and quality policy.
+- No released package set currently satisfies this contract. `pi-rxo3.24` local candidates and patches are not release evidence.
 
 ## PR implications
 
-- Public additions must remain minimal, additive, documented, and tested for invalid inputs, Windows spawn, ordering, abort/cleanup, model rendering, output/usage preservation, and progress compatibility.
-- Upstream v2.0.1 already includes child session IDs and model labels; omit duplicate candidate code.
-- Use repository pnpm commands and keep reviewer-facing PR prose free of pi-setup projection mechanics.
-- Profile is current for `main@a2bd4d6`; refresh again before any upstream draft creation or when that ref changes.
+- Rebuild from `v2.1.0@2ed26aa`; do not rewrite existing fork-draft histories during hardening.
+- Keep public additions minimal, additive, documented, and tested for invalid inputs, Windows spawn, ordering, abort/cleanup, model rendering, output/usage preservation, and progress compatibility.
+- Preserve v2.1.0 child session/model and local thinking-override behavior; omit duplicate candidate code.
+- Use repository pnpm commands and keep reviewer-facing prose free of pi-setup projection mechanics.
+- Profile is current for `v2.1.0@2ed26aa`; refresh before upstream draft creation or when target ref changes.
