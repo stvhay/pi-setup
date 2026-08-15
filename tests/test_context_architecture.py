@@ -195,6 +195,23 @@ def test_quality_kernel_remains_cli_only_without_scheduler_or_service():
         assert forbidden not in source
 
 
+def test_quality_apply_replaces_improve_promote_mutation_cli():
+    improvement = (AGENT / "bin" / "agnt_lib" / "improvement.py").read_text(encoding="utf-8")
+    promote_parser = improvement.split('sub.add_parser("promote"', 1)[1].split("args = parser.parse_args", 1)[0]
+    docs = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            AGENT / "bin" / "README.md",
+            ROOT / "docs" / "SELF-IMPROVEMENT.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+        )
+    )
+
+    assert 'promote.add_argument("--apply"' not in promote_parser
+    assert "improve promote" not in docs
+    assert "no scheduler" in docs.lower()
+
+
 def test_control_plan_owns_quality_skill_triggers_and_receivers():
     plan = json.loads((AGENT / "quality" / "control-plan.json").read_text(encoding="utf-8"))
     activities = {activity["id"]: activity for activity in plan["activities"]}

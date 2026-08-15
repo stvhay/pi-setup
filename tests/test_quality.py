@@ -2774,3 +2774,237 @@ def test_canary_incomplete_or_mismatched_execution_proof_revokes_claim(tmp_path)
 
     assert result["status"] == "revoked"
     assert result["reason"] in {"evidence-incomplete", "evidence-mismatched"}
+
+
+def _autonomous_plan(tmp_path):
+    plan = deepcopy(quality.load_control_plan())
+    plan["mode"] = "autonomous"
+    plan["policyVersion"] = "autonomous-v1"
+    path = tmp_path / "autonomous-control-plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    return path
+
+
+def _autonomous_grant():
+    return {
+        **_capability_grant(),
+        "action": "create-bead",
+        "effects": ["update_beads"],
+        "proof": {
+            "required": ["bead-readback"],
+            "evidenceRefs": ["artifact:bead-pi-grant.1"],
+        },
+    }
+
+
+def _autonomous_snapshot():
+    grant = _autonomous_grant()
+    return {
+        **_snapshot(),
+        "evidenceRefs": ["artifact:bead-pi-grant.1"],
+        "authorizationEvidence": ["artifact:bead-pi-grant.1"],
+        "riskRequest": _risk_request(
+            requestedMode="autonomous",
+            resourceSharePercent=7,
+        ),
+        "authority": {
+            "decisionBead": "pi-grant.1",
+            "grantFingerprint": quality.capability_grant_fingerprint(grant),
+            "allowedEffects": ["update_beads"],
+        },
+        "effect": {
+            "action": "create-bead",
+            "effects": ["update_beads"],
+            "reversibility": "bounded",
+        },
+        "work": {
+            "title": "Investigate repeated verification failures",
+            "description": "Review sanitized aggregate and apply bounded correction.",
+            "acceptance": "Verification failure no longer recurs in matched work.",
+            "labels": ["continuous-improvement", "quality:work-learning"],
+        },
+    }
+
+
+def _autonomous_resolver(_decision):
+    grant = _autonomous_grant()
+    return {
+        "schemaVersion": 1,
+        "decisionBead": "pi-grant.1",
+        "status": "active",
+        "grant": {**grant, "revocation": {"status": "active", "reason": None, "at": None}},
+        "grantFingerprint": quality.capability_grant_fingerprint(grant),
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": ["update_beads"],
+    }
+
+
+def test_inv16_autonomous_assessment_is_receipt_bound_and_derives_one_public_work_target(
+    tmp_path,
+):  # Tests INV-16
+    plan_path = _autonomous_plan(tmp_path)
+
+    first = quality.assess(
+        _autonomous_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    second = quality.assess(
+        _autonomous_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+
+    assert first == second
+    assert first["mode"] == "autonomous"
+    packet = first["workPacket"]
+    assert packet["work"] == _autonomous_snapshot()["work"]
+    assert packet["target"]["kind"] == "quality-bead"
+    assert packet["target"]["fingerprint"] == quality._fingerprint(packet["work"])
+    assert packet["executionEvidence"] == [f"artifact:bead-{packet['target']['id']}"]
+    assert packet["executionEvidence"][0] in packet["evidenceRefs"]
+    assert len((tmp_path / quality.RECEIPTS_NAME).read_text().splitlines()) == 1
+
+
+def test_inv16_autonomous_apply_creates_or_deduplicates_one_sanitized_bead(
+    tmp_path,
+):  # Tests INV-16
+    plan_path = _autonomous_plan(tmp_path)
+    receipt = quality.assess(
+        _autonomous_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    beads = {"pi-grant.1": {"id": "pi-grant.1"}}
+    creates = []
+
+    def beads_runner(args):
+        if args[0] == "show":
+            bead = beads.get(args[1])
+            return (0, bead, "") if bead else (1, None, "not found")
+        assert args[0] == "create"
+        creates.append(list(args))
+        bead_id = args[args.index("--id") + 1]
+        beads[bead_id] = {
+            "id": bead_id,
+            "title": args[1],
+            "description": args[args.index("--description") + 1],
+            "acceptance_criteria": args[args.index("--acceptance") + 1],
+            "labels": args[args.index("--labels") + 1].split(","),
+        }
+        return 0, {"id": bead_id}, ""
+
+    first = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_autonomous_resolver,
+        beads_runner=beads_runner,
+    )
+    second = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_autonomous_resolver,
+        beads_runner=beads_runner,
+    )
+
+    assert first == second
+    assert first["status"] == "applied"
+    assert first["executionEvidence"] == receipt["workPacket"]["executionEvidence"]
+    assert len(creates) == 1
+    serialized = json.dumps(beads[receipt["workPacket"]["target"]["id"]], sort_keys=True)
+    for private in ("session", "trace", "https://", str(tmp_path)):
+        assert private not in serialized.lower()
+
+
+def test_fail14_autonomous_public_work_rejects_private_or_unsafe_text(tmp_path):  # Tests FAIL-14
+    snapshot = _autonomous_snapshot()
+    snapshot["work"]["description"] = "Inspect https://private.example/session/123"
+
+    with pytest.raises(ValueError, match="public work"):
+        quality.assess(
+            snapshot,
+            "work-learning",
+            directory=tmp_path,
+            plan_path=_autonomous_plan(tmp_path),
+        )
+
+
+def test_fail14_autonomous_public_work_rejects_unpersisted_fields(tmp_path):  # Tests FAIL-14
+    snapshot = _autonomous_snapshot()
+    snapshot["work"]["category"] = "coordination-error"
+
+    with pytest.raises(ValueError, match="public work fields"):
+        quality.assess(
+            snapshot,
+            "work-learning",
+            directory=tmp_path,
+            plan_path=_autonomous_plan(tmp_path),
+        )
+
+
+def test_inv16_autonomous_create_collision_deduplicates_matching_bead(tmp_path):  # Tests INV-16
+    plan_path = _autonomous_plan(tmp_path)
+    receipt = quality.assess(
+        _autonomous_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    target = receipt["workPacket"]["target"]
+    work = receipt["workPacket"]["work"]
+    beads = {"pi-grant.1": {"id": "pi-grant.1"}}
+    create_calls = 0
+
+    def beads_runner(args):
+        nonlocal create_calls
+        if args[0] == "show":
+            bead = beads.get(args[1])
+            return (0, bead, "") if bead else (1, None, "not found")
+        create_calls += 1
+        beads[target["id"]] = {
+            "id": target["id"],
+            **work,
+            "acceptance_criteria": work["acceptance"],
+        }
+        return 1, None, "already exists"
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_autonomous_resolver,
+        beads_runner=beads_runner,
+    )
+
+    assert result["status"] == "applied"
+    assert create_calls == 1
+
+
+def test_inv16_scheduler_result_classes_are_stable_and_expose_gaps():  # Tests INV-16
+    receipt = {
+        "receiptId": "quality-receipt",
+        "gaps": ["review-context-unavailable"],
+    }
+
+    assert quality.scheduler_result(receipt, {"status": "not-due"}) == {
+        "status": "not-due",
+        "resultClass": "no-op",
+        "gaps": ["review-context-unavailable"],
+    }
+    assert quality.scheduler_result(receipt, {"status": "observed"})["resultClass"] == "review"
+    assert quality.scheduler_result(receipt, {"status": "applied"})["resultClass"] == "applied"
+    human = quality.scheduler_result(
+        receipt,
+        {"status": "blocked", "reason": "grant-unavailable"},
+    )
+    assert human["resultClass"] == "human"
+    assert human["gaps"] == ["review-context-unavailable", "grant-unavailable"]
+    assert quality.scheduler_result(
+        {**receipt, "gaps": []},
+        {"status": "blocked", "reason": "policy-mismatch"},
+    )["resultClass"] == "blocked"

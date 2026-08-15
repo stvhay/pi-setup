@@ -3804,6 +3804,10 @@ def test_promote_preview_contains_only_exact_public_bead_and_approval_text(tmp_p
         "acceptance": "- A deterministic regression case passes.",
         "labels": ["continuous-improvement", "coordination-error", "human-approved"],
     }
+    assert summary["work"] == {
+        key: summary["bead"][key]
+        for key in ("title", "description", "acceptance", "labels")
+    }
     assert summary["approvalPreview"]["scope"].endswith(improvement.render_public_bead(summary["bead"]))
     output = json.dumps(summary)
     for private in ("private-session", "private-trace", "finding-0123456789ab", "private-model"):

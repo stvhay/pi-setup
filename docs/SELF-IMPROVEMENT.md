@@ -184,8 +184,8 @@ agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --dry-r
 agnt improve scan --since <ISO> --until <ISO> --limit 5 --max-traces 500 --json
 agnt improve review <report> <result>          # validate assignment-bound result
 agnt improve review <report> <result> --apply  # private session markers
-agnt improve promote <report> <result> --finding <id>          # preview
-agnt improve promote <report> <result> --finding <id> --apply  # approved Bead
+agnt quality assess --activity work-learning --snapshot <json> --json
+agnt quality apply --receipt <receipt-id> --json               # granted public work
 ```
 
 `link` appends an idempotent local `invocation` row containing only bounded
@@ -357,11 +357,12 @@ giving the new private finding a `relatedFindingId` from the packet's matched
 monitoring list. `review --apply` checks the implementation boundary and cohort,
 writes idempotent private Langfuse markers, and updates private monitoring state.
 It never updates public work. Recurrent follow-up uses the new finding's normal
-`promote` preview and exact human-approval gate.
+receipt-bound quality assessment and exact capability grant.
 
-`promote` accepts only allowlisted, generalized text and requires durable
-approval of the exact preview before creating a committed Bead. Private trace
-IDs, URLs, user content, excerpts, and absolute paths never enter the Bead.
+Legacy promotion preview remains a non-mutating import adapter. Public creation
+accepts only allowlisted, generalized work content and runs through `quality
+apply` with exact `create-bead` + `update_beads` authority. Private trace IDs,
+URLs, user content, excerpts, and absolute paths never enter the Bead.
 
 ### 6. Settled-cohort and upstream monitor
 
@@ -393,8 +394,8 @@ bd search --notes-contains "<public-safe signature>" --status all
 
 Link recurrence to matching work instead of creating a duplicate; create new work
 only when all three searches and inspection show no existing owner. Scans and
-reviews never change policy or code automatically, and public promotion still
-requires exact approval.
+reviews never change policy or code automatically; receipt-bound public work still
+requires an exact active capability grant.
 
 Check upstream adoption separately from telemetry using primary package/PR state:
 
@@ -449,7 +450,9 @@ New packets emit one activity label only: `quality:capture`,
 `maintenance:lessons-harvest` labels remain read-compatible for checkpoint and
 open-duplicate detection; no new work emits them.
 
-Current tracked policy is observe-only: it writes at most one private assignment with empty allowed effects. A separately reviewed canary policy may be used by a programmatic caller to dispatch one bounded reversible packet only through an existing action/work adapter after exact Beads grant, target, fresh authorization evidence, required execution evidence, proof, budget, and stop-rule checks; CLI has no implicit dispatcher. It never edits workspace directly, creates a competing authority store, or enables autonomous mode; follow-up work still uses normal Beads and approval paths.
+Current tracked policy remains observe-only: it writes at most one private assignment with empty allowed effects. Separately reviewed `canary` and `autonomous` policies may dispatch one bounded packet through existing adapters after exact Beads grant, target, fresh authorization evidence, required execution evidence, proof, and budget checks. Autonomous `create-bead` + `update_beads` packets carry validated public work, derive a deterministic Bead target and execution-evidence ref, then create or deduplicate that exact Bead through the Beads adapter. Other effects still require an injected existing dispatcher. The kernel never edits workspace files or creates a competing authority store.
+
+External callers receive `resultClass` (`no-op`, `review`, `human`, `applied`, or `blocked`) plus explicit gaps from assess/apply JSON. Signal triggers come from durable collection; periodic backstop snapshots come from the caller. Caller owns cadence and retry policy. Repository contains no scheduler, sleep, poll, loop, daemon, or service.
 
 Canary effects use `claims.jsonl` as one durable claim/dispatch/settle state machine. Claim and terminal append hold short private locks; adapter dispatch and one-time execution-evidence resolution run outside them with an explicit `claimId` token carrying the exact required proof labels. Dispatcher signatures must expose a second positional or keyword-only claim-token parameter; tokenless or uninspectable adapters fail before claim. Existing work/run adapters accept that token as `claimContext`, preserve it under invocation `provenance` and result artifacts, and resolve the exact active durable claim before execution. They then map quality action `edit` to run action `implement` (`implement`, `review`, `verify`, `plan`, `research`, and `finish` otherwise map identically), map quality effect `workspace.write` to run effect `edit_files` (current run effect IDs otherwise map identically), and require exact effect-set equality. Target binding requires `targetFingerprint` to equal SHA-256 of compact sorted-key JSON containing schema version 1, work item/Bead, worktree snapshot, and ordered invocation input refs. Selected model and thinking must equal the grant, actual worker tools must stay within its toolset, and local revocation must be checked in the same claim store. Unknown mappings, duplicates, extra effects, or action/effect/target/model/thinking/toolset/revocation mismatch block before worker execution; ownership is never inferred from process-global state. Terminal states are `dispatched`, `failed`, `uncertain`, and `revoked`; a hard process kill may leave `claimed`, which is unresolved. There is no stale-claim retry or reaper: `claimed`, `uncertain`, and `revoked` claims fail closed, and a receipt is attempted at most once. Noncritical `failed` claims consume a grant-scoped error budget keyed by exact decision Bead plus grant fingerprint; later receipts can proceed only while that budget and rollout allowance remain. Exactly-once external effects require the adapter to use `claimId` as an idempotency key or equivalent transaction boundary.
 

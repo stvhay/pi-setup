@@ -27,8 +27,11 @@ from .quality import (
     SessionUnassigned,
     SessionWorkItemConflict,
     current_session_id,
+    quality_work_target,
     session_handoff_source,
     session_work_item,
+    validate_claim_token,
+    validate_public_work,
 )
 from .integration import integrate_local_commit
 from .worktree_policy import worktree_snapshot_for_bead
@@ -51,6 +54,94 @@ def run_beads_json(args: List[str]) -> tuple[int, Any, str]:
         return proc.returncode, json.loads(proc.stdout or "null"), proc.stderr
     except json.JSONDecodeError as exc:
         return 1, None, f"beads output was not JSON: {exc}"
+
+
+def resolve_quality_bead_evidence(
+    ref: str,
+    *,
+    beads_runner: Callable[[List[str]], tuple[int, Any, str]] | None = None,
+) -> Dict[str, Any] | None:
+    prefix = "artifact:bead-"
+    bead_id = ref.removeprefix(prefix) if isinstance(ref, str) and ref.startswith(prefix) else ""
+    if not BEAD_ID.fullmatch(bead_id):
+        return None
+    code, data, _error = (beads_runner or run_beads_json)(["show", bead_id])
+    bead = normalize_bead(data) if code == 0 else None
+    if not bead or bead.get("id") != bead_id:
+        return None
+    return {"ref": ref, "exists": True, "fresh": True}
+
+
+def _quality_bead_matches(bead: Dict[str, Any] | None, work: Dict[str, Any], bead_id: str) -> bool:
+    if not bead or bead.get("id") != bead_id:
+        return False
+    acceptance = bead.get("acceptance_criteria", bead.get("acceptanceCriteria"))
+    labels = bead.get("labels")
+    return (
+        bead.get("title") == work["title"]
+        and bead.get("description") == work["description"]
+        and acceptance == work["acceptance"]
+        and isinstance(labels, list)
+        and len(labels) == len(work["labels"])
+        and set(labels) == set(work["labels"])
+    )
+
+
+def create_quality_bead(
+    packet: Dict[str, Any],
+    claim_context: Dict[str, Any],
+    *,
+    beads_runner: Callable[[List[str]], tuple[int, Any, str]] | None = None,
+) -> Dict[str, Any]:
+    token = validate_claim_token(claim_context)
+    work = validate_public_work(packet.get("work"))
+    target = quality_work_target(work)
+    expected_ref = f"artifact:bead-{target['id']}"
+    if (
+        packet.get("target") != target
+        or token["targetFingerprint"] != target["fingerprint"]
+        or token.get("executionEvidence") != [expected_ref]
+        or token["action"] != "create-bead"
+        or token["effects"] != ["update_beads"]
+    ):
+        raise ValueError("quality Bead claim context is invalid")
+    runner = beads_runner or run_beads_json
+    code, data, _error = runner(["show", target["id"]])
+    existing = normalize_bead(data) if code == 0 else None
+    if existing is not None and not _quality_bead_matches(existing, work, target["id"]):
+        return {"status": "unknown", "drift": True, "evidenceRefs": []}
+    if existing is None:
+        code, data, _error = runner([
+            "create",
+            work["title"],
+            "--id",
+            target["id"],
+            "--type",
+            "task",
+            "--priority",
+            "2",
+            "--labels",
+            ",".join(work["labels"]),
+            "--description",
+            work["description"],
+            "--acceptance",
+            work["acceptance"],
+        ])
+        created = normalize_bead(data) if code == 0 else None
+        if created is not None and created.get("id") != target["id"]:
+            return {"status": "unknown", "evidenceRefs": []}
+        code, data, _error = runner(["show", target["id"]])
+        existing = normalize_bead(data) if code == 0 else None
+        if not _quality_bead_matches(existing, work, target["id"]):
+            return {"status": "unknown", "evidenceRefs": []}
+    return {
+        "status": "succeeded",
+        "claimId": token["claimId"],
+        "targetFingerprint": token["targetFingerprint"],
+        "effects": list(token["effects"]),
+        "executionEvidence": [expected_ref],
+        "proof": list(token.get("requiredProof") or []),
+    }
 
 
 def select_next_ready(items: Any) -> Dict[str, Any] | None:

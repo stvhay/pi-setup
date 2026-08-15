@@ -2474,7 +2474,14 @@ def promote_finding(
     monitoring = _new_monitoring_state(packet, session)
     approval_preview = _promotion_approval_preview(bead)
     if not apply:
-        return {"schemaVersion": 1, "status": "preview", "bead": bead, "approvalPreview": approval_preview}
+        work = {key: bead[key] for key in ("title", "description", "acceptance", "labels")}
+        return {
+            "schemaVersion": 1,
+            "status": "preview",
+            "bead": bead,
+            "work": work,
+            "approvalPreview": approval_preview,
+        }
     with _promotion_lock(state_dir, finding_id):
         return _apply_promotion(
             client,
@@ -3095,12 +3102,10 @@ def cmd_improve(argv: list[str]) -> int:
     review.add_argument("result", type=Path)
     review.add_argument("--apply", action="store_true")
     review.add_argument("--json", action="store_true")
-    promote = sub.add_parser("promote", help="preview or create one public-safe improvement Bead")
+    promote = sub.add_parser("promote", help="render one public-safe import packet for quality apply")
     promote.add_argument("report", type=Path)
     promote.add_argument("result", type=Path)
     promote.add_argument("--finding", required=True)
-    promote.add_argument("--apply", action="store_true")
-    promote.add_argument("--approval")
     promote.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.action == "annotations":
@@ -3163,28 +3168,18 @@ def cmd_improve(argv: list[str]) -> int:
     if args.action == "promote":
         try:
             repository_root = git_root()
-            packet = _load_private_object(args.report, repository_root)
-            decisions = _load_private_object(args.result, repository_root)
-            approval = None
-            if args.apply:
-                if not args.approval:
-                    raise ValueError("promotion apply requires approval")
-                code, approval, _ = _beads(["show", args.approval])
-                if code != 0:
-                    raise ValueError("could not load promotion approval")
             summary = promote_finding(
-                _client_from_env() if args.apply else None,
-                packet,
-                decisions,
+                None,
+                _load_private_object(args.report, repository_root),
+                _load_private_object(args.result, repository_root),
                 finding_id=args.finding,
                 state_dir=improvement_dir(),
                 repository_root=repository_root,
                 tracked_paths=_git_tracked_paths(repository_root),
-                apply=args.apply,
-                approval=approval,
+                apply=False,
                 beads_runner=_beads,
             )
-        except (LangfuseError, OSError, RuntimeError, ValueError, json.JSONDecodeError):
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement promotion failed"}))
             else:
@@ -3192,11 +3187,9 @@ def cmd_improve(argv: list[str]) -> int:
             return 2
         if args.json:
             print(json.dumps(summary, indent=2, sort_keys=True))
-        elif summary["status"] == "preview":
-            print(render_public_bead(summary["bead"]))
         else:
-            print(f"Promotion status: {summary['status']}; Bead: {summary.get('beadId', 'none')}")
-        return 3 if summary["status"] == "link-repair-needed" else 0
+            print(render_public_bead(summary["bead"]))
+        return 0
     if args.action == "review":
         try:
             repository_root = git_root()

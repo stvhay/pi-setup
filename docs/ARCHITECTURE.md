@@ -249,6 +249,14 @@ private matched post-change state; reviewed cohorts validate them or mark
 recurrence, while public follow-up remains approval-gated. Git never tracks
 telemetry; it tracks policy changes telemetry justifies.
 
+External automation invokes receipt-bound `agnt quality assess/apply --json`.
+Stable result classes and gaps distinguish no-op, review, human routing, applied,
+and blocked outcomes. Under a reviewed autonomous policy, an exact active grant
+may create or deduplicate one sanitized deterministic Bead through the existing
+Beads adapter and Q14 claim/settlement state machine; other effects use existing
+injected adapters. Caller supplies signal or periodic-backstop inputs and owns
+cadence. Repository provides no scheduler, poll loop, daemon, or service.
+
 ## Quality gates
 
 Three test tiers, cheapest first:
