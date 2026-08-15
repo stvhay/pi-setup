@@ -7,6 +7,7 @@ import signal
 import stat
 import sys
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -1736,6 +1737,12 @@ def test_inv15_claim_dispatch_settle_passes_explicit_token_and_releases_lock(tmp
     plan_path = _canary_plan(tmp_path)
     receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
     seen = []
+    execution_reads = []
+
+    def resolver(ref, phase):
+        if phase == "execution":
+            execution_reads.append(ref)
+        return _fresh_evidence(ref)
 
     def dispatcher(packet, claim_token):
         proof = _execution_result(claim_token)
@@ -1744,7 +1751,7 @@ def test_inv15_claim_dispatch_settle_passes_explicit_token_and_releases_lock(tmp
             claim_token,
             proof,
             directory=tmp_path,
-            evidence_resolver=_canary_evidence_resolver,
+            evidence_resolver=resolver,
         )
         assert settled["status"] == "applied"
         return proof
@@ -1755,7 +1762,7 @@ def test_inv15_claim_dispatch_settle_passes_explicit_token_and_releases_lock(tmp
         plan_path=plan_path,
         grant_resolver=_canary_resolver,
         target_resolver=lambda target: target,
-        evidence_resolver=_canary_evidence_resolver,
+        evidence_resolver=resolver,
         dispatcher=dispatcher,
     )
 
@@ -1764,6 +1771,7 @@ def test_inv15_claim_dispatch_settle_passes_explicit_token_and_releases_lock(tmp
     assert seen[0][1]["receiptId"] == receipt["receiptId"]
     assert seen[0][1]["claimId"]
     assert seen[0][1]["policyFingerprint"] == receipt["policyFingerprint"]
+    assert execution_reads == ["artifact:canary-proof"]
     rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
     assert [row["state"] for row in rows] == ["claimed", "dispatched"]
     assert rows[0]["claimId"] == seen[0][1]["claimId"]
@@ -2220,6 +2228,35 @@ def test_fail13_direct_settlement_missing_required_proof_revokes_claim(tmp_path)
     assert [row["state"] for row in rows] == ["claimed", "revoked"]
 
 
+def test_fail13_public_settlement_cannot_bypass_result_validation(tmp_path):  # Tests FAIL-13
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+
+    def dispatcher(_packet, claim_token):
+        settled = quality.settle(
+            claim_token,
+            quality._CanarySettlement("dispatched", "succeeded", (), None),
+            directory=tmp_path,
+        )
+        assert settled["status"] == "revoked"
+        assert settled["reason"] == "unknown-result"
+        return _execution_result(claim_token)
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        evidence_resolver=_canary_evidence_resolver,
+        dispatcher=dispatcher,
+    )
+
+    assert result["status"] == "revoked"
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert [row["state"] for row in rows] == ["claimed", "revoked"]
+
+
 def test_fail13_settlement_rejects_forged_claim_context(tmp_path):  # Tests FAIL-13
     plan_path = _canary_plan(tmp_path)
     receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
@@ -2303,6 +2340,48 @@ def test_inv15_settlement_is_idempotent_after_terminal_state(tmp_path):  # Tests
     assert calls == ["dispatch"]
     rows = (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()
     assert len(rows) == 2
+
+
+def test_inv15_repeated_direct_settlement_does_not_resolve_evidence_again(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(
+        _canary_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    claim_tokens = []
+    execution_reads = 0
+
+    def resolver(ref, phase):
+        nonlocal execution_reads
+        if phase == "execution":
+            execution_reads += 1
+        return _fresh_evidence(ref)
+
+    def dispatcher(_packet, claim_token):
+        claim_tokens.append(claim_token)
+        return _execution_result(claim_token)
+
+    first = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        evidence_resolver=resolver,
+        dispatcher=dispatcher,
+    )
+    second = quality.settle(
+        claim_tokens[0],
+        _execution_result(claim_tokens[0]),
+        directory=tmp_path,
+        evidence_resolver=resolver,
+    )
+
+    assert first == second
+    assert execution_reads == 1
+    assert len((tmp_path / quality.CLAIMS_NAME).read_text().splitlines()) == 2
 
 
 def _evidence_contract_snapshot():
@@ -2509,6 +2588,123 @@ def test_canary_execution_proof_binds_claim_target_effects_and_fresh_evidence(tm
     assert result["status"] == "applied"
     assert seen[0]["claimId"]
     assert result["executionEvidence"] == ["artifact:canary-proof"]
+
+
+def test_inv15_execution_evidence_resolves_once_outside_claim_lock(
+    tmp_path, monkeypatch
+):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(
+        _evidence_contract_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    real_locked_store = quality._locked_store
+    claims_lock_held = False
+    claim_token = None
+    execution_reads = []
+
+    @contextmanager
+    def tracked_locked_store(directory, name, *, exclusive):
+        nonlocal claims_lock_held
+        with real_locked_store(directory, name, exclusive=exclusive) as store:
+            tracking = name == quality.CLAIMS_NAME and exclusive
+            if tracking:
+                claims_lock_held = True
+            try:
+                yield store
+            finally:
+                if tracking:
+                    claims_lock_held = False
+
+    monkeypatch.setattr(quality, "_locked_store", tracked_locked_store)
+
+    def resolver(ref, phase):
+        if phase == "execution":
+            execution_reads.append(ref)
+            assert not claims_lock_held
+            quality.validate_claim_token(claim_token, directory=tmp_path, require_active=True)
+        return _fresh_evidence(ref)
+
+    def dispatcher(_packet, token):
+        nonlocal claim_token
+        claim_token = token
+        return _execution_result(token)
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        evidence_resolver=resolver,
+        dispatcher=dispatcher,
+    )
+
+    assert result["status"] == "applied"
+    assert execution_reads == ["artifact:canary-proof"]
+
+
+def test_inv15_volatile_execution_evidence_uses_first_resolved_result(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(
+        _evidence_contract_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    execution_reads = 0
+
+    def resolver(ref, phase):
+        nonlocal execution_reads
+        if phase != "execution":
+            return _fresh_evidence(ref)
+        execution_reads += 1
+        return _fresh_evidence(ref) if execution_reads == 1 else None
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        evidence_resolver=resolver,
+        dispatcher=lambda _packet, token: _execution_result(token),
+    )
+
+    assert result["status"] == "applied"
+    assert execution_reads == 1
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert [row["state"] for row in rows] == ["claimed", "dispatched"]
+
+
+def test_fail13_execution_evidence_resolution_failure_persists_terminal_state(tmp_path):  # Tests FAIL-13
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(
+        _evidence_contract_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+
+    def resolver(ref, phase):
+        return None if phase == "execution" else _fresh_evidence(ref)
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        evidence_resolver=resolver,
+        dispatcher=lambda _packet, token: _execution_result(token),
+    )
+
+    assert result["status"] == "revoked"
+    assert result["reason"] == "evidence-deleted"
+    rows = [json.loads(line) for line in (tmp_path / quality.CLAIMS_NAME).read_text().splitlines()]
+    assert [row["state"] for row in rows] == ["claimed", "revoked"]
 
 
 def test_settle_rejects_execution_evidence_outside_required_contract(tmp_path):  # Tests FAIL-13

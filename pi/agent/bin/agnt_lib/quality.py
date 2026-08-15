@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from subprocess import run as run_process
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, NamedTuple
 
 from .runtime_paths import resolve_runtime_directory
 
@@ -3326,6 +3326,13 @@ def _claim_canary(
     return _claim_token(claim), None
 
 
+class _CanarySettlement(NamedTuple):
+    state: str
+    result_status: str
+    evidence_refs: tuple[str, ...]
+    reason: str | None
+
+
 def settle(
     claim_token: dict[str, Any],
     result: Any,
@@ -3339,12 +3346,29 @@ def settle(
         token = _validate_claim_token(claim_token)
     except ValueError as exc:
         raise ValueError("quality claim token is unavailable or conflicts") from exc
-    if state is None:
-        status = result.get("status") if isinstance(result, dict) else None
-        state = "dispatched" if status == "succeeded" else "failed" if status == "failed" else "uncertain"
-    if state not in {"dispatched", "failed", "uncertain", "revoked"}:
-        raise ValueError("quality claim settlement state is invalid")
-    terminal = None
+    with _locked_store(directory, CLAIMS_NAME, exclusive=False) as (fd, _root):
+        rows = _read_json_rows(fd, _validate_claim, "claim") if fd is not None else []
+    current = _latest_claims(rows).get(token["receiptId"])
+    if current is None or token != _claim_token(current):
+        raise ValueError("quality claim token is unavailable or conflicts")
+    if current["state"] != "claimed":
+        return _claim_result(current)
+    settlement = _classify_canary_result(
+        result,
+        token,
+        state=state,
+        reason=reason,
+        evidence_resolver=evidence_resolver,
+    )
+    return _settle_claim(token, settlement, directory=directory)
+
+
+def _settle_claim(
+    token: dict[str, Any],
+    settlement: _CanarySettlement,
+    *,
+    directory: str | os.PathLike[str] | None,
+) -> dict[str, Any]:
     with _locked_store(directory, CLAIMS_NAME, exclusive=True) as (fd, root):
         assert fd is not None
         latest = _latest_claims(_read_json_rows(fd, _validate_claim, "claim"))
@@ -3353,91 +3377,111 @@ def settle(
             raise ValueError("quality claim token is unavailable or conflicts")
         if current["state"] != "claimed":
             return _claim_result(current)
-        try:
-            result_status = result.get("status") if isinstance(result, dict) else "unknown"
-            result_refs = _execution_proof_refs(
-                result,
-                token,
-                evidence_resolver=evidence_resolver,
-            ) if result_status == "succeeded" else (
-                _evidence_refs(result.get("evidenceRefs", [])) if isinstance(result, dict) else []
-            )
-        except ValueError as exc:
-            if result_status == "succeeded":
-                raise ValueError(str(exc)) from exc
-            result_status, result_refs = "unknown", []
-        if result_status == "succeeded":
-            proof = result.get("proof") if isinstance(result, dict) else None
-            required_proof = token.get("requiredProof")
-            if (
-                not isinstance(proof, list)
-                or not proof
-                or len(set(proof)) != len(proof)
-                or any(not _text(item) for item in proof)
-                or not isinstance(required_proof, list)
-                or any(item not in proof for item in required_proof)
-            ):
-                raise ValueError("missing-proof")
-        if state == "dispatched" and result_status != "succeeded":
-            state, reason = "uncertain", "claim-uncertain"
-        elif state == "failed" and result_status != "failed":
-            state, reason = "uncertain", "claim-uncertain"
-        if reason is None:
-            reason = {
-                "failed": "effect-failure",
-                "uncertain": "claim-uncertain",
-                "revoked": "revoked",
-            }.get(state)
         terminal = {
             **current,
-            "state": state,
-            "resultStatus": result_status if result_status in {"succeeded", "failed", "blocked", "unknown"} else "unknown",
-            "evidenceRefs": result_refs,
-            "reason": reason,
+            "state": settlement.state,
+            "resultStatus": settlement.result_status,
+            "evidenceRefs": list(settlement.evidence_refs),
+            "reason": settlement.reason,
             "at": _captured_at(),
         }
         _append_row(fd, root, terminal)
     return _claim_result(terminal)
 
 
-def _execution_proof_refs(
+def _classify_canary_result(
     result: Any,
     token: dict[str, Any],
     *,
+    state: str | None = None,
+    reason: str | None = None,
     evidence_resolver: Callable[..., Any] | None = None,
-) -> list[str]:
-    payload = result.get("executionEvidence") if isinstance(result, dict) else None
-    is_contract_result = payload is not None or "executionEvidence" in token
-    if is_contract_result:
-        if isinstance(payload, dict):
-            refs_value = payload.get("evidenceRefs", payload.get("refs"))
-            claim_id = payload.get("claimId", result.get("claimId"))
-            target_fingerprint = payload.get("targetFingerprint", result.get("targetFingerprint"))
-            effects = payload.get("effects", result.get("effects"))
+) -> _CanarySettlement:
+    if state is not None and state not in {"dispatched", "failed", "uncertain", "revoked"}:
+        raise ValueError("quality claim settlement state is invalid")
+    raw_status = result.get("status") if isinstance(result, dict) else None
+    result_status = raw_status if raw_status in {"succeeded", "failed", "blocked", "unknown"} else "unknown"
+    refs: list[str] = []
+    if raw_status == "succeeded":
+        payload = result.get("executionEvidence")
+        if payload is not None or "executionEvidence" in token:
+            if isinstance(payload, dict):
+                refs_value = payload.get("evidenceRefs", payload.get("refs"))
+                claim_id = payload.get("claimId", result.get("claimId"))
+                target_fingerprint = payload.get("targetFingerprint", result.get("targetFingerprint"))
+                effects = payload.get("effects", result.get("effects"))
+            else:
+                refs_value = payload
+                claim_id = result.get("claimId")
+                target_fingerprint = result.get("targetFingerprint")
+                effects = result.get("effects")
+            try:
+                refs = _evidence_contract_refs(refs_value, "executionEvidence")
+            except ValueError as exc:
+                failure = "evidence-malformed" if "malformed" in str(exc) else "evidence-incomplete"
+                raise ValueError(failure) from exc
+            if "executionEvidence" in token and not set(token["executionEvidence"]).issubset(refs):
+                raise ValueError("evidence-incomplete")
+            if (
+                claim_id != token["claimId"]
+                or target_fingerprint != token["targetFingerprint"]
+                or effects != token["effects"]
+            ):
+                raise ValueError("evidence-mismatched")
+            if result.get("gaps"):
+                raise ValueError("evidence-incomplete")
+            if evidence_resolver is None:
+                raise ValueError("evidence-unavailable")
+            _resolve_evidence_contract(refs, evidence_resolver, phase="execution")
         else:
-            refs_value = payload
-            claim_id = result.get("claimId") if isinstance(result, dict) else None
-            target_fingerprint = result.get("targetFingerprint") if isinstance(result, dict) else None
-            effects = result.get("effects") if isinstance(result, dict) else None
+            refs = _evidence_refs(result.get("evidenceRefs", []))
+        proof = result.get("proof")
+        required_proof = token.get("requiredProof")
+        if (
+            not isinstance(proof, list)
+            or not proof
+            or len(set(proof)) != len(proof)
+            or any(not _text(item) for item in proof)
+            or not isinstance(required_proof, list)
+            or any(item not in proof for item in required_proof)
+        ):
+            raise ValueError("missing-proof")
+    else:
         try:
-            refs = _evidence_contract_refs(refs_value, "executionEvidence")
-        except ValueError as exc:
-            reason = "evidence-malformed" if "malformed" in str(exc) else "evidence-incomplete"
-            raise ValueError(reason) from exc
-        if "executionEvidence" in token and not set(token["executionEvidence"]).issubset(refs):
-            raise ValueError("evidence-incomplete")
-        if claim_id != token["claimId"]:
-            raise ValueError("evidence-mismatched")
-        if target_fingerprint != token["targetFingerprint"] or effects != token["effects"]:
-            raise ValueError("evidence-mismatched")
-        if isinstance(result, dict) and result.get("gaps"):
-            raise ValueError("evidence-incomplete")
-        if evidence_resolver is None:
-            raise ValueError("evidence-unavailable")
-        _resolve_evidence_contract(refs, evidence_resolver, phase="execution")
-        return refs
-    refs = _evidence_refs(result.get("evidenceRefs", [])) if isinstance(result, dict) else []
-    return refs
+            refs = _evidence_refs(result.get("evidenceRefs", [])) if isinstance(result, dict) else []
+        except ValueError:
+            result_status, refs = "unknown", []
+
+    failure = None
+    if not isinstance(result, dict):
+        failure = "unknown-result"
+    elif result.get("stopRuleBreached") is True:
+        failure = "stop-rule-breach"
+    elif result.get("drift") is True:
+        failure = "drift"
+    elif result.get("criticalFailure") is True or result.get("failureClass") in {
+        "authority", "correctness", "privacy", "security", "critical",
+    }:
+        failure = "critical-failure"
+    elif raw_status == "unknown" or raw_status not in {"succeeded", "failed", "blocked"}:
+        failure = "unknown-result"
+    elif raw_status in {"failed", "blocked"}:
+        failure = "effect-failure"
+
+    if state is None:
+        state = "dispatched" if failure is None else "failed" if failure == "effect-failure" else "revoked"
+        reason = reason or failure
+    if state == "dispatched" and result_status != "succeeded":
+        state, reason = "uncertain", "claim-uncertain"
+    elif state == "failed" and result_status != "failed":
+        state, reason = "uncertain", "claim-uncertain"
+    if reason is None:
+        reason = {
+            "failed": "effect-failure",
+            "uncertain": "claim-uncertain",
+            "revoked": "revoked",
+        }.get(state)
+    return _CanarySettlement(state, result_status, tuple(refs), reason)
 
 
 def _dispatcher_accepts_claim_token(dispatcher: Callable[..., Any]) -> bool:
@@ -3539,75 +3583,6 @@ def _resolve_canary_authority(
     if resolved.get("allowedEffects") != grant["effects"] or authority["allowedEffects"] != grant["effects"]:
         raise ValueError("grant-drift")
     return grant
-
-
-def _canary_failure_reason(
-    result: Any,
-    packet: dict[str, Any],
-    *,
-    grant: dict[str, Any],
-    claim_token: dict[str, Any] | None = None,
-) -> str | None:
-    if not isinstance(result, dict):
-        return "unknown-result"
-    if result.get("stopRuleBreached") is True:
-        return "stop-rule-breach"
-    if result.get("drift") is True:
-        return "drift"
-    if result.get("criticalFailure") is True or result.get("failureClass") in {"authority", "correctness", "privacy", "security", "critical"}:
-        return "critical-failure"
-    status = result.get("status")
-    if status == "unknown":
-        return "unknown-result"
-    if status in {"failed", "blocked"}:
-        return "critical-failure" if result.get("criticalFailure") is True or result.get("failureClass") in {"authority", "correctness", "privacy", "security", "critical"} else "effect-failure"
-    if status != "succeeded":
-        return "unknown-result"
-    if EVIDENCE_CONTRACT_FIELDS.issubset(packet):
-        payload = result.get("executionEvidence")
-        try:
-            refs = _evidence_contract_refs(
-                payload.get("evidenceRefs", payload.get("refs")) if isinstance(payload, dict) else payload,
-                "executionEvidence",
-            )
-        except ValueError as exc:
-            return "evidence-malformed" if "malformed" in str(exc) else "evidence-incomplete"
-        if claim_token is not None:
-            claim_id = payload.get("claimId", result.get("claimId")) if isinstance(payload, dict) else result.get("claimId")
-            if claim_id != claim_token["claimId"]:
-                return "evidence-mismatched"
-        if not set(packet["executionEvidence"]).issubset(refs):
-            return "evidence-incomplete"
-    else:
-        try:
-            refs = _evidence_refs(result.get("evidenceRefs"))
-        except ValueError:
-            return "missing-proof"
-        if not refs or not isinstance(result.get("gaps", []), list) or result.get("gaps"):
-            return "missing-proof"
-        required_refs = set(packet["canary"]["evidenceRefs"]) | set(grant["proof"]["evidenceRefs"])
-        if not required_refs.issubset(refs):
-            return "missing-proof"
-    proof = result.get("proof")
-    required_proof = grant["proof"]["required"]
-    if (
-        not isinstance(proof, list)
-        or len(set(proof)) != len(proof)
-        or any(not isinstance(item, str) for item in proof)
-        or any(item not in proof for item in required_proof)
-    ):
-        return "missing-proof"
-    proof_payload = result.get("executionEvidence") if isinstance(result.get("executionEvidence"), dict) else {}
-    try:
-        effects = proof_payload.get("effects", result.get("effects"))
-        target_fingerprint = proof_payload.get("targetFingerprint", result.get("targetFingerprint"))
-        if effects != packet["effect"]["effects"] or any(effect not in packet["allowedEffects"] for effect in effects):
-            return "drift"
-    except (TypeError, KeyError):
-        return "drift"
-    if target_fingerprint != packet["target"]["fingerprint"]:
-        return "drift"
-    return None
 
 
 def _apply_canary(
@@ -3748,6 +3723,8 @@ def _apply_canary(
             if _fingerprint(refreshed_records) != _fingerprint(authorization_records):
                 preflight_reason = "evidence-mismatched"
 
+    settlement = None
+    dispatched = None
     if preflight_reason is not None:
         state = "revoked" if preflight_reason in {
             "policy-mismatch",
@@ -3761,8 +3738,7 @@ def _apply_canary(
             "evidence-mismatched",
             "evidence-incomplete",
         } else "uncertain"
-        dispatched = {"status": "blocked", "evidenceRefs": []}
-        reason = preflight_reason
+        settlement = _CanarySettlement(state, "blocked", (), preflight_reason)
     else:
         try:
             dispatched = _invoke_dispatcher(dispatcher, packet, claim_token)
@@ -3776,49 +3752,41 @@ def _apply_canary(
                 "evidence-mismatched",
                 "evidence-incomplete",
             }:
-                dispatched = {"status": "blocked", "evidenceRefs": []}
-                state = "revoked"
-                reason = candidate_reason
+                settlement = _CanarySettlement("revoked", "blocked", (), candidate_reason)
             else:
-                dispatched = {"status": "unknown", "evidenceRefs": []}
-                state = "uncertain"
-                reason = "claim-uncertain"
+                settlement = _CanarySettlement("uncertain", "unknown", (), "claim-uncertain")
         except Exception:
-            dispatched = {"status": "unknown", "evidenceRefs": []}
-            state = "uncertain"
-            reason = "claim-uncertain"
-        else:
-            proof_error = None
-            if EVIDENCE_CONTRACT_FIELDS.issubset(packet) and isinstance(dispatched, dict) and dispatched.get("status") == "succeeded":
-                try:
-                    _execution_proof_refs(
-                        dispatched,
-                        claim_token,
-                        evidence_resolver=evidence_resolver,
-                    )
-                except ValueError as exc:
-                    proof_error = str(exc)
-            reason = proof_error or _canary_failure_reason(
-                dispatched,
-                packet,
-                grant=refreshed_grant,
-                claim_token=claim_token,
-            )
-            state = "dispatched" if reason is None else "failed" if reason == "effect-failure" else "revoked"
+            settlement = _CanarySettlement("uncertain", "unknown", (), "claim-uncertain")
 
     try:
-        settled = settle(
-            claim_token,
-            {"status": "blocked", "evidenceRefs": []} if state == "revoked" else dispatched,
-            directory=directory,
-            state=state,
-            reason=reason,
-            evidence_resolver=evidence_resolver,
-        )
+        if settlement is None:
+            try:
+                settled = settle(
+                    claim_token,
+                    dispatched,
+                    directory=directory,
+                    evidence_resolver=evidence_resolver,
+                )
+            except ValueError as exc:
+                candidate_reason = str(exc)
+                if candidate_reason not in {
+                    "missing-proof",
+                    "evidence-unavailable",
+                    "evidence-deleted",
+                    "evidence-stale",
+                    "evidence-malformed",
+                    "evidence-mismatched",
+                    "evidence-incomplete",
+                }:
+                    raise
+                settlement = _CanarySettlement("revoked", "blocked", (), candidate_reason)
+                settled = _settle_claim(claim_token, settlement, directory=directory)
+        else:
+            settled = _settle_claim(claim_token, settlement, directory=directory)
     except Exception:
         return blocked("claim-uncertain")
-    if state == "revoked":
-        _revoke_canary_grant(packet, reason or "revoked", revoke_grant)
+    if settled["status"] == "revoked":
+        _revoke_canary_grant(packet, settled["reason"], revoke_grant)
     return settled
 
 
