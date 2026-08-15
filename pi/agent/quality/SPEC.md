@@ -1,12 +1,12 @@
-# Harness Quality Observe Kernel
+# Harness Quality Governance Kernel
 
 ## Purpose
 
-Provide one Git-tracked quality control plan, one deterministic local entry point for quality assessment, one versioned coarse risk/utility decision tree, one bounded private semantic-review contract, typed agent/interview/decision/editor/takeover result adapters, one shared actionable Finding/EvidenceRef core, and at most 12 decision-linked core metrics. Current policy supports only `disabled` and `observe`; risk assessment can recommend `canary` or `autonomous` but cannot authorize or perform external effects.
+Provide one Git-tracked quality control plan, one deterministic local entry point for quality assessment, one versioned coarse risk/utility decision tree, one bounded private semantic-review contract, typed agent/interview/decision/editor/takeover result adapters, one shared actionable Finding/EvidenceRef core, and at most 12 decision-linked core metrics. Current policy supports `disabled`, `observe`, and bounded `canary`; `autonomous` remains reserved for Q15. Canary effects require an exact resolved human grant, bounded reversible effect, target revalidation, proof, atomic rollout claim, and an existing dispatch adapter; the kernel never edits workspace directly.
 
 ## Core Mechanism
 
-`control-plan.json` defines five activities, the 12-metric ceiling, and a versioned risk policy with coarse bands, hard guards, adaptive resource ceilings, and canary requirements. `durable_activity_snapshots()` maps bounded Beads, Git, run, health, context, and eligible-session signals into those activities. `agnt_lib.quality.assess_risk()` computes expected loss (`failure probability × consequence`) and expected utility (`benefit + information value − expected loss − resource cost`) without persistence or authority. Hard guards, uncertainty, and resource ceilings dominate positive utility; unknown measurement cannot claim autonomous budget. `agnt_lib.quality.assess()` validates a bounded snapshot, fingerprints snapshot and policy, and appends one immutable receipt to private runtime state. `apply()` reloads that receipt and current policy, then records a no-op result or one private review assignment. `derive_core_metrics()` computes metric observations from supplied receipts, results, annotations, and monitoring without writing another store. Unknown and lower-bound observations are never decision-eligible; privacy and unauthorized-mutation metrics are zero-tolerance guards. `quality_status()` reports policy identity and private record counts.
+`control-plan.json` defines five activities, the 12-metric ceiling, and a versioned risk policy with coarse bands, hard guards, adaptive resource ceilings, and canary requirements. `durable_activity_snapshots()` maps bounded Beads, Git, run, health, context, and eligible-session signals into those activities. `agnt_lib.quality.assess_risk()` computes expected loss (`failure probability × consequence`) and expected utility (`benefit + information value − expected loss − resource cost`) without persistence or authority. Hard guards, uncertainty, and resource ceilings dominate positive utility; unknown measurement cannot claim autonomous budget. `agnt_lib.quality.assess()` validates a bounded snapshot, fingerprints snapshot and policy, and appends one immutable receipt to private runtime state. `apply()` reloads that receipt and current policy, then records a no-op, one private review assignment, or one bounded canary dispatch through an existing adapter. `derive_core_metrics()` computes metric observations from supplied receipts, results, annotations, and monitoring without writing another store. Unknown and lower-bound observations are never decision-eligible; privacy and unauthorized-mutation metrics are zero-tolerance guards. `quality_status()` reports policy identity and private record counts.
 
 `validate_finding()` and `validate_evidence_ref()` define only fields shared by actionable findings. Review, health, and improvement adapters retain their domain fields; this contract does not replace their enclosing result schemas. Public adapters may carry only core fields plus an explicit safe extension allowlist, so raw private evidence stays behind bounded EvidenceRefs. Improvement schema-3 packets expose one private EvidenceRef per session and deterministically emit one colocated ReviewAssignment. That assignment fixes scope, rubric, private evidence, demonstrated-capability and provider-authorization constraints, output, one-attempt stop rules, and empty effect authority. Policy-v4 results must cite the exact assignment and packet evidence. Policy-v1/v2/v3 decisions remain readable through compatibility validation, with unknown evidence stage preserved where older formats omitted it.
 
@@ -32,6 +32,8 @@ quality/
   ledger.jsonl
   receipts.jsonl
   applications.jsonl
+  claims.jsonl
+  canary-<grant>.lock
   assignments/<receipt-id>.json
 ```
 
@@ -39,7 +41,7 @@ quality/
 
 | Interface | Contract |
 |---|---|
-| `validate_control_plan(value)` | Accept only exact root/activity fields, five ordered activity IDs, `disabled`/`observe`, the versioned risk policy, bounded inputs/evidence, and valid budgets. |
+| `validate_control_plan(value)` | Accept only exact root/activity fields, five ordered activity IDs, supported `disabled`/`observe`/`canary` modes, the versioned risk policy, bounded inputs/evidence, and valid budgets. |
 | `load_control_plan(plan_path=None)` | Load and validate tracked policy or an explicit test/operator path. |
 | `durable_activity_snapshots(...)` | Derive exact snapshots for all five activities while preserving unknown, lower-bound, and duplicate-suppression state. |
 | `validate_evidence_ref(value)` | Require one bounded opaque pointer plus source, availability, provenance, integrity, sensitivity, and retention metadata. Raw content and unknown fields are rejected. |
@@ -59,7 +61,7 @@ quality/
 | `improvement.review_gap_result(packet, status)` | Record unavailable, timed-out, privacy-uncertain, or schema-invalid review as one explicit human route with no findings or retry. |
 | `assess_risk(request, ...)` | Return one deterministic coarse risk/utility result with hard-guard, uncertainty, resource-budget, and canary checks; never persist or authorize. |
 | `assess(snapshot, activity, ...)` | Persist and return one deterministic receipt with zero or one `workPacket`. |
-| `apply(receipt_id, ...)` | Reload current policy and a persisted receipt; record only disabled/no-op state or one private assignment. |
+| `apply(receipt_id, ...)` | Reload current policy and a persisted receipt; record disabled/observe state or execute one canary packet through an injected existing dispatch adapter after grant, target, policy, proof, budget, and effect revalidation. |
 | `derive_core_metrics(...)` | Derive all 12 bounded metric observations from existing evidence sources; never persist a metric store and never treat unknown/lower-bound data as success. |
 | `quality_status(...)` | Return current policy fingerprint and private receipt/application/assignment counts. |
 | `agnt quality capture` | Append a validated invocation/result lifecycle fact. |
@@ -67,10 +69,10 @@ quality/
 | `agnt quality normalize-result` | Normalize one editor/takeover result from stdin without persistence, native UX ownership, acceptance, or authority. |
 | `agnt improve annotations <queue> --json` | Import one bounded optional Langfuse queue without persistence, bodies, acceptance, or authority. |
 | `agnt quality assess` | Parse one exact JSON snapshot or collect durable local signals, then emit a decision receipt. |
-| `agnt quality apply` | Apply one persisted current receipt under observe-only policy. |
+| `agnt quality apply` | Apply one persisted current receipt; CLI/default tracked policy is observe-only. Programmatic canary callers supply target and existing dispatch adapters; CLI does not invent one. |
 | `agnt quality status` | Report current policy and private-store counts. |
 
-Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRefs`, `gaps`, and `signals`. Snapshot bodies are fingerprinted, not copied into receipts or assignments.
+Assessment snapshots require `schemaVersion`, `triggered`, `evidenceRefs`, `gaps`, and `signals`; canary snapshots additionally bind a risk request, grant reference, target identity, and bounded effect. Snapshot bodies are fingerprinted, not copied into receipts or assignments.
 
 ## Invariants
 
@@ -78,7 +80,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 |---|---|---|
 | INV-1 | One plan contains exactly `capture`, `work-learning`, `architecture-coherence`, `capability-calibration`, and `quality-system-review`; each activity has the 13 declared fields. | Structural validator and tracked plan test. |
 | INV-2 | Identical snapshot, activity, and policy yield identical receipt IDs, dedupe keys, and receipt bodies; persistence is idempotent. | Canonical JSON plus SHA-256 and append-under-lock. |
-| INV-3 | Assessment emits at most one packet. Apply performs no Beads or workspace mutation and exposes no effect authority; observe may write one private assignment only. | Singular `workPacket`, empty `allowedEffects`, and local adapter boundary. |
+| INV-3 | Assessment emits at most one packet. Observe may write one private assignment; canary may dispatch one bounded reversible effect only through an existing adapter after canonical grant and proof checks. The kernel never edits workspace directly. | Singular `workPacket`, exact effect/grant/target contracts, atomic `claims.jsonl`, and adapter boundary. |
 | INV-4 | Apply re-reads current policy and accepts only a persisted receipt. Disabled, stale-policy, missing-authority, and non-triggered decisions cannot create an assignment. | Receipt lookup and policy fingerprint comparison before private apply. |
 | INV-5 | Durable collection maps historical checkpoint labels to current activities for reads and duplicate suppression, preserves unknown/lower-bound evidence, and emits only `quality:<activity>` labels on new packets. | Explicit compatibility map, gap-bearing snapshots, open-activity suppression, and canonical packet label generation. |
 | INV-6 | Review and health findings share one validated core and bounded EvidenceRef contract without losing review metrics fields or health diagnostics. | Shared quality validators plus thin review/health adapters; finding statuses are reused by metrics. |
@@ -90,6 +92,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | INV-12 | The control plan contains exactly the approved 12 metric definitions. Derived observations retain numerator, denominator, state, and decision eligibility; unknown/lower-bound evidence is never eligible, and privacy/unauthorized-mutation guards are zero-tolerance. | Control-plan validation, pure `derive_core_metrics()`, existing evidence-source inputs, and no metric-store writes. |
 | INV-13 | Risk assessment is versioned and component-based: expected loss is failure probability × consequence; expected utility includes benefit, information value, and resource cost; hard guards and uncertainty dominate utility; normal and high-consequence resource ceilings are enforced; canary requests bind hypothesis, evidence, stop rule, and error budget. | `assess_risk()` and control-plan risk-policy validation. |
 | INV-14 | A capability grant fingerprints exactly action, effects, model, thinking, toolset, context policy, proof, rollout ceiling, and expiry. Only resolved human-UI Bead state can activate it; state updates cannot alter its fingerprinted ceiling. | Capability-grant validator, append-only request fingerprint, resolved decision lookup, and bounded revocation update. |
+| INV-15 | One canary receipt or grant allowance yields at most one debit and one dispatch. Claims are atomic under a private `fcntl` lock; uncertain or revoked claims fail closed. Dispatch requires exact action/effects, target fingerprint, required proof, current policy/grant/budget, and a bounded result; critical failure, drift, expiry, missing proof, unknown result, or stop-rule breach revokes the grant. | `claims.jsonl`, double pre-dispatch revalidation, local revocation guard, existing run authority check, and canary apply tests. |
 
 ## Failure Modes
 
@@ -107,10 +110,11 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | FAIL-10 | A quality metric cannot be decided. | Source evidence is missing, unknown, lower-bound, or incomplete; a zero-tolerance guard lacks complete coverage. | Return explicit non-eligible state; never convert missingness into zero or success. |
 | FAIL-11 | Risk assessment cannot safely recommend an effect. | A hard guard fails or is unknown, uncertainty is high, measurement is unknown/exceeded, or a canary request lacks its bounded learning contract. | Disable or route human; reject malformed canary requests; never trade a guard for positive utility. |
 | FAIL-12 | Capability grant is malformed, changed, conditional, expired, revoked, or lacks human-UI decision provenance. | Envelope fields, fingerprint, proof, rollout ceiling, expiry, revocation state, or append-only request identity is invalid. | Reject or update state fail-closed; return empty effects and require a new exact approval. |
+| FAIL-13 | Canary claim or effect cannot be safely settled. | Claim is already consumed/uncertain, policy/grant/target drifted, required proof is absent, result is unknown/critical, or revocation is unavailable. | Persist claim state before external revocation, block sibling grants by exact decision/fingerprint, and never dispatch again from the affected local authority. |
 
 ## Adapter Boundaries
 
-- Beads remains durable work and human-authority store. The quality observe kernel does not authorize effects; approval handling stores and reads exact grants only from resolved decision Beads.
+- Beads remains durable work and human-authority store. The quality kernel never grants authority; canary approval handling reads exact grants only from resolved decision Beads, then revalidates them before an existing adapter dispatch.
 - Repository workspace remains source of policy only. `apply()` never edits workspace files.
 - No scheduler, daemon, service, polling loop, or background process lives here.
 - No model-facing typed tool is added; external callers use stable `agnt quality ... --json` CLI commands.
@@ -130,6 +134,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 |---|---|---|
 | Policy mode is `disabled` | Persist receipt; apply records disabled no-op. | INV-4 |
 | Policy mode is `observe` and trigger is true | Emit one packet; apply records one private assignment. | INV-2, INV-3 |
+| Policy mode is `canary` and trigger is true | Emit one packet; apply revalidates exact grant/policy/target/proof/budget, atomically claims allowance, and dispatches at most once through an existing adapter. | INV-13, INV-14, INV-15 |
 | Trigger is false | Emit receipt without packet; apply records not-due no-op. | INV-3 |
 | Policy changed after assessment | Return blocked policy mismatch. | INV-4, FAIL-3 |
 | Positive utility with a failed or unknown hard guard | Disable or route human; utility does not override the guard. | INV-13, FAIL-11 |
@@ -168,6 +173,7 @@ Assessment snapshot fields are exactly `schemaVersion`, `triggered`, `evidenceRe
 | INV-12, FAIL-10 | `tests/test_quality.py::test_inv12_core_metrics_are_decision_linked_and_bounded`, `test_inv12_unknown_and_lower_bound_metrics_cannot_count_as_success`, and `test_inv12_zero_tolerance_metrics_require_complete_evidence`; summary integration in `tests/test_review.py`. |
 | INV-13, FAIL-11 | `tests/test_quality.py::test_inv13_risk_assessment_reports_components_and_normal_ceiling`, `test_fail11_hard_guard_blocks_positive_utility`, `test_inv13_high_consequence_ceiling_and_unknown_budget_fail_closed`, and `test_fail11_canary_requires_learning_contract_and_ceiling`. |
 | INV-14, FAIL-12 | `tests/test_quality.py::test_inv14_capability_grant_fingerprint_excludes_only_mutable_state`, `test_fail12_expired_capability_grant_is_not_active`, exact Beads/bridge cases in `tests/test_approvals.py`, and canonical orchestration authority cases in `tests/test_orchestration.py`. |
+| INV-15, FAIL-13 | `tests/test_quality.py::test_inv15_canary_revalidates_grant_target_and_dispatches_once`, `test_inv15_concurrent_canary_apply_consumes_one_allowance`, and `test_fail13_canary_unknown_result_revokes_grant`; existing grant/run authority checks cover the downstream adapter guard. |
 | CLI/boundaries | `tests/test_quality.py::test_quality_assess_apply_status_cli_contract`, `tests/test_ticket_gateway.py`, and quality checks in `tests/test_context_architecture.py` |
 
 Focused command:

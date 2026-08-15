@@ -27,7 +27,7 @@ direct lifecycle -> local quality ledger -> best-effort Langfuse projection
 Langfuse sessions -> private scan + ReviewAssignment -> authorized contextual review
                   -> validated result -> private marker -> sanitized Bead
                   -> implementation -> matched monitoring
-Beads/git/runs/health signals -> quality assess -> observe assignment -> receipt
+Beads/git/runs/health signals -> quality assess -> observe assignment or bounded canary packet -> receipt
 ```
 
 ## Trigger and receiver ownership
@@ -449,9 +449,7 @@ New packets emit one activity label only: `quality:capture`,
 `maintenance:lessons-harvest` labels remain read-compatible for checkpoint and
 open-duplicate detection; no new work emits them.
 
-Current observe policy writes at most one private assignment with empty allowed
-effects. It does not create Beads or authorize edits. Follow-up work still uses
-normal Beads and approval paths.
+Current tracked policy is observe-only: it writes at most one private assignment with empty allowed effects. A separately reviewed canary policy may be used by a programmatic caller to dispatch one bounded reversible packet only through an existing action/work adapter after exact Beads grant, target, evidence, proof, budget, and stop-rule checks; CLI has no implicit dispatcher. It never edits workspace directly, creates a competing authority store, or enables autonomous mode; follow-up work still uses normal Beads and approval paths.
 
 ### 8. Decision-linked quality metrics
 

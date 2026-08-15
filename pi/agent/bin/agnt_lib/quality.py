@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from subprocess import run as run_process
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .runtime_paths import resolve_runtime_directory
 
@@ -145,6 +145,41 @@ CONTROL_PLAN_PATH = Path(__file__).resolve().parents[2] / "quality" / "control-p
 LEDGER_NAME = "ledger.jsonl"
 RECEIPTS_NAME = "receipts.jsonl"
 APPLICATIONS_NAME = "applications.jsonl"
+CLAIMS_NAME = "claims.jsonl"
+CLAIM_STATES = frozenset({"claimed", "dispatched", "failed", "uncertain", "revoked"})
+CLAIM_FIELDS = frozenset({
+    "schemaVersion",
+    "receiptId",
+    "state",
+    "decisionBead",
+    "grantFingerprint",
+    "actions",
+    "effects",
+    "errorBudget",
+    "targetFingerprint",
+    "resultStatus",
+    "evidenceRefs",
+    "reason",
+    "at",
+})
+CANARY_PACKET_FIELDS = frozenset({
+    "schemaVersion",
+    "activity",
+    "method",
+    "receiver",
+    "evidenceRefs",
+    "gaps",
+    "allowedEffects",
+    "labels",
+    "risk",
+    "canary",
+    "authority",
+    "target",
+    "effect",
+})
+CANARY_AUTHORITY_FIELDS = frozenset({"decisionBead", "grantFingerprint", "allowedEffects"})
+CANARY_TARGET_FIELDS = frozenset({"kind", "id", "fingerprint"})
+CANARY_EFFECT_FIELDS = frozenset({"action", "effects", "reversibility"})
 MAX_EVIDENCE_REFS = 16
 MAX_LEDGER_BYTES = 16 * 1024 * 1024
 MAX_SNAPSHOT_BYTES = 64 * 1024
@@ -2302,7 +2337,7 @@ def validate_control_plan(value: Any) -> dict[str, Any]:
         raise ValueError("quality control plan schema is invalid")
     if not _text(value.get("policyVersion")) or not OPAQUE_ID.fullmatch(value["policyVersion"]):
         raise ValueError("quality control plan version is invalid")
-    if value.get("mode") not in {"disabled", "observe"}:
+    if value.get("mode") not in {"disabled", "observe", "canary"}:
         raise ValueError("quality control plan mode is invalid")
     _validate_risk_policy(value.get("riskPolicy"))
     metrics = value.get("metrics")
@@ -2375,7 +2410,8 @@ def _gaps(value: Any) -> list[str]:
 
 def _validate_snapshot(value: Any) -> dict[str, Any]:
     fields = {"schemaVersion", "triggered", "evidenceRefs", "gaps", "signals"}
-    if not isinstance(value, dict) or set(value) != fields:
+    optional = {"riskRequest", "authority", "target", "effect"}
+    if not isinstance(value, dict) or not fields.issubset(value) or set(value) - fields - optional:
         raise ValueError("quality snapshot fields are invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
         raise ValueError("quality snapshot schema is invalid")
@@ -2385,40 +2421,122 @@ def _validate_snapshot(value: Any) -> dict[str, Any]:
         raise ValueError("quality snapshot signals are invalid")
     _evidence_refs(value.get("evidenceRefs"))
     _gaps(value.get("gaps"))
+    for field in optional:
+        if field in value and not isinstance(value[field], dict):
+            raise ValueError(f"quality snapshot {field} is invalid")
     if len(_canonical(value).encode("utf-8")) > MAX_SNAPSHOT_BYTES:
         raise ValueError("quality snapshot exceeds bounded size")
     return value
 
 
+def _validate_canary_authority(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != CANARY_AUTHORITY_FIELDS:
+        raise ValueError("quality canary authority is invalid")
+    _bead_id(value.get("decisionBead"))
+    if not HASH_REF.fullmatch(str(value.get("grantFingerprint") or "")):
+        raise ValueError("quality canary authority is invalid")
+    if not _text_list(value.get("allowedEffects")):
+        raise ValueError("quality canary authority is invalid")
+    return value
+
+
+def _validate_canary_target(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != CANARY_TARGET_FIELDS:
+        raise ValueError("quality canary target is invalid")
+    if not _text(value.get("kind")) or not _text(value.get("id")):
+        raise ValueError("quality canary target is invalid")
+    if not HASH_REF.fullmatch(str(value.get("fingerprint") or "")):
+        raise ValueError("quality canary target is invalid")
+    return value
+
+
+def _validate_canary_effect(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != CANARY_EFFECT_FIELDS:
+        raise ValueError("quality canary effect is invalid")
+    if not _text(value.get("action")) or not _text_list(value.get("effects")):
+        raise ValueError("quality canary effect is invalid")
+    if value.get("reversibility") != "bounded":
+        raise ValueError("quality canary effect must be bounded")
+    return value
+
+
+def _validate_canary_contract(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"hypothesis", "evidenceRefs", "stopRule", "errorBudget"}:
+        raise ValueError("quality canary contract is invalid")
+    if not _text(value.get("hypothesis")) or not _text(value.get("stopRule")):
+        raise ValueError("quality canary contract is invalid")
+    _evidence_refs(value.get("evidenceRefs"))
+    if not value["evidenceRefs"]:
+        raise ValueError("quality canary evidence is required")
+    budget = value.get("errorBudget")
+    if not isinstance(budget, dict) or set(budget) != {"maxFailures"} or type(budget["maxFailures"]) is not int or budget["maxFailures"] < 0:
+        raise ValueError("quality canary error budget is invalid")
+    return value
+
+
 def _validate_work_packet(value: Any, *, activity: str, mode: str) -> dict[str, Any] | None:
-    if value is None and mode in {"disabled", "observe"}:
+    if value is None and mode in {"disabled", "observe", "canary", "autonomous"}:
         return None
-    fields = {
-        "schemaVersion",
-        "activity",
-        "method",
-        "receiver",
-        "evidenceRefs",
-        "gaps",
-        "allowedEffects",
-    }
+    if mode == "observe":
+        fields = {
+            "schemaVersion",
+            "activity",
+            "method",
+            "receiver",
+            "evidenceRefs",
+            "gaps",
+            "allowedEffects",
+        }
+        if (
+            not isinstance(value, dict)
+            or frozenset(value) not in {frozenset(fields), frozenset({*fields, "labels"})}
+            or value.get("schemaVersion") != 1
+            or value.get("activity") != activity
+            or not _text(value.get("method"))
+            or not _text(value.get("receiver"))
+            or value.get("allowedEffects") != []
+            or ("labels" in value and value["labels"] != [QUALITY_ACTIVITY_LABELS[activity]])
+        ):
+            raise ValueError("quality receipt work packet is invalid")
+        _evidence_refs(value.get("evidenceRefs"))
+        _gaps(value.get("gaps"))
+        return value
+    if mode != "canary" or not isinstance(value, dict) or set(value) != CANARY_PACKET_FIELDS:
+        raise ValueError("quality receipt work packet is invalid")
+    effect_value = value.get("effect")
     if (
-        mode != "observe"
-        or not isinstance(value, dict)
-        or frozenset(value) not in {frozenset(fields), frozenset({*fields, "labels"})}
-        or value.get("schemaVersion") != 1
+        value.get("schemaVersion") != 1
         or value.get("activity") != activity
         or not _text(value.get("method"))
         or not _text(value.get("receiver"))
-        or value.get("allowedEffects") != []
-        or (
-            "labels" in value
-            and value["labels"] != [QUALITY_ACTIVITY_LABELS[activity]]
-        )
+        or value.get("labels") != [QUALITY_ACTIVITY_LABELS[activity]]
+        or not isinstance(effect_value, dict)
+        or value.get("allowedEffects") != effect_value.get("effects")
     ):
         raise ValueError("quality receipt work packet is invalid")
-    _evidence_refs(value.get("evidenceRefs"))
-    _gaps(value.get("gaps"))
+    refs = _evidence_refs(value.get("evidenceRefs"))
+    if not refs or _gaps(value.get("gaps")):
+        raise ValueError("quality canary evidence is incomplete")
+    authority = _validate_canary_authority(value.get("authority"))
+    target = _validate_canary_target(value.get("target"))
+    effect = _validate_canary_effect(value.get("effect"))
+    canary = _validate_canary_contract(value.get("canary"))
+    if any(ref not in refs for ref in canary["evidenceRefs"]):
+        raise ValueError("quality canary evidence is incomplete")
+    if any(effect_ref not in authority["allowedEffects"] for effect_ref in effect["effects"]):
+        raise ValueError("quality canary effect exceeds grant")
+    risk = value.get("risk")
+    resource_budget = risk.get("resourceBudget") if isinstance(risk, dict) else None
+    if (
+        not isinstance(risk, dict)
+        or not isinstance(resource_budget, dict)
+        or risk.get("decision") != mode
+        or risk.get("requestedMode") != mode
+        or risk.get("route") != "none"
+        or resource_budget.get("status") != "within"
+        or risk.get("canary") != canary
+    ):
+        raise ValueError("quality canary risk assessment is invalid")
     return value
 
 
@@ -2442,7 +2560,7 @@ def _validate_receipt(value: Any) -> dict[str, Any]:
         raise ValueError("quality receipt fields are invalid")
     if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
         raise ValueError("quality receipt schema is invalid")
-    if value.get("activity") not in ACTIVITY_IDS or value.get("mode") not in {"disabled", "observe"}:
+    if value.get("activity") not in ACTIVITY_IDS or value.get("mode") not in RISK_MODES:
         raise ValueError("quality receipt decision is invalid")
     if (
         not _text(value.get("policyVersion"))
@@ -2461,6 +2579,8 @@ def _validate_receipt(value: Any) -> dict[str, Any]:
     )
     if value["mode"] == "observe" and (value["triggerReason"] == "not-triggered") != (packet is None):
         raise ValueError("quality receipt trigger and work packet conflict")
+    if value["mode"] in {"canary", "autonomous"} and packet is not None and value["gaps"]:
+        raise ValueError("quality receipt canary evidence is incomplete")
     if packet is not None and (
         packet["evidenceRefs"] != value["evidenceRefs"] or packet["gaps"] != value["gaps"]
     ):
@@ -2511,8 +2631,18 @@ def assess(
     *,
     directory: str | os.PathLike[str] | None = None,
     plan_path: str | os.PathLike[str] | None = None,
+    risk_request: dict[str, Any] | None = None,
+    authority: dict[str, Any] | None = None,
+    target: dict[str, Any] | None = None,
+    effect: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     plan = load_control_plan(plan_path)
+    if not isinstance(snapshot, dict):
+        raise ValueError("quality snapshot fields are invalid")
+    snapshot = dict(snapshot)
+    for key, value in (("riskRequest", risk_request), ("authority", authority), ("target", target), ("effect", effect)):
+        if value is not None:
+            snapshot[key] = value
     snapshot = _validate_snapshot(snapshot)
     selected = next((item for item in plan["activities"] if item["id"] == activity), None)
     if selected is None:
@@ -2530,6 +2660,28 @@ def assess(
             "labels": [QUALITY_ACTIVITY_LABELS[activity]],
             "allowedEffects": [],
         }
+    elif plan["mode"] == "canary" and triggered:
+        request = snapshot.get("riskRequest")
+        if not isinstance(request, dict):
+            raise ValueError("quality canary risk request is required")
+        risk = assess_risk(request, plan=plan)
+        required = (snapshot.get("authority"), snapshot.get("target"), snapshot.get("effect"))
+        if risk["decision"] == plan["mode"] and not snapshot["gaps"] and all(item is not None for item in required):
+            packet = {
+                "schemaVersion": 1,
+                "activity": activity,
+                "method": selected["method"],
+                "receiver": selected["receiver"],
+                "evidenceRefs": snapshot["evidenceRefs"],
+                "gaps": snapshot["gaps"],
+                "labels": [QUALITY_ACTIVITY_LABELS[activity]],
+                "allowedEffects": snapshot["effect"]["effects"],
+                "risk": risk,
+                "canary": request["canary"],
+                "authority": snapshot["authority"],
+                "target": snapshot["target"],
+                "effect": snapshot["effect"],
+            }
     core = {
         "schemaVersion": 1,
         "policyVersion": plan["policyVersion"],
@@ -2611,11 +2763,472 @@ def _write_private_assignment(
     return f"artifact:quality-assignment-{receipt_id}"
 
 
+def _validate_claim(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != CLAIM_FIELDS:
+        raise ValueError("quality claim row is invalid")
+    if value.get("schemaVersion") != 1 or type(value.get("schemaVersion")) is not int:
+        raise ValueError("quality claim row is invalid")
+    if not isinstance(value.get("receiptId"), str) or not OPAQUE_ID.fullmatch(value["receiptId"]):
+        raise ValueError("quality claim row is invalid")
+    if value.get("state") not in CLAIM_STATES:
+        raise ValueError("quality claim row is invalid")
+    _bead_id(value.get("decisionBead"))
+    if not HASH_REF.fullmatch(str(value.get("grantFingerprint") or "")):
+        raise ValueError("quality claim row is invalid")
+    for field in ("actions", "effects"):
+        if type(value.get(field)) is not int or value[field] < 1:
+            raise ValueError("quality claim row is invalid")
+    if type(value.get("errorBudget")) is not int or value["errorBudget"] < 0:
+        raise ValueError("quality claim row is invalid")
+    if not HASH_REF.fullmatch(str(value.get("targetFingerprint") or "")):
+        raise ValueError("quality claim row is invalid")
+    if value.get("resultStatus") not in {None, "succeeded", "failed", "blocked", "unknown"}:
+        raise ValueError("quality claim row is invalid")
+    _evidence_refs(value.get("evidenceRefs"))
+    reason = value.get("reason")
+    if reason is not None and not _text(reason):
+        raise ValueError("quality claim row is invalid")
+    if not isinstance(value.get("at"), str) or _parse_time(value["at"]) is None:
+        raise ValueError("quality claim row is invalid")
+    return value
+
+
+def _latest_claims(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        previous = latest.get(row["receiptId"])
+        if previous is not None:
+            identity = ("decisionBead", "grantFingerprint", "actions", "effects", "errorBudget", "targetFingerprint")
+            if any(previous[field] != row[field] for field in identity):
+                raise ValueError("quality claim identity conflicts")
+            if previous["state"] != "claimed" or row["state"] not in {"dispatched", "failed", "revoked"}:
+                raise ValueError("quality claim transition is invalid")
+        latest[row["receiptId"]] = row
+    return latest
+
+
+def _grant_locally_revoked(
+    directory: str | os.PathLike[str] | None,
+    decision_bead: str,
+    grant_fingerprint: str,
+    *,
+    exclude_receipt: str | None = None,
+) -> bool:
+    with _locked_store(directory, CLAIMS_NAME, exclusive=False) as (fd, _root):
+        if fd is None:
+            return False
+        latest = _latest_claims(_read_json_rows(fd, _validate_claim, "claim"))
+    return any(
+        row["receiptId"] != exclude_receipt
+        and row["decisionBead"] == decision_bead
+        and row["grantFingerprint"] == grant_fingerprint
+        and row["state"] == "revoked"
+        for row in latest.values()
+    )
+
+
+@contextmanager
+def _active_canary_dispatch(decision_bead: str, grant_fingerprint: str) -> Iterator[None]:
+    marker = f"{decision_bead}:{grant_fingerprint}"
+    previous = os.environ.get("AGNT_QUALITY_ACTIVE_GRANT")
+    markers = {item for item in (previous or "").split(",") if item}
+    markers.add(marker)
+    os.environ["AGNT_QUALITY_ACTIVE_GRANT"] = ",".join(sorted(markers))
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("AGNT_QUALITY_ACTIVE_GRANT", None)
+        else:
+            os.environ["AGNT_QUALITY_ACTIVE_GRANT"] = previous
+
+
+def locally_revoked_capability_grant(
+    decision_bead: str,
+    grant_fingerprint: str,
+    *,
+    directory: str | os.PathLike[str] | None = None,
+) -> bool:
+    _bead_id(decision_bead)
+    if not HASH_REF.fullmatch(grant_fingerprint):
+        raise ValueError("capability grant fingerprint is invalid")
+    return _grant_locally_revoked(directory, decision_bead, grant_fingerprint)
+
+
+def _claim_result(row: dict[str, Any]) -> dict[str, Any]:
+    state = row["state"]
+    if state == "dispatched":
+        return {
+            "schemaVersion": 1,
+            "status": "applied",
+            "receiptId": row["receiptId"],
+            "evidenceRefs": row["evidenceRefs"],
+        }
+    if state == "failed":
+        return {
+            "schemaVersion": 1,
+            "status": "failed",
+            "receiptId": row["receiptId"],
+            "reason": row["reason"] or "effect-failure",
+        }
+    return {
+        "schemaVersion": 1,
+        "status": "revoked" if state == "revoked" else "blocked",
+        "receiptId": row["receiptId"],
+        "reason": row["reason"] or "claim-uncertain",
+    }
+
+
+def _persist_canary_revocation(
+    receipt: dict[str, Any],
+    packet: dict[str, Any],
+    directory: str | os.PathLike[str] | None,
+    reason: str,
+) -> dict[str, Any]:
+    row = {
+        "schemaVersion": 1,
+        "receiptId": receipt["receiptId"],
+        "state": "revoked",
+        "decisionBead": packet["authority"]["decisionBead"],
+        "grantFingerprint": packet["authority"]["grantFingerprint"],
+        "actions": 1,
+        "effects": len(packet["effect"]["effects"]),
+        "errorBudget": packet["canary"]["errorBudget"]["maxFailures"],
+        "targetFingerprint": packet["target"]["fingerprint"],
+        "resultStatus": "blocked",
+        "evidenceRefs": [],
+        "reason": reason,
+        "at": _captured_at(),
+    }
+    with _locked_store(directory, _canary_lock_name(packet), exclusive=True):
+        with _locked_store(directory, CLAIMS_NAME, exclusive=True) as (fd, root):
+            assert fd is not None
+            latest = _latest_claims(_read_json_rows(fd, _validate_claim, "claim"))
+            previous = latest.get(receipt["receiptId"])
+            if previous is not None:
+                return _claim_result(previous)
+            _append_row(fd, root, row)
+    return _claim_result(row)
+
+
+def _default_grant_revoker(decision_bead: str, reason: str) -> Any:
+    from .approvals import revoke_capability_grant
+
+    return revoke_capability_grant(decision_bead, reason)
+
+
+def _revoke_canary_grant(
+    packet: dict[str, Any],
+    reason: str,
+    revoke_grant: Callable[[str, str], Any] | None,
+) -> None:
+    try:
+        (revoke_grant or _default_grant_revoker)(packet["authority"]["decisionBead"], reason)
+    except (Exception, SystemExit):
+        # Local claim state remains fail-closed if durable grant revocation is unavailable.
+        return
+
+
+def _resolve_canary_authority(
+    packet: dict[str, Any],
+    grant_resolver: Callable[[str], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if grant_resolver is None:
+        from .approvals import resolve_canonical_capability_grant
+
+        grant_resolver = resolve_canonical_capability_grant
+    authority = _validate_canary_authority(packet["authority"])
+    resolved = grant_resolver(authority["decisionBead"])
+    if not isinstance(resolved, dict):
+        raise ValueError("grant-unavailable")
+    if resolved.get("status") == "expired":
+        raise ValueError("grant-expired")
+    if resolved.get("status") == "revoked":
+        raise ValueError("grant-revoked")
+    if resolved.get("status") != "active":
+        raise ValueError("grant-unavailable")
+    if resolved.get("decisionBead") != authority["decisionBead"] or resolved.get("resolver") != {"kind": "human-ui"}:
+        raise ValueError("grant-drift")
+    grant = normalize_capability_grant(resolved.get("grant"))
+    if capability_grant_status(grant) != "active":
+        raise ValueError("grant-expired")
+    fingerprint = capability_grant_fingerprint(grant)
+    if fingerprint != authority["grantFingerprint"] or resolved.get("grantFingerprint") != fingerprint:
+        raise ValueError("grant-drift")
+    if resolved.get("allowedEffects") != grant["effects"] or authority["allowedEffects"] != grant["effects"]:
+        raise ValueError("grant-drift")
+    return grant
+
+
+def _canary_failure_reason(
+    result: Any,
+    packet: dict[str, Any],
+    *,
+    grant: dict[str, Any],
+) -> str | None:
+    if not isinstance(result, dict):
+        return "unknown-result"
+    if result.get("stopRuleBreached") is True:
+        return "stop-rule-breach"
+    if result.get("drift") is True:
+        return "drift"
+    if result.get("criticalFailure") is True or result.get("failureClass") in {"authority", "correctness", "privacy", "security", "critical"}:
+        return "critical-failure"
+    status = result.get("status")
+    if status == "unknown":
+        return "unknown-result"
+    if status in {"failed", "blocked"}:
+        return "critical-failure" if result.get("criticalFailure") is True or result.get("failureClass") in {"authority", "correctness", "privacy", "security", "critical"} else "effect-failure"
+    if status != "succeeded":
+        return "unknown-result"
+    try:
+        refs = _evidence_refs(result.get("evidenceRefs"))
+    except ValueError:
+        return "missing-proof"
+    if not refs or not isinstance(result.get("gaps", []), list) or result.get("gaps"):
+        return "missing-proof"
+    required_refs = set(packet["canary"]["evidenceRefs"]) | set(grant["proof"]["evidenceRefs"])
+    if not required_refs.issubset(refs):
+        return "missing-proof"
+    proof = result.get("proof")
+    required_proof = grant["proof"]["required"]
+    if (
+        not isinstance(proof, list)
+        or len(set(proof)) != len(proof)
+        or any(not isinstance(item, str) for item in proof)
+        or any(item not in proof for item in required_proof)
+    ):
+        return "missing-proof"
+    try:
+        effects = result.get("effects")
+        if effects != packet["effect"]["effects"] or any(effect not in packet["allowedEffects"] for effect in effects):
+            return "drift"
+    except (TypeError, KeyError):
+        return "drift"
+    if result.get("targetFingerprint") != packet["target"]["fingerprint"]:
+        return "drift"
+    return None
+
+
+def _canary_lock_name(packet: dict[str, Any]) -> str:
+    identity = f'{packet["authority"]["decisionBead"]}:{packet["authority"]["grantFingerprint"]}'
+    return "canary-" + hashlib.sha256(identity.encode("utf-8")).hexdigest() + ".lock"
+
+
+def _apply_canary(
+    receipt: dict[str, Any],
+    *,
+    directory: str | os.PathLike[str] | None,
+    plan_path: str | os.PathLike[str] | None,
+    grant_resolver: Callable[[str], dict[str, Any]] | None,
+    target_resolver: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    dispatcher: Callable[[dict[str, Any]], Any] | None,
+    revoke_grant: Callable[[str, str], Any] | None,
+) -> dict[str, Any]:
+    packet = receipt.get("workPacket")
+    if packet is None:
+        return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "no-canary-packet"}
+    try:
+        _validate_work_packet(packet, activity=receipt["activity"], mode="canary")
+    except ValueError:
+        return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "missing-proof"}
+    active_markers = set(filter(None, os.environ.get("AGNT_QUALITY_ACTIVE_GRANT", "").split(",")))
+    if f'{packet["authority"]["decisionBead"]}:{packet["authority"]["grantFingerprint"]}' in active_markers:
+        return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "claim-uncertain"}
+    if _grant_locally_revoked(
+        directory,
+        packet["authority"]["decisionBead"],
+        packet["authority"]["grantFingerprint"],
+        exclude_receipt=receipt["receiptId"],
+    ):
+        return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "grant-revoked"}
+    try:
+        grant = _resolve_canary_authority(packet, grant_resolver)
+    except (Exception, SystemExit) as exc:
+        reason = str(exc) if str(exc) in {"grant-unavailable", "grant-drift", "grant-expired", "grant-revoked"} else "grant-unavailable"
+        if reason in {"grant-drift", "grant-expired"}:
+            result = _persist_canary_revocation(receipt, packet, directory, reason)
+            _revoke_canary_grant(packet, reason, revoke_grant)
+            return result
+        return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": reason}
+    required_packet_refs = set(packet["canary"]["evidenceRefs"]) | set(grant["proof"]["evidenceRefs"])
+    if not required_packet_refs.issubset(packet["evidenceRefs"]):
+        reason = "missing-proof"
+        result = _persist_canary_revocation(receipt, packet, directory, reason)
+        _revoke_canary_grant(packet, reason, revoke_grant)
+        return result
+    if grant["action"] != packet["effect"]["action"]:
+        reason = "grant-drift"
+        result = _persist_canary_revocation(receipt, packet, directory, reason)
+        _revoke_canary_grant(packet, reason, revoke_grant)
+        return result
+    if target_resolver is None:
+        return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "target-unavailable"}
+    try:
+        current_target = target_resolver(packet["target"])
+    except Exception:
+        current_target = None
+    if current_target != packet["target"]:
+        reason = "drift"
+        result = _persist_canary_revocation(receipt, packet, directory, reason)
+        _revoke_canary_grant(packet, reason, revoke_grant)
+        return result
+    if dispatcher is None:
+        return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "dispatcher-unavailable"}
+
+    claim = {
+        "schemaVersion": 1,
+        "receiptId": receipt["receiptId"],
+        "state": "claimed",
+        "decisionBead": packet["authority"]["decisionBead"],
+        "grantFingerprint": packet["authority"]["grantFingerprint"],
+        "actions": 1,
+        "effects": len(packet["effect"]["effects"]),
+        "errorBudget": packet["canary"]["errorBudget"]["maxFailures"],
+        "targetFingerprint": packet["target"]["fingerprint"],
+        "resultStatus": None,
+        "evidenceRefs": [],
+        "reason": None,
+        "at": _captured_at(),
+    }
+    with _locked_store(directory, CLAIMS_NAME, exclusive=True) as (fd, root):
+        assert fd is not None
+        rows = _read_json_rows(fd, _validate_claim, "claim")
+        latest = _latest_claims(rows)
+        previous = latest.get(receipt["receiptId"])
+        if previous is not None:
+            return _claim_result(previous)
+        grant_claims = [
+            item for item in latest.values()
+            if item["decisionBead"] == packet["authority"]["decisionBead"]
+            and item["grantFingerprint"] == packet["authority"]["grantFingerprint"]
+        ]
+        consumed_actions = sum(item["actions"] for item in grant_claims)
+        consumed_effects = sum(item["effects"] for item in grant_claims)
+        failures = sum(item["state"] == "failed" for item in grant_claims)
+        error_budget = min(
+            [packet["canary"]["errorBudget"]["maxFailures"]]
+            + [item["errorBudget"] for item in grant_claims]
+        )
+        if failures >= error_budget:
+            return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "error-budget-exhausted"}
+        rollout = grant["rollout"]
+        if consumed_actions + claim["actions"] > rollout["maxActions"] or consumed_effects + claim["effects"] > rollout["maxEffects"]:
+            return {"schemaVersion": 1, "status": "blocked", "receiptId": receipt["receiptId"], "reason": "rollout-exhausted"}
+        _append_row(fd, root, claim)
+
+    with _locked_store(directory, _canary_lock_name(packet), exclusive=True):
+        with _locked_store(directory, CLAIMS_NAME, exclusive=False) as (fd, _root):
+            assert fd is not None
+            latest = _latest_claims(_read_json_rows(fd, _validate_claim, "claim"))
+            current = latest.get(receipt["receiptId"])
+            if current is None or current["state"] != "claimed":
+                raise ValueError("quality claim state is uncertain")
+            current_grant_claims = [
+                item for item in latest.values()
+                if item["decisionBead"] == packet["authority"]["decisionBead"]
+                and item["grantFingerprint"] == packet["authority"]["grantFingerprint"]
+            ]
+            current_failures = sum(item["state"] == "failed" for item in current_grant_claims)
+            current_error_budget = min(
+                [packet["canary"]["errorBudget"]["maxFailures"]]
+                + [item["errorBudget"] for item in current_grant_claims]
+            )
+            preflight_reason = (
+                "error-budget-exhausted"
+                if current_failures >= current_error_budget
+                else None
+            )
+            try:
+                current_plan = load_control_plan(plan_path)
+                if preflight_reason is None:
+                    preflight_reason = (
+                        None
+                        if current_plan["mode"] == "canary" and _fingerprint(current_plan) == receipt["policyFingerprint"]
+                        else "policy-mismatch"
+                    )
+            except (OSError, ValueError):
+                preflight_reason = "policy-unavailable"
+            if preflight_reason is None:
+                preflight_reason = "grant-uncertain" if any(
+                    item["receiptId"] != receipt["receiptId"]
+                    and item["decisionBead"] == packet["authority"]["decisionBead"]
+                    and item["grantFingerprint"] == packet["authority"]["grantFingerprint"]
+                    and item["state"] == "claimed"
+                    for item in latest.values()
+                ) else "grant-revoked" if any(
+                    item["receiptId"] != receipt["receiptId"]
+                    and item["decisionBead"] == packet["authority"]["decisionBead"]
+                    and item["grantFingerprint"] == packet["authority"]["grantFingerprint"]
+                    and item["state"] == "revoked"
+                    for item in latest.values()
+                ) else None
+        try:
+            refreshed_grant = _resolve_canary_authority(packet, grant_resolver) if preflight_reason is None else grant
+            if (
+                capability_grant_fingerprint(refreshed_grant) != packet["authority"]["grantFingerprint"]
+                or refreshed_grant["rollout"] != grant["rollout"]
+            ):
+                preflight_reason = "grant-drift"
+        except (Exception, SystemExit) as exc:
+            candidate_reason = str(exc)
+            preflight_reason = candidate_reason if candidate_reason in {"grant-drift", "grant-expired", "grant-revoked"} else "grant-unavailable"
+        if preflight_reason is None:
+            try:
+                refreshed_target = target_resolver(packet["target"])
+            except Exception:
+                refreshed_target = None
+            if refreshed_target != packet["target"]:
+                preflight_reason = "drift"
+        if preflight_reason is None:
+            with _active_canary_dispatch(
+                packet["authority"]["decisionBead"],
+                packet["authority"]["grantFingerprint"],
+            ):
+                try:
+                    dispatched = dispatcher(packet)
+                except Exception:
+                    dispatched = {"status": "unknown", "evidenceRefs": []}
+            reason = _canary_failure_reason(dispatched, packet, grant=refreshed_grant)
+        else:
+            dispatched = {"status": "blocked", "evidenceRefs": []}
+            reason = preflight_reason
+        try:
+            result_refs = _evidence_refs(dispatched.get("evidenceRefs", [])) if isinstance(dispatched, dict) else []
+        except ValueError:
+            result_refs = []
+        terminal = {
+            **claim,
+            "state": (
+                "dispatched"
+                if reason is None
+                else "failed"
+                if reason == "effect-failure"
+                else "revoked"
+            ),
+            "resultStatus": dispatched.get("status") if isinstance(dispatched, dict) else "unknown",
+            "evidenceRefs": result_refs,
+            "reason": reason,
+            "at": _captured_at(),
+        }
+        with _locked_store(directory, CLAIMS_NAME, exclusive=True) as (fd, root):
+            assert fd is not None
+            _append_row(fd, root, terminal)
+    if reason is not None and terminal["state"] == "revoked":
+        _revoke_canary_grant(packet, reason, revoke_grant)
+    return _claim_result(terminal)
+
+
 def apply(
     receipt_id: str,
     *,
     directory: str | os.PathLike[str] | None = None,
     plan_path: str | os.PathLike[str] | None = None,
+    grant_resolver: Callable[[str], dict[str, Any]] | None = None,
+    target_resolver: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    dispatcher: Callable[[dict[str, Any]], Any] | None = None,
+    revoke_grant: Callable[[str, str], Any] | None = None,
+    dispatch: Callable[[dict[str, Any]], Any] | None = None,
 ) -> dict[str, Any]:
     receipt = _load_receipt(receipt_id, directory)
     plan = load_control_plan(plan_path)
@@ -2626,6 +3239,23 @@ def apply(
             "receiptId": receipt_id,
             "reason": "policy-mismatch",
         }
+    if receipt["mode"] == "autonomous":
+        return {
+            "schemaVersion": 1,
+            "status": "blocked",
+            "receiptId": receipt_id,
+            "reason": "autonomous-not-enabled",
+        }
+    if receipt["mode"] == "canary":
+        return _apply_canary(
+            receipt,
+            directory=directory,
+            grant_resolver=grant_resolver,
+            target_resolver=target_resolver,
+            plan_path=plan_path,
+            dispatcher=dispatcher or dispatch,
+            revoke_grant=revoke_grant,
+        )
     activity = next(item for item in plan["activities"] if item["id"] == receipt["activity"])
     packet = receipt["workPacket"]
     if (

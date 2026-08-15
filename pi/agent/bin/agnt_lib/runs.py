@@ -465,6 +465,10 @@ def _revalidate_invocation_authority(
             raise ValueError("grant effects changed")
         if resolved.get("grant") != envelope.get("grant"):
             raise ValueError("grant envelope changed")
+        from .quality import locally_revoked_capability_grant
+
+        if locally_revoked_capability_grant(decision, str(resolved.get("grantFingerprint") or "")):
+            raise ValueError("grant is locally revoked")
     except (Exception, SystemExit):
         return "canonical capability grant is unavailable or changed"
     return None

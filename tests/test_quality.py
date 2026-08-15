@@ -4,6 +4,7 @@ import io
 import json
 import stat
 import sys
+import threading
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -1460,3 +1461,260 @@ def test_quality_assess_collect_rejects_unknown_activity_with_sanitized_error(
         "status": "error",
         "error": "quality assess failed",
     }
+
+
+def _canary_plan(tmp_path):
+    plan = deepcopy(quality.load_control_plan())
+    plan["mode"] = "canary"
+    plan["policyVersion"] = "canary-v1"
+    path = tmp_path / "control-plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    return path
+
+
+def _canary_request():
+    return {
+        **_risk_request(
+            requestedMode="canary",
+            resourceSharePercent=7,
+        ),
+        "canary": {
+            "hypothesis": "A bounded effect preserves the reviewed invariant.",
+            "evidenceRefs": ["artifact:canary-proof"],
+            "stopRule": "Stop on any missing proof or critical failure.",
+            "errorBudget": {"maxFailures": 1},
+        },
+    }
+
+
+def _canary_authority():
+    grant = _capability_grant()
+    return {
+        "decisionBead": "pi-grant.1",
+        "grantFingerprint": quality.capability_grant_fingerprint(grant),
+        "allowedEffects": list(grant["effects"]),
+    }, grant
+
+
+def _canary_snapshot():
+    authority, _grant = _canary_authority()
+    return {
+        **_snapshot(),
+        "evidenceRefs": ["artifact:canary-proof", "artifact:grant-proof"],
+        "gaps": [],
+        "riskRequest": _canary_request(),
+        "authority": authority,
+        "target": {
+            "kind": "quality-target",
+            "id": "target-1",
+            "fingerprint": "sha256:" + "1" * 64,
+        },
+        "effect": {
+            "action": "edit",
+            "effects": ["workspace.write"],
+            "reversibility": "bounded",
+        },
+    }
+
+
+def _canary_resolver(_decision):
+    _authority, grant = _canary_authority()
+    return {
+        "schemaVersion": 1,
+        "decisionBead": "pi-grant.1",
+        "status": "active",
+        "grant": {**grant, "revocation": {"status": "active", "reason": None, "at": None}},
+        "grantFingerprint": quality.capability_grant_fingerprint(grant),
+        "resolver": {"kind": "human-ui"},
+        "allowedEffects": list(grant["effects"]),
+    }
+
+
+def test_inv15_canary_revalidates_grant_target_and_dispatches_once(tmp_path):  # Tests INV-15
+    receipt = quality.assess(
+        _canary_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=_canary_plan(tmp_path),
+    )
+    dispatched = []
+    revoked = []
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=_canary_plan(tmp_path),
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda packet: dispatched.append(packet) or {
+            "status": "succeeded",
+            "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+            "effects": ["workspace.write"],
+            "proof": ["tests"],
+            "targetFingerprint": "sha256:" + "1" * 64,
+        },
+        revoke_grant=lambda decision, reason: revoked.append((decision, reason)),
+    )
+
+    assert result["status"] == "applied"
+    assert result["receiptId"] == receipt["receiptId"]
+    assert len(dispatched) == 1
+    assert revoked == []
+    claims = (tmp_path / quality.CLAIMS_NAME).read_text(encoding="utf-8").splitlines()
+    assert [json.loads(row)["state"] for row in claims] == ["claimed", "dispatched"]
+
+
+def test_inv15_concurrent_canary_apply_consumes_one_allowance(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(
+        _canary_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def dispatch(_packet):
+        calls.append("dispatch")
+        entered.set()
+        release.wait(timeout=2)
+        return {
+            "status": "succeeded",
+            "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+            "effects": ["workspace.write"],
+            "proof": ["tests"],
+            "targetFingerprint": "sha256:" + "1" * 64,
+        }
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            quality.apply,
+            receipt["receiptId"],
+            directory=tmp_path,
+            plan_path=plan_path,
+            grant_resolver=_canary_resolver,
+            target_resolver=lambda target: target,
+            dispatcher=dispatch,
+        )
+        assert entered.wait(timeout=2)
+        second = pool.submit(
+            quality.apply,
+            receipt["receiptId"],
+            directory=tmp_path,
+            plan_path=plan_path,
+            grant_resolver=_canary_resolver,
+            target_resolver=lambda target: target,
+            dispatcher=dispatch,
+        )
+        assert second.result(timeout=2)["reason"] in {"claim-uncertain", "grant-uncertain"}
+        release.set()
+        assert first.result(timeout=2)["status"] == "applied"
+
+    assert calls == ["dispatch"]
+
+
+def test_fail13_canary_unknown_result_revokes_grant(tmp_path):  # Tests FAIL-13
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(
+        _canary_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    revoked = []
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda _packet: {"status": "unknown", "evidenceRefs": []},
+        revoke_grant=lambda decision, reason: revoked.append((decision, reason)),
+    )
+
+    assert result["status"] == "revoked"
+    assert result["reason"] == "unknown-result"
+    assert revoked == [("pi-grant.1", "unknown-result")]
+
+
+def test_fail13_canary_critical_signal_revokes_even_on_success_status(tmp_path):  # Tests FAIL-13
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    revoked = []
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda _packet: {
+            "status": "succeeded",
+            "failureClass": "correctness",
+            "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+            "proof": ["tests"],
+            "effects": ["workspace.write"],
+            "targetFingerprint": "sha256:" + "1" * 64,
+        },
+        revoke_grant=lambda decision, reason: revoked.append((decision, reason)),
+    )
+
+    assert result["status"] == "revoked"
+    assert result["reason"] == "critical-failure"
+    assert revoked == [("pi-grant.1", "critical-failure")]
+
+
+def test_inv15_canary_error_budget_blocks_before_dispatch(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    snapshot = _canary_snapshot()
+    snapshot["riskRequest"]["canary"]["errorBudget"] = {"maxFailures": 0}
+    receipt = quality.assess(snapshot, "work-learning", directory=tmp_path, plan_path=plan_path)
+    dispatched = []
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda packet: dispatched.append(packet),
+    )
+
+    assert result["reason"] == "error-budget-exhausted"
+    assert dispatched == []
+
+
+def test_inv15_canary_noncritical_failure_does_not_revoke_grant(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(
+        _canary_snapshot(),
+        "work-learning",
+        directory=tmp_path,
+        plan_path=plan_path,
+    )
+    revoked = []
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=lambda _packet: {
+            "status": "failed",
+            "failureClass": "process",
+            "evidenceRefs": [],
+        },
+        revoke_grant=lambda decision, reason: revoked.append((decision, reason)),
+    )
+
+    assert result == {
+        "schemaVersion": 1,
+        "status": "failed",
+        "receiptId": receipt["receiptId"],
+        "reason": "effect-failure",
+    }
+    assert revoked == []
