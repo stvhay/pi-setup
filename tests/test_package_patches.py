@@ -13,7 +13,8 @@ GITMODULES = ROOT / ".gitmodules"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
 ARCHIMEDES_VENDOR_HEAD = "f04aadaed17746da7650a217b645ede249eecfd3"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
-LANGFUSE_VENDOR_HEAD = "c5da10a7cd0bced92ffc70e419d0198829a7a36c"
+LANGFUSE_VENDOR_HEAD = "94fa7f0c4410ce10da1f98c8fe4b798374c8df2e"
+LANGFUSE_UPSTREAM_1514 = "04d55a12556bdf4c4b8b208038198dc2fd8e571b"
 LANGFUSE_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--gooyoung--pi-langfuse.md"
 LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality-port-contract.md"
 ARCHIMEDES_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--danielcherubini--pi-archimedes.md"
@@ -74,7 +75,7 @@ def _archimedes_footer(root: Path) -> Path:
 
 def _fixture_patches(root: Path) -> Path:
     root.mkdir()
-    (root / "pi-langfuse-1.5.12.patch").write_text(
+    (root / "pi-langfuse-1.5.14.patch").write_text(
         """diff --git a/src/langfuse.ts b/src/langfuse.ts
 --- a/src/langfuse.ts
 +++ b/src/langfuse.ts
@@ -141,7 +142,7 @@ def _run(package_root: Path, patch_root: Path, *args: str) -> subprocess.Complet
 
 def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.12", "export const nativeSession = true;\n")
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.14", "export const nativeSession = true;\n")
     archimedes = _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -176,7 +177,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path)
     package_json.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.8"}), encoding="utf-8")
     rejected = _run(package_root, patch_root, "--check")
     assert rejected.returncode != 0
-    assert "expected pi-langfuse 1.5.12" in rejected.stderr
+    assert "expected pi-langfuse 1.5.14" in rejected.stderr
 
 
 def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
@@ -186,7 +187,7 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.12",
+        "1.5.14",
         "export const session = ctx?.sessionManager?.getSessionId?.();\n",
     )
     score_source = langfuse.parent / "src/langfuse.ts"
@@ -220,7 +221,7 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.12",
+        "1.5.14",
         'export const session = "file";\n',
     )
     score_source = langfuse.parent / "src/langfuse.ts"
@@ -254,7 +255,7 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.12",
+        "1.5.14",
         'export const session = "file";\n',
     )
     archimedes = _package(
@@ -277,7 +278,7 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
     package_root = tmp_path / "node_modules"
     _archimedes_footer(package_root)
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.12", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.14", 'export const session = "file";\n')
     score_source = langfuse.parent / "src/langfuse.ts"
     score_source.write_text(
         score_source.read_text(encoding="utf-8").replace(
@@ -304,7 +305,7 @@ def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
 
 def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.12", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.14", 'export const session = "file";\n')
     _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -352,19 +353,46 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
 
     assert head.returncode == 0, head.stderr
     assert head.stdout.strip() == LANGFUSE_VENDOR_HEAD
-    assert "branch = vendor/pi-setup-1512" in GITMODULES.read_text(encoding="utf-8")
-    for ancestor in (
-        "c79c527a7294e1d4b8153525d5218e87354cbcb1",
-        "9c4103d5c0e704b494ed018e4b789f8c4bf64f26",
-        "bcaa42a928c7df8ceecc18ececf263cbf9632300",
-    ):
-        assert subprocess.run(
-            ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", ancestor, "HEAD"],
-        ).returncode == 0
+    assert "branch = vendor/pi-setup-1514" in GITMODULES.read_text(encoding="utf-8")
+    assert subprocess.run(
+        ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", LANGFUSE_UPSTREAM_1514, "HEAD"],
+    ).returncode == 0
+    count = subprocess.run(
+        ["git", "-C", str(LANGFUSE_VENDOR), "rev-list", "--count", f"{LANGFUSE_UPSTREAM_1514}..HEAD"],
+        text=True,
+        capture_output=True,
+    )
+    assert count.returncode == 0, count.stderr
+    assert count.stdout.strip() == "1"
+
+
+def test_langfuse_upstream_candidates_are_single_commits_on_v1514():
+    expected = {
+        "rebuild/ingestion-byte-batches-1514": "528488fb54abe3a9f7c3bb46f584cfbb742ac3b0",
+        "rebuild/media-safe-payload-bounds-1514": "0dbf6558b952ef15da6ae864279ad31961f7dad0",
+        "rebuild/tool-payload-byte-metadata-1514": "5fc8d288ef71807ab025f05ab499b5eff4ad822f",
+        "feat/quality-ports-1514": "75c8a186e48038a51a95c02ef284256a5ed6cd46",
+    }
+
+    for branch, commit in expected.items():
+        actual = subprocess.run(
+            ["git", "-C", str(LANGFUSE_VENDOR), "rev-parse", branch],
+            text=True,
+            capture_output=True,
+        )
+        assert actual.returncode == 0, actual.stderr
+        assert actual.stdout.strip() == commit
+        count = subprocess.run(
+            ["git", "-C", str(LANGFUSE_VENDOR), "rev-list", "--count", f"{LANGFUSE_UPSTREAM_1514}..{branch}"],
+            text=True,
+            capture_output=True,
+        )
+        assert count.returncode == 0, count.stderr
+        assert count.stdout.strip() == "1"
 
 
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
-    langfuse = (PATCHES / "pi-langfuse-1.5.12.patch").read_text(encoding="utf-8")
+    langfuse = (PATCHES / "pi-langfuse-1.5.14.patch").read_text(encoding="utf-8")
     archimedes = (PATCHES / "pi-archimedes-subagent-2.0.1.patch").read_text(encoding="utf-8")
     footer = (PATCHES / "pi-archimedes-footer-2.0.1.patch").read_text(encoding="utf-8")
     meta = (PATCHES / "pi-archimedes-meta-2.0.1.patch").read_text(encoding="utf-8")
@@ -380,7 +408,15 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "score.id ??= randomUUID()" not in langfuse
     assert "id?: string;" not in langfuse
     assert "diff --git a/index.ts" not in langfuse
-    assert "diff --git a/src/types.ts" not in langfuse
+    assert "diff --git a/package.json" in langfuse
+    assert '"./quality": "./src/quality.ts"' in langfuse
+    assert "diff --git a/src/quality.ts" in langfuse
+    assert "createObservationCapturePort" in langfuse
+    assert "createServiceEvidencePort" in langfuse
+    assert "diff --git a/src/types.ts" in langfuse
+    assert "toolPayloadBytesVersion" in langfuse
+    assert "captureToolIoBytes" in langfuse
+    assert "prepareToolPayload" in langfuse
     assert "MAX_INGESTION_REQUEST_BYTES" in langfuse
     assert "scoreEventIds" in langfuse
     assert "AbortSignal.any" in langfuse
@@ -428,7 +464,11 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
 def test_langfuse_quality_port_release_gate_requires_exact_public_evidence():
     profile = LANGFUSE_PROFILE.read_text(encoding="utf-8")
     contract = LANGFUSE_QUALITY_PORT.read_text(encoding="utf-8")
+    patch = (PATCHES / "pi-langfuse-1.5.14.patch").read_text(encoding="utf-8")
 
+    assert '"./quality": "./src/quality.ts"' in patch
+    assert "createObservationCapturePort" in patch
+    assert "createServiceEvidencePort" in patch
     assert "quality_port_status: proposed-unreleased" in profile
     assert "No released package currently satisfies this contract." in profile
     for evidence in (
@@ -463,7 +503,7 @@ def test_archimedes_result_port_release_gate_requires_exact_public_evidence():
 
 
 def test_langfuse_runtime_patch_uses_zero_context_without_losing_source_removals():
-    patch = (PATCHES / "pi-langfuse-1.5.12.patch").read_text(encoding="utf-8")
+    patch = (PATCHES / "pi-langfuse-1.5.14.patch").read_text(encoding="utf-8")
     hunks: list[list[str]] = []
     current: list[str] | None = None
     for line in patch.splitlines():

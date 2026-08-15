@@ -14,7 +14,7 @@ PI_README = ROOT / "pi" / "README.md"
 KEYBINDINGS = ROOT / "pi" / "agent" / "keybindings.json"
 ARCHIMEDES_PACKAGE = {"source": "npm:pi-archimedes@2.0.1", "extensions": []}
 ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
-LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.5.12", "extensions": []}
+LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.5.14", "extensions": []}
 LANGFUSE_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 ARCHITECTURE_SKILL_PACKAGE = {
     "source": "git:github.com/mattpocock/skills",

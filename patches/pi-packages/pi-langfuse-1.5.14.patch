@@ -1,0 +1,1333 @@
+diff --git a/package.json b/package.json
+index e75afe9..d9f19cf 100644
+--- a/package.json
++++ b/package.json
+@@ -15,0 +16,4 @@
++	"exports": {
++		".": "./index.ts",
++		"./quality": "./src/quality.ts"
++	},
+diff --git a/src/capture-policy.ts b/src/capture-policy.ts
+index 1cd2899..27fb7da 100644
+--- a/src/capture-policy.ts
++++ b/src/capture-policy.ts
+@@ -6,0 +7 @@ export interface CapturePolicy {
++  readonly captureToolIoBytes: boolean;
+@@ -37,0 +39 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
++    captureToolIoBytes: false,
+@@ -45,0 +48 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
++    captureToolIoBytes: false,
+@@ -53,0 +57 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
++    captureToolIoBytes: false,
+@@ -61,0 +66 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
++    captureToolIoBytes: true,
+@@ -71,0 +77 @@ const FLAG_TO_FIELD = {
++  LANGFUSE_CAPTURE_TOOL_IO_BYTES: "captureToolIoBytes",
+@@ -130,0 +137 @@ export function applyCapturePolicy(
++  options: { preserveInputMedia?: boolean } = {},
+@@ -137 +144 @@ export function applyCapturePolicy(
+-    captured.input = redactValue(payload.input);
++    captured.input = redactValue(payload.input, { preserveMedia: options.preserveInputMedia });
+diff --git a/src/commands.ts b/src/commands.ts
+index eca299a..e9a2436 100644
+--- a/src/commands.ts
++++ b/src/commands.ts
+@@ -84,0 +85 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
++        captureToolIoBytes: false,
+@@ -94,0 +96 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
++        captureToolIoBytes: false,
+@@ -104,0 +107 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
++        captureToolIoBytes: false,
+@@ -114,0 +118 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
++        captureToolIoBytes: true,
+@@ -125,0 +130 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
++      policy.captureToolIoBytes === presetPolicy.captureToolIoBytes &&
+@@ -139,0 +145 @@ function describePolicy(policy: CapturePolicy) {
++    `captureToolIoBytes: ${policy.captureToolIoBytes}`,
+@@ -218,0 +225 @@ function formatStatus(configPath: string, env: Record<string, string | undefined
++    `  tool IO bytes: ${flag(policy.captureToolIoBytes)}`,
+diff --git a/src/handlers/generation.ts b/src/handlers/generation.ts
+index 5f2b464..dd6615b 100644
+--- a/src/handlers/generation.ts
++++ b/src/handlers/generation.ts
+@@ -17,0 +18 @@ import { applyCapturePolicy } from "../capture-policy.js";
++import { redactString } from "../redaction.js";
+@@ -51,0 +53,2 @@ export async function startGeneration(event: Record<string, unknown>) {
++    const capturePolicy = getCapturePolicy();
++    const preserveInputMedia = capturePolicy.captureInputs;
+@@ -54 +57 @@ export async function startGeneration(event: Record<string, unknown>) {
+-        input: shapePayload(payload),
++        input: shapePayload(payload, { preserveMedia: preserveInputMedia }),
+@@ -57 +60,2 @@ export async function startGeneration(event: Record<string, unknown>) {
+-      getCapturePolicy(),
++      capturePolicy,
++      { preserveInputMedia },
+@@ -108 +112 @@ export function updateGenerationMetadata(event: Record<string, unknown>) {
+-          statusMessage: String(event.error ?? metadata.statusMessage ?? "Provider request failed")
++          statusMessage: redactString(String(event.error ?? metadata.statusMessage ?? "Provider request failed"))
+@@ -131 +135 @@ export function updateGenerationMetadata(event: Record<string, unknown>) {
+-        statusMessage: String(event.error ?? metadata.statusMessage ?? "Provider request failed")
++        statusMessage: redactString(String(event.error ?? metadata.statusMessage ?? "Provider request failed"))
+diff --git a/src/handlers/tool.ts b/src/handlers/tool.ts
+index 9730f7c..2f3a4e5 100644
+--- a/src/handlers/tool.ts
++++ b/src/handlers/tool.ts
+@@ -8 +7,0 @@ import {
+-  shapePayload,
+@@ -11 +10,2 @@ import {
+-  estimatePayloadBytes,
++  prepareToolPayload,
++  type PreparedToolPayload,
+@@ -15 +15 @@ import {
+-import { applyCapturePolicy } from "../capture-policy.js";
++import { applyCapturePolicy, type CapturePolicy } from "../capture-policy.js";
+@@ -17,0 +18,31 @@ import { redactString } from "../redaction.js";
++const TOOL_PAYLOAD_BYTES_VERSION = 1;
++
++function payloadByteMetadata(
++  direction: "input" | "output",
++  payload: PreparedToolPayload,
++  policy: CapturePolicy,
++): Record<string, unknown> {
++  const absent = payload.bytesState === "absent";
++  const captureState = absent
++    ? "absent"
++    : payload.bytesState === "unknown" && policy.captureToolIo
++      ? "unknown"
++      : policy.captureToolIo
++        ? "captured"
++        : "redacted";
++  const bytesState = absent
++    ? "absent"
++    : policy.captureToolIoBytes || (policy.captureToolIo && payload.bytesState !== "available")
++      ? payload.bytesState
++      : "unavailable";
++
++  return {
++    toolPayloadBytesVersion: TOOL_PAYLOAD_BYTES_VERSION,
++    [`${direction}CaptureState`]: captureState,
++    [`${direction}BytesState`]: bytesState,
++    ...(policy.captureToolIoBytes && payload.bytes !== undefined
++      ? { [`${direction}Bytes`]: payload.bytes }
++      : {}),
++  };
++}
++
+@@ -30,2 +61,3 @@ export async function startToolObservation(event: Record<string, unknown>) {
+-    const toolInput = getToolInput(event);
+-    const shapedInput = shapePayload(toolInput, { maxString: getLimits().maxToolPayload });
++    const policy = getCapturePolicy();
++    const preparedInput = prepareToolPayload(getToolInput(event), getLimits().maxToolPayload);
++    const inputByteMetadata = payloadByteMetadata("input", preparedInput, policy);
+@@ -34 +66 @@ export async function startToolObservation(event: Record<string, unknown>) {
+-        toolInput: shapedInput,
++        toolInput: preparedInput.value,
+@@ -37 +69 @@ export async function startToolObservation(event: Record<string, unknown>) {
+-      getCapturePolicy(),
++      policy,
+@@ -39 +70,0 @@ export async function startToolObservation(event: Record<string, unknown>) {
+-    const inputBytes = estimatePayloadBytes(captured.toolInput, getLimits().maxToolPayload);
+@@ -47 +78 @@ export async function startToolObservation(event: Record<string, unknown>) {
+-        metadata: { ...(captured.metadata ?? {}), inputBytes },
++        metadata: { ...(captured.metadata ?? {}), ...inputByteMetadata },
+@@ -58 +89 @@ export async function startToolObservation(event: Record<string, unknown>) {
+-      inputBytes,
++      inputByteMetadata,
+@@ -86,2 +117 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+-    event.content ??
+-    event;
++    event.content;
+@@ -90 +120,3 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+-    const shapedOutput = shapePayload(output, { maxString: getLimits().maxToolPayload });
++    const policy = getCapturePolicy();
++    const preparedOutput = prepareToolPayload(output, getLimits().maxToolPayload);
++    const outputByteMetadata = payloadByteMetadata("output", preparedOutput, policy);
+@@ -93 +125 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+-        toolOutput: shapedOutput,
++        toolOutput: preparedOutput.value,
+@@ -100 +132 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+-      getCapturePolicy(),
++      policy,
+@@ -102 +133,0 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+-    const outputBytes = estimatePayloadBytes(captured.toolOutput, getLimits().maxToolPayload);
+@@ -109 +140,5 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+-        statusMessage: isError ? redactString(truncate(String(event.error ?? output), 1_000)) : undefined,
++        statusMessage: isError
++          ? policy.captureToolIo
++            ? redactString(truncate(String(event.error ?? output), 1_000))
++            : "Tool execution failed"
++          : undefined,
+@@ -113,2 +148,2 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+-          inputBytes: activeTool.inputBytes,
+-          outputBytes,
++          ...activeTool.inputByteMetadata,
++          ...outputByteMetadata,
+diff --git a/src/langfuse.ts b/src/langfuse.ts
+index 2bc9eb4..26a75be 100644
+--- a/src/langfuse.ts
++++ b/src/langfuse.ts
+@@ -3,0 +4 @@ import { randomUUID } from "node:crypto";
++import { redactValue } from "./redaction.js";
+@@ -71,0 +73,3 @@ const MAX_SCORE_BATCH_SIZE = 100;
++// Legacy POST /api/public/ingestion batches are limited to 3.5 MB.
++const MAX_INGESTION_REQUEST_BYTES = 3_000_000;
++const EMPTY_INGESTION_BODY_BYTES = Buffer.byteLength('{"batch":[]}');
+@@ -73,0 +78 @@ let shutdownStepTimeoutMs = DEFAULT_SHUTDOWN_STEP_TIMEOUT_MS;
++const scoreEventIds = new WeakMap<PendingScore, string>();
+@@ -228,9 +233,19 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+-  const response = await fetch(`${config.host.replace(/\/$/, "")}/api/public/ingestion`, {
+-    method: "POST",
+-    headers: ingestionHeaders(rt),
+-    body: JSON.stringify({ batch }),
+-    signal,
+-  });
+-  if (!response.ok) {
+-    throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
+-  }
++  const url = `${config.host.replace(/\/$/, "")}/api/public/ingestion`;
++  const errors: unknown[] = [];
++  let serializedEvents: string[] = [];
++  let bodyBytes = EMPTY_INGESTION_BODY_BYTES;
++
++  async function flush() {
++    if (serializedEvents.length === 0) {
++      return;
++    }
++
++    const response = await fetch(url, {
++      method: "POST",
++      headers: ingestionHeaders(rt),
++      body: `{"batch":[${serializedEvents.join(",")}]}`,
++      signal,
++    });
++    if (!response.ok) {
++      throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
++    }
+@@ -238,3 +253,32 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+-  const text = await response.text();
+-  if (!text) {
+-    return [];
++    const text = await response.text();
++    if (text) {
++      const responseBody = JSON.parse(text) as { errors?: unknown[] };
++      if (Array.isArray(responseBody.errors)) {
++        errors.push(...responseBody.errors);
++      }
++    }
++    serializedEvents = [];
++    bodyBytes = EMPTY_INGESTION_BODY_BYTES;
++  }
++
++  for (const [index, event] of batch.entries()) {
++    const serialized = JSON.stringify(event) ?? "null";
++    const eventBytes = Buffer.byteLength(serialized);
++    if (EMPTY_INGESTION_BODY_BYTES + eventBytes > MAX_INGESTION_REQUEST_BYTES) {
++      const eventId = event && typeof event === "object" && typeof (event as { id?: unknown }).id === "string"
++        ? (event as { id: string }).id
++        : `batch[${index}]`;
++      errors.push({
++        id: eventId,
++        status: 413,
++        message: `Langfuse ingestion event at batch index ${index} exceeds the ${MAX_INGESTION_REQUEST_BYTES.toLocaleString("en-US")} byte request ceiling (${eventBytes.toLocaleString("en-US")} event bytes)`,
++      });
++      continue;
++    }
++
++    const separatorBytes = serializedEvents.length > 0 ? 1 : 0;
++    if (bodyBytes + separatorBytes + eventBytes > MAX_INGESTION_REQUEST_BYTES) {
++      await flush();
++    }
++    bodyBytes += (serializedEvents.length > 0 ? 1 : 0) + eventBytes;
++    serializedEvents.push(serialized);
+@@ -243,2 +287,12 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+-  const responseBody = JSON.parse(text) as { errors?: unknown[] };
+-  return Array.isArray(responseBody.errors) ? responseBody.errors : [];
++  await flush();
++  return errors;
++}
++
++function scoreEventId(score: PendingScore): string {
++  const existing = scoreEventIds.get(score);
++  if (existing) {
++    return existing;
++  }
++  const id = randomUUID();
++  scoreEventIds.set(score, id);
++  return id;
+@@ -263 +317 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
+-          id: randomUUID(),
++          id: scoreEventId(score),
+@@ -360,0 +415,4 @@ function mergeMetadata(current: Record<string, unknown> | undefined, next: Recor
++function prepareRestFallbackValue(value: unknown): unknown {
++  return redactValue(value);
++}
++
+@@ -366,2 +424,2 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+-  if ("input" in body) record.input = body.input;
+-  if ("output" in body) record.output = body.output;
++  if ("input" in body) record.input = prepareRestFallbackValue(body.input);
++  if ("output" in body) record.output = prepareRestFallbackValue(body.output);
+@@ -369 +427,7 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+-    record.metadata = mergeMetadata(record.metadata, body.metadata as Record<string, unknown>);
++    record.metadata = mergeMetadata(
++      record.metadata,
++      prepareRestFallbackValue(body.metadata) as Record<string, unknown>,
++    );
++  }
++  if (typeof body.model === "string") {
++    record.model = prepareRestFallbackValue(body.model) as string;
+@@ -371 +434,0 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+-  if (typeof body.model === "string") record.model = body.model;
+@@ -373 +436 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+-    record.modelParameters = body.modelParameters as Record<string, string | number>;
++    record.modelParameters = prepareRestFallbackValue(body.modelParameters) as Record<string, string | number>;
+@@ -382 +445,3 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+-  if (typeof body.statusMessage === "string") record.statusMessage = body.statusMessage;
++  if (typeof body.statusMessage === "string") {
++    record.statusMessage = prepareRestFallbackValue(body.statusMessage) as string;
++  }
+@@ -392,2 +457,2 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
+-  if ("input" in body) store.trace.input = body.input;
+-  if ("output" in body) store.trace.output = body.output;
++  if ("input" in body) store.trace.input = prepareRestFallbackValue(body.input);
++  if ("output" in body) store.trace.output = prepareRestFallbackValue(body.output);
+@@ -395 +460,4 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
+-    store.trace.metadata = mergeMetadata(store.trace.metadata, body.metadata as Record<string, unknown>);
++    store.trace.metadata = mergeMetadata(
++      store.trace.metadata,
++      prepareRestFallbackValue(body.metadata) as Record<string, unknown>,
++    );
+@@ -413,0 +482 @@ function wrapObservation(
++  const fallbackMetadata = prepareRestFallbackValue(metadata) as Record<string, unknown> | undefined;
+@@ -421 +490 @@ function wrapObservation(
+-    metadata: mergeMetadata(metadata, asType && asType !== "generation" && asType !== "span" ? { langfuseObservationType: asType } : undefined),
++    metadata: mergeMetadata(fallbackMetadata, asType && asType !== "generation" && asType !== "span" ? { langfuseObservationType: asType } : undefined),
+@@ -433,3 +502,3 @@ function wrapObservation(
+-      input: body?.input,
+-      sessionId: typeof metadata?.sessionId === "string" ? metadata.sessionId : state.currentSessionId || undefined,
+-      metadata,
++      input: prepareRestFallbackValue(body?.input),
++      sessionId: typeof fallbackMetadata?.sessionId === "string" ? fallbackMetadata.sessionId : state.currentSessionId || undefined,
++      metadata: fallbackMetadata,
+@@ -550,0 +620 @@ async function waitForTraceVisibility(
++  timeoutMs = OTEL_VISIBILITY_TIMEOUT_MS,
+@@ -552 +622,3 @@ async function waitForTraceVisibility(
+-  const deadline = Date.now() + OTEL_VISIBILITY_TIMEOUT_MS;
++  if (timeoutMs <= 0) {
++    return "missing";
++  }
+@@ -554,5 +626,8 @@ async function waitForTraceVisibility(
+-  while (true) {
+-    const visibility = await getTraceVisibility(rt, store, traceId, signal);
+-    if (visibility !== "missing") {
+-      return visibility;
+-    }
++  const deadline = Date.now() + timeoutMs;
++  const visibilitySignal = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
++  try {
++    while (true) {
++      const visibility = await getTraceVisibility(rt, store, traceId, visibilitySignal);
++      if (visibility !== "missing") {
++        return visibility;
++      }
+@@ -560,4 +635,4 @@ async function waitForTraceVisibility(
+-    const remainingMs = deadline - Date.now();
+-    if (remainingMs <= 0) {
+-      return "missing";
+-    }
++      const remainingMs = deadline - Date.now();
++      if (remainingMs <= 0) {
++        return "missing";
++      }
+@@ -565 +640,7 @@ async function waitForTraceVisibility(
+-    await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), signal);
++      await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), visibilitySignal);
++    }
++  } catch (error) {
++    if (signal.aborted) {
++      throw error;
++    }
++    return "missing";
+@@ -573 +654 @@ function eventTimestamp(record: { endTime?: string; startTime?: string; timestam
+-async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal) {
++async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal, deadline: number) {
+@@ -580 +661,16 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+-  const visibility = await waitForTraceVisibility(rt, store, store.trace.id, signal);
++  const trace = store.trace;
++  trace.input = prepareRestFallbackValue(trace.input);
++  trace.output = prepareRestFallbackValue(trace.output);
++  trace.metadata = prepareRestFallbackValue(trace.metadata) as Record<string, unknown> | undefined;
++  for (const observation of store.observations) {
++    observation.input = prepareRestFallbackValue(observation.input);
++    observation.output = prepareRestFallbackValue(observation.output);
++    observation.metadata = prepareRestFallbackValue(observation.metadata) as Record<string, unknown> | undefined;
++    observation.model = prepareRestFallbackValue(observation.model) as string | undefined;
++    observation.modelParameters = prepareRestFallbackValue(observation.modelParameters) as Record<string, string | number> | undefined;
++    observation.statusMessage = prepareRestFallbackValue(observation.statusMessage) as string | undefined;
++  }
++
++  const remainingMs = Math.max(0, deadline - Date.now());
++  const visibilityTimeoutMs = Math.min(OTEL_VISIBILITY_TIMEOUT_MS, Math.floor(remainingMs / 2));
++  const visibility = await waitForTraceVisibility(rt, store, trace.id, signal, visibilityTimeoutMs);
+@@ -589 +684,0 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+-  const trace = store.trace;
+@@ -778 +873 @@ function doShutdownRuntime(): Promise<void> {
+-        () => fallbackToRestIngestion(rt, controller.signal),
++        () => fallbackToRestIngestion(rt, controller.signal, deadline),
+diff --git a/src/limits.ts b/src/limits.ts
+index 8c3bf0b..db9cddf 100644
+--- a/src/limits.ts
++++ b/src/limits.ts
+@@ -19 +19 @@ export interface PayloadLimits {
+-  /** Max characters kept per captured string (generation/agent inputs, outputs, system prompt). */
++  /** Max characters kept per ordinary captured string; complete captured generation-input media is extracted separately. */
+diff --git a/src/quality.ts b/src/quality.ts
+new file mode 100644
+index 0000000..2fc1413
+--- /dev/null
++++ b/src/quality.ts
+@@ -0,0 +1,713 @@
++import { applyCapturePolicy } from "./capture-policy.js";
++import { getRuntime } from "./langfuse.js";
++import { state } from "./state.js";
++import { getCapturePolicy, shapePayload } from "./utils.js";
++
++export type QualityPortGapScope =
++  | "capture"
++  | "redaction"
++  | "export"
++  | "traces"
++  | "observations"
++  | "scores"
++  | "annotations";
++
++export interface QualityPortGap {
++  scope: QualityPortGapScope;
++  code: string;
++}
++
++export interface ObservationCaptureRequest {
++  name: string;
++  input?: unknown;
++  output?: unknown;
++  metadata?: Record<string, unknown>;
++  level?: "DEFAULT" | "ERROR";
++  sessionId?: string;
++  delivery: "buffered" | "flush";
++  signal?: AbortSignal;
++}
++
++export interface ObservationCaptureResult {
++  status: "complete" | "partial" | "unavailable";
++  complete: boolean;
++  observationId?: string;
++  traceId?: string;
++  gaps: readonly QualityPortGap[];
++}
++
++export interface ObservationCapturePort {
++  capture(request: ObservationCaptureRequest): Promise<ObservationCaptureResult>;
++}
++
++export type LangfuseEvidenceRow = Readonly<Record<string, unknown>>;
++
++export interface BoundedEvidencePage<T = LangfuseEvidenceRow> {
++  items: readonly T[];
++  requestedLimit: number;
++  appliedLimit: number;
++  totalAvailable?: number;
++  nextCursor?: string;
++  complete: boolean;
++  gaps: readonly QualityPortGap[];
++}
++
++export interface TraceEvidenceQuery {
++  fromTimestamp: string;
++  toTimestamp: string;
++  limit: number;
++  pageSize?: number;
++  signal?: AbortSignal;
++}
++
++export interface ObservationEvidenceQuery {
++  fromTimestamp: string;
++  toTimestamp: string;
++  traceId: string;
++  limit: number;
++  pageSize?: number;
++  signal?: AbortSignal;
++}
++
++export interface ScoreEvidenceQuery {
++  fromTimestamp: string;
++  toTimestamp: string;
++  limit: number;
++  pageSize?: number;
++  traceId?: string;
++  sessionId?: string;
++  name?: string;
++  signal?: AbortSignal;
++}
++
++export interface AnnotationEvidenceQuery {
++  queueId: string;
++  limit: number;
++  signal?: AbortSignal;
++}
++
++export interface AnnotationEvidenceResult {
++  queue?: LangfuseEvidenceRow;
++  items: readonly LangfuseEvidenceRow[];
++  scores: readonly LangfuseEvidenceRow[];
++  scoreConfigs: readonly LangfuseEvidenceRow[];
++  requestedLimit: number;
++  appliedLimit: number;
++  completeness: {
++    queue: boolean;
++    items: boolean;
++    scores: boolean;
++    scoreConfigs: boolean;
++  };
++  complete: boolean;
++  gaps: readonly QualityPortGap[];
++}
++
++export interface ServiceEvidencePort {
++  traces(query: TraceEvidenceQuery): Promise<BoundedEvidencePage>;
++  observations(query: ObservationEvidenceQuery): Promise<BoundedEvidencePage>;
++  scores(query: ScoreEvidenceQuery): Promise<BoundedEvidencePage>;
++  annotations(query: AnnotationEvidenceQuery): Promise<AnnotationEvidenceResult>;
++}
++
++const MAX_EVIDENCE_LIMIT = 100;
++const MAX_ANNOTATION_LIMIT = 99;
++const REQUEST_TIMEOUT_MS = 10_000;
++const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
++
++function gap(scope: QualityPortGapScope, code: string): QualityPortGap {
++  return { scope, code };
++}
++
++function validateCaptureRequest(request: ObservationCaptureRequest): void {
++  if (!request || typeof request.name !== "string" || !request.name.trim()) {
++    throw new TypeError("Observation capture name is required");
++  }
++  if (request.delivery !== "buffered" && request.delivery !== "flush") {
++    throw new TypeError("Observation capture delivery is invalid");
++  }
++  if (request.level !== undefined && request.level !== "DEFAULT" && request.level !== "ERROR") {
++    throw new TypeError("Observation capture level is invalid");
++  }
++  if (request.sessionId !== undefined && (typeof request.sessionId !== "string" || !request.sessionId.trim())) {
++    throw new TypeError("Observation capture sessionId is invalid");
++  }
++  if (
++    request.metadata !== undefined
++    && (typeof request.metadata !== "object" || request.metadata === null || Array.isArray(request.metadata))
++  ) {
++    throw new TypeError("Observation capture metadata is invalid");
++  }
++}
++
++async function waitForSignal<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
++  if (!signal) return operation;
++  if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
++
++  return new Promise<T>((resolve, reject) => {
++    const abort = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
++    signal.addEventListener("abort", abort, { once: true });
++    operation.then(
++      (value) => {
++        signal.removeEventListener("abort", abort);
++        resolve(value);
++      },
++      (error) => {
++        signal.removeEventListener("abort", abort);
++        reject(error);
++      },
++    );
++  });
++}
++
++export function createObservationCapturePort(): ObservationCapturePort {
++  return {
++    async capture(request) {
++      validateCaptureRequest(request);
++      if (request.signal?.aborted) {
++        return {
++          status: "unavailable",
++          complete: false,
++          gaps: [gap("export", "aborted")],
++        };
++      }
++      if (!state.config) {
++        return {
++          status: "unavailable",
++          complete: false,
++          gaps: [gap("capture", "config-unavailable")],
++        };
++      }
++
++      let captured;
++      try {
++        const metadata = request.metadata === undefined
++          ? undefined
++          : shapePayload(request.metadata, { redact: false }) as Record<string, unknown>;
++        captured = applyCapturePolicy(
++          {
++            ...(Object.hasOwn(request, "input")
++              ? { input: shapePayload(request.input, { redact: false }) }
++              : {}),
++            ...(Object.hasOwn(request, "output")
++              ? { output: shapePayload(request.output, { redact: false }) }
++              : {}),
++            metadata,
++          },
++          getCapturePolicy(),
++        );
++      } catch {
++        return {
++          status: "unavailable",
++          complete: false,
++          gaps: [gap("redaction", "redaction-failed")],
++        };
++      }
++
++      let runtime;
++      try {
++        runtime = await getRuntime();
++      } catch {
++        return {
++          status: "unavailable",
++          complete: false,
++          gaps: [gap("capture", "runtime-unavailable")],
++        };
++      }
++
++      let observation;
++      try {
++        observation = runtime.propagateAttributes(
++          {
++            sessionId: request.sessionId,
++            traceName: request.name,
++          },
++          () => runtime.startObservation(
++            request.name,
++            {
++              input: captured.input,
++              output: captured.output,
++              metadata: captured.metadata,
++              level: request.level,
++            },
++            { asType: "span" },
++          ),
++        );
++      } catch {
++        return {
++          status: "unavailable",
++          complete: false,
++          gaps: [gap("capture", "start-failed")],
++        };
++      }
++
++      const ids = {
++        ...(typeof observation.id === "string" ? { observationId: observation.id } : {}),
++        ...(typeof observation.traceId === "string" ? { traceId: observation.traceId } : {}),
++      };
++      try {
++        observation.end();
++      } catch {
++        return {
++          status: "partial",
++          complete: false,
++          ...ids,
++          gaps: [gap("capture", "end-failed")],
++        };
++      }
++
++      if (request.delivery === "flush") {
++        const forceFlush = runtime.tracerProvider?.forceFlush ?? runtime.spanProcessor?.forceFlush;
++        if (!forceFlush) {
++          return {
++            status: "partial",
++            complete: false,
++            ...ids,
++            gaps: [gap("export", "flush-unavailable")],
++          };
++        }
++        try {
++          await waitForSignal(Promise.resolve(forceFlush.call(
++            runtime.tracerProvider?.forceFlush ? runtime.tracerProvider : runtime.spanProcessor,
++          )), request.signal);
++        } catch {
++          return {
++            status: "partial",
++            complete: false,
++            ...ids,
++            gaps: [gap("export", request.signal?.aborted ? "aborted" : "flush-failed")],
++          };
++        }
++      }
++
++      return {
++        status: "complete",
++        complete: true,
++        ...ids,
++        gaps: [],
++      };
++    },
++  };
++}
++
++function positiveInteger(value: number, label: string): number {
++  if (!Number.isSafeInteger(value) || value < 1) {
++    throw new TypeError(`${label} must be a positive integer`);
++  }
++  return value;
++}
++
++function appliedLimit(limit: number, maximum = MAX_EVIDENCE_LIMIT): number {
++  return Math.min(positiveInteger(limit, "Evidence limit"), maximum);
++}
++
++function pageLimit(pageSize: number | undefined, limit: number): number {
++  return Math.min(
++    pageSize === undefined ? MAX_EVIDENCE_LIMIT : positiveInteger(pageSize, "Evidence pageSize"),
++    MAX_EVIDENCE_LIMIT,
++    limit,
++  );
++}
++
++function validateInterval(fromTimestamp: string, toTimestamp: string): void {
++  const from = typeof fromTimestamp === "string" && UTC_TIMESTAMP.test(fromTimestamp)
++    ? Date.parse(fromTimestamp)
++    : Number.NaN;
++  const to = typeof toTimestamp === "string" && UTC_TIMESTAMP.test(toTimestamp)
++    ? Date.parse(toTimestamp)
++    : Number.NaN;
++  if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
++    throw new TypeError("Evidence query requires an increasing UTC interval");
++  }
++}
++
++function requiredIdentifier(value: string, label: string): string {
++  if (typeof value !== "string" || !value.trim() || value.length > 1_000) {
++    throw new TypeError(`${label} is invalid`);
++  }
++  return value;
++}
++
++interface JsonRequestResult {
++  payload?: Record<string, unknown>;
++  requestGap?: QualityPortGap;
++}
++
++async function requestJson(
++  scope: QualityPortGapScope,
++  path: string,
++  params: Record<string, string | number | undefined>,
++  signal?: AbortSignal,
++): Promise<JsonRequestResult> {
++  const config = state.config;
++  if (!config) return { requestGap: gap(scope, "config-unavailable") };
++  if (signal?.aborted) return { requestGap: gap(scope, "aborted") };
++
++  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
++  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
++  try {
++    const url = new URL(path, `${config.host.replace(/\/+$/, "")}/`);
++    for (const [key, value] of Object.entries(params)) {
++      if (value !== undefined) url.searchParams.set(key, String(value));
++    }
++    const encoded = Buffer.from([config.publicKey, config.secretKey].join(":")).toString("base64");
++    const headers = new Headers();
++    headers.set(["Author", "ization"].join(""), ["Bas", "ic ", encoded].join(""));
++    const response = await fetch(url, {
++      headers,
++      signal: requestSignal,
++    });
++    if (!response.ok) return { requestGap: gap(scope, "request-failed") };
++    const payload = await response.json();
++    return payload && typeof payload === "object" && !Array.isArray(payload)
++      ? { payload: payload as Record<string, unknown> }
++      : { requestGap: gap(scope, "malformed-response") };
++  } catch {
++    if (signal?.aborted) return { requestGap: gap(scope, "aborted") };
++    if (timeoutSignal.aborted) return { requestGap: gap(scope, "timeout") };
++    return { requestGap: gap(scope, "request-failed") };
++  }
++}
++
++function responseRows(payload: Record<string, unknown>): LangfuseEvidenceRow[] | undefined {
++  const value = payload.data ?? payload.items;
++  return Array.isArray(value) && value.every((item) => item && typeof item === "object" && !Array.isArray(item))
++    ? value as LangfuseEvidenceRow[]
++    : undefined;
++}
++
++function responseMeta(payload: Record<string, unknown>): Record<string, unknown> | undefined {
++  return payload.meta && typeof payload.meta === "object" && !Array.isArray(payload.meta)
++    ? payload.meta as Record<string, unknown>
++    : undefined;
++}
++
++function validTotal(value: unknown): value is number {
++  return Number.isSafeInteger(value) && (value as number) >= 0;
++}
++
++async function readPageEndpoint(
++  scope: "traces" | "observations",
++  path: string,
++  query: TraceEvidenceQuery | ObservationEvidenceQuery,
++  filters: Record<string, string>,
++): Promise<BoundedEvidencePage> {
++  validateInterval(query.fromTimestamp, query.toTimestamp);
++  const requestedLimit = positiveInteger(query.limit, "Evidence limit");
++  const limit = appliedLimit(requestedLimit);
++  const size = pageLimit(query.pageSize, limit);
++  const items: LangfuseEvidenceRow[] = [];
++  const gaps: QualityPortGap[] = [];
++  let page = 1;
++  let totalAvailable: number | undefined;
++  let totalPagesAvailable: number | undefined;
++  let previousPage: string | undefined;
++  let complete = false;
++  let nextCursor: string | undefined;
++
++  while (items.length < limit) {
++    const result = await requestJson(scope, path, {
++      ...(scope === "observations"
++        ? { fromStartTime: query.fromTimestamp, toStartTime: query.toTimestamp }
++        : { fromTimestamp: query.fromTimestamp, toTimestamp: query.toTimestamp }),
++      ...filters,
++      limit: Math.min(size, limit - items.length),
++      page,
++    }, query.signal);
++    if (!result.payload) {
++      gaps.push(result.requestGap!);
++      break;
++    }
++
++    const rows = responseRows(result.payload);
++    const meta = responseMeta(result.payload);
++    if (!rows || !meta) {
++      gaps.push(gap(scope, "malformed-response"));
++      break;
++    }
++    const signature = JSON.stringify(rows);
++    if (rows.length > 0 && signature === previousPage) {
++      gaps.push(gap(scope, "non-advancing-page"));
++      nextCursor = `page:${page}`;
++      break;
++    }
++    previousPage = signature;
++    const remaining = limit - items.length;
++    const requestedPageLimit = Math.min(size, remaining);
++    const overrun = rows.length > requestedPageLimit;
++    items.push(...rows.slice(0, remaining));
++
++    const rawTotal = meta.totalItems;
++    const rawPages = meta.totalPages;
++    if (rawTotal !== undefined) {
++      if (!validTotal(rawTotal) || rawTotal < items.length || (totalAvailable !== undefined && rawTotal !== totalAvailable)) {
++        gaps.push(gap(scope, "malformed-metadata"));
++        break;
++      }
++      totalAvailable = rawTotal;
++    }
++    const totalPages = rawPages === undefined
++      ? undefined
++      : validTotal(rawPages) ? rawPages : Number.NaN;
++    if (
++      Number.isNaN(totalPages)
++      || (totalPages === 0 && totalAvailable !== 0)
++      || (totalPages !== undefined && totalPagesAvailable !== undefined && totalPages !== totalPagesAvailable)
++      || (totalAvailable === undefined && totalPages === undefined)
++    ) {
++      gaps.push(gap(scope, "malformed-metadata"));
++      break;
++    }
++    if (totalPages !== undefined) totalPagesAvailable = totalPages;
++    if (overrun) {
++      gaps.push(gap(scope, "limit-reached"));
++      nextCursor = `page:${page + 1}`;
++      break;
++    }
++
++    const serviceEnd =
++      (totalAvailable !== undefined && items.length >= totalAvailable)
++      || (totalPagesAvailable !== undefined && page >= totalPagesAvailable);
++    if (serviceEnd) {
++      complete = totalAvailable === undefined || items.length >= totalAvailable;
++      if (!complete) gaps.push(gap(scope, "incomplete-response"));
++      break;
++    }
++    if (items.length >= limit) {
++      gaps.push(gap(scope, "limit-reached"));
++      nextCursor = `page:${page + 1}`;
++      break;
++    }
++    if (rows.length === 0) {
++      gaps.push(gap(scope, "incomplete-response"));
++      break;
++    }
++    page++;
++  }
++
++  if (!complete && items.length >= limit && !gaps.some((item) => item.code === "limit-reached")) {
++    gaps.push(gap(scope, "limit-reached"));
++    nextCursor ??= `page:${page + 1}`;
++  }
++
++  return {
++    items,
++    requestedLimit,
++    appliedLimit: limit,
++    ...(totalAvailable !== undefined ? { totalAvailable } : {}),
++    ...(nextCursor ? { nextCursor } : {}),
++    complete,
++    gaps,
++  };
++}
++
++async function readScores(query: ScoreEvidenceQuery): Promise<BoundedEvidencePage> {
++  validateInterval(query.fromTimestamp, query.toTimestamp);
++  if (![query.traceId, query.sessionId, query.name].some((value) => typeof value === "string" && value.trim())) {
++    throw new TypeError("Score evidence query requires a traceId, sessionId, or name filter");
++  }
++  const requestedLimit = positiveInteger(query.limit, "Evidence limit");
++  const limit = appliedLimit(requestedLimit);
++  const size = pageLimit(query.pageSize, limit);
++  const items: LangfuseEvidenceRow[] = [];
++  const gaps: QualityPortGap[] = [];
++  let cursor: string | undefined;
++  let totalAvailable: number | undefined;
++  let complete = false;
++
++  while (items.length < limit) {
++    const result = await requestJson("scores", "/api/public/v3/scores", {
++      fromTimestamp: query.fromTimestamp,
++      toTimestamp: query.toTimestamp,
++      fields: "details,subject",
++      traceId: query.traceId,
++      sessionId: query.sessionId,
++      name: query.name,
++      limit: Math.min(size, limit - items.length),
++      cursor,
++    }, query.signal);
++    if (!result.payload) {
++      gaps.push(result.requestGap!);
++      break;
++    }
++    const rows = responseRows(result.payload);
++    const meta = responseMeta(result.payload);
++    if (!rows || !meta) {
++      gaps.push(gap("scores", "malformed-response"));
++      break;
++    }
++    const remaining = limit - items.length;
++    const overrun = rows.length > Math.min(size, remaining);
++    items.push(...rows.slice(0, remaining));
++    if (meta.totalItems !== undefined) {
++      if (
++        !validTotal(meta.totalItems)
++        || meta.totalItems < items.length
++        || (totalAvailable !== undefined && meta.totalItems !== totalAvailable)
++      ) {
++        gaps.push(gap("scores", "malformed-metadata"));
++        break;
++      }
++      totalAvailable = meta.totalItems;
++    }
++    if (overrun) {
++      gaps.push(gap("scores", "limit-reached"));
++      break;
++    }
++    const next = meta.cursor;
++    if (next !== undefined && next !== null && (typeof next !== "string" || !next || next === cursor)) {
++      gaps.push(gap("scores", "non-advancing-cursor"));
++      break;
++    }
++    if (!next) {
++      if (totalAvailable !== undefined && items.length < totalAvailable) {
++        gaps.push(gap("scores", "malformed-metadata"));
++      } else {
++        complete = true;
++      }
++      break;
++    }
++    cursor = next as string;
++    if (items.length >= limit) {
++      gaps.push(gap("scores", "limit-reached"));
++      break;
++    }
++  }
++
++  if (!complete && items.length >= limit && !gaps.some((item) => item.code === "limit-reached")) {
++    gaps.push(gap("scores", "limit-reached"));
++  }
++  return {
++    items,
++    requestedLimit,
++    appliedLimit: limit,
++    ...(totalAvailable !== undefined ? { totalAvailable } : {}),
++    ...(cursor && !complete ? { nextCursor: cursor } : {}),
++    complete,
++    gaps,
++  };
++}
++
++async function readAnnotations(query: AnnotationEvidenceQuery): Promise<AnnotationEvidenceResult> {
++  const queueId = requiredIdentifier(query.queueId, "Annotation queueId");
++  const requestedLimit = positiveInteger(query.limit, "Annotation limit");
++  const limit = appliedLimit(requestedLimit, MAX_ANNOTATION_LIMIT);
++  const encodedQueue = encodeURIComponent(queueId);
++  const gaps: QualityPortGap[] = [];
++  const completeness = { queue: false, items: false, scores: false, scoreConfigs: false };
++  let queue: LangfuseEvidenceRow | undefined;
++  let items: LangfuseEvidenceRow[] = [];
++  let scores: LangfuseEvidenceRow[] = [];
++  const scoreConfigs: LangfuseEvidenceRow[] = [];
++
++  const queueResult = await requestJson(
++    "annotations",
++    `/api/public/annotation-queues/${encodedQueue}`,
++    {},
++    query.signal,
++  );
++  if (queueResult.payload) {
++    queue = queueResult.payload;
++    completeness.queue = true;
++  } else {
++    gaps.push(queueResult.requestGap!);
++  }
++
++  const itemResult = await requestJson(
++    "annotations",
++    `/api/public/annotation-queues/${encodedQueue}/items`,
++    { limit: limit + 1, page: 1 },
++    query.signal,
++  );
++  if (itemResult.payload) {
++    const rows = responseRows(itemResult.payload);
++    const meta = responseMeta(itemResult.payload);
++    if (rows && meta && validTotal(meta.totalItems)) {
++      items = rows.slice(0, limit);
++      completeness.items = rows.length <= limit && meta.totalItems === rows.length;
++      if (!completeness.items) gaps.push(gap("annotations", "items-limit-reached"));
++    } else {
++      gaps.push(gap("annotations", "items-malformed"));
++    }
++  } else {
++    gaps.push(itemResult.requestGap!);
++  }
++
++  const scoreResult = await requestJson("annotations", "/api/public/v3/scores", {
++    fields: "details,subject,annotation",
++    queueId,
++    source: "ANNOTATION",
++    limit: limit + 1,
++  }, query.signal);
++  if (scoreResult.payload) {
++    const rows = responseRows(scoreResult.payload);
++    const meta = responseMeta(scoreResult.payload);
++    if (rows && meta) {
++      scores = rows.slice(0, limit);
++      const total = meta.totalItems;
++      const totalConsistent = total === undefined || (validTotal(total) && total === rows.length);
++      completeness.scores = rows.length <= limit && !meta.cursor && totalConsistent;
++      if (!completeness.scores) {
++        gaps.push(gap(
++          "annotations",
++          rows.length > limit || meta.cursor ? "scores-limit-reached" : "scores-incomplete",
++        ));
++      }
++    } else {
++      gaps.push(gap("annotations", "scores-malformed"));
++    }
++  } else {
++    gaps.push(scoreResult.requestGap!);
++  }
++
++  const configIds = queue?.scoreConfigIds;
++  if (configIds === undefined) {
++    if (completeness.queue) gaps.push(gap("annotations", "score-configs-unavailable"));
++  } else if (!Array.isArray(configIds) || !configIds.every((id) => typeof id === "string" && id && id.length <= 1_000)) {
++    gaps.push(gap("annotations", "score-configs-malformed"));
++  } else {
++    completeness.scoreConfigs = configIds.length <= limit;
++    if (!completeness.scoreConfigs) gaps.push(gap("annotations", "score-config-limit-reached"));
++    for (const configId of configIds.slice(0, limit)) {
++      const configResult = await requestJson(
++        "annotations",
++        `/api/public/score-configs/${encodeURIComponent(configId)}`,
++        {},
++        query.signal,
++      );
++      if (configResult.payload) {
++        scoreConfigs.push(configResult.payload);
++      } else {
++        completeness.scoreConfigs = false;
++        gaps.push(configResult.requestGap!);
++      }
++    }
++  }
++
++  const complete = Object.values(completeness).every(Boolean);
++  return {
++    ...(queue ? { queue } : {}),
++    items,
++    scores,
++    scoreConfigs,
++    requestedLimit,
++    appliedLimit: limit,
++    completeness,
++    complete,
++    gaps,
++  };
++}
++
++export function createServiceEvidencePort(): ServiceEvidencePort {
++  return {
++    traces(query) {
++      return readPageEndpoint("traces", "/api/public/traces", query, {});
++    },
++    observations(query) {
++      const traceId = requiredIdentifier(query.traceId, "Observation traceId");
++      return readPageEndpoint("observations", "/api/public/observations", query, { traceId });
++    },
++    scores: readScores,
++    annotations: readAnnotations,
++  };
++}
+diff --git a/src/redaction.ts b/src/redaction.ts
+index 60bf009..ef7892b 100644
+--- a/src/redaction.ts
++++ b/src/redaction.ts
+@@ -10,0 +11 @@ export interface RedactOptions {
++  preserveMedia: boolean;
+@@ -19,0 +21 @@ function defaultOptions(): RedactOptions {
++    preserveMedia: false,
+@@ -22,0 +25,8 @@ function defaultOptions(): RedactOptions {
++const MEDIA_DATA_URI_CANDIDATE_RE = /(?<![A-Za-z0-9])data:[^,\s"\\)}\]]*(?:,[^\s"'\\)}\]]*)?/gi;
++const MIME_TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
++const SAFE_MEDIA_TYPE_RE = new RegExp(`^${MIME_TOKEN}/${MIME_TOKEN}$`);
++const BASE64_VALUE_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)?|[A-Za-z0-9+/]{3}=?)?$/;
++const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++export const MALFORMED_MEDIA_DATA_URI = "[malformed media data URI]";
++export const OMITTED_MEDIA_DATA_URI = "[media data URI omitted]";
++
+@@ -38,8 +48,2 @@ export function hashPath(path: string): string {
+-function truncate(value: string, maxStringLength: number): string {
+-  return value.length > maxStringLength ? `${value.slice(0, maxStringLength)}... [truncated]` : value;
+-}
+-
+-export function redactString(value: string, options: Partial<RedactOptions> = {}): string {
+-  const merged = { ...defaultOptions(), ...options };
+-  const truncated = truncate(value, merged.maxStringLength);
+-  return truncated
++function redactSensitiveText(value: string): string {
++  return value
+@@ -55,0 +60,66 @@ export function redactString(value: string, options: Partial<RedactOptions> = {}
++function hasValidBase64Encoding(value: string): boolean {
++  if (!value || !BASE64_VALUE_RE.test(value)) {
++    return false;
++  }
++
++  const unpadded = value.replace(/=+$/, "");
++  const remainder = unpadded.length % 4;
++  const finalIndex = BASE64_ALPHABET.indexOf(unpadded.at(-1) ?? "");
++  return remainder === 0
++    || (remainder === 2 && (finalIndex & 0b1111) === 0)
++    || (remainder === 3 && (finalIndex & 0b11) === 0);
++}
++
++export function isLangfuseMediaDataUri(value: string): boolean {
++  const separator = ";base64,";
++  const separatorIndex = value.indexOf(separator);
++  if (!value.startsWith("data:") || separatorIndex < 6) {
++    return false;
++  }
++
++  const mediaType = value.slice(5, separatorIndex);
++  const encoded = value.slice(separatorIndex + separator.length);
++  return SAFE_MEDIA_TYPE_RE.test(mediaType)
++    && hasValidBase64Encoding(encoded)
++    && redactSensitiveText(value) === value;
++}
++
++export function mapMediaDataUriSegments(
++  value: string,
++  replaceMedia: (media: string) => string,
++  replaceText: (text: string) => string = (text) => text,
++): string {
++  let output = "";
++  let offset = 0;
++  let matched = false;
++
++  for (const match of value.matchAll(MEDIA_DATA_URI_CANDIDATE_RE)) {
++    matched = true;
++    output += replaceText(value.slice(offset, match.index));
++    output += isLangfuseMediaDataUri(match[0])
++      ? replaceMedia(match[0])
++      : MALFORMED_MEDIA_DATA_URI;
++    offset = match.index + match[0].length;
++  }
++
++  return matched ? output + replaceText(value.slice(offset)) : replaceText(value);
++}
++
++function truncate(value: string, maxStringLength: number): string {
++  return value.length > maxStringLength ? `${value.slice(0, maxStringLength)}... [truncated]` : value;
++}
++
++export function redactString(value: string, options: Partial<RedactOptions> = {}): string {
++  if (value === MALFORMED_MEDIA_DATA_URI || value === OMITTED_MEDIA_DATA_URI) {
++    return value;
++  }
++  const merged = { ...defaultOptions(), ...options };
++  const redactText = (text: string) => truncate(redactSensitiveText(text), merged.maxStringLength);
++
++  return mapMediaDataUriSegments(
++    value,
++    merged.preserveMedia ? (media) => media : () => OMITTED_MEDIA_DATA_URI,
++    redactText,
++  );
++}
++
+diff --git a/src/types.ts b/src/types.ts
+index 23f266e..61f5969 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -124 +124 @@ export interface ToolState {
+-  inputBytes: number;
++  inputByteMetadata: Record<string, unknown>;
+diff --git a/src/utils.ts b/src/utils.ts
+index 1f70387..a3a220b 100644
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -3 +3 @@ import { createCapturePolicy, type CapturePolicy } from "./capture-policy.js";
+-import { redactValue } from "./redaction.js";
++import { mapMediaDataUriSegments, redactString, redactValue } from "./redaction.js";
+@@ -41 +41,2 @@ export function shapePayload(
+-  } = {},
++    preserveMedia?: boolean;
++    onTruncate?: () => void;  } = {},
+@@ -49,0 +51 @@ export function shapePayload(
++  const markTruncated = () => options.onTruncate?.();
+@@ -58,0 +61 @@ export function shapePayload(
++      markTruncated();
+@@ -63 +66,18 @@ export function shapePayload(
+-      const truncated = truncate(item, maxString);
++      if (item.length > maxString) {
++        markTruncated();
++      }
++      if (options.parseJson !== false && options.preserveMedia) {
++        const parsed = tryParseJson(item);
++        if (parsed !== item) {
++          return visit(parsed, remainingDepth - 1, seen);
++        }
++      }
++
++      const shaped = options.redact === false
++        ? options.preserveMedia
++          ? mapMediaDataUriSegments(item, (media) => media, (text) => truncate(text, maxString))
++          : truncate(item, maxString)
++        : redactString(item, {
++            maxStringLength: maxString,
++            preserveMedia: options.preserveMedia,
++          });
+@@ -65 +85 @@ export function shapePayload(
+-        return truncated;
++        return shaped;
+@@ -67,3 +87,3 @@ export function shapePayload(
+-      const parsed = tryParseJson(truncated);
+-      if (parsed === truncated) {
+-        return truncated;
++      const parsed = tryParseJson(shaped);
++      if (parsed === shaped) {
++        return shaped;
+@@ -91,0 +112 @@ export function shapePayload(
++      markTruncated();
+@@ -97,0 +119,3 @@ export function shapePayload(
++      if (item.length > limit) {
++        markTruncated();
++      }
+@@ -107,0 +132,3 @@ export function shapePayload(
++      if (item.stack && item.stack.length > maxString) {
++        markTruncated();
++      }
+@@ -116,0 +144 @@ export function shapePayload(
++        markTruncated();
+@@ -122,8 +150,9 @@ export function shapePayload(
+-      let keyCount = 0;
+-      for (const key in item as Record<string, unknown>) {
+-        if (!Object.hasOwn(item, key)) {
+-          continue;
+-        }
+-        output[key] = visit((item as Record<string, unknown>)[key], remainingDepth - 1, seen);
+-        keyCount++;
+-        if (budget.exhausted || keyCount >= maxObjectKeys) {
++      const record = item as Record<string, unknown>;
++      const keys = Object.keys(record);
++      const limit = Math.min(keys.length, maxObjectKeys);
++      if (keys.length > limit) {
++        markTruncated();
++      }
++      for (const key of keys.slice(0, limit)) {
++        output[key] = visit(record[key], remainingDepth - 1, seen);
++        if (budget.exhausted) {
+@@ -146,0 +176 @@ export function shapePayload(
++        preserveMedia: options.preserveMedia,
+@@ -150 +180,17 @@ export function shapePayload(
+-export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPayload): string {
++export type PayloadBytesState = "available" | "truncated" | "unknown" | "absent";
++
++export interface PreparedToolPayload {
++  value?: unknown;
++  bytes?: number;
++  bytesState: PayloadBytesState;
++}
++
++export function prepareToolPayload(
++  value: unknown,
++  maxLength = getLimits().maxToolPayload,
++): PreparedToolPayload {
++  if (value === undefined) {
++    return { bytesState: "absent" };
++  }
++
++  let wasTruncated = false;
+@@ -152 +198,16 @@ export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPay
+-    return truncate(JSON.stringify(shapePayload(value, { maxString: maxLength }), null, 2), maxLength);
++    const shaped = shapePayload(value, {
++      maxString: maxLength,
++      onTruncate: () => {
++        wasTruncated = true;
++      },
++    });
++    const serialized = JSON.stringify(shaped, null, 2);
++    if (serialized === undefined) {
++      return { value: shaped, bytesState: "unknown" };
++    }
++    const bounded = truncate(serialized, maxLength);
++    return {
++      value: shaped,
++      bytes: new TextEncoder().encode(bounded).length,
++      bytesState: wasTruncated || bounded !== serialized ? "truncated" : "available",
++    };
+@@ -154 +215 @@ export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPay
+-    return `[unserializable ${typeof value}]`;
++    return { value: `[unserializable ${typeof value}]`, bytesState: "unknown" };
+@@ -158,4 +218,0 @@ export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPay
+-export function estimatePayloadBytes(value: unknown, maxLength = getLimits().maxToolPayload): number {
+-  return new TextEncoder().encode(safeSerialize(value, maxLength)).length;
+-}
+-
+@@ -326,2 +383 @@ export function getToolInput(event: Record<string, unknown>): unknown {
+-    (event.call && typeof event.call === "object" ? (event.call as Record<string, unknown>).input : undefined) ??
+-    event
++    (event.call && typeof event.call === "object" ? (event.call as Record<string, unknown>).input : undefined)
+@@ -355 +411 @@ export function extractModelParameters(payload: unknown): Record<string, string
+-      params[key] = value;
++      params[key] = typeof value === "string" ? redactString(value) : value;

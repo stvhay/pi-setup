@@ -65,7 +65,7 @@ def langfuse_patch_dir(tmp_path: Path) -> Path:
 """,
         encoding="utf-8",
     )
-    (patches / "pi-langfuse-1.5.12.patch").write_text(
+    (patches / "pi-langfuse-1.5.14.patch").write_text(
         """diff --git a/index.ts b/index.ts
 --- a/index.ts
 +++ b/index.ts
@@ -335,7 +335,7 @@ def test_update_installs_exact_patch_bases_before_applying_patches(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert log.read_text(encoding="utf-8").splitlines() == [
         f"pi|{dest / 'agent'}|install npm:pi-archimedes@2.0.1",
-        f"pi|{dest / 'agent'}|install npm:pi-langfuse@1.5.12",
+        f"pi|{dest / 'agent'}|install npm:pi-langfuse@1.5.14",
         f"patch|{dest}|",
     ]
 
@@ -381,8 +381,8 @@ assert data["dependencies"]["pi-archimedes"] == "2.0.1"
 if __import__("os").environ.get("FAIL_LANGFUSE_INSTALL") == "1":
     raise SystemExit(7)
 package = agent / "npm/node_modules/pi-langfuse/package.json"
-package.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.12"}))
-data["dependencies"]["pi-langfuse"] = "^1.5.12"
+package.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.14"}))
+data["dependencies"]["pi-langfuse"] = "^1.5.14"
 manifest.write_text(json.dumps(data))
 PY
 """,
@@ -395,7 +395,7 @@ python3 - "$PI_CONFIG_DEST/agent/npm/package.json" <<'PY'
 import json, pathlib, sys
 deps = json.loads(pathlib.Path(sys.argv[1]).read_text())["dependencies"]
 assert deps["pi-archimedes"] == "2.0.1"
-assert deps["pi-langfuse"] == "1.5.12"
+assert deps["pi-langfuse"] == "1.5.14"
 PY
 """,
         encoding="utf-8",
@@ -425,7 +425,7 @@ PY
         assert proc.returncode == 0, proc.stderr
         assert dependencies == {
             "pi-archimedes": "2.0.1",
-            "pi-langfuse": "1.5.12",
+            "pi-langfuse": "1.5.14",
         }
 
 
@@ -434,7 +434,7 @@ def test_update_repairs_missing_archimedes_subagent_before_patching(tmp_path):
     log = tmp_path / "package-sync.log"
     for relative, name, version in (
         ("pi-archimedes", "pi-archimedes", "2.0.1"),
-        ("pi-langfuse", "pi-langfuse", "1.5.12"),
+        ("pi-langfuse", "pi-langfuse", "1.5.14"),
     ):
         package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
         if name == "pi-langfuse":
@@ -475,7 +475,7 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     for relative, name, version in (
         ("pi-archimedes", "pi-archimedes", "2.0.1"),
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
-        ("pi-langfuse", "pi-langfuse", "1.5.12"),
+        ("pi-langfuse", "pi-langfuse", "1.5.14"),
     ):
         package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
     modules = dest / "agent" / "npm" / "node_modules"
@@ -519,7 +519,7 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     assert "pi-archimedes 2.0.1: already installed" in proc.stdout
     assert "@pi-archimedes/subagent 2.0.1: already installed" in proc.stdout
     assert "@pi-archimedes/footer 2.0.1: already installed" in proc.stdout
-    assert "pi-langfuse 1.5.12: already installed" in proc.stdout
+    assert "pi-langfuse 1.5.14: already installed" in proc.stdout
 
 
 def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_path):
@@ -528,7 +528,7 @@ def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_pat
     for relative, name, version in (
         ("pi-archimedes", "pi-archimedes", "2.0.1"),
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
-        ("pi-langfuse", "pi-langfuse", "1.5.12"),
+        ("pi-langfuse", "pi-langfuse", "1.5.14"),
     ):
         package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
         if name == "pi-langfuse":
@@ -582,7 +582,7 @@ def test_update_reinstalls_exact_archimedes_when_footer_patch_revision_is_stale(
     meta = write_package(modules, "pi-archimedes", "pi-archimedes", "2.0.1")
     subagent = write_package(modules, "@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1")
     footer = write_package(modules, "@pi-archimedes/footer", "@pi-archimedes/footer", "2.0.1")
-    langfuse = write_package(modules, "pi-langfuse", "pi-langfuse", "1.5.12")
+    langfuse = write_package(modules, "pi-langfuse", "pi-langfuse", "1.5.14")
     write_applied_archimedes(meta, subagent)
     write_archimedes_footer(footer, "unexpected-footer\n")
     write_clean_langfuse(langfuse)
@@ -629,7 +629,7 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
     for relative, name, version in (
         ("pi-archimedes", "pi-archimedes", "2.0.1"),
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
-        ("pi-langfuse", "pi-langfuse", "1.5.12"),
+        ("pi-langfuse", "pi-langfuse", "1.5.14"),
     ):
         package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
     modules = dest / "agent" / "npm" / "node_modules"
@@ -656,7 +656,7 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
         '#!/bin/sh\n'
         'root="$PI_CODING_AGENT_DIR/npm/node_modules/pi-langfuse"\n'
         'mkdir -p "$root"\n'
-        'printf \'{"name":"pi-langfuse","version":"1.5.12"}\\n\' >"$root/package.json"\n'
+        'printf \'{"name":"pi-langfuse","version":"1.5.14"}\\n\' >"$root/package.json"\n'
         'printf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
         encoding="utf-8",
     )
@@ -679,7 +679,7 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
 
     assert proc.returncode == 0, proc.stderr
     assert log.read_text(encoding="utf-8").splitlines() == [
-        "pi|install npm:pi-langfuse@1.5.12",
+        "pi|install npm:pi-langfuse@1.5.14",
         f"patch|{dest}",
     ]
     assert not list((dest / "agent" / "npm").glob(".langfuse-reinstall.*"))
@@ -692,7 +692,7 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
     for relative, name, version in (
         ("pi-archimedes", "pi-archimedes", "2.0.1"),
         ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.0.1"),
-        ("pi-langfuse", "pi-langfuse", "1.5.12"),
+        ("pi-langfuse", "pi-langfuse", "1.5.14"),
     ):
         package = write_package(modules, relative, name, version)
     write_applied_archimedes(
@@ -716,7 +716,7 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
         + ("exit 7\n" if failure == "install" else "")
         + 'root="$PI_CODING_AGENT_DIR/npm/node_modules/pi-langfuse"\n'
         'mkdir -p "$root"\n'
-        'printf \'{"name":"pi-langfuse","version":"1.5.12"}\\n\' >"$root/package.json"\n',
+        'printf \'{"name":"pi-langfuse","version":"1.5.14"}\\n\' >"$root/package.json"\n',
         encoding="utf-8",
     )
     fake_patch.write_text(
@@ -764,14 +764,14 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
     for package, name, version in (
         (meta, "pi-archimedes", "2.0.1"),
         (subagent, "@pi-archimedes/subagent", "2.0.1"),
-        (langfuse, "pi-langfuse", "1.5.8" if failure == "langfuse-install" else "1.5.12"),
+        (langfuse, "pi-langfuse", "1.5.8" if failure == "langfuse-install" else "1.5.14"),
     ):
         package.mkdir(parents=True)
         (package / "package.json").write_text(
             json.dumps({"name": name, "version": version}),
             encoding="utf-8",
         )
-        if name == "pi-langfuse" and version == "1.5.12":
+        if name == "pi-langfuse" and version == "1.5.14":
             write_clean_langfuse(package)
     write_applied_archimedes(meta, subagent)
     stale = subagent / "src/index.ts"
@@ -852,7 +852,7 @@ def test_update_dry_run_reports_package_sync_without_executing_it(tmp_path):
     assert f"PI_CODING_AGENT_DIR={dest / 'agent'}" in proc.stdout
     assert "install npm:pi-archimedes@2.0.1" in proc.stdout
     assert "install npm:@pi-archimedes/subagent@2.0.1" not in proc.stdout
-    assert "install npm:pi-langfuse@1.5.12" in proc.stdout
+    assert "install npm:pi-langfuse@1.5.14" in proc.stdout
     assert f"PI_CONFIG_DEST={dest}" in proc.stdout
 
 

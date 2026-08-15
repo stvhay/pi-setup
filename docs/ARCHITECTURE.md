@@ -31,9 +31,11 @@ pi-setup/ (this repo, source of truth)
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches
   from `patches/pi-packages/`. Normal deployment invokes it automatically after
   exact base reconciliation. It is idempotent and fails closed on version or
-  source-context mismatch. The Langfuse projection keeps ordinary strings finite,
-  permits valid media only on the transient OTel extraction path, and stores bounded
-  omission markers in REST fallback instead of raw media. The Archimedes 2.0.1
+  source-context mismatch. The Langfuse 1.5.14 projection keeps ordinary strings
+  finite, permits valid media only on the transient OTel extraction path, stores
+  bounded omission markers in REST fallback, emits privacy-controlled versioned
+  tool-payload byte states, and exposes bounded local quality ports without making
+  them released-package evidence. The Archimedes 2.0.1
   projection adds bounded agentic/one-shot execution, dual legacy/Pi 0.84 child-stream
   parsing, bounded parent-visible outputs, adaptive token progress, and repeated-error
   termination while preserving native v2 child session/model behavior.

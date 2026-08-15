@@ -125,6 +125,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
             LANGFUSE_CAPTURE_INPUTS: "captureInputs",
             LANGFUSE_CAPTURE_OUTPUTS: "captureOutputs",
             LANGFUSE_CAPTURE_TOOL_IO: "captureToolIo",
+            LANGFUSE_CAPTURE_TOOL_IO_BYTES: "captureToolIoBytes",
             LANGFUSE_CAPTURE_SYSTEM_PROMPT: "captureSystemPrompt",
             LANGFUSE_CAPTURE_CWD: "captureCwd",
           }).map(([name, field]) => [field, /^(1|true|yes|on)$/i.test(String(source[name]))]));
@@ -134,6 +135,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
               inputs: process.env.LANGFUSE_CAPTURE_INPUTS,
               outputs: process.env.LANGFUSE_CAPTURE_OUTPUTS,
               toolIo: process.env.LANGFUSE_CAPTURE_TOOL_IO,
+              toolIoBytes: process.env.LANGFUSE_CAPTURE_TOOL_IO_BYTES,
               systemPrompt: process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT,
               cwd: process.env.LANGFUSE_CAPTURE_CWD,
             },
@@ -159,6 +161,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
                     "LANGFUSE_CAPTURE_INPUTS": "true",
                     "LANGFUSE_CAPTURE_OUTPUTS": "true",
                     "LANGFUSE_CAPTURE_TOOL_IO": "true",
+                    "LANGFUSE_CAPTURE_TOOL_IO_BYTES": "true",
                     "LANGFUSE_CAPTURE_SYSTEM_PROMPT": "true",
                     "LANGFUSE_CAPTURE_CWD": "true",
                 },
@@ -181,6 +184,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
       process.env.LANGFUSE_CAPTURE_INPUTS = "false";
       process.env.LANGFUSE_CAPTURE_OUTPUTS = "false";
       process.env.LANGFUSE_CAPTURE_TOOL_IO = "true";
+      process.env.LANGFUSE_CAPTURE_TOOL_IO_BYTES = "true";
       process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT = "true";
       process.env.LANGFUSE_CAPTURE_CWD = "true";
 
@@ -197,6 +201,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
         inputs: "false",
         outputs: "false",
         toolIo: "false",
+        toolIoBytes: "false",
         systemPrompt: "false",
         cwd: "false",
       }});
@@ -204,6 +209,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
         captureInputs: false,
         captureOutputs: false,
         captureToolIo: false,
+        captureToolIoBytes: false,
         captureSystemPrompt: false,
         captureCwd: false,
       }});

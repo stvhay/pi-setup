@@ -1754,6 +1754,61 @@ def test_tool_payload_byte_aggregation_is_availability_aware(observations, expec
     }.intersection(features["captureGaps"])
 
 
+def test_tool_payload_byte_aggregation_uses_versioned_bounded_states():
+    features = improvement._features([], [
+        _tool_observation(metadata={
+            "toolPayloadBytesVersion": 1,
+            "inputCaptureState": "captured",
+            "inputBytesState": "available",
+            "inputBytes": 5,
+            "outputCaptureState": "captured",
+            "outputBytesState": "truncated",
+            "outputBytes": 7,
+        }),
+        _tool_observation(metadata={
+            "toolPayloadBytesVersion": 1,
+            "inputCaptureState": "absent",
+            "inputBytesState": "absent",
+            "outputCaptureState": "redacted",
+            "outputBytesState": "available",
+            "outputBytes": 11,
+        }),
+    ], [])
+
+    assert {key: features["payloadBytes"][key] for key in ("toolInput", "toolOutput")} == {
+        "toolInput": 5,
+        "toolOutput": 18,
+    }
+    assert features["payloadByteMetadata"]["toolIo"] == {
+        "status": "available",
+        "rule": "pi-langfuse-tool-payload-bytes-v1",
+        "matchedObservations": 0,
+        "examinedObservations": 2,
+        "versionedObservations": 2,
+        "truncatedPayloads": 1,
+    }
+    assert "missing-tool-payload-bytes" not in features["captureGaps"]
+
+
+def test_tool_payload_byte_aggregation_honors_versioned_unavailable_state():
+    features = improvement._features([], [
+        _tool_observation(metadata={
+            "toolPayloadBytesVersion": 1,
+            "inputCaptureState": "redacted",
+            "inputBytesState": "unavailable",
+            "outputCaptureState": "absent",
+            "outputBytesState": "absent",
+        }),
+    ], [])
+
+    assert {key: features["payloadBytes"][key] for key in ("toolInput", "toolOutput")} == {
+        "toolInput": None,
+        "toolOutput": 0,
+    }
+    assert features["payloadByteMetadata"]["toolIo"]["status"] == "unavailable"
+    assert "missing-tool-payload-bytes" in features["captureGaps"]
+
+
 def test_usage_validation_preserves_present_zero_and_nulls_only_missing_dimensions():
     present_zero = improvement._features([], [{
         "type": "GENERATION",

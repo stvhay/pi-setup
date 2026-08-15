@@ -249,12 +249,16 @@ but not private paths.
 For the exact
 `pi-langfuse-1.5.7-dual-null-dual-26` TOOL fingerprint, scans report both tool
 payload-byte aggregates as unavailable (`null`) and record rule status plus
-matched/examined observation counts under `payloadByteMetadata.toolIo`. Missing
-or invalid nonfingerprint metadata makes only the affected aggregate unavailable;
-no TOOL observations still report zero. Gaps distinguish
-`inferred-tool-payload-bytes`, `missing-tool-payload-bytes`, and the preserved
-`observation-limit`. Non-null payload-byte values are bounded-preview estimates,
-not raw payload sizes. Raw Langfuse records remain unchanged, and packets never
+matched/examined observation counts under `payloadByteMetadata.toolIo`. Version 1
+metadata instead uses explicit available, truncated, absent, unknown, and
+unavailable states; scans count absent payloads as zero, sum non-negative bounded
+values only for available or truncated states, and retain versioned/truncated
+counts. Mixed historical cohorts use an explicit mixed rule. Missing or invalid
+metadata makes only the affected aggregate unavailable; no TOOL observations still
+report zero. Gaps distinguish `inferred-tool-payload-bytes`,
+`missing-tool-payload-bytes`, and the preserved `observation-limit`. Non-null
+payload-byte values are exact UTF-8 sizes of bounded, shaped payloads, not raw
+unbounded payload sizes. Raw Langfuse records remain unchanged, and packets never
 copy tool payloads. Generation token aggregates require non-negative integral
 `input`, `cacheRead`, and `output` fields. Present zero remains available; a missing,
 Boolean, fractional, negative, or non-finite field nulls only its affected private

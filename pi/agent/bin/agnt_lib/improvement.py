@@ -49,6 +49,8 @@ WORK_LINK_SCORE = "improvement_work_item"
 OUTCOME_SCORE = "improvement_task_outcome"
 REVIEW_POLICY_VERSION = "v4"
 TOOL_PAYLOAD_BYTE_RULE = "pi-langfuse-1.5.7-dual-null-dual-26"
+TOOL_PAYLOAD_BYTE_V1_RULE = "pi-langfuse-tool-payload-bytes-v1"
+TOOL_PAYLOAD_BYTE_MIXED_RULE = "pi-langfuse-tool-payload-bytes-v1+legacy"
 MAX_TRACES_PER_SESSION = 20
 OBSERVATIONS_PER_TRACE = 500
 SCORES_PER_QUERY = 100
@@ -422,9 +424,25 @@ def _sum_trace_metadata(traces: list[dict[str, Any]], key: str) -> tuple[int, bo
 def _tool_payload_bytes(tools: list[dict[str, Any]]) -> tuple[int | None, int | None, dict[str, Any], str | None]:
     totals = {"inputBytes": 0, "outputBytes": 0}
     available = {"inputBytes": True, "outputBytes": True}
-    matched = 0
+    matched = versioned = truncated = 0
     for tool in tools:
         metadata = tool.get("metadata") if isinstance(tool.get("metadata"), dict) else {}
+        if "toolPayloadBytesVersion" in metadata:
+            versioned += 1
+            if type(metadata.get("toolPayloadBytesVersion")) is not int or metadata["toolPayloadBytesVersion"] != 1:
+                available = dict.fromkeys(available, False)
+                continue
+            for direction, key in (("input", "inputBytes"), ("output", "outputBytes")):
+                state = metadata.get(f"{direction}BytesState")
+                value = metadata.get(key)
+                if state == "absent":
+                    continue
+                if state in {"available", "truncated"} and type(value) is int and value >= 0:
+                    totals[key] += value
+                    truncated += int(state == "truncated")
+                else:
+                    available[key] = False
+            continue
         if (
             "input" in tool
             and tool["input"] is None
@@ -457,12 +475,19 @@ def _tool_payload_bytes(tools: list[dict[str, Any]]) -> tuple[int | None, int | 
         status = "available" if all(available.values()) else "unavailable"
         gap = None if status == "available" else "missing-tool-payload-bytes"
 
-    return input_bytes, output_bytes, {
+    legacy = len(tools) - versioned
+    rule = TOOL_PAYLOAD_BYTE_MIXED_RULE if versioned and legacy else (
+        TOOL_PAYLOAD_BYTE_V1_RULE if versioned else TOOL_PAYLOAD_BYTE_RULE
+    )
+    result = {
         "status": status,
-        "rule": TOOL_PAYLOAD_BYTE_RULE,
+        "rule": rule,
         "matchedObservations": matched,
         "examinedObservations": len(tools),
-    }, gap
+    }
+    if versioned:
+        result.update(versionedObservations=versioned, truncatedPayloads=truncated)
+    return input_bytes, output_bytes, result, gap
 
 
 def _tool_error_signals(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:

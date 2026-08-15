@@ -1,9 +1,9 @@
 ---
 profile_version: 1
 repository: https://github.com/gooyoung/pi-langfuse
-last_checked_utc: 2026-08-12T08:49:25Z
-target_ref: v1.5.12
-source_commit: c79c527a7294e1d4b8153525d5218e87354cbcb1
+last_checked_utc: 2026-08-15T15:48:55Z
+target_ref: v1.5.14
+source_commit: 04d55a12556bdf4c4b8b208038198dc2fd8e571b
 status: current-for-target-ref
 quality_port_status: proposed-unreleased
 recheck_every_use:
@@ -14,35 +14,47 @@ recheck_every_use:
   - issue-requirements
 source_files:
   - path: README.md
-    sha256: 280fb745bc97172178431f713216b3436b8192b9ed9b435dab21b207229adb25
+    sha256: 4a7cc741acaba821f848fb9bee89877392252f6006e364dc4b4812f0a552ee8a
   - path: README_CN.md
-    sha256: b7b204c24056d324791e902d062745fd70bd42254647ef9b14bd3b8988f12b37
+    sha256: 87150d24e5684336216cdbbaf2fdb9a86f0035dfd5a9e748ea02130158d8a935
   - path: AGENTS.md
-    sha256: 2d0b44fb79d7814319741acd9e25cdb0d16ea559dbdda54aae0e7439e16cd8ab
+    sha256: 4cd480307dd7da58842f6b58e7d21e71152964a0619bc5facd9a59aabc9a7a04
   - path: DEVELOPMENT.md
     sha256: 196e9623b39fe43011f5a41ea19f9e4431bb0836273239a9060dfa07d14996fd
   - path: DEVELOPMENT_CN.md
     sha256: f99ad1b19c17f00782d35d57b25c1d87b52aa0ed5f25db0e82e1f0ca184e1721
   - path: package.json
-    sha256: 6b23c313563eeb17fe84c1483ae2cf55111cc19c555e384055ef7f1599ac0969
+    sha256: b03d15233ae863b79637f3cf333563c1051b1afb8d4dcf7d24d871c504f76f39
   - path: package-lock.json
-    sha256: 3c8a85edf68c7bbaf933a6193b141ab6f1b03abb04af0db8610718503a4b2673
+    sha256: 77498c9a66f614504a0da28f095c177fc7072681e65e937555d41a0113fe6f21
   - path: .github/workflows/publish.yml
     sha256: c5e0be88634700712947da8645490c3ec4a87e304ca9c4fde9020869fa40c672
   - path: index.ts
     sha256: 90c67250f7f2dd481922b4935efabf37f29fc7ba17390dbf71f239595ad3bb0f
   - path: src/state.ts
     sha256: b1bf3e3af672c1aa1bec9166acb1f110f8552297434ee806b5a5f85bebedcd0f
+  - path: src/config.ts
+    sha256: 6316a4eb4e55aaaf481286ff1220f863e59c768ff5af669a62a038ea4413c937
+  - path: src/commands.ts
+    sha256: 77bce3479025686f6f47bf0bc402a8fe4bd4ecbe0369676e0542ee23813f7b2f
   - path: src/langfuse.ts
-    sha256: 7ebaeb6c574e9ed4cc03e65eb810f87b2a9699c9441916e83196b2ae24c76437
+    sha256: 79196cc0f1e0a5839a082e2350c4ad1c44c080a406acff7b433aaf86d74d5873
   - path: src/handlers/agent.ts
-    sha256: 08ff8c2d3e897c14d1cb616d25dbcfd5c3cbaa1d08324719029625743e5f90bc
+    sha256: 11603133bc55de38e4e9184adcf82e532f8345ffb1ddf65647728cfc8ce98dcf
+  - path: src/handlers/generation.ts
+    sha256: b655ced6ecdd305d7a1a6e6d9ad9def8379a89246ef01107d476bf5b5192b9f7
   - path: src/handlers/tool.ts
     sha256: aef64ed903f1b14de3ff85a8a4836902efe2eac7ecaf6cc48d154a1ecb625293
   - path: src/capture-policy.ts
-    sha256: 424390f188d75642471260e76055d35af211e8aad1f9ce4fab9858ac318f84ca
+    sha256: a44267e09b73f22f89a8a7c6b0ac9c9fa93d93d47d9a7f5696aef75c405ce9f8
   - path: src/constants.ts
     sha256: b61cbd789b0461dcc404457960844add968b17ce7d3f08e8342e3ca2ba48c30b
+  - path: src/limits.ts
+    sha256: 70351f5b94c89a094ed20ce220783330d69ff274a5a68c0e4cd5b03cfcacd9cc
+  - path: src/redaction.ts
+    sha256: 60e62a1d9f669f19f89583f74d9152db3bd6e8b9bc0acdd3f7f2fb254429f70d
+  - path: src/source-metadata.ts
+    sha256: fa42d258db7ae87936258a057ac0532c0939b16c8bb75da021a7b854686d62ee
   - path: src/utils.ts
     sha256: fc50dab22371592296fa59c3cb33fb98f6ebd3fe8a36cc10c5d5bc2f1b5fde66
   - path: src/types.ts
@@ -50,7 +62,7 @@ source_files:
   - path: test/index.test.ts
     sha256: 78871aea43e59a22d4df205b5a25854c1a5c6ef09964649224d8c413d2ebadc8
   - path: test/capture-policy.test.ts
-    sha256: ef447b6228f3e8ba26fd77c695de606246f65662fae598173ff17886f9669b51a
+    sha256: 950c53e81b9ed2346da6675704c50a91119849e146de018138a44524a1779bd4
   - path: test/limits.test.ts
     sha256: f272cd452baedeb3f12a1c405f6abb323e77c6bb2f68cd7f2360f8d9f5a2b51a
   - path: test/utils.test.ts
@@ -58,7 +70,7 @@ source_files:
   - path: test/state.test.ts
     sha256: 471fcaaac505569ad5d1dfaa30d786853a605948661464fc51407a0367e6944b
   - path: test/langfuse.test.ts
-    sha256: d3c6e67bc2e23324ac64d9a0704507f9d54a667b8c789308332049e503051b2c
+    sha256: eff75cc826eb7af432f9d112614e29c5a87421ced568206e93e25520e59157ae
   - path: test/system-prompt-capture.test.ts
     sha256: b30031519dc047eb8b8be1d6d44c54772a164d734264df613aacdfd081787227
 ---
@@ -67,20 +79,21 @@ source_files:
 
 ## Contribution workflow
 
-- Default branch: `main`; stable target `v1.5.12` resolves to `c79c527a7294e1d4b8153525d5218e87354cbcb1` and matches checked upstream `main`.
+- Default branch: `main`; stable target `v1.5.14` resolves to `04d55a12556bdf4c4b8b208038198dc2fd8e571b` and matches checked upstream `main`.
 - npm-only project; use tracked `package-lock.json` with `npm ci`.
 - Required candidate checks: `npm run typecheck`, `npm test`, `npm pack --dry-run`, and diff checks.
 - `AGENTS.md`, `DEVELOPMENT.md`, and `DEVELOPMENT_CN.md` now agree on `npm test`; the older direct `node --test` guidance is gone.
 - No PR template, issue template, CLA/DCO, or repository AI-contribution policy observed at this target.
-- Mutable state checked 2026-08-12T08:49:25Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has open issue #17 and draft PR #18; no repository rulesets were present; branch-protection details remain unavailable through the API (HTTP 404).
+- Mutable state checked 2026-08-15T15:48:55Z: upstream permission `READ`; `stvhay/pi-langfuse` exists with `ADMIN`; upstream has open issue #17 and no open PRs; fork draft PRs #2-#5 remain open; no repository rulesets were present; branch-protection details remain unavailable through the API (HTTP 404).
 - Publish workflow is release/tag driven on Node 24 and runs install, typecheck, tag validation, package inspection, then npm provenance publication. PR approval never authorizes release.
 
 ## Target changes relevant to this contribution
 
 - v1.5.11 captures the final system prompt at `agent_start`, after later extension overrides.
 - v1.5.12 capability-gates legacy trace REST fallback for Langfuse v4 `events_only`, isolates shutdown-step failures, bounds score shutdown independently, and keeps later shutdown steps running after one failure.
+- v1.5.14 merges upstream PR #18: source metadata is now explicit opt-in, revision-only, and does not inspect repository names, remotes, URLs, usernames, branch names, or repo-local metadata files.
 - Logical Pi session correlation and stable score entity/body IDs remain native; retry-stable ingestion envelope IDs are still absent.
-- v1.5.12 still sends each `ingestBatch()` argument as one request and still lacks media-safe finite ordinary-string handling, so reviewed batching/media contributions remain candidates but must be rebuilt around the new fallback and shutdown seams.
+- v1.5.14 still sends each `ingestBatch()` argument as one request and still lacks media-safe finite ordinary-string handling, so reviewed batching/media contributions remain candidates but must be rebuilt around current fallback, shutdown, and source-metadata seams.
 - Tool byte metadata is computed from `captured.toolInput` and `captured.toolOutput` after capture policy replacement. Disabled tool capture therefore measures an unavailable serialization marker rather than the bounded pre-policy representation; any correction must keep exact counts separately controlled and version the metadata semantics.
 
 ## Policy findings
@@ -109,8 +122,8 @@ source_files:
 
 ## PR implications
 
-- Rebuild against v1.5.12; never replay the 1.5.10 `src/langfuse.ts` wholesale.
-- Preserve capability detection and `runShutdownStep()` behavior while adding bounded ingestion.
-- Keep media handling separate from batching in fork-local review candidates; combine only in the vendor/runtime lineage.
-- Source-metadata privacy candidate: fork draft [stvhay/pi-langfuse#5](https://github.com/stvhay/pi-langfuse/pull/5) and upstream draft [gooyoung/pi-langfuse#18](https://github.com/gooyoung/pi-langfuse/pull/18), both at `90ce2d8c87cc6f12407fd445b8baabeecb9be456`.
+- Rebuild against v1.5.14; never replay an older `src/langfuse.ts` wholesale.
+- Preserve capability detection, `runShutdownStep()`, and revision-only source-metadata behavior while adding bounded ingestion or public quality ports.
+- Keep media handling, batching, and quality ports separate in fork-local review candidates; combine only in the vendor/runtime lineage.
+- Fork draft #5 is superseded: upstream PR [gooyoung/pi-langfuse#18](https://github.com/gooyoung/pi-langfuse/pull/18) merged as `f617432f5b67cdfb93e51080f2b876a474bc895a` and shipped in v1.5.14.
 - Reviewer prose should list repository-required checks and behavior evidence, not private workflow artifacts.
