@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Tuple
 from .core import die
 from .invoke import invoke_one, safe_target_name
 from .metrics import bounded_artifact_refs, default_metrics_dir, execution_outcome, new_invocation_id, write_json
+from .quality import validate_claim_token
 from .runtime_paths import resolve_runtime_directory
 from .tasks import preferred_models
 
@@ -94,11 +95,13 @@ def create_run_bundle(
     approval_refs: List[str] | None = None,
     decision_refs: List[str] | None = None,
     authority: Dict[str, Any] | None = None,
+    claim_context: Dict[str, Any] | None = None,
     parent_session_id: str | None = None,
     runs_dir: Path | None = None,
     id_value: str | None = None,
 ) -> Path:
     rid = id_value or run_id(action, bead)
+    normalized_claim_context = validate_claim_token(claim_context) if claim_context is not None else None
     invocation_id = new_invocation_id()
     bundle = (runs_dir or default_runs_dir()) / rid
     artifacts = bundle / "artifacts"
@@ -149,6 +152,8 @@ def create_run_bundle(
         "allowedEffects": list(allowed_effects or DEFAULT_ALLOWED_EFFECTS),
         "worktree": copy.deepcopy(worktree),
     }
+    if normalized_claim_context is not None:
+        provenance["claimContext"] = copy.deepcopy(normalized_claim_context)
     invocation = {
         "schemaVersion": 2,
         "id": rid,
@@ -438,10 +443,28 @@ def _revalidate_invocation_authority(
     invocation: Dict[str, Any],
     *,
     grant_resolver: Callable[[str], Dict[str, Any]] | None,
+    claim_directory: Path | None,
 ) -> str | None:
+    provenance = invocation.get("provenance")
+    claim_context = provenance.get("claimContext") if isinstance(provenance, dict) else None
+    if claim_context is not None:
+        try:
+            claim_store = claim_directory or resolve_runtime_directory("quality")
+            claim_context = validate_claim_token(
+                claim_context,
+                directory=claim_store,
+                require_active=True,
+            )
+        except (OSError, TypeError, ValueError):
+            return "explicit claim context is invalid"
+        envelope = provenance.get("effectiveEnvelope")
+        if isinstance(envelope, dict) and (
+            claim_context["decisionBead"] != envelope.get("decisionBead")
+            or claim_context["grantFingerprint"] != envelope.get("grantFingerprint")
+        ):
+            return "explicit claim context does not match grant provenance"
     if invocation.get("action") != "implement":
         return None
-    provenance = invocation.get("provenance")
     envelope = provenance.get("effectiveEnvelope") if isinstance(provenance, dict) else None
     if not isinstance(envelope, dict):
         return "canonical capability grant is missing from invocation provenance"
@@ -484,6 +507,7 @@ def invoke_run_bundle(
     session_id: str | None = None,
     session_name: str | None = None,
     grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
+    claim_directory: Path | None = None,
 ) -> Dict[str, Any]:
     failures = validate_run_bundle(bundle)
     if failures:
@@ -498,7 +522,11 @@ def invoke_run_bundle(
         write_yaml_json(bundle / "result.yaml", result)
     else:
         invocation_id = str(invocation["invocationId"])
-    authority_failure = _revalidate_invocation_authority(invocation, grant_resolver=grant_resolver)
+    authority_failure = _revalidate_invocation_authority(
+        invocation,
+        grant_resolver=grant_resolver,
+        claim_directory=claim_directory,
+    )
     if authority_failure:
         summary = f"Invocation blocked: {authority_failure}."
         evidence = [authority_failure]

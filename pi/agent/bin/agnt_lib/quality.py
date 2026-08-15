@@ -2815,6 +2815,26 @@ def _validate_claim(value: Any) -> dict[str, Any]:
     return value
 
 
+def _claim_id_for_context(
+    receipt_id: str,
+    allowance_id: str,
+    policy_fingerprint: str,
+    action: str,
+    effects: list[str],
+    target_fingerprint: str,
+) -> str:
+    return "claim-" + hashlib.sha256(
+        _canonical({
+            "receiptId": receipt_id,
+            "allowanceId": allowance_id,
+            "policyFingerprint": policy_fingerprint,
+            "action": action,
+            "effects": effects,
+            "targetFingerprint": target_fingerprint,
+        }).encode("utf-8")
+    ).hexdigest()
+
+
 def _validate_claim_token(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != CLAIM_TOKEN_FIELDS:
         raise ValueError("quality claim token is invalid")
@@ -2829,7 +2849,42 @@ def _validate_claim_token(value: Any) -> dict[str, Any]:
             raise ValueError("quality claim token is invalid")
     if not _text(value.get("action")) or not _text_list(value.get("effects")):
         raise ValueError("quality claim token is invalid")
+    expected_allowance = "allowance-" + hashlib.sha256(
+        f"{value['decisionBead']}:{value['grantFingerprint']}".encode("utf-8")
+    ).hexdigest()
+    expected_claim = _claim_id_for_context(
+        value["receiptId"],
+        expected_allowance,
+        value["policyFingerprint"],
+        value["action"],
+        value["effects"],
+        value["targetFingerprint"],
+    )
+    legacy_claim = "claim-" + hashlib.sha256(
+        f"{value['receiptId']}:{expected_allowance}".encode("utf-8")
+    ).hexdigest()
+    if value["allowanceId"] != expected_allowance or value["claimId"] not in {expected_claim, legacy_claim}:
+        raise ValueError("quality claim token is invalid")
     return value
+
+
+def validate_claim_token(
+    value: Any,
+    *,
+    directory: str | os.PathLike[str] | None = None,
+    require_active: bool = False,
+) -> dict[str, Any]:
+    """Validate explicit adapter claim provenance and optional durable state."""
+    validated = _validate_claim_token(value)
+    if directory is not None:
+        with _locked_store(directory, CLAIMS_NAME, exclusive=False) as (fd, _root):
+            rows = _read_json_rows(fd, _validate_claim, "claim") if fd is not None else []
+        current = _latest_claims(rows).get(validated["receiptId"])
+        if current is None or _claim_token(current) != validated:
+            raise ValueError("quality claim token is unavailable or conflicts")
+        if require_active and current["state"] != "claimed":
+            raise ValueError("quality claim is not active")
+    return {**validated, "effects": list(validated["effects"])}
 
 
 def _latest_claims(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -2943,9 +2998,14 @@ def _canary_claim_record(
     allowance_id = "allowance-" + hashlib.sha256(
         f"{decision_bead}:{grant_fingerprint}".encode("utf-8")
     ).hexdigest()
-    claim_id = "claim-" + hashlib.sha256(
-        f"{receipt['receiptId']}:{allowance_id}".encode("utf-8")
-    ).hexdigest()
+    claim_id = _claim_id_for_context(
+        receipt["receiptId"],
+        allowance_id,
+        receipt["policyFingerprint"],
+        packet["effect"]["action"],
+        packet["effect"]["effects"],
+        packet["target"]["fingerprint"],
+    )
     return {
         "schemaVersion": 1,
         "claimId": claim_id,
@@ -3043,7 +3103,10 @@ def settle(
     state: str | None = None,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    token = _validate_claim_token(claim_token)
+    try:
+        token = _validate_claim_token(claim_token)
+    except ValueError as exc:
+        raise ValueError("quality claim token is unavailable or conflicts") from exc
     if state is None:
         status = result.get("status") if isinstance(result, dict) else None
         state = "dispatched" if status == "succeeded" else "failed" if status == "failed" else "uncertain"

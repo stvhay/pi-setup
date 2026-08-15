@@ -147,7 +147,7 @@ Fields:
 - `sessionPolicy`: `recorded` by default for worker sessions, or `no-session` when explicitly allowed.
 - `memoryPolicy`: `auto` by default. Observational memory is advisory recall/context; promote important findings into Beads or private run bundles before closeout.
 - `allowedEffects`: declared side-effect budget for the run.
-- `provenance`: canonical decision refs and, for implementation runs, the resolved grant fingerprint, immutable grant envelope, and effective effects. Copied approval flags or resolver objects are not stored.
+- `provenance`: canonical decision refs and, for implementation runs, the resolved grant fingerprint, immutable grant envelope, and effective effects. Canary adapters may additionally carry validated `claimContext`, binding claim, receipt, grant, policy, target, action, and bounded-effect identity; run execution resolves that context against the active private claim row. Copied approval flags, resolver objects, and process-global ownership markers are not stored.
 - `outputContract`: concise result shape name or path.
 - `acceptanceCriteria`: criteria copied from the source bead when the bundle is
   created through `agnt work`; workers should address them in their result

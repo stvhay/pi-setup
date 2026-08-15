@@ -545,6 +545,7 @@ def start_work(
     runs_dir: Path | None,
     id_value: str | None,
     grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
+    claim_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     dispatch = dispatch_plan(bead, action_id, target)
     if grant_resolver is None:
@@ -597,6 +598,7 @@ def start_work(
         approval_refs=[str(item) for item in normalized.get("approvalRefs") or []],
         decision_refs=[str(item) for item in normalized.get("decisionRefs") or []],
         authority=normalized.get("authority") if isinstance(normalized.get("authority"), dict) else None,
+        claim_context=claim_context,
         runs_dir=runs_dir,
         id_value=id_value,
     )
@@ -624,6 +626,8 @@ def run_work(
     session_id: str | None = None,
     session_name: str | None = None,
     grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
+    claim_context: Dict[str, Any] | None = None,
+    claim_directory: Path | None = None,
 ) -> Dict[str, Any]:
     if model:
         return {"modelOverrideError": "agnt work run uses policy-selected models; pass risk/budget/local/modelPolicy constraints instead of a direct model override"}
@@ -635,6 +639,7 @@ def run_work(
         runs_dir=runs_dir,
         id_value=id_value,
         grant_resolver=grant_resolver,
+        claim_context=claim_context,
     )
     if started.get("beadUpdateError") or started.get("dispatchError") or started.get("modelSelectionError"):
         return {"started": started, **({"dispatchError": started["dispatchError"]} if started.get("dispatchError") else {})}
@@ -647,6 +652,7 @@ def run_work(
         session_id=session_id,
         session_name=session_name,
         grant_resolver=grant_resolver,
+        claim_directory=claim_directory,
     )
     closed = None
     if close_bead and invoked.get("exitCode") == 0:

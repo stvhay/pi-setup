@@ -1,7 +1,68 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from uuid import UUID
+
+
+def _claim_context():
+    grant_fingerprint = "sha256:" + "a" * 64
+    allowance_id = "allowance-" + hashlib.sha256(
+        f"pi-claim.1:{grant_fingerprint}".encode("utf-8")
+    ).hexdigest()
+    policy_fingerprint = "sha256:" + "b" * 64
+    action = "edit"
+    effects = ["workspace.write"]
+    target_fingerprint = "sha256:" + "c" * 64
+    claim_id = "claim-" + hashlib.sha256(
+        json.dumps(
+            {
+                "receiptId": "quality-receipt-1",
+                "allowanceId": allowance_id,
+                "policyFingerprint": policy_fingerprint,
+                "action": action,
+                "effects": effects,
+                "targetFingerprint": target_fingerprint,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    return {
+        "schemaVersion": 1,
+        "claimId": claim_id,
+        "receiptId": "quality-receipt-1",
+        "decisionBead": "pi-claim.1",
+        "grantFingerprint": grant_fingerprint,
+        "allowanceId": allowance_id,
+        "policyFingerprint": policy_fingerprint,
+        "action": action,
+        "effects": effects,
+        "targetFingerprint": target_fingerprint,
+    }
+
+
+def _claim_row(claim_context):
+    return {
+        "schemaVersion": 1,
+        "claimId": claim_context["claimId"],
+        "receiptId": claim_context["receiptId"],
+        "state": "claimed",
+        "decisionBead": claim_context["decisionBead"],
+        "grantFingerprint": claim_context["grantFingerprint"],
+        "allowanceId": claim_context["allowanceId"],
+        "policyFingerprint": claim_context["policyFingerprint"],
+        "action": claim_context["action"],
+        "effectSet": claim_context["effects"],
+        "actions": 1,
+        "effects": len(claim_context["effects"]),
+        "errorBudget": 1,
+        "targetFingerprint": claim_context["targetFingerprint"],
+        "resultStatus": None,
+        "evidenceRefs": [],
+        "reason": None,
+        "at": "2026-08-15T00:00:00Z",
+    }
 
 
 def test_dispatch_plan_uses_metadata_action_before_title_heuristics(agnt):
@@ -279,6 +340,96 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
     assert "--tools" in kwargs["pi_args"]
     tools = kwargs["pi_args"][kwargs["pi_args"].index("--tools") + 1].split(",")
     assert {"read", "bash", "edit", "write", "grep", "find", "ls"}.issubset(set(tools))
+
+
+def test_create_run_bundle_preserves_explicit_claim_provenance(agnt, tmp_path):
+    claim_context = _claim_context()
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        bead="pi-ready.claim",
+        claim_context=claim_context,
+        runs_dir=tmp_path / "runs",
+        id_value="claim-provenance",
+    )
+
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    assert invocation["provenance"]["claimContext"] == claim_context
+    assert agnt.validate_run_bundle(bundle) == []
+
+
+def test_invoke_run_bundle_rejects_recomputed_claim_provenance(agnt, monkeypatch, tmp_path):
+    claim_context = _claim_context()
+    claim_directory = tmp_path / "quality"
+    claim_directory.mkdir()
+    claims_path = claim_directory / "claims.jsonl"
+    claims_path.write_text(json.dumps(_claim_row(claim_context)) + "\n", encoding="utf-8")
+    claims_path.chmod(0o600)
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        bead="pi-ready.claim",
+        claim_context=claim_context,
+        runs_dir=tmp_path / "runs",
+        id_value="claim-forged",
+    )
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    forged = dict(claim_context)
+    forged["targetFingerprint"] = "sha256:" + "f" * 64
+    forged["claimId"] = "claim-" + hashlib.sha256(
+        json.dumps(
+            {
+                "receiptId": forged["receiptId"],
+                "allowanceId": forged["allowanceId"],
+                "policyFingerprint": forged["policyFingerprint"],
+                "action": forged["action"],
+                "effects": forged["effects"],
+                "targetFingerprint": forged["targetFingerprint"],
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    invocation["provenance"]["claimContext"] = forged
+    agnt.write_yaml_json(bundle / "invocation.yaml", invocation)
+    invoked = []
+    monkeypatch.setitem(
+        agnt.invoke_run_bundle.__globals__,
+        "invoke_one",
+        lambda *args, **kwargs: invoked.append(args) or (0, "OK", "", None),
+    )
+
+    result = agnt.invoke_run_bundle(bundle, metrics=False, claim_directory=claim_directory)
+
+    assert result["exitCode"] == 1
+    assert "claim context" in result["authorityError"]
+    assert invoked == []
+
+
+def test_invoke_run_bundle_rejects_forged_claim_provenance(agnt, monkeypatch, tmp_path):
+    bundle = agnt.create_run_bundle(
+        action="review",
+        routing_task="review",
+        bead="pi-ready.claim",
+        claim_context=_claim_context(),
+        runs_dir=tmp_path / "runs",
+        id_value="claim-forged",
+    )
+    invocation = agnt.load_yaml_json(bundle / "invocation.yaml")
+    invocation["provenance"]["claimContext"]["targetFingerprint"] = "sha256:" + "f" * 64
+    agnt.write_yaml_json(bundle / "invocation.yaml", invocation)
+    invoked = []
+    monkeypatch.setitem(
+        agnt.invoke_run_bundle.__globals__,
+        "invoke_one",
+        lambda *args, **kwargs: invoked.append(args) or (0, "OK", "", None),
+    )
+
+    result = agnt.invoke_run_bundle(bundle, metrics=False)
+
+    assert result["exitCode"] == 1
+    assert "claim context" in result["authorityError"]
+    assert invoked == []
 
 
 def test_invoke_run_bundle_revalidates_canonical_grant_before_dispatch(agnt, monkeypatch, tmp_path):

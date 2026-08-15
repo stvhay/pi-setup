@@ -1,5 +1,6 @@
 """agnt pure functions: routing rank, thinking level, cost attribution."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -2742,6 +2743,61 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
     assert provenance["worktree"] == invocation["worktree"]
     assert run_result["approvalRefs"] == provenance["approvalRefs"]
     assert run_result["decisionRefs"] == provenance["decisionRefs"]
+
+
+def test_start_work_passes_explicit_claim_context_to_run_provenance(agnt, tmp_path):
+    grant_fingerprint = "sha256:" + "a" * 64
+    allowance_id = "allowance-" + hashlib.sha256(
+        f"pi-claim.1:{grant_fingerprint}".encode("utf-8")
+    ).hexdigest()
+    policy_fingerprint = "sha256:" + "b" * 64
+    action = "review"
+    effects = ["workspace.write"]
+    target_fingerprint = "sha256:" + "c" * 64
+    claim_context = {
+        "schemaVersion": 1,
+        "claimId": "claim-" + hashlib.sha256(
+            json.dumps(
+                {
+                    "receiptId": "quality-receipt-1",
+                    "allowanceId": allowance_id,
+                    "policyFingerprint": policy_fingerprint,
+                    "action": action,
+                    "effects": effects,
+                    "targetFingerprint": target_fingerprint,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest(),
+        "receiptId": "quality-receipt-1",
+        "decisionBead": "pi-claim.1",
+        "grantFingerprint": grant_fingerprint,
+        "allowanceId": allowance_id,
+        "policyFingerprint": policy_fingerprint,
+        "action": action,
+        "effects": effects,
+        "targetFingerprint": target_fingerprint,
+    }
+    bead = {
+        "id": "pi-test.claim-context",
+        "title": "Preserve claim context",
+        "status": "open",
+        "metadata": json.dumps({"pi": {"action": "review", "routingTask": "review"}}),
+    }
+
+    result = agnt.start_work(
+        bead,
+        action_id="review",
+        target=[],
+        claim=False,
+        runs_dir=tmp_path,
+        id_value="claim-context-work",
+        claim_context=claim_context,
+    )
+
+    invocation = json.loads((Path(result["bundle"]) / "invocation.yaml").read_text(encoding="utf-8"))
+    assert invocation["provenance"]["claimContext"] == claim_context
 
 
 def test_start_work_records_requested_and_effective_worker_context_with_override_reason(agnt, tmp_path):

@@ -1757,6 +1757,49 @@ def test_inv15_claim_dispatch_settle_passes_explicit_token_and_releases_lock(tmp
     assert rows[0]["claimId"] == seen[0][1]["claimId"]
 
 
+def test_inv15_recursive_dispatch_blocks_nested_apply_without_deadlock(tmp_path):  # Tests INV-15
+    plan_path = _canary_plan(tmp_path)
+    receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
+    proof = {
+        "status": "succeeded",
+        "evidenceRefs": ["result:canary", "artifact:canary-proof", "artifact:grant-proof"],
+        "effects": ["workspace.write"],
+        "proof": ["tests"],
+        "targetFingerprint": "sha256:" + "1" * 64,
+    }
+    nested = []
+
+    def dispatcher(_packet):
+        nested.append(
+            quality.apply(
+                receipt["receiptId"],
+                directory=tmp_path,
+                plan_path=plan_path,
+                grant_resolver=_canary_resolver,
+                target_resolver=lambda target: target,
+                dispatcher=lambda _nested_packet: pytest.fail("nested claim must not dispatch"),
+            )
+        )
+        return proof
+
+    result = quality.apply(
+        receipt["receiptId"],
+        directory=tmp_path,
+        plan_path=plan_path,
+        grant_resolver=_canary_resolver,
+        target_resolver=lambda target: target,
+        dispatcher=dispatcher,
+    )
+
+    assert result["status"] == "applied"
+    assert nested == [{
+        "schemaVersion": 1,
+        "status": "blocked",
+        "receiptId": receipt["receiptId"],
+        "reason": "claim-uncertain",
+    }]
+
+
 def test_inv15_concurrent_same_grant_claims_reserve_one_allowance(tmp_path):  # Tests INV-15
     plan_path = _canary_plan(tmp_path)
     first_receipt = quality.assess(_canary_snapshot(), "work-learning", directory=tmp_path, plan_path=plan_path)
