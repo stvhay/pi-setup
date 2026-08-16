@@ -19,6 +19,7 @@ SUBAGENT_HARNESS = f"""
       const handlers = {{}};
       function installDefaultHandlers() {{
         install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+          outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
           observe() {{}},
           persistDelegatedResult(_root, payload) {{
             return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
@@ -83,6 +84,56 @@ def test_pi_archimedes_result_contract_covers_observed_execution_evidence():
         assert output_contract in contract
     assert "Result array order remains request order" in contract
     assert "Presentation content may be bounded or truncated without changing `details.results[]`" in contract
+
+
+def test_subagent_workaround_uses_public_archimedes_result_types():
+    source = EXTENSION.read_text(encoding="utf-8")
+    artifacts = RUNTIME_ARTIFACTS.read_text(encoding="utf-8")
+
+    assert 'from "@pi-archimedes/subagent/types"' in source
+    assert 'from "@pi-archimedes/subagent/types"' in artifacts
+    for duplicate in (
+        "type OutputContract =",
+        "type SubagentLimits =",
+        "type SubagentResult = {",
+        "type SubagentDetails = {",
+        "new Set<SubagentOutputContract>",
+    ):
+        assert duplicate not in source
+
+
+def test_subagent_workaround_rejects_output_contract_outside_public_port():
+    script = f"""
+      import assert from "node:assert/strict";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
+        observe(_name, attributes) {{ observations.push(attributes); }},
+        persistDelegatedResult() {{ return "runtime:delegated-results/result/child-0.json"; }},
+      }});
+      const input = {{ task: "Review", outputContract: "bogus" }};
+      handlers.tool_call({{ toolName: "subagent", toolCallId: "invalid-contract", input }});
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "invalid-contract",
+        input,
+        content: [{{ type: "text", text: "ok" }}],
+        details: {{ mode: "single", results: [{{
+          agent: "subagent",
+          task: "Review",
+          exitCode: 0,
+          usage: {{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 }},
+          finalOutput: "ok",
+        }}] }},
+      }}, {{ cwd: process.cwd() }});
+
+      assert.equal(observations[0].input.outputContract, "unknown");
+      assert.equal(observations[0].metadata.outputContract, "unknown");
+    """
+    run_node(script)
 
 
 def test_subagent_workaround_exposes_failures_without_touching_successes():
@@ -157,6 +208,7 @@ def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
         persistDelegatedResult(_root, payload) {{
           return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
@@ -284,6 +336,7 @@ def test_output_limit_evidence_distinguishes_provider_and_wrapper_caps(tmp_path)
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(_name, attributes) {{ observations.push(attributes); }},
         persistDelegatedResult(_root, payload) {{
           return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
@@ -487,12 +540,22 @@ def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdo
     agent_dir = tmp_path / "agent"
     npm_dir = agent_dir / "npm"
     package_dir = npm_dir / "node_modules" / "pi-langfuse"
+    subagent_dir = npm_dir / "node_modules" / "@pi-archimedes" / "subagent"
     (package_dir / "src").mkdir(parents=True)
+    subagent_dir.mkdir(parents=True)
     (agent_dir / "pi-langfuse").mkdir(parents=True)
     (agent_dir / "bin").mkdir(parents=True)
     (npm_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
     (package_dir / "package.json").write_text(
         '{"name":"pi-langfuse","type":"module","exports":{".":"./index.ts","./quality":"./src/quality.ts"}}\n',
+        encoding="utf-8",
+    )
+    (subagent_dir / "package.json").write_text(
+        '{"name":"@pi-archimedes/subagent","type":"module","exports":{"./types":"./types.ts"}}\n',
+        encoding="utf-8",
+    )
+    (subagent_dir / "types.ts").write_text(
+        'export const SUBAGENT_OUTPUT_CONTRACTS = ["inline", "artifact", "status-only", "pass-no-findings"] as const;\n',
         encoding="utf-8",
     )
     (package_dir / "index.ts").write_text(
@@ -733,6 +796,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
         persistDelegatedResult(_root, payload) {{
           payloads.push(payload);
@@ -1026,6 +1090,7 @@ def test_subagent_evaluator_view_bounds_output_and_marks_unavailable():
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(_name, attributes) {{ observations.push(attributes); }},
         persistDelegatedResult() {{ throw new Error("write failed"); }},
       }});
@@ -1066,6 +1131,7 @@ def test_subagent_evaluator_marks_persisted_artifact_without_output_unavailable(
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(_name, attributes) {{ observations.push(attributes); }},
         persistDelegatedResult(_root, payload) {{
           return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
@@ -1096,6 +1162,7 @@ def test_named_agent_projection_marks_provider_and_thinking_unavailable():
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
       }});
 
@@ -1138,6 +1205,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
         providerCircuit() {{}},
       }});
@@ -1280,6 +1348,7 @@ def test_parent_owned_artifacts_support_concurrent_calls(tmp_path):
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe() {{}},
         providerCircuit() {{}},
       }});
@@ -1324,6 +1393,7 @@ def test_artifact_write_failure_preserves_execution_result(tmp_path):
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
         providerCircuit() {{}},
         async persistDelegatedResult() {{
@@ -1378,6 +1448,7 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       install({{
         on(name, candidate) {{ handlers[name] = candidate; }},
       }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
         observe(name, attributes, options) {{ observations.push({{ name, attributes, options }}); }},
       }});
 
@@ -1451,7 +1522,10 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       import install from {EXTENSION.as_uri()!r};
 
       const handlers = {{}};
-      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{ observe() {{}} }});
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
+        observe() {{}},
+      }});
       assert.equal(typeof handlers.tool_call, "function");
       assert.equal(typeof handlers.tool_result, "function");
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, link, lstat, mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { SubagentOutputContract } from "@pi-archimedes/subagent/types";
 
 const INVOCATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -17,7 +18,7 @@ export async function persistDelegatedResult(root: string, payload: {
   childSessionId?: string | null;
   childIndex: number;
   executionOutcome: "succeeded" | "failed" | "unavailable";
-  outputContract: "inline" | "artifact" | "status-only" | "pass-no-findings" | "unknown";
+  outputContract: SubagentOutputContract | "unknown";
   exitCode: number;
   model: string | null;
   finalOutput: string | null;

@@ -1,39 +1,39 @@
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join, parse } from "node:path";
+import { pathToFileURL } from "node:url";
+import type {
+  SubagentDetails as PublicSubagentDetails,
+  SubagentLimits,
+  SubagentOutputContract,
+  SubagentResult as PublicSubagentResult,
+} from "@pi-archimedes/subagent/types";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
 import { persistDelegatedResult as persistRuntimeDelegatedResult } from "./lib/runtime-artifacts.ts";
 
 const agentDir = getAgentDir();
+type ArchimedesTypesModule = typeof import("@pi-archimedes/subagent/types");
 
-type OutputContract = "inline" | "artifact" | "status-only" | "pass-no-findings";
-type NormalizedOutputContract = OutputContract | "unknown";
+type NormalizedOutputContract = SubagentOutputContract | "unknown";
 type EffectiveMode = "agentic" | "one-shot" | "unknown";
 type ChildTraceAvailability = "expected-available" | "expected-unavailable" | "unknown";
 
-const OUTPUT_CONTRACTS = new Set<OutputContract>(["inline", "artifact", "status-only", "pass-no-findings"]);
 const PROJECTION_OBSERVE_REQUEST = "pi-setup:langfuse-projection-observe";
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
 const INLINE_OUTPUT_MAX_CHARS = 12_000;
 const ARTIFACT_MESSAGE_MAX_CHARS = 4_000;
 const TERMINATION_MESSAGE_MAX_CHARS = 4_000;
 
-type SubagentLimitKey =
-  | "maxProviderRequests"
-  | "maxToolCalls"
-  | "maxTotalTokens"
-  | "maxOutputTokens"
-  | "maxCostUsd"
-  | "maxDurationMs";
-type SubagentLimits = Partial<Record<SubagentLimitKey, number>>;
+type SubagentLimitKey = keyof SubagentLimits;
 type SubagentTaskInput = {
   agent?: string;
   task: string;
   model?: string;
   mode?: "agentic" | "one-shot";
   limits?: SubagentLimits;
-  outputContract?: OutputContract;
+  outputContract?: SubagentOutputContract;
 };
 type SubagentInput = {
   agent?: string;
@@ -41,7 +41,7 @@ type SubagentInput = {
   model?: string;
   mode?: "agentic" | "one-shot";
   limits?: SubagentLimits;
-  outputContract?: OutputContract;
+  outputContract?: SubagentOutputContract;
   tasks?: SubagentTaskInput[];
 };
 
@@ -51,42 +51,8 @@ type ArtifactEnvelope = {
   failureClass?: "resolution" | "write";
 };
 
-type SubagentResult = {
-  agent?: string;
-  childSessionId?: string;
-  exitCode?: number;
-  task?: string;
-  model?: string;
-  execution?: {
-    profile?: { mode?: unknown };
-    limits?: SubagentLimits;
-    outputLimit?: { requested?: unknown; effective?: unknown; enforcement?: unknown };
-  };
-  finalOutput?: string;
-  error?: string;
-  termination?: {
-    reason?: unknown;
-    limit?: unknown;
-    observed?: unknown;
-    usageState?: unknown;
-  };
-  usage?: {
-    input?: number;
-    output?: number;
-    cacheRead?: number;
-    cacheWrite?: number;
-    cost?: number;
-    turns?: number;
-  };
-  progressSummary?: { tokens?: number; durationMs?: number };
-  artifact?: ArtifactEnvelope;
-};
-
-type SubagentDetails = {
-  mode: "single" | "parallel";
-  results: SubagentResult[];
-  progress?: unknown[];
-};
+type SubagentResult = PublicSubagentResult & { artifact?: ArtifactEnvelope };
+type SubagentDetails = Omit<PublicSubagentDetails, "results"> & { results: SubagentResult[] };
 
 type ObservationAttributes = {
   input?: unknown;
@@ -114,6 +80,7 @@ type Dependencies = {
   providerCircuit?: ProviderCircuit;
   activeProviderCircuits?: ActiveProviderCircuits;
   persistDelegatedResult?: typeof persistRuntimeDelegatedResult;
+  outputContracts?: readonly SubagentOutputContract[];
 };
 
 type InvocationStart = {
@@ -239,9 +206,20 @@ function resultExecutionOutcome(result: SubagentResult): "succeeded" | "failed" 
     : "failed";
 }
 
-function outputContract(input: SubagentInput, index: number): NormalizedOutputContract {
+function outputContract(
+  input: SubagentInput,
+  index: number,
+  outputContracts: ReadonlySet<SubagentOutputContract>,
+): NormalizedOutputContract {
   const value = input.tasks?.[index]?.outputContract ?? input.outputContract;
-  return OUTPUT_CONTRACTS.has(value as OutputContract) ? value as OutputContract : "unknown";
+  return value && outputContracts.has(value) ? value : "unknown";
+}
+
+async function loadOutputContracts(): Promise<readonly SubagentOutputContract[]> {
+  const require = createRequire(join(agentDir, "npm", "package.json"));
+  const entry = require.resolve("@pi-archimedes/subagent/types");
+  const module = await import(pathToFileURL(entry).href) as ArchimedesTypesModule;
+  return module.SUBAGENT_OUTPUT_CONTRACTS;
 }
 
 function terminationMetadata(
@@ -348,13 +326,14 @@ function terminationEvidenceMessage(
 function parallelInlineOutputMessages(
   input: SubagentInput,
   details: SubagentDetails,
+  outputContracts: ReadonlySet<SubagentOutputContract>,
 ): Array<{ type: "text"; text: string }> {
   if (details.mode !== "parallel") return [];
   const outputs = details.results.flatMap((result, index) => {
     const value = typeof result.finalOutput === "string"
       ? result.finalOutput
       : typeof result.error === "string" ? result.error : undefined;
-    const contract = outputContract(input, index);
+    const contract = outputContract(input, index, outputContracts);
     return (contract === "inline" || contract === "unknown") && value
       ? [{ index, value }]
       : [];
@@ -470,6 +449,7 @@ async function persistSubagentArtifacts(
   invocation: InvocationStart,
   ctx: ExtensionContext,
   persist: typeof persistRuntimeDelegatedResult,
+  outputContracts: ReadonlySet<SubagentOutputContract>,
 ): Promise<SubagentDetails> {
   let root: string;
   try {
@@ -496,7 +476,7 @@ async function persistSubagentArtifacts(
           childSessionId: childSessionId(result),
           childIndex,
           executionOutcome: resultExecutionOutcome(result),
-          outputContract: outputContract(input, childIndex),
+          outputContract: outputContract(input, childIndex, outputContracts),
           exitCode: result.exitCode ?? 1,
           model: result.model ?? null,
           finalOutput: result.finalOutput ?? null,
@@ -565,6 +545,7 @@ function metricRecord(
   endedMs: number,
   ctx: ExtensionContext,
   failureClass: ProviderFailureClass | undefined,
+  outputContracts: ReadonlySet<SubagentOutputContract>,
 ): Record<string, unknown> | undefined {
   if (input.tasks?.[index]?.agent ?? input.agent) return undefined;
   const dimensions = modelDimensions(input, result, index, ctx);
@@ -616,7 +597,7 @@ function metricRecord(
     artifactRefs: result.artifact?.refs ?? [],
     artifactStatus: result.artifact?.status ?? "failed",
     artifactFailureClass: result.artifact?.failureClass ?? null,
-    outputContract: outputContract(input, index),
+    outputContract: outputContract(input, index, outputContracts),
     workerElapsedMs,
     task: "peer",
     riskCategory: null,
@@ -653,6 +634,7 @@ async function recordSubagentMetrics(
   ctx: ExtensionContext,
   invocation: InvocationStart,
   providerFailureClasses: Array<ProviderFailureClass | undefined>,
+  outputContracts: ReadonlySet<SubagentOutputContract>,
 ): Promise<void> {
   const details = event.details as SubagentDetails | undefined;
   if (!details?.results?.length) return;
@@ -660,7 +642,18 @@ async function recordSubagentMetrics(
   const input = event.input as SubagentInput;
   const endedMs = Date.now();
   const records = details.results
-    .map((result, index) => metricRecord(input, result, index, invocation.invocationIds[index], event.toolCallId, invocation.startedMs, endedMs, ctx, providerFailureClasses[index]))
+    .map((result, index) => metricRecord(
+      input,
+      result,
+      index,
+      invocation.invocationIds[index],
+      event.toolCallId,
+      invocation.startedMs,
+      endedMs,
+      ctx,
+      providerFailureClasses[index],
+      outputContracts,
+    ))
     .filter((record): record is Record<string, unknown> => record !== undefined);
   if (records.length === 0) return;
 
@@ -675,6 +668,10 @@ async function recordSubagentMetrics(
 
 export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: Dependencies = {}): void {
   const starts = new Map<string, InvocationStart>();
+  let outputContractsPromise: Promise<ReadonlySet<SubagentOutputContract>> | undefined;
+  const getOutputContracts = () => outputContractsPromise ??= Promise
+    .resolve(dependencies.outputContracts ?? loadOutputContracts())
+    .then((contracts) => new Set(contracts));
   const providerCircuit = dependencies.providerCircuit ?? updateProviderCircuit;
   const activeProviderCircuits = dependencies.activeProviderCircuits ?? loadActiveProviderCircuits;
   const openProviders = new Set<string>();
@@ -748,6 +745,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     starts.delete(event.toolCallId);
     if (!details || !Array.isArray(details.results)) return;
 
+    const outputContracts = await getOutputContracts();
     const input = event.input as SubagentInput;
     const synthesized = details.results.length === 0;
     if (synthesized) {
@@ -773,6 +771,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       invocation,
       ctx,
       dependencies.persistDelegatedResult ?? persistRuntimeDelegatedResult,
+      outputContracts,
     );
     const providerFailureClasses = details.results.map((result) => providerFailureClass(result.error));
     await Promise.all(details.results.map(async (result, index) => {
@@ -789,7 +788,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       }
     }));
     try {
-      await recordSubagentMetrics({ ...event, details }, ctx, invocation, providerFailureClasses);
+      await recordSubagentMetrics({ ...event, details }, ctx, invocation, providerFailureClasses, outputContracts);
     } catch (error) {
       console.error("[subagent-metrics] could not record invocation:", error);
     }
@@ -797,7 +796,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     await Promise.all(details.results.map(async (result, index) => {
       const task = input.tasks?.[index]?.task ?? input.task ?? result.task;
       const dimensions = modelDimensions(input, result, index, ctx);
-      const contract = outputContract(input, index);
+      const contract = outputContract(input, index, outputContracts);
       const mode = effectiveMode(result);
       const termination = terminationEvidence(input, result, index);
       try {
@@ -829,7 +828,9 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       || (Array.isArray(input.tasks) && input.tasks.some((task) => task.outputContract !== undefined))
     );
     const baseContent = normalizeParallelOutputs ? event.content.slice(0, 1) : event.content;
-    const inlineOutputMessages = normalizeParallelOutputs ? parallelInlineOutputMessages(input, details) : [];
+    const inlineOutputMessages = normalizeParallelOutputs
+      ? parallelInlineOutputMessages(input, details, outputContracts)
+      : [];
     const terminationMessage = terminationEvidenceMessage(input, details);
     const persistedRefs = details.results.flatMap((result) => result.artifact?.refs ?? []);
     const artifactReference = artifactReferenceMessage(persistedRefs);

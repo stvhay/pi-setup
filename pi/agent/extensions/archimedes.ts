@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, extname, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
+
+type ArchimedesBusModule = typeof import("@pi-archimedes/core/bus");
+type ArchimedesAgentsModule = typeof import("@pi-archimedes/subagent/agents");
+type ArchimedesTypesModule = typeof import("@pi-archimedes/subagent/types");
 
 type SelectionMode = "single" | "multi";
 type Question = {
@@ -36,18 +40,20 @@ type ToolDefinition = {
 };
 type ArchimedesFactory = (pi: ExtensionAPI) => void | Promise<void>;
 type AskEmitter = (questions: Question[]) => void;
-type AgentModelResolver = (name: string, cwd: string) => string | undefined;
+type AgentModelResolver = ArchimedesAgentsModule["resolveAgentModel"];
+type OutputContracts = ArchimedesTypesModule["SUBAGENT_OUTPUT_CONTRACTS"];
 type BillingClass = "metered" | "subscription";
 
 const METERED_ONE_SHOT_CAP_ENV = "PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS";
 const DEFAULT_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS = 16_384;
 
-const outputContracts = ["inline", "artifact", "status-only", "pass-no-findings"] as const;
-const outputContractParameter = {
-  type: "string",
-  enum: outputContracts,
-  description: "Expected result shape used for parent artifact persistence and quality evaluation.",
-};
+function outputContractParameter(outputContracts: OutputContracts): Record<string, unknown> {
+  return {
+    type: "string",
+    enum: outputContracts,
+    description: "Expected result shape used for parent artifact persistence and quality evaluation.",
+  };
+}
 const sourceAccessParameter = {
   type: "string",
   enum: ["self-contained", "repository"],
@@ -241,15 +247,16 @@ async function withQualityAskResults(
   };
 }
 
-function subagentParameters(parameters: any): any {
+function subagentParameters(parameters: any, outputContracts: OutputContracts): any {
   const properties = parameters?.properties;
   const taskItems = properties?.tasks?.items;
   if (!properties || !taskItems?.properties) throw new Error("Archimedes subagent schema is unavailable");
+  const outputContract = outputContractParameter(outputContracts);
   return {
     ...parameters,
     properties: {
       ...properties,
-      outputContract: outputContractParameter,
+      outputContract,
       sourceAccess: sourceAccessParameter,
       meteredJustification: meteredJustificationParameter,
       estimatedCostUsd: estimatedCostParameter,
@@ -260,7 +267,7 @@ function subagentParameters(parameters: any): any {
           ...taskItems,
           properties: {
             ...taskItems.properties,
-            outputContract: outputContractParameter,
+            outputContract,
             sourceAccess: sourceAccessParameter,
             meteredJustification: meteredJustificationParameter,
             estimatedCostUsd: estimatedCostParameter,
@@ -448,6 +455,7 @@ function delegationPolicyError(
 function registerContractAwareSubagent(
   pi: ExtensionAPI,
   upstreamSubagent: ToolDefinition | undefined,
+  outputContracts: OutputContracts,
   classes: ReadonlyMap<string, BillingClass>,
   resolveAgentModel: AgentModelResolver,
   defaultCap: number | undefined,
@@ -457,7 +465,7 @@ function registerContractAwareSubagent(
   }
   pi.registerTool({
     ...upstreamSubagent,
-    parameters: subagentParameters(upstreamSubagent.parameters),
+    parameters: subagentParameters(upstreamSubagent.parameters, outputContracts),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const policyError = delegationPolicyError(params, ctx, classes, resolveAgentModel);
       if (policyError) {
@@ -534,20 +542,17 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
   const archimedesEntry = require.resolve("pi-archimedes");
   const packageRequire = createRequire(archimedesEntry);
   const busEntry = packageRequire.resolve("@pi-archimedes/core/bus");
-  const subagentEntry = packageRequire.resolve("@pi-archimedes/subagent");
-  const agentsEntry = join(dirname(subagentEntry), `agents${extname(subagentEntry)}`);
-  const [{ default: registerArchimedes }, busModule, agentsModule] = await Promise.all([
+  const agentsEntry = packageRequire.resolve("@pi-archimedes/subagent/agents");
+  const typesEntry = packageRequire.resolve("@pi-archimedes/subagent/types");
+  const [{ default: registerArchimedes }, busModule, agentsModule, typesModule] = await Promise.all([
     import(pathToFileURL(archimedesEntry).href) as Promise<{ default: ArchimedesFactory }>,
-    import(pathToFileURL(busEntry).href) as Promise<{ getBus: () => { emit: (event: string, payload: unknown) => void }; Events: { ASK_REQUEST: string } }>,
-    import(pathToFileURL(agentsEntry).href) as Promise<{
-      discoverAgents: (cwd: string) => any[];
-      findAgent: (agents: any[], name: string) => { model?: string } | undefined;
-    }>,
+    import(pathToFileURL(busEntry).href) as Promise<ArchimedesBusModule>,
+    import(pathToFileURL(agentsEntry).href) as Promise<ArchimedesAgentsModule>,
+    import(pathToFileURL(typesEntry).href) as Promise<ArchimedesTypesModule>,
   ]);
   const defaultCap = meteredOneShotMaxOutputTokens();
   const billingClasses = loadBillingClasses();
-  const resolveAgentModel: AgentModelResolver = (name, cwd) =>
-    agentsModule.findAgent(agentsModule.discoverAgents(cwd), name)?.model;
+  const resolveAgentModel: AgentModelResolver = agentsModule.resolveAgentModel;
   let upstreamAsk: ToolDefinition | undefined;
   const components = new Proxy(pi, {
     get(target, property, receiver) {
@@ -555,7 +560,14 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
         return (tool: ToolDefinition) => {
           if (tool.name === "ask") upstreamAsk = tool;
           else if (tool.name === "subagent") {
-            registerContractAwareSubagent(target, tool, billingClasses, resolveAgentModel, defaultCap);
+            registerContractAwareSubagent(
+              target,
+              tool,
+              typesModule.SUBAGENT_OUTPUT_CONTRACTS,
+              billingClasses,
+              resolveAgentModel,
+              defaultCap,
+            );
           }
           else target.registerTool(tool as any);
         };

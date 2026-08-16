@@ -172,8 +172,13 @@ def test_archimedes_package_entrypoint_is_disabled_for_tracked_public_wrapper():
     wrapper = ARCHIMEDES_WRAPPER.read_text(encoding="utf-8")
     assert 'require.resolve("pi-archimedes")' in wrapper
     assert '.resolve("@pi-archimedes/core/bus")' in wrapper
+    assert '.resolve("@pi-archimedes/subagent/agents")' in wrapper
+    assert '.resolve("@pi-archimedes/subagent/types")' in wrapper
+    assert "dirname(subagentEntry)" not in wrapper
+    assert "discoverAgents" not in wrapper
+    assert "findAgent" not in wrapper
     assert 'tool.name === "subagent"' in wrapper
-    assert '"pass-no-findings"' in wrapper
+    assert "SUBAGENT_OUTPUT_CONTRACTS" in wrapper
     assert "PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS" in wrapper
     assert "16_384" in wrapper
     assert "billingClass" in wrapper

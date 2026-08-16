@@ -307,20 +307,28 @@ export default function registerArchimedes(pi) {
             "version": "2.1.0",
             "type": "module",
             "main": "./index.js",
+            "exports": {
+                ".": "./index.js",
+                "./agents": "./agents.js",
+                "./types": "./types.js",
+            },
         }),
         encoding="utf-8",
     )
     (subagent_dir / "index.js").write_text("export default () => {};\n", encoding="utf-8")
     (subagent_dir / "agents.js").write_text(
         """
-export function discoverAgents() {
-  return [
-    { name: "metered-agent", model: "openrouter/anthropic/claude-opus-5" },
-    { name: "subscription-agent", model: "openai-codex/gpt-5.6-terra" },
-  ];
+export function resolveAgentModel(name) {
+  return {
+    "metered-agent": "openrouter/anthropic/claude-opus-5",
+    "subscription-agent": "openai-codex/gpt-5.6-terra",
+  }[name];
 }
-export function findAgent(agents, name) { return agents.find((agent) => agent.name === name); }
 """,
+        encoding="utf-8",
+    )
+    (subagent_dir / "types.js").write_text(
+        'export const SUBAGENT_OUTPUT_CONTRACTS = ["inline", "artifact", "status-only", "pass-no-findings"];\n',
         encoding="utf-8",
     )
     script = f"""
