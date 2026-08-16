@@ -19,10 +19,11 @@ Normal deployment pins these patch-base dependencies exactly in the runtime npm 
 scripts/update-pi-config.sh --dry-run
 scripts/update-pi-config.sh
 scripts/apply-pi-package-patches.sh --check
+scripts/verify-pi-langfuse-package-patch.sh       # networked exact-tarball/contract proof
 scripts/verify-pi-archimedes-package-patches.sh  # networked exact-tarball proof
 ```
 
-Run `scripts/apply-pi-package-patches.sh` directly only when repairing an already installed exact base without redeploying config. The Archimedes proof downloads integrity-pinned npm tarballs, applies/checks/reverses the projection, and exercises public imports through Pi's Jiti runtime; it requires `npm ci --ignore-scripts` first.
+Run `scripts/apply-pi-package-patches.sh` directly only when repairing an already installed exact base without redeploying config. The Langfuse proof verifies the maintained fork/gitlink and patch hashes, downloads the integrity-pinned npm base, proves zero-fuzz apply/reverse and byte-exact fork projection, then runs all 15 installed-package quality contract tests; run `npm ci --ignore-scripts` in `forks/pi-langfuse` first when its test dependencies are absent. The Archimedes proof downloads integrity-pinned npm tarballs, applies/checks/reverses the projection, and exercises public imports through Pi's Jiti runtime; it requires root `npm ci --ignore-scripts` first.
 
 `--check` is read-only. Apply is idempotent and rejects version, source-context, or incomplete-patch mismatches. Apply is not filesystem-transactional: after an interrupted write or permission failure, reinstall the exact pinned packages before checking and applying again. Remove each patch and its package pin after a verified upstream release includes the corresponding change. Reinstall the exact npm base before moving between materially different patch revisions; partial states fail closed.
 

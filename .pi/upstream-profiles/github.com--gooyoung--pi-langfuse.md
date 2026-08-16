@@ -5,7 +5,19 @@ last_checked_utc: 2026-08-15T15:48:55Z
 target_ref: v1.5.14
 source_commit: 04d55a12556bdf4c4b8b208038198dc2fd8e571b
 status: current-for-target-ref
-quality_port_status: proposed-unreleased
+quality_port_status: maintained-fork-verified
+quality_port_verified_utc: 2026-08-16T18:38:52Z
+npm_published_utc: 2026-08-13T02:02:51.103Z
+npm_integrity: sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg==
+npm_provenance: https://registry.npmjs.org/-/npm/v1/attestations/pi-langfuse@1.5.14
+maintained_fork_base: 04d55a12556bdf4c4b8b208038198dc2fd8e571b
+maintained_fork_head: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e
+maintained_fork_branch: vendor/pi-setup-1514
+maintained_fork_commit: https://github.com/stvhay/pi-langfuse/commit/94fa7f0c4410ce10da1f98c8fe4b798374c8df2e
+superproject_gitlink: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e
+derived_patch: patches/pi-packages/pi-langfuse-1.5.14.patch
+derived_patch_sha256: 27abc3cbf950ceca520dd21a2ab69ed3483bc05dea25c1c4495307d6fc2a90a5
+package_proof: scripts/verify-pi-langfuse-package-patch.sh
 recheck_every_use:
   - permissions
   - fork-state
@@ -112,13 +124,15 @@ source_files:
 - Validate `unknown` at runtime boundaries; avoid unrelated modernization of existing `any`, array-style, or brace conventions.
 - Keep lifecycle, session isolation, privacy shaping, trace fallback, and shutdown ordering changes narrowly tested.
 
-## Proposed quality ports
+## Maintained quality ports
 
-- Normative proposal: `.pi/plans/2026-08-15-pi-langfuse-quality-port-contract.md`.
-- Target: this repository's `main` branch and public package subpath `pi-langfuse/quality`; no upstream issue, branch, commit, PR, tag, or publication is authorized by the proposal.
-- Required public factories: `createObservationCapturePort` and `createServiceEvidencePort`. pi-langfuse owns capture redaction, observation lifecycle, session propagation, export/flush completion, and explicit gaps; bounded private service evidence covers traces, observations, scores, annotation queue items/scores, score configs, completeness, and gaps.
-- Authorization, Bead closeout, result acceptance, and pi-setup quality policy remain outside the package contract.
-- Q18V verifies the exact `stvhay/pi-langfuse` fork commit and `forks/pi-langfuse` gitlink as maintained source, plus the tracked patch as its derived projection onto the exact npm base. Fork/ref provenance, npm integrity, zero-fuzz apply/reverse, public `"./quality"` exports/types, rollback, and installed-package contract tests must pass before Q20 adoption. External-upstream submission is deferred under `pi-vzqq`; a future release may replace this projection but does not gate Q20.
+- Normative contract and full Q18V record: `.pi/plans/2026-08-15-pi-langfuse-quality-port-contract.md`.
+- Verified source: immutable [`stvhay/pi-langfuse@94fa7f0c`](https://github.com/stvhay/pi-langfuse/commit/94fa7f0c4410ce10da1f98c8fe4b798374c8df2e), one commit above upstream/npm base `04d55a12556bdf4c4b8b208038198dc2fd8e571b`. Published branch `vendor/pi-setup-1514` and the `forks/pi-langfuse` gitlink resolved to the same head during verification.
+- Verified deployment projection: `patches/pi-packages/pi-langfuse-1.5.14.patch` at SHA-256 `27abc3cbf950ceca520dd21a2ab69ed3483bc05dea25c1c4495307d6fc2a90a5`, applied to integrity-pinned `pi-langfuse@1.5.14` and byte-compared with the maintained fork.
+- Public package subpath: `pi-langfuse/quality`; required factories are `createObservationCapturePort` and `createServiceEvidencePort`. Package-visible TypeScript exports include every contract type.
+- `scripts/verify-pi-langfuse-package-patch.sh` verifies npm metadata/tarball integrity, fork/gitlink lineage, zero-fuzz apply/idempotence/reverse, exact fork projection, and all 15 installed-package quality contract tests.
+- Q18V verifies the exact `stvhay/pi-langfuse` fork commit through the evidence above; Q20 may bind this pin and public import without waiting for an upstream release.
+- Authorization, Bead closeout, result acceptance, and pi-setup quality policy remain outside the package contract. External-upstream submission is deferred under `pi-vzqq`; a future release may replace this projection but does not gate Q20.
 
 ## PR implications
 

@@ -26,6 +26,7 @@ LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality
 ARCHIMEDES_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--danielcherubini--pi-archimedes.md"
 ARCHIMEDES_RESULT_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-archimedes-result-port-contract.md"
 ARCHIMEDES_PACKAGE_PROOF = ROOT / "scripts" / "verify-pi-archimedes-package-patches.sh"
+LANGFUSE_PACKAGE_PROOF = ROOT / "scripts" / "verify-pi-langfuse-package-patch.sh"
 
 
 def _package(root: Path, relative: str, name: str, version: str, source: str) -> Path:
@@ -558,6 +559,18 @@ def test_archimedes_package_proof_is_executable_and_integrity_pinned():
     assert 'from "@pi-archimedes/core/bus"' in proof
 
 
+def test_langfuse_package_proof_is_executable_and_integrity_pinned():
+    assert LANGFUSE_PACKAGE_PROOF.stat().st_mode & stat.S_IXUSR
+    proof = LANGFUSE_PACKAGE_PROOF.read_text(encoding="utf-8")
+    assert "pi-langfuse@1.5.14" in proof
+    assert "sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg==" in proof
+    assert "patch --force --fuzz=0 --forward" in proof
+    assert "patch --force --fuzz=0 --reverse --dry-run" in proof
+    assert "test/quality.test.ts" in proof
+    assert "cmp " in proof
+    assert "diff -qr" in proof
+
+
 def test_langfuse_quality_port_maintained_fork_gate_requires_exact_evidence():
     profile = LANGFUSE_PROFILE.read_text(encoding="utf-8")
     contract = LANGFUSE_QUALITY_PORT.read_text(encoding="utf-8")
@@ -566,8 +579,20 @@ def test_langfuse_quality_port_maintained_fork_gate_requires_exact_evidence():
     assert '"./quality": "./src/quality.ts"' in patch
     assert "createObservationCapturePort" in patch
     assert "createServiceEvidencePort" in patch
-    assert "quality_port_status: proposed-unreleased" in profile
+    assert "quality_port_status: maintained-fork-verified" in profile
     assert "Q18V verifies the exact `stvhay/pi-langfuse` fork commit" in profile
+    for evidence in (
+        "npm_published_utc: 2026-08-13T02:02:51.103Z",
+        "npm_integrity: sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg==",
+        "maintained_fork_base: 04d55a12556bdf4c4b8b208038198dc2fd8e571b",
+        "maintained_fork_head: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e",
+        "maintained_fork_branch: vendor/pi-setup-1514",
+        "superproject_gitlink: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e",
+        "derived_patch: patches/pi-packages/pi-langfuse-1.5.14.patch",
+        "derived_patch_sha256: 27abc3cbf950ceca520dd21a2ab69ed3483bc05dea25c1c4495307d6fc2a90a5",
+        "package_proof: scripts/verify-pi-langfuse-package-patch.sh",
+    ):
+        assert evidence in profile
     for evidence in (
         "exact npm base version",
         "reviewed maintained-fork base/head",
@@ -577,6 +602,10 @@ def test_langfuse_quality_port_maintained_fork_gate_requires_exact_evidence():
         "package-visible type declarations",
         "installed-package contract tests",
         "deferred epic `pi-vzqq`",
+        "## Q18V maintained-fork verification record",
+        "https://github.com/stvhay/pi-langfuse/commit/94fa7f0c4410ce10da1f98c8fe4b798374c8df2e",
+        "`pi-langfuse/quality`",
+        "reinstall `pi-langfuse@1.5.14`",
     ):
         assert evidence in contract
     assert "does not gate Q20" in contract

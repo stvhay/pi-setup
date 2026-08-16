@@ -12,6 +12,7 @@ From the repository root:
 scripts/update-pi-config.sh --dry-run    # preview changes
 scripts/update-pi-config.sh              # update ~/.pi
 scripts/apply-pi-package-patches.sh      # after Pi installs pinned packages
+scripts/verify-pi-langfuse-package-patch.sh  # networked exact-tarball/contract proof
 ```
 
 The update helper preserves runtime secrets/state and installs helper commands into `~/.pi/agent/bin`, including:
@@ -20,7 +21,7 @@ The update helper preserves runtime secrets/state and installs helper commands i
 agnt --help
 ```
 
-Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes exact pins for `pi-langfuse@1.5.14`, `pi-archimedes@2.1.0`, and the `@mariozechner/clipboard` native addon. Langfuse 1.5.14 natively includes logical session correlation, score entity IDs, capability-gated legacy fallback, isolated shutdown, final system-prompt capture, and opt-in source metadata. The temporary projection adds byte-bounded ingestion, media-safe payload bounds, privacy-aware versioned tool byte metadata, and bounded quality integration ports. Run `scripts/apply-pi-package-patches.sh --check` and then the apply command after package installation. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`. The local `./quality` export is adopted only after `pi-rxo3.30` binds its exact `stvhay` fork commit, submodule gitlink, npm-base integrity, derived patch, public contract tests, and rollback source; external-upstream release is not a local adoption gate. Langfuse skill and Matt Pocock skill packages intentionally track their default branches without refs; `pi update --extensions` advances those unpinned checkouts after source review.
+Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi/agent/npm/` user package root when they are missing. This includes exact pins for `pi-langfuse@1.5.14`, `pi-archimedes@2.1.0`, and the `@mariozechner/clipboard` native addon. Langfuse 1.5.14 natively includes logical session correlation, score entity IDs, capability-gated legacy fallback, isolated shutdown, final system-prompt capture, and opt-in source metadata. The temporary projection adds byte-bounded ingestion, media-safe payload bounds, privacy-aware versioned tool byte metadata, and bounded quality integration ports. Run `scripts/apply-pi-package-patches.sh --check` and then the apply command after package installation. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`. `pi-rxo3.30` verifies the local `./quality` export against its exact `stvhay` fork commit, submodule gitlink, npm-base integrity, derived patch, public contract tests, and rollback source. It remains unused until `pi-rxo3.25` adopts `pi-langfuse/quality`; external-upstream release is not a local adoption gate. Langfuse skill and Matt Pocock skill packages intentionally track their default branches without refs; `pi update --extensions` advances those unpinned checkouts after source review.
 
 ### Observational memory
 
