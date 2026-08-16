@@ -5,7 +5,37 @@ last_checked_utc: 2026-08-15T17:59:10Z
 target_ref: v2.1.0
 source_commit: 2ed26aa1d3301cc01a927d9409778bbd13df4798
 status: current-for-target-ref
-result_port_status: proposed-unreleased
+result_port_status: maintained-fork-verified
+result_port_verified_utc: 2026-08-16T18:59:39Z
+npm_pi_archimedes_published_utc: 2026-08-15T10:25:15.706Z
+npm_pi_archimedes_integrity: sha512-TitGWAXRE6W+3bXwg7pIhnoKR7w3PzXW417RGpGyUwHgFIqHi20eRDAs0TipBoDO/HAsQVcdpXjB//W9D/1zRQ==
+npm_pi_archimedes_registry: https://registry.npmjs.org/pi-archimedes/2.1.0
+npm_subagent_published_utc: 2026-08-15T10:25:13.730Z
+npm_subagent_integrity: sha512-Num0675GR2hWcp21r4epe7mqQDIgpMomUv55C9G1a96zv1mL9Gkv5eaSPe9iudI43j1lhdPEtcK3ObJs7tK9VA==
+npm_subagent_registry: https://registry.npmjs.org/%40pi-archimedes%2Fsubagent/2.1.0
+npm_core_published_utc: 2026-08-15T10:24:55.193Z
+npm_core_integrity: sha512-TiZBNrhyk8trUw3J66J78HNUEVsgIWkzvDJUqGq2hxvwCDS32FcJWn0K2wX+0Og8lWawmsot2n7lsYUn0ysocw==
+npm_core_registry: https://registry.npmjs.org/%40pi-archimedes%2Fcore/2.1.0
+maintained_fork_base: 2ed26aa1d3301cc01a927d9409778bbd13df4798
+maintained_fork_limits: 23d8fbf7381f2081806165e26d6b0962aef13ef9
+maintained_fork_one_shot: f277470d64d014b496efe7e4ae4d57275d8e1907
+maintained_fork_repeated_errors: 3576ddfd154fb274813a16e07607a15520ce73b7
+maintained_fork_result_ports: a9efbf159ee8b2717aae1df8742bd7382e97c1a3
+maintained_fork_head: 1c4750ddb844cd8579f3076922603915098e9f96
+maintained_fork_branch: vendor/pi-setup-210
+maintained_fork_commit: https://github.com/stvhay/pi-archimedes/commit/1c4750ddb844cd8579f3076922603915098e9f96
+superproject_gitlink: 1c4750ddb844cd8579f3076922603915098e9f96
+derived_patch_meta: patches/pi-packages/pi-archimedes-meta-2.1.0.patch
+derived_patch_meta_sha256: 571e73ac589c03a256e802286b64f27c1869831fa1ca05f7f87c8b3369fb4a28
+derived_patch_ask: patches/pi-packages/pi-archimedes-ask-2.1.0.patch
+derived_patch_ask_sha256: eaa4c814f481ef95c1a95866170ec59d9553a257ed96634a37422f065fa062cc
+derived_patch_core: patches/pi-packages/pi-archimedes-core-2.1.0.patch
+derived_patch_core_sha256: 520ff1888ffe785f6648a2de5823023a6c146017ba21d8c7c6c1f12d2b81d73f
+derived_patch_footer: patches/pi-packages/pi-archimedes-footer-2.1.0.patch
+derived_patch_footer_sha256: 0e680ca78ed7422abf0241d8dfba982497b93b14064ef375aa4a3f7c0e437e34
+derived_patch_subagent: patches/pi-packages/pi-archimedes-subagent-2.1.0.patch
+derived_patch_subagent_sha256: 41de1eadb6f329f5c884421d80620df4135c28e34c070b1fc1cb9aba871a5ff0
+package_proof: scripts/verify-pi-archimedes-package-patches.sh
 recheck_every_use:
   - permissions
   - fork-state
@@ -137,13 +167,14 @@ Built locally from immutable `v2.1.0@2ed26aa` without rewriting existing fork hi
 
 Each row is exactly one commit above its predecessor. Final vendor verification passed all recursive TypeScript checks, 271 focused subagent tests, 754 workspace tests, and npm package previews. Exact npm 2.1.0 bases accepted the zero-context projection, idempotent reapply, reverse dry-runs, and public `./agents`, `./types`, and `./bus` imports under Pi's Jiti runtime.
 
-## Proposed result ports
+## Maintained result ports
 
-- Normative proposal: `.pi/plans/2026-08-15-pi-archimedes-result-port-contract.md`.
-- Target: public subpaths `@pi-archimedes/subagent/types`, `@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`; no upstream mutation is authorized by the proposal.
-- Required public result evidence covers output contracts, resolved limits, termination, usage, final output, child session/trace refs, ordered `details.results[]`, and the enclosing Pi tool-result type. Pi `tool_result` remains the only result transport.
-- Agent resolution returns only configured model. Typed bus exports current UI/cost payloads. pi-setup keeps routing, billing, authority, closeout, acceptance, persistence, and quality policy.
-- Q19V verifies the exact `stvhay/pi-archimedes` stack and `forks/pi-archimedes` gitlink as maintained source, plus tracked patches as derived projections onto exact npm bases. Fork/ref provenance, npm integrities, zero-fuzz apply/reverse, public exports/types, rollback, and installed-package contract tests must pass before Q21 adoption. External-upstream submission is deferred under `pi-vzqq`; future releases may replace these projections but do not gate Q21.
+- Normative contract: `.pi/plans/2026-08-15-pi-archimedes-result-port-contract.md`.
+- Q19V verifies the exact `stvhay/pi-archimedes` stack at immutable commit [`1c4750d`](https://github.com/stvhay/pi-archimedes/commit/1c4750ddb844cd8579f3076922603915098e9f96), published branch `vendor/pi-setup-210`, and matching `forks/pi-archimedes` gitlink as maintained source.
+- Public subpaths are `@pi-archimedes/subagent/types`, `@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`. Result evidence covers output contracts, resolved limits, termination, usage, partial output, child session/trace refs, ordered `details.results[]`, and enclosing Pi tool-result type. Pi `tool_result` remains sole result transport.
+- Registry version records for [`pi-archimedes`](https://registry.npmjs.org/pi-archimedes/2.1.0), [`subagent`](https://registry.npmjs.org/%40pi-archimedes%2Fsubagent/2.1.0), and [`core`](https://registry.npmjs.org/%40pi-archimedes%2Fcore/2.1.0) bind exact package names, versions, signatures, and tarball integrities. They omit `gitHead`, and npm attestation endpoints return 404, so Q19V claims no SLSA provenance. The package proof instead byte-compares each integrity-verified tarball file with `v2.1.0@2ed26aa` source, allowing only npm's semantic `workspace:*` manifest normalization.
+- `scripts/verify-pi-archimedes-package-patches.sh` verifies the five patch hashes, zero-fuzz apply/idempotence/reverse, byte-exact maintained source projection, public TypeScript declarations, governance exclusions, and 100 installed-package tests. Reinstall exact 2.1.0 packages for base rollback; restore the pinned gitlink and patches for projection rollback.
+- Agent resolution returns only configured model. Typed bus exports current UI/cost payloads. pi-setup keeps routing, billing, authority, closeout, acceptance, persistence, and quality policy. External-upstream submission is deferred under `pi-vzqq`; future releases may replace these projections but do not gate Q21.
 
 ## PR implications
 

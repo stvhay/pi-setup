@@ -553,7 +553,22 @@ def test_archimedes_package_proof_is_executable_and_integrity_pinned():
         assert package in proof
         assert integrity in proof
     assert "apply-pi-package-patches.sh\" --check" in proof
+    assert "FORK_HEAD=\"1c4750ddb844cd8579f3076922603915098e9f96\"" in proof
+    assert "git ls-remote --heads" in proof
     assert "patch --force --fuzz=0 --reverse --dry-run" in proof
+    assert "cmp \"$package_dir/$path\" \"$fork_dir/$path\"" in proof
+    assert "production_paths" in proof
+    assert "! -name '*.test.ts'" in proof
+    assert "diff -qr" in proof
+    assert "public-ports.test.ts" in proof
+    assert "index-execute.test.ts" in proof
+    assert "stream.test.ts" in proof
+    assert "limits.test.ts" in proof
+    assert "bus.test.ts" in proof
+    assert "node_modules/.bin/tsc" in proof
+    assert "const resolveModel: (name: string, cwd: string) => string | undefined" in proof
+    assert "const result: SubagentResult" in proof
+    assert "const payloads: ArchimedesEventPayloadMap" in proof
     assert 'from "@pi-archimedes/subagent/agents"' in proof
     assert 'from "@pi-archimedes/subagent/types"' in proof
     assert 'from "@pi-archimedes/core/bus"' in proof
@@ -616,8 +631,28 @@ def test_archimedes_result_port_maintained_fork_gate_requires_exact_evidence():
     assert ARCHIMEDES_RESULT_PORT.exists(), "tracked pi-archimedes result port contract is required"
     contract = ARCHIMEDES_RESULT_PORT.read_text(encoding="utf-8")
 
-    assert "result_port_status: proposed-unreleased" in profile
+    assert "result_port_status: maintained-fork-verified" in profile
     assert "Q19V verifies the exact `stvhay/pi-archimedes` stack" in profile
+    for evidence in (
+        "npm_pi_archimedes_published_utc: 2026-08-15T10:25:15.706Z",
+        "npm_pi_archimedes_integrity: sha512-TitGWAXRE6W+3bXwg7pIhnoKR7w3PzXW417RGpGyUwHgFIqHi20eRDAs0TipBoDO/HAsQVcdpXjB//W9D/1zRQ==",
+        "npm_subagent_published_utc: 2026-08-15T10:25:13.730Z",
+        "npm_subagent_integrity: sha512-Num0675GR2hWcp21r4epe7mqQDIgpMomUv55C9G1a96zv1mL9Gkv5eaSPe9iudI43j1lhdPEtcK3ObJs7tK9VA==",
+        "npm_core_published_utc: 2026-08-15T10:24:55.193Z",
+        "npm_core_integrity: sha512-TiZBNrhyk8trUw3J66J78HNUEVsgIWkzvDJUqGq2hxvwCDS32FcJWn0K2wX+0Og8lWawmsot2n7lsYUn0ysocw==",
+        "maintained_fork_base: 2ed26aa1d3301cc01a927d9409778bbd13df4798",
+        "maintained_fork_result_ports: a9efbf159ee8b2717aae1df8742bd7382e97c1a3",
+        "maintained_fork_head: 1c4750ddb844cd8579f3076922603915098e9f96",
+        "maintained_fork_branch: vendor/pi-setup-210",
+        "superproject_gitlink: 1c4750ddb844cd8579f3076922603915098e9f96",
+        "derived_patch_meta_sha256: 571e73ac589c03a256e802286b64f27c1869831fa1ca05f7f87c8b3369fb4a28",
+        "derived_patch_ask_sha256: eaa4c814f481ef95c1a95866170ec59d9553a257ed96634a37422f065fa062cc",
+        "derived_patch_core_sha256: 520ff1888ffe785f6648a2de5823023a6c146017ba21d8c7c6c1f12d2b81d73f",
+        "derived_patch_footer_sha256: 0e680ca78ed7422abf0241d8dfba982497b93b14064ef375aa4a3f7c0e437e34",
+        "derived_patch_subagent_sha256: 41de1eadb6f329f5c884421d80620df4135c28e34c070b1fc1cb9aba871a5ff0",
+        "package_proof: scripts/verify-pi-archimedes-package-patches.sh",
+    ):
+        assert evidence in profile
     for evidence in (
         "exact npm base versions",
         "reviewed maintained-fork stack base/head",
@@ -627,6 +662,13 @@ def test_archimedes_result_port_maintained_fork_gate_requires_exact_evidence():
         "package-visible type declarations",
         "installed-package contract tests",
         "deferred epic `pi-vzqq`",
+        "## Q19V maintained-fork verification record",
+        "https://github.com/stvhay/pi-archimedes/commit/1c4750ddb844cd8579f3076922603915098e9f96",
+        "`@pi-archimedes/subagent/types`",
+        "`@pi-archimedes/subagent/agents`",
+        "`@pi-archimedes/core/bus`",
+        "reinstall `pi-archimedes@2.1.0`",
+        "100 installed-package tests",
     ):
         assert evidence in contract
     assert "do not gate Q21" in contract
