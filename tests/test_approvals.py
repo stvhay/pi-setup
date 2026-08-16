@@ -1021,6 +1021,7 @@ if [ "$2" = request ]; then
   if [ "${AGNT_HUMAN_UI_RESOLVER_FD:-}" = 3 ]; then cat <&3 >/dev/null; fi
   printf '%s\\n' '{"decisionBead":"pi-decision.1"}'
 else
+  if [ "${AGNT_HUMAN_UI_RESOLVER_FD:-}" = 3 ]; then cat <&3 >/dev/null; fi
   printf '%s\\n' '{"blockerVisible":false}'
 fi
 """,

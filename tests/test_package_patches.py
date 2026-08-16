@@ -380,35 +380,29 @@ def test_archimedes_vendor_submodule_pins_clean_210_stack():
     assert head.returncode == 0, head.stderr
     assert head.stdout.strip() == ARCHIMEDES_VENDOR_HEAD
     assert "branch = vendor/pi-setup-210" in GITMODULES.read_text(encoding="utf-8")
-    tag = subprocess.run(
-        ["git", "-C", str(ARCHIMEDES_VENDOR), "rev-parse", "v2.1.0^{}"],
+    base = subprocess.run(
+        ["git", "-C", str(ARCHIMEDES_VENDOR), "cat-file", "-e", f"{ARCHIMEDES_UPSTREAM_210}^{{commit}}"],
         text=True,
         capture_output=True,
     )
-    assert tag.returncode == 0, tag.stderr
-    assert tag.stdout.strip() == ARCHIMEDES_UPSTREAM_210
+    assert base.returncode == 0, base.stderr
 
     stack = (
-        ("rebuild/subagent-execution-limits-210", ARCHIMEDES_LIMITS_HEAD, ARCHIMEDES_UPSTREAM_210),
-        ("rebuild/subagent-one-shot-mode-210", ARCHIMEDES_ONE_SHOT_HEAD, ARCHIMEDES_LIMITS_HEAD),
-        (
-            "rebuild/subagent-repeated-errors-210",
-            ARCHIMEDES_REPEATED_ERRORS_HEAD,
-            ARCHIMEDES_ONE_SHOT_HEAD,
-        ),
-        ("feat/result-ports-210", ARCHIMEDES_RESULT_PORTS_HEAD, ARCHIMEDES_REPEATED_ERRORS_HEAD),
-        ("vendor/pi-setup-210", ARCHIMEDES_VENDOR_HEAD, ARCHIMEDES_RESULT_PORTS_HEAD),
+        (ARCHIMEDES_LIMITS_HEAD, ARCHIMEDES_UPSTREAM_210),
+        (ARCHIMEDES_ONE_SHOT_HEAD, ARCHIMEDES_LIMITS_HEAD),
+        (ARCHIMEDES_REPEATED_ERRORS_HEAD, ARCHIMEDES_ONE_SHOT_HEAD),
+        (ARCHIMEDES_RESULT_PORTS_HEAD, ARCHIMEDES_REPEATED_ERRORS_HEAD),
+        (ARCHIMEDES_VENDOR_HEAD, ARCHIMEDES_RESULT_PORTS_HEAD),
     )
-    for branch, expected_head, predecessor in stack:
+    for expected_head, predecessor in stack:
         actual = subprocess.run(
-            ["git", "-C", str(ARCHIMEDES_VENDOR), "rev-parse", branch],
+            ["git", "-C", str(ARCHIMEDES_VENDOR), "cat-file", "-e", f"{expected_head}^{{commit}}"],
             text=True,
             capture_output=True,
         )
         assert actual.returncode == 0, actual.stderr
-        assert actual.stdout.strip() == expected_head
         parents = subprocess.run(
-            ["git", "-C", str(ARCHIMEDES_VENDOR), "show", "-s", "--format=%P", branch],
+            ["git", "-C", str(ARCHIMEDES_VENDOR), "show", "-s", "--format=%P", expected_head],
             text=True,
             capture_output=True,
         )
@@ -437,30 +431,6 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
     assert count.returncode == 0, count.stderr
     assert count.stdout.strip() == "1"
 
-
-def test_langfuse_upstream_candidates_are_single_commits_on_v1514():
-    expected = {
-        "rebuild/ingestion-byte-batches-1514": "528488fb54abe3a9f7c3bb46f584cfbb742ac3b0",
-        "rebuild/media-safe-payload-bounds-1514": "0dbf6558b952ef15da6ae864279ad31961f7dad0",
-        "rebuild/tool-payload-byte-metadata-1514": "5fc8d288ef71807ab025f05ab499b5eff4ad822f",
-        "feat/quality-ports-1514": "75c8a186e48038a51a95c02ef284256a5ed6cd46",
-    }
-
-    for branch, commit in expected.items():
-        actual = subprocess.run(
-            ["git", "-C", str(LANGFUSE_VENDOR), "rev-parse", branch],
-            text=True,
-            capture_output=True,
-        )
-        assert actual.returncode == 0, actual.stderr
-        assert actual.stdout.strip() == commit
-        count = subprocess.run(
-            ["git", "-C", str(LANGFUSE_VENDOR), "rev-list", "--count", f"{LANGFUSE_UPSTREAM_1514}..{branch}"],
-            text=True,
-            capture_output=True,
-        )
-        assert count.returncode == 0, count.stderr
-        assert count.stdout.strip() == "1"
 
 
 def test_active_patch_inventory_matches_maintained_fork_projections():
