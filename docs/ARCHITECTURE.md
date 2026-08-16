@@ -35,7 +35,7 @@ pi-setup/ (this repo, source of truth)
   finite, permits valid media only on the transient OTel extraction path, stores
   bounded omission markers in REST fallback, emits privacy-controlled versioned
   tool-payload byte states, and exposes bounded local quality ports without making
-  them released-package evidence. The Archimedes 2.0.1
+  them released-package evidence. The Archimedes 2.1.0
   projection adds bounded agentic/one-shot execution, dual legacy/Pi 0.84 child-stream
   parsing, bounded parent-visible outputs, adaptive token progress, and repeated-error
   termination while preserving native v2 child session/model behavior.

@@ -1,6 +1,6 @@
 # Temporary Pi package patches
 
-These version-locked runtime patches project reviewed fork changes onto exact installed npm releases until upstream releases contain them. Reviewed sources are pinned as submodules under `forks/pi-langfuse` and `forks/pi-archimedes`; patches contain only installed production/package files. Each fork's vendor branch combines reviewed work without rewriting or merging its draft PR branches.
+These version-locked runtime patches project reviewed fork changes onto exact installed npm releases until upstream releases contain them. Reviewed sources are pinned as submodules under `forks/pi-langfuse` and `forks/pi-archimedes`; patches contain only installed production/package files. PRs continue against the maintained `stvhay` repositories. After a reviewed fork head changes, sync its gitlink and regenerated patch together. Each fork's vendor branch combines reviewed work without rewriting or merging its draft PR branches.
 
 Pi's git package installer cannot consume the Archimedes source monorepo directly: it runs npm while that repository requires pnpm and uses npm-unsupported `workspace:*` dependency specs. Keep `npm:pi-archimedes@2.1.0` as the installable base, then apply the exact production projection pinned by `forks/pi-archimedes`.
 

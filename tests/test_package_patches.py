@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -9,7 +10,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
+UPDATE_SCRIPT = ROOT / "scripts" / "update-pi-config.sh"
 PATCHES = ROOT / "patches" / "pi-packages"
+SETTINGS = ROOT / "pi" / "agent" / "settings.json"
+PI_README = ROOT / "pi" / "README.md"
+ARCHITECTURE = ROOT / "docs" / "ARCHITECTURE.md"
 GITMODULES = ROOT / ".gitmodules"
 ARCHIMEDES_VENDOR = ROOT / "forks" / "pi-archimedes"
 ARCHIMEDES_UPSTREAM_210 = "2ed26aa1d3301cc01a927d9409778bbd13df4798"
@@ -456,6 +461,38 @@ def test_langfuse_upstream_candidates_are_single_commits_on_v1514():
         )
         assert count.returncode == 0, count.stderr
         assert count.stdout.strip() == "1"
+
+
+def test_active_patch_inventory_matches_maintained_fork_projections():
+    expected = {
+        "pi-archimedes-ask-2.1.0.patch",
+        "pi-archimedes-core-2.1.0.patch",
+        "pi-archimedes-footer-2.1.0.patch",
+        "pi-archimedes-meta-2.1.0.patch",
+        "pi-archimedes-subagent-2.1.0.patch",
+        "pi-langfuse-1.5.14.patch",
+    }
+    helper = SCRIPT.read_text(encoding="utf-8")
+    deploy = UPDATE_SCRIPT.read_text(encoding="utf-8")
+    configured = set(re.findall(r"\$PATCH_ROOT/([A-Za-z0-9._-]+\.patch)", helper))
+    deployed = set(re.findall(r"\$PACKAGE_PATCH_DIR/([A-Za-z0-9._-]+\.patch)", deploy))
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+
+    assert {path.name for path in PATCHES.glob("*.patch")} == expected
+    assert configured == expected
+    assert deployed == expected
+    assert {"source": "npm:pi-archimedes@2.1.0", "extensions": []} in settings["packages"]
+    assert {"source": "npm:pi-langfuse@1.5.14", "extensions": []} in settings["packages"]
+
+
+def test_package_projection_docs_match_adopted_public_ports():
+    architecture = ARCHITECTURE.read_text(encoding="utf-8")
+    pi_readme = PI_README.read_text(encoding="utf-8")
+
+    assert "Archimedes 2.0.1" not in architecture
+    assert "Archimedes 2.1.0" in architecture
+    assert "`pi-langfuse/quality` is active" in pi_readme
+    assert "remains unused until `pi-rxo3.25` adopts" not in pi_readme
 
 
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
