@@ -1,12 +1,13 @@
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const agentDir = getAgentDir();
 const PROJECTION_OBSERVE_REQUEST = "pi-setup:langfuse-projection-observe";
 type LangfuseFactory = (pi: ExtensionAPI) => void | Promise<void>;
+type QualityModule = typeof import("pi-langfuse/quality");
 type ProjectionObserve = (
   name: string,
   attributes: {
@@ -68,9 +69,11 @@ export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
   });
 
   let langfuseEntry: string | undefined;
+  let qualityEntry: string | undefined;
   try {
     const require = createRequire(resolve(agentDir, "npm", "package.json"));
     langfuseEntry = require.resolve("pi-langfuse");
+    qualityEntry = require.resolve("pi-langfuse/quality");
   } catch {
     console.error("[langfuse-projection] pi-langfuse package is unavailable");
   }
@@ -88,32 +91,20 @@ export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
     }
   }
 
-  if (registered && pi.events && langfuseEntry) {
+  if (registered && pi.events && qualityEntry) {
     try {
-      const packageRoot = dirname(langfuseEntry);
-      const [{ getRuntime, shutdownRuntime }, { redactValue }, { getCapturePolicy }] = await Promise.all([
-        import(pathToFileURL(resolve(packageRoot, "src", "langfuse.js")).href),
-        import(pathToFileURL(resolve(packageRoot, "src", "redaction.js")).href),
-        import(pathToFileURL(resolve(packageRoot, "src", "utils.js")).href),
-      ]);
+      const { createObservationCapturePort } = await import(pathToFileURL(qualityEntry).href) as QualityModule;
+      const port = createObservationCapturePort();
       const observe: ProjectionObserve = async (name, attributes, options) => {
-        const policy = getCapturePolicy();
-        const runtime = await getRuntime();
-        try {
-          const record = () => {
-            const observation = runtime.startObservation(name, {
-              ...attributes,
-              input: policy.captureInputs ? redactValue(attributes.input) : undefined,
-              output: policy.captureOutputs ? redactValue(attributes.output) : undefined,
-              metadata: redactValue(attributes.metadata),
-            }, { asType: options.asType });
-            observation.end();
-          };
-          return options.sessionId
-            ? runtime.propagateAttributes({ sessionId: options.sessionId }, record)
-            : record();
-        } finally {
-          if (options.flush) await shutdownRuntime(options.sessionId);
+        const result = await port.capture({
+          name,
+          ...attributes,
+          sessionId: options.sessionId,
+          delivery: options.flush ? "flush" : "buffered",
+        });
+        if (!result.complete) {
+          const gaps = result.gaps.map((gap) => `${gap.scope}:${gap.code}`).join(",");
+          throw new Error(`pi-langfuse observation capture was incomplete${gaps ? ` (${gaps})` : ""}`);
         }
       };
       pi.events.on(PROJECTION_OBSERVE_REQUEST, (accept) => {

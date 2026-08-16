@@ -188,7 +188,11 @@ def test_langfuse_package_entrypoint_is_disabled_for_tracked_public_wrapper():
     assert "npm:pi-langfuse@1.5.9" not in settings["packages"]
     wrapper = LANGFUSE_WRAPPER.read_text(encoding="utf-8")
     assert 'require.resolve("pi-langfuse")' in wrapper
-    assert "/src/" not in wrapper
+    assert 'require.resolve("pi-langfuse/quality")' in wrapper
+    assert "result.gaps" in wrapper
+    assert '"src"' not in wrapper
+    for private_module in ("langfuse.js", "redaction.js", "utils.js"):
+        assert private_module not in wrapper
 
 
 def test_native_clipboard_package_is_pinned_for_archimedes_image_paste():

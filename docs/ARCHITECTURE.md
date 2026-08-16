@@ -221,9 +221,11 @@ workflow.
 resolves current local session/Bead ownership and calls `agnt quality capture`
 with bounded IDs and EvidenceRefs only; prompt and response bodies never cross
 that local CLI boundary. The same adapter sends bounded evaluator observations
-to pi-langfuse when available and records an explicit gap when local ownership
-or optional projection is unavailable. `langfuse-config-env.ts` treats missing
-package, registration, and capture ports as optional failures. The subagent
+through the public `pi-langfuse/quality` capture port when available and records
+an explicit gap when local ownership or optional projection is unavailable.
+`langfuse-config-env.ts` treats missing package, registration, and capture ports
+as optional failures; it imports no package-private runtime, redaction, or utility
+modules. The subagent
 observer retains only peer artifact/metric projection and provider-circuit
 behavior, so pi-langfuse cannot block root startup.
 

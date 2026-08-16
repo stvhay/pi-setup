@@ -74,9 +74,10 @@ the local CLI. An unassigned startup is re-resolved after settlement because
 outcomes remain owned by outcome/closeout commands, not inferred from a settled
 agent turn.
 
-Bounded root prompt/output projection remains best effort. Missing pi-langfuse
-package, registration, service capture, or observer becomes an explicit gap and
-cannot block local capture, direct start, status, or closeout. Evaluator-ready
+Bounded root prompt/output projection remains best effort through the public
+`pi-langfuse/quality` capture port. Missing pi-langfuse package, registration,
+service capture, or observer becomes an explicit gap and cannot block local
+capture, direct start, status, or closeout. Evaluator-ready
 result projections share the Pi session ID, allowing sampled outcome scores to
 join the root agent trace without heuristic matching when Langfuse is available.
 `agnt improve` reads bounded Langfuse cohorts and writes private packets under

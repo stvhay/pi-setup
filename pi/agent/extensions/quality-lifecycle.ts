@@ -244,8 +244,12 @@ export default function qualityLifecycle(pi: ExtensionAPI, dependencies: Depende
           ...(toolErrorSignals.length ? { toolErrorSignals } : {}),
         },
       }, { asType: "agent", sessionId: sessionId(ctx), flush: true });
-    } catch {
-      console.error("[langfuse-projection] interactive result unavailable: pi-langfuse observation capture failed");
+    } catch (error) {
+      const reason = error instanceof Error
+        && error.message.startsWith("pi-langfuse observation capture was incomplete")
+        ? error.message
+        : "pi-langfuse observation capture failed";
+      console.error(`[langfuse-projection] interactive result unavailable: ${reason}`);
     }
   });
 

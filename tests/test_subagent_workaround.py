@@ -492,7 +492,7 @@ def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdo
     (agent_dir / "bin").mkdir(parents=True)
     (npm_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
     (package_dir / "package.json").write_text(
-        '{"name":"pi-langfuse","type":"module","exports":"./index.ts"}\n',
+        '{"name":"pi-langfuse","type":"module","exports":{".":"./index.ts","./quality":"./src/quality.ts"}}\n',
         encoding="utf-8",
     )
     (package_dir / "index.ts").write_text(
@@ -518,8 +518,12 @@ export function configure(value) {
 }
 function createRuntime() {
   const pending = [];
+  const flush = () => {
+    globalThis.__langfuseObservations.push(...pending.splice(0));
+  };
   return {
     pending,
+    tracerProvider: { forceFlush: flush },
     startObservation(name, attributes, options) {
       const propagated = globalThis.__langfusePropagation;
       return {
@@ -550,12 +554,31 @@ export async function shutdownRuntime() {
 """,
         encoding="utf-8",
     )
-    (package_dir / "src" / "redaction.ts").write_text(
-        "export function redactValue(value) { return value; }\n",
-        encoding="utf-8",
-    )
-    (package_dir / "src" / "utils.ts").write_text(
-        "export function getCapturePolicy() { return { captureInputs: true, captureOutputs: true }; }\n",
+    (package_dir / "src" / "quality.ts").write_text(
+        """
+import { getRuntime } from "./langfuse.js";
+export function createObservationCapturePort() {
+  return {
+    async capture(request) {
+      const runtime = await getRuntime();
+      const observation = runtime.propagateAttributes(
+        { sessionId: request.sessionId },
+        () => runtime.startObservation(request.name, {
+          input: request.input,
+          output: request.output,
+          metadata: request.metadata,
+          level: request.level,
+        }, { asType: "span" }),
+      );
+      observation.end();
+      if (request.delivery === "flush") await runtime.tracerProvider.forceFlush();
+      const result = globalThis.__nextLangfuseCaptureResult;
+      delete globalThis.__nextLangfuseCaptureResult;
+      return result ?? { status: "complete", complete: true, gaps: [] };
+    },
+  };
+}
+""",
         encoding="utf-8",
     )
     (agent_dir / "pi-langfuse" / "config.json").write_text(
@@ -659,7 +682,7 @@ export async function shutdownRuntime() {
       await settle();
 
       assert.deepEqual(errors, []);
-      assert.equal(globalThis.__langfuseShutdowns, 10);
+      assert.equal(globalThis.__langfuseShutdowns, 6);
       assert.equal(globalThis.__langfuseObservations.length, 5);
       const [delegated, normal, provider, aborted, length] = globalThis.__langfuseObservations;
       assert.equal(delegated.name, "subagent-result");
@@ -679,6 +702,25 @@ export async function shutdownRuntime() {
       assert.equal(provider.attributes.metadata.providerFailureClass, "availability");
       assert.equal(aborted.attributes.metadata.executionOutcome, "unavailable");
       assert.equal(length.attributes.metadata.executionOutcome, "unavailable");
+
+      globalThis.__nextLangfuseCaptureResult = {{
+        status: "partial",
+        complete: false,
+        gaps: [{{ scope: "export", code: "flush-failed" }}],
+      }};
+      const diagnostics = [];
+      const originalError = console.error;
+      console.error = (...args) => diagnostics.push(args.join(" "));
+      try {{
+        await start("partial projection");
+        await end([assistant("local result remains authoritative")]);
+        await settle();
+      }} finally {{
+        console.error = originalError;
+      }}
+      assert.deepEqual(diagnostics, [
+        "[langfuse-projection] interactive result unavailable: pi-langfuse observation capture was incomplete (export:flush-failed)",
+      ]);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(agent_dir)})
 
