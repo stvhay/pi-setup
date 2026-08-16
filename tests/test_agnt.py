@@ -864,15 +864,17 @@ def test_invoke_run_bundle_writes_output_metrics_and_result(agnt, tmp_path):
 
 def test_review_policy_targets_vary_by_risk_and_paid_spend(agnt):
     meta, _ = agnt.task_meta("review")
+    sol = "openai-codex/gpt-5.6-sol"
     terra = "openai-codex/gpt-5.6-terra"
     kimi = "openrouter/moonshotai/kimi-k2.7-code"
     opus = "openrouter/anthropic/claude-opus-5"
 
-    assert agnt.review_policy_targets(meta, "low", 0.0) == ([terra], "normal")
-    assert agnt.review_policy_targets(meta, "medium", 0.0) == ([terra, kimi], "normal")
-    assert agnt.review_policy_targets(meta, "high", 0.0) == ([terra, opus], "normal")
-    assert agnt.review_policy_targets(meta, "medium", 18.0) == ([terra], "reserve")
-    assert agnt.review_policy_targets(meta, "high", 20.0) == ([terra], "hard-cap")
+    assert agnt.review_policy_targets(meta, "low", 0.0) == ([sol], "normal")
+    assert agnt.review_policy_targets(meta, "medium", 0.0) == ([sol, kimi], "normal")
+    assert agnt.review_policy_targets(meta, "high", 0.0) == ([sol, opus], "normal")
+    assert agnt.review_policy_targets(meta, "medium", 18.0) == ([sol], "reserve")
+    assert agnt.review_policy_targets(meta, "high", 20.0) == ([sol], "hard-cap")
+    assert meta["qualified"][0] == terra
 
 
 def test_paid_review_spend_counts_monthly_marginal_cost_only(agnt):
@@ -909,7 +911,7 @@ def test_select_model_returns_approved_high_risk_review_fanout(agnt):
         )
 
     assert result["reviewPolicyTargets"] == [
-        "openai-codex/gpt-5.6-terra",
+        "openai-codex/gpt-5.6-sol",
         "openrouter/anthropic/claude-opus-5",
     ]
     assert result["reviewBudgetState"] == "normal"
@@ -918,7 +920,7 @@ def test_select_model_returns_approved_high_risk_review_fanout(agnt):
     assert result["fanout"][1]["contextPolicy"] == "fresh"
     assert result["subagentExample"] == {
         "task": "<review-task>",
-        "model": "openai-codex/gpt-5.6-terra",
+        "model": "openai-codex/gpt-5.6-sol",
         "mode": "one-shot",
         "thinking": "xhigh",
     }
@@ -926,7 +928,7 @@ def test_select_model_returns_approved_high_risk_review_fanout(agnt):
 
 def test_select_model_can_ignore_history_for_deterministic_evals(agnt):
     negative = {
-        "gpt-5.6-terra": {"invocations": 10, "positive": 0, "negative": 10, "escalated": 0}
+        "gpt-5.6-sol": {"invocations": 10, "positive": 0, "negative": 10, "escalated": 0}
     }
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: negative}):
         result = agnt.select_model(
@@ -936,7 +938,7 @@ def test_select_model_can_ignore_history_for_deterministic_evals(agnt):
             use_history=False,
         )
 
-    assert result["selected"] == "openai-codex/gpt-5.6-terra"
+    assert result["selected"] == "openai-codex/gpt-5.6-sol"
     assert result["metricsHints"] == {}
 
 
@@ -949,7 +951,7 @@ def test_select_model_review_cheap_prefers_subscription_without_metrics(agnt):
             paid_review_spend_usd=0.0,
         )
 
-    assert result["selected"] == "openai-codex/gpt-5.6-terra"
+    assert result["selected"] == "openai-codex/gpt-5.6-sol"
     assert result["selection"]["contextPolicy"] == "reuse-ok"
 
 
@@ -965,13 +967,13 @@ def test_repository_access_routes_subscription_agentic_without_default_limits(ag
 
     assert result["sourceAccess"] == "repository"
     assert result["executionMode"] == "agentic"
-    assert result["selected"] == "openai-codex/gpt-5.6-terra"
+    assert result["selected"] == "openai-codex/gpt-5.6-sol"
     assert result["selection"]["billingClass"] == "subscription"
     assert result["selection"]["estimatedCostUsd"] == 0.0
     assert result["selection"]["limits"] == {}
     assert result["subagentExample"] == {
         "task": "<review-task>",
-        "model": "openai-codex/gpt-5.6-terra",
+        "model": "openai-codex/gpt-5.6-sol",
         "mode": "agentic",
         "thinking": "high",
         "sourceAccess": "repository",
@@ -1017,9 +1019,9 @@ def test_metered_repository_fanout_requires_complete_evidence_and_budget(agnt):
         use_history=False,
     )
 
-    assert [item["target"] for item in missing["fanout"]] == ["openai-codex/gpt-5.6-terra"]
+    assert [item["target"] for item in missing["fanout"]] == ["openai-codex/gpt-5.6-sol"]
     assert [item["target"] for item in bounded["fanout"]] == [
-        "openai-codex/gpt-5.6-terra",
+        "openai-codex/gpt-5.6-sol",
         "openrouter/moonshotai/kimi-k2.7-code",
     ]
     metered = bounded["fanout"][1]
@@ -1049,7 +1051,7 @@ def test_metered_repository_fanout_omits_candidates_over_aggregate_budget(agnt):
     )
 
     assert [item["target"] for item in result["fanout"]] == [
-        "openai-codex/gpt-5.6-luna",
+        "openai-codex/gpt-5.6-sol",
         "openrouter/minimax/minimax-m3",
     ]
     assert result["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.015)
@@ -1076,8 +1078,8 @@ def test_select_model_review_hard_cap_keeps_subscription_only(agnt):
             fanout_size=3,
         )
 
-    assert result["selected"] == "openai-codex/gpt-5.6-terra"
-    assert result["reviewPolicyTargets"] == ["openai-codex/gpt-5.6-terra"]
+    assert result["selected"] == "openai-codex/gpt-5.6-sol"
+    assert result["reviewPolicyTargets"] == ["openai-codex/gpt-5.6-sol"]
     assert result["reviewBudgetState"] == "hard-cap"
 
 
@@ -1120,24 +1122,55 @@ def test_approved_matrix_uses_task_specific_thinking_levels(agnt):
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
         review = agnt.select_model("review", risk="medium", paid_review_spend_usd=0.0)
         high_review = agnt.select_model("review", risk="high", paid_review_spend_usd=0.0)
+        planning = agnt.select_model("planning", risk="medium")
+        research = agnt.select_model("research", risk="medium")
+        low_planning = agnt.select_model("planning", risk="low", budget="cheap")
+        low_research = agnt.select_model("research", risk="low", budget="cheap")
+        cheap_peer = agnt.select_model("cheap-peer", risk="low", budget="cheap")
         implementation = agnt.select_model("implementation", risk="medium")
         orchestration = agnt.select_model("orchestration", risk="medium")
 
     assert (review["selected"], review["thinkingLevel"]) == (
-        "openai-codex/gpt-5.6-terra",
+        "openai-codex/gpt-5.6-sol",
         "high",
     )
     assert (high_review["selected"], high_review["thinkingLevel"]) == (
-        "openai-codex/gpt-5.6-terra",
+        "openai-codex/gpt-5.6-sol",
         "xhigh",
     )
+    assert (planning["selected"], planning["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "high",
+    )
+    assert (research["selected"], research["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "high",
+    )
+    assert (low_planning["selected"], low_planning["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "high",
+    )
+    assert (low_research["selected"], low_research["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "high",
+    )
+    assert (cheap_peer["selected"], cheap_peer["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-luna",
+        "low",
+    )
+    assert "openai-codex/gpt-5.6-luna" not in planning["candidateOrder"]
+    assert "openai-codex/gpt-5.6-luna" not in research["candidateOrder"]
+    assert "openai-codex/gpt-5.6-luna" not in review["candidateOrder"]
     assert implementation["thinkingLevel"] == "high"
-    assert orchestration["thinkingLevel"] == "xhigh"
+    assert (orchestration["selected"], orchestration["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "xhigh",
+    )
 
 
-def test_review_quality_budget_uses_gpt_56_terra_preferred_default(agnt):
+def test_review_quality_budget_uses_gpt_56_sol_preferred_default(agnt):
     review_meta, _ = agnt.task_meta("review")
-    target = "openai-codex/gpt-5.6-terra"
+    target = "openai-codex/gpt-5.6-sol"
 
     assert review_meta["preferred"][0] == target
 
@@ -1153,8 +1186,8 @@ def test_routine_routes_prefer_codex_and_exclude_kimi_k3(agnt):
     expected = {
         "cheap-peer": "openai-codex/gpt-5.6-luna",
         "implementation": "openai-codex/gpt-5.6-sol",
-        "planning": "openai-codex/gpt-5.6-luna",
-        "research": "openai-codex/gpt-5.6-luna",
+        "planning": "openai-codex/gpt-5.6-sol",
+        "research": "openai-codex/gpt-5.6-sol",
     }
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
         results = {task: agnt.select_model(task) for task in expected}

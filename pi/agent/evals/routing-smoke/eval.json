@@ -5,9 +5,24 @@
   "kind": "route",
   "cases": [
     {
-      "name": "review-fast-cheap-default",
+      "name": "review-sol-high-default",
       "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--monthly-paid-spend", "0", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-terra", "thinkingLevel": "high", "fanoutRecommended": true}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high", "fanoutRecommended": true}
+    },
+    {
+      "name": "planning-sol-high-default",
+      "args": ["--task", "planning", "--ignore-history"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high"}
+    },
+    {
+      "name": "research-sol-high-default",
+      "args": ["--task", "research", "--context-tokens", "200000", "--ignore-history"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high"}
+    },
+    {
+      "name": "cheap-peer-luna-low",
+      "args": ["--task", "cheap-peer", "--risk", "low", "--budget", "cheap", "--ignore-history"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-luna", "thinkingLevel": "low"}
     },
     {
       "name": "orchestration-high-quality",
@@ -15,14 +30,9 @@
       "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "xhigh"}
     },
     {
-      "name": "research-long-context",
-      "args": ["--task", "research", "--context-tokens", "200000", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-luna"}
-    },
-    {
       "name": "review-repository-subscription-agentic",
       "args": ["--task", "review", "--risk", "medium", "--access", "repository", "--fanout-size", "3", "--monthly-paid-spend", "0", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-terra", "sourceAccess": "repository", "executionMode": "agentic"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "sourceAccess": "repository", "executionMode": "agentic"}
     },
     {
       "name": "review-impossible-video-context",

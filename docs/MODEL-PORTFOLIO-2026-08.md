@@ -14,6 +14,12 @@ Keep ChatGPT/OpenAI Codex **Pro 20×** as root capacity and default controller. 
 
 Pi has a built-in `openrouter` provider. Authenticate with `/login openrouter` or `OPENROUTER_API_KEY`; do not define a duplicate custom provider and never commit credentials. `pi/agent/models.json` only applies a 16,384-token operational output cap to each approved OpenRouter model, preventing provider credit checks from reserving each model's much larger catalog maximum. Active model selection lives in `pi/agent/settings.json`, deterministic model facts in `pi/agent/catalog.json`, and task routing in `pi/agent/tasks/`.
 
+## Temporary Sol-first floor
+
+`pi-04q7.2` temporarily routes planning, research, and primary review to Sol at high thinking. Orchestration remains Sol at extra-high thinking, Luna remains the explicit cheap/mechanical peer, and Terra remains a subscription-backed review challenger. Operational reliability and user experience justify this reversible floor; they are not a lasting quality ranking. Matched canaries under `pi-04q7.4` decide whether to retain, narrow, or remove it.
+
+Rollback is a policy-only revert: restore the prior routing in `pi/agent/tasks/planning.md`, `research.md`, and `review.md`; restore synchronized guidance in `pi/agent/skills/requesting-code-review/SKILL.md`, `pi/agent/bin/README.md`, and `docs/SELF-IMPROVEMENT.md`; then revert matching routing assertions and this amendment. No provider, credential, budget, or data migration change is involved. Live `~/.pi` deployment remains outside this task.
+
 ## Evidence basis
 
 Local telemetry from 2026-07-21 through 2026-08-06 (15.86 days):
@@ -50,8 +56,9 @@ All metered OpenRouter calls use fresh workers with bounded complete packets. Di
 | Work type | Primary | Independent check |
 |---|---|---|
 | Precise, repetitive work | Luna — medium | M3 — bounded 10% shadow sample |
-| Normal code review | Terra — high | Kimi K2.7 Code; Opus 5 only for disputed consequential findings |
-| Complex/high-risk review | Terra — extra high | Opus 5; human adjudication |
+| Planning and research (temporary) | Sol — high | Luna control in matched canaries |
+| Normal code review (temporary) | Sol — high | Terra challenger; Kimi K2.7 Code diversity pass |
+| Complex/high-risk review (temporary) | Sol — extra high | Opus 5; Terra challenger; human adjudication |
 | Moderate coding | Sol — high | Kimi K2.7 Code |
 | Orchestration/main agent | Sol — extra high | Opus 5 at phase checkpoints only |
 | Ambiguous change/architecture | Sol — extra high | Opus 5 |
@@ -81,8 +88,8 @@ This is an external-primary canary, not the default. Highest-risk control remain
 
 - Default API budget: **$10–20/month**.
 - Review soft threshold: $12 month-to-date; stop optional shadow sampling.
-- Review reserve threshold: $18; use subscription-backed Terra only.
-- Review hard cap: $20; use subscription-backed Terra only and report exhaustion.
+- Review reserve threshold: $18; use subscription-backed Sol only during the temporary floor.
+- Review hard cap: $20; use subscription-backed Sol only during the temporary floor and report exhaustion.
 - Do not buy an annual plan during the evaluation window.
 - Promote a route only from usable-output rate, accepted-result rate, missed-defect evidence, retries, latency, and real marginal cost—not benchmark claims or model agreement.
 - Consider Pro 5× only after four consecutive weeks with at least 75% stable offload and OpenAI usage consistently below 25% of current capacity.

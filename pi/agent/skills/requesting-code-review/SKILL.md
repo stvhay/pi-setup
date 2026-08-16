@@ -27,7 +27,8 @@ At start, read shared conventions if needed:
 
 Use `agnt route --task review --access self-contained` for complete discovery packets. Use `--access repository` for filesystem verifiers rather than inventing mode or fanout policy. Review task policy uses:
 
-- **Subscription-backed default:** `openai-codex/gpt-5.6-terra` at high thinking.
+- **Subscription-backed temporary default:** `openai-codex/gpt-5.6-sol` at high thinking.
+- **Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`, used for matched canaries or explicit independent checks.
 - **Medium-risk diversity:** `openrouter/moonshotai/kimi-k2.7-code`, scoped and one-shot.
 - **High-risk independent reviewer:** `openrouter/anthropic/claude-opus-5`, scoped and one-shot; human adjudication remains required for consequential findings.
 - **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3`.
@@ -46,8 +47,8 @@ Budget states:
 
 - **Below $12:** normal Codex-first risk policy; scoped diversity passes are allowed.
 - **$12–$17.99:** stop optional shadow sampling.
-- **$18–$19.99:** reserve mode; use subscription-backed Terra only.
-- **$20 or more:** hard-cap mode; keep subscription-backed Terra only and report paid-budget exhaustion.
+- **$18–$19.99:** reserve mode; use subscription-backed Sol only.
+- **$20 or more:** hard-cap mode; keep subscription-backed Sol only and report paid-budget exhaustion.
 
 Set a provider-side cap as a backstop when the provider supports one.
 
@@ -122,10 +123,10 @@ Do not add a low ad hoc `maxOutputTokens` cap for structured review JSON. Provid
 
 Policy by risk:
 
-- **Low:** subscription-backed Terra behavioral pass.
-- **Medium:** Terra behavioral pass plus one fresh Kimi K2.7 Code diversity pass.
-- **High:** Terra at extra-high thinking plus one fresh Opus 5 boundary/adversarial pass; human adjudicates consequential findings.
-- **Reserve/hard cap:** use the subscription-backed Terra target returned by `agnt route`.
+- **Low:** subscription-backed Sol behavioral pass.
+- **Medium:** Sol behavioral pass plus one fresh Kimi K2.7 Code diversity pass.
+- **High:** Sol at extra-high thinking plus one fresh Opus 5 boundary/adversarial pass; human adjudicates consequential findings.
+- **Reserve/hard cap:** use the subscription-backed Sol target returned by `agnt route`.
 
 Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes. Each task embeds one complete packet and sets:
 

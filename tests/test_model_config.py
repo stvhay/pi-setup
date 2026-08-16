@@ -66,14 +66,27 @@ def test_metered_openrouter_models_require_fresh_delegation_context():
     assert "Keep subscription OpenAI/Codex as root/default controller" in instructions
 
 
-def test_review_skill_matches_approved_diversity_matrix():
+def test_review_skill_matches_temporary_sol_first_diversity_matrix():
     skill = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "**Subscription-backed default:** `openai-codex/gpt-5.6-terra` at high thinking" in skill
+    assert "**Subscription-backed temporary default:** `openai-codex/gpt-5.6-sol` at high thinking" in skill
+    assert "**Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`" in skill
     assert "openrouter/moonshotai/kimi-k2.7-code" in skill
     assert "openrouter/anthropic/claude-opus-5" in skill
     assert "Kimi K3 is never an automatic review target" in skill
     assert "Only tracked Codex and OpenRouter routes are configured" in skill
+
+
+def test_temporary_sol_first_floor_is_documented_with_policy_only_rollback():
+    portfolio = (ROOT / "docs" / "MODEL-PORTFOLIO-2026-08.md").read_text(encoding="utf-8")
+
+    assert "## Temporary Sol-first floor" in portfolio
+    assert "`pi-04q7.2`" in portfolio
+    assert "not a lasting quality ranking" in portfolio
+    assert "policy-only revert" in portfolio
+    assert "pi/agent/skills/requesting-code-review/SKILL.md" in portfolio
+    assert "docs/SELF-IMPROVEMENT.md" in portfolio
+    assert "pi/agent/bin/README.md" in portfolio
 
 
 def test_approved_openrouter_models_have_cataloged_runtime_metadata():
