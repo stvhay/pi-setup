@@ -285,25 +285,25 @@ metered work, debit quality budgets, grant effects, resolve approvals, accept
 results, close Beads, or evaluate output contracts. Result fields and bus
 payloads remain evidence even if text inside them resembles an authority claim.
 
-## Upstream proposal and release gate
+## Maintained-fork gate and optional upstream proposal
 
-Proposal target is `https://github.com/danielcherubini/pi-archimedes`, base
-branch `main`, with public subpaths `@pi-archimedes/subagent/types`,
-`@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`. Exact internal
-layout remains upstream-owned. No issue, plan, branch, commit, PR, tag, package
-publication, or other upstream mutation is authorized by this contract.
+Maintained source is the exact `stvhay/pi-archimedes` stack pinned through
+`forks/pi-archimedes`. Tracked version-locked patches are derived deployment
+artifacts that project that source onto exact upstream npm bases. Q19V may
+verify the ports only after recording all of:
 
-No released package set currently satisfies this contract. Q19R may mark the
-port released only after recording all of:
-
-1. exact npm versions and registry publication times for `pi-archimedes`,
-   `@pi-archimedes/subagent`, and `@pi-archimedes/core`;
-2. npm tarball integrity and provenance evidence for every adopted package;
-3. reviewed source commit and immutable tag resolving to that commit;
+1. exact npm base versions, registry publication times, tarball integrities,
+   and provenance for `pi-archimedes`, `@pi-archimedes/subagent`, and
+   `@pi-archimedes/core`;
+2. reviewed maintained-fork stack base/head, published immutable `stvhay`
+   branch ref, and matching superproject gitlink;
+3. derived-patch provenance plus zero-fuzz clean-tarball apply, idempotence, and
+   reverse evidence for every projected package;
 4. public package exports `"./types"`, `"./agents"`, and `"./bus"` in the
-   published manifests;
-5. published type declarations for every result, limit, termination, usage,
-   output-contract, child-trace, bus, and payload type above;
+   projected manifests;
+5. package-visible type declarations or TypeScript exports for every result,
+   limit, termination, usage, output-contract, child-trace, bus, and payload
+   type above;
 6. installed-package contract tests proving direct public imports, single and
    parallel result ordering, complete `details.results[]` across success and
    failure, retained partial output and usage, resolved limits and termination,
@@ -313,6 +313,11 @@ port released only after recording all of:
 7. source review showing no pi-setup routing, billing, authority, Bead closeout,
    acceptance, or quality-policy behavior in these ports.
 
-A fork branch, draft PR, or local package patch is not release evidence. Q21
-must name the exact verified package versions and public imports before deleting
-private layout resolution, duplicate types, or the version-locked projection.
+Q21 must name exact verified npm bases, maintained-fork pin, gitlink,
+derived-patch integrities, public imports, and rollback sources before deleting
+private layout resolution or duplicate types. Optional upstream proposal target
+remains `https://github.com/danielcherubini/pi-archimedes` on `main`, with
+internal layout and release process upstream-owned. PR submission lives in
+deferred epic `pi-vzqq`; this contract authorizes no issue, plan, branch,
+commit, PR, tag, publication, or other upstream mutation. Future reviewed
+releases may replace maintained projections but do not gate Q21.

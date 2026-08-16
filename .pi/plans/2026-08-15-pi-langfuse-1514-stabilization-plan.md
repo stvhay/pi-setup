@@ -9,6 +9,8 @@
 
 **Architecture:** Keep upstream-facing concerns isolated: ingestion batching, media-safe bounds, privacy-aware tool-byte metadata, and public quality ports each get one local branch and coherent commit based on immutable `04d55a12556bdf4c4b8b208038198dc2fd8e571b`. A separate vendor branch combines reviewed behavior for pi-setup's exact 1.5.14 package projection. pi-setup keeps existing private imports until a public release satisfies the recorded quality-port release gate.
 
+**Current-policy note (2026-08-16):** The final execution-time release gate above is superseded by `pi-rxo3.36`. Q18V may verify the published `stvhay` fork pin, superproject gitlink, and derived exact-npm-base patch; Q20 may then adopt the public port without external-upstream submission or release. This historical plan still records how `pi-rxo3.22` produced the maintained fork and projection.
+
 **Local fork branches:**
 - `rebuild/ingestion-byte-batches-1514`
 - `rebuild/media-safe-payload-bounds-1514`

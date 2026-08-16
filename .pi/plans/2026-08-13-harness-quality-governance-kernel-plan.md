@@ -65,7 +65,7 @@ Existing `pi-z49l` is reused for explicit-success closeout, `pi-fvyo` completes 
 - Automatic detect/analyze/promote/execute within a human-granted capability ceiling.
 - Human review, annotation, adjudication, authorization, modification, takeover, and acceptance adapters.
 - Replacement and deletion of overlapping internal machinery.
-- Stable public port proposals for pi-langfuse and pi-archimedes, followed by migration only after released interfaces exist.
+- Stable public port proposals for pi-langfuse and pi-archimedes, with active migration after exact maintained-fork provenance and contract verification. Maintained source lives in pinned `stvhay` fork commits; tracked patches are derived deployment projections onto exact npm bases. Optional upstream submission and release follow separately without blocking local delivery.
 
 ### Out of scope
 
@@ -287,7 +287,7 @@ Unknown, incomplete, lower-bound, or biased evidence remains explicit and cannot
 | Editor/Nvim | external artifact inspection/edit | relative artifact path and validated returned result | treating file save as approval |
 | External scheduler | cadence/backstop invocation | stable `agnt quality assess/apply --json` contract and exit classes | importing `agnt_lib`, repository daemon/service |
 
-Crossing a package boundary is allowed only to establish a small upstream public contract. Do not vendorize an extension. Keep version-locked projections until a released public interface passes contract tests; then delete projections and patches in the same migration slice.
+Crossing a package boundary is allowed only to establish a small public contract. Do not copy an extension into pi-setup. Maintained source lives in exact `stvhay` fork branches pinned through `forks/pi-langfuse` and `forks/pi-archimedes` gitlinks. Tracked version-locked patches are derived deployment artifacts that project those commits onto exact upstream npm bases; provenance, zero-fuzz apply/reverse, and package tests must bind both layers. Optional upstream submission lives in deferred epic `pi-vzqq`; a later reviewed release may replace active projections but does not gate local adoption.
 
 ## Replacement map
 
@@ -302,12 +302,12 @@ Crossing a package boundary is allowed only to establish a small upstream public
 | `metadata.pi.approved` plus copied `humanApproval` | resolved grant/decision reference read from Beads at use time |
 | retrospective and review skill trigger prose | one control-plan trigger owner; skills retain methods only |
 | Langfuse projection required at `session_start` | optional adapter with explicit gaps |
-| pi-langfuse package-private imports and patch | released public capture/evidence port, then deletion |
-| pi-archimedes private layout and duplicate types plus patch | released public result/bus types, then deletion |
+| pi-langfuse package-private imports and patch | maintained-fork public capture/evidence port; delete private imports now, retain only fork-derived deployment patch still required |
+| pi-archimedes private layout and duplicate types plus patch | maintained-fork public result/bus types; delete private layout/types now, retain only fork-derived deployment patches still required |
 
 ## Dependency graph
 
-Epic: `pi-rxo3`. Existing prerequisites are external to the epic. Release-gate Beads Q18R and Q19R start blocked; Q20 and Q21 remain blocked until exact reviewed release evidence resolves them.
+Epic: `pi-rxo3`. Existing prerequisites are external to the epic. Maintained-fork verification Beads Q18V and Q19V gate Q20 and Q21 on exact fork/gitlink plus derived patch evidence, not upstream PR or release timing. Optional upstream submission Beads `pi-rxo3.29` and `pi-rxo3.31` are deferred children of separate epic `pi-vzqq` and have no dependency edge into this graph.
 
 | Alias | Bead | Alias | Bead | Alias | Bead |
 |---|---|---|---|---|---|
@@ -318,8 +318,9 @@ Epic: `pi-rxo3`. Existing prerequisites are external to the epic. Release-gate B
 | Q11 | `pi-rxo3.13` | Q12 | `pi-rxo3.14` | Q13A | `pi-rxo3.15` |
 | Q13B | `pi-rxo3.16` | Q14 | `pi-rxo3.17` | Q15 | `pi-rxo3.18` |
 | Q16 | `pi-rxo3.19` | Q17 | `pi-rxo3.20` | Q18 | `pi-rxo3.21` |
-| Q18R | `pi-rxo3.22` | Q19 | `pi-rxo3.23` | Q19R | `pi-rxo3.24` |
-| Q20 | `pi-rxo3.25` | Q21 | `pi-rxo3.26` | Q22 | `pi-rxo3.27` |
+| Q18F | `pi-rxo3.22` | Q18V | `pi-rxo3.30` | Q19 | `pi-rxo3.23` |
+| Q19F | `pi-rxo3.24` | Q19V | `pi-rxo3.32` | Q20 | `pi-rxo3.25` |
+| Q21 | `pi-rxo3.26` | Q22 | `pi-rxo3.27` | | |
 
 ```text
 Q1   <- pi-z49l, pi-fvyo, pi-oafb
@@ -343,11 +344,13 @@ Q15  <- Q14
 Q16  <- Q15
 Q17  <- Q9B, Q9C, Q16
 Q18  <- Q8
-Q18R <- Q18; initial status blocked pending RELEASE(pi-langfuse public port)
+Q18F <- Q18; stabilize maintained pi-langfuse fork and private draft packets
+Q18V <- Q18F; verify fork/gitlink plus derived package projection
 Q19  <- Q6
-Q19R <- Q19; initial status blocked pending RELEASE(pi-archimedes public port)
-Q20  <- Q16, Q18R
-Q21  <- Q16, Q19R
+Q19F <- Q19; stabilize maintained pi-archimedes fork and private draft packets
+Q19V <- Q19F; verify fork/gitlink plus derived package projections
+Q20  <- Q16, Q18V
+Q21  <- Q16, Q19V
 Q22  <- Q17, Q20, Q21
 ```
 
@@ -800,29 +803,31 @@ pi/agent/bin/agnt context-health --strict
 1. Specify bounded observation capture owned by pi-langfuse: redaction, lifecycle, export, completion, and gap result.
 2. Specify bounded service evidence query: traces/observations/scores/annotations/completeness/gaps.
 3. Exclude authorization, Bead closeout, and pi-setup policy from interface.
-4. Record upstream proposal target and release/version evidence needed by Q20; do not mutate upstream without approval.
+4. Record maintained-fork, gitlink, npm-base, derived-patch, and public-export evidence needed by Q18V/Q20; keep optional upstream submission separate and approval-gated.
 
 **Focused verification:**
 ```bash
 .venv/bin/python -m pytest tests/test_agent_os_compat.py tests/test_package_patches.py -k 'langfuse'
 ```
 
-### Q18R: Verify released pi-langfuse port evidence [Depends on: Q18; initially blocked]
+### Q18V: Verify maintained pi-langfuse fork-port evidence [Depends on: Q18F]
 
-**Context:** Stay blocked until an upstream release exposes Q18's exact public capture/evidence contracts. This verification task grants no deployment or upstream authority.
+**Context:** Verify exact `stvhay/pi-langfuse` fork source pinned through `forks/pi-langfuse`, plus its derived patch projection onto the exact upstream npm base, before Q20 adopts the public capture/evidence contract. Q18F evidence lives in `pi-rxo3.22` and its upstream-ready private packet. Optional upstream submission is deferred under `pi-vzqq` and grants no dependency, deployment, or upstream authority here.
 
 **Files:**
-- Modify: Q18's tracked port contract and `.pi/upstream-profiles/github.com--gooyoung--pi-langfuse.md` with exact release/tag/export evidence only
-- Test: no source mutation; inspect installed/released package exports in a temporary or read-only location
+- Modify: Q18's tracked port contract and `.pi/upstream-profiles/github.com--gooyoung--pi-langfuse.md` with exact npm base, maintained-fork base/head, published `stvhay` ref, gitlink, derived patch, and export evidence
+- Test: inspect a clean exact-base tarball plus installed projected package in temporary or read-only locations
 
 **Steps:**
-1. Verify release identity, reviewed source commit, package exports, and contract compatibility.
-2. Record gaps explicitly; do not close or unblock Q20 on a fork-only or unreleased interface.
-3. Close only when Q20 can name one exact released package version and public imports.
+1. Verify npm base identity/integrity, reviewed maintained-fork lineage, published immutable `stvhay` ref, superproject gitlink, zero-fuzz derived-patch apply/reverse, package exports, and contract compatibility.
+2. Record gaps explicitly; do not close or unblock Q20 on an unpublished fork pin, stale projection, or incomplete public interface.
+3. Close only when Q20 can name exact package base, maintained-fork pin, public imports, projection integrity, and rollback source.
 
 **Focused verification:**
 ```bash
-rg -n 'release|version|export|commit' .pi/upstream-profiles/github.com--gooyoung--pi-langfuse.md
+scripts/check-vendor-pins.sh
+scripts/apply-pi-package-patches.sh --check
+rg -n 'version|integrity|vendor|export|commit|patch' .pi/upstream-profiles/github.com--gooyoung--pi-langfuse.md
 ```
 
 ### Q19: Specify public pi-archimedes result ports [Depends on: Q6]
@@ -837,45 +842,47 @@ rg -n 'release|version|export|commit' .pi/upstream-profiles/github.com--gooyoung
 1. Specify exported result, limits, termination, usage, output-contract, child-session/trace, and public bus payload types.
 2. Preserve `details.results[]` as execution evidence and Pi `tool_result` as transport.
 3. Exclude pi-setup routing, billing, authority, and quality policy from upstream.
-4. Record release/version evidence needed by Q21; do not mutate upstream without approval.
+4. Record maintained-fork, gitlink, npm-base, derived-patch, and public-export evidence needed by Q19V/Q21; keep optional upstream submission separate and approval-gated.
 
 **Focused verification:**
 ```bash
 .venv/bin/python -m pytest tests/test_agent_os_compat.py tests/test_subagent_workaround.py tests/test_package_patches.py -k 'archimedes or subagent'
 ```
 
-### Q19R: Verify released pi-archimedes port evidence [Depends on: Q19; initially blocked]
+### Q19V: Verify maintained pi-archimedes fork-port evidence [Depends on: Q19F]
 
-**Context:** Stay blocked until an upstream release exposes Q19's exact public result/bus contracts. This verification task grants no deployment or upstream authority.
+**Context:** Verify exact `stvhay/pi-archimedes` fork source pinned through `forks/pi-archimedes`, plus its derived patch projections onto exact upstream npm bases, before Q21 adopts public result, agent-resolution, and typed-bus contracts. Q19F evidence lives in `pi-rxo3.24` and its upstream-ready private packets. Optional upstream submission is deferred under `pi-vzqq` and grants no dependency, deployment, or upstream authority here.
 
 **Files:**
-- Modify: Q19's tracked port contract and `.pi/upstream-profiles/github.com--danielcherubini--pi-archimedes.md` with exact release/tag/export evidence only
-- Test: no source mutation; inspect installed/released package exports in a temporary or read-only location
+- Modify: Q19's tracked port contract and `.pi/upstream-profiles/github.com--danielcherubini--pi-archimedes.md` with exact npm bases, maintained-fork stack base/head, published `stvhay` ref, gitlink, derived patches, and export evidence
+- Test: inspect clean exact-base tarballs plus installed projected packages in temporary or read-only locations
 
 **Steps:**
-1. Verify release identity, reviewed source commit, package exports, and result/bus contract compatibility.
-2. Record gaps explicitly; do not close or unblock Q21 on a fork-only or unreleased interface.
-3. Close only when Q21 can name one exact released package version and public imports.
+1. Verify npm base identities/integrities, reviewed maintained-fork lineage, published immutable `stvhay` ref, superproject gitlink, zero-fuzz derived-patch apply/reverse, package exports, and result/bus contract compatibility.
+2. Record gaps explicitly; do not close or unblock Q21 on an unpublished fork pin, stale projection, or incomplete public interface.
+3. Close only when Q21 can name exact package bases, maintained-fork pin, public imports, projection integrity, and rollback sources.
 
 **Focused verification:**
 ```bash
-rg -n 'release|version|export|commit' .pi/upstream-profiles/github.com--danielcherubini--pi-archimedes.md
+scripts/check-vendor-pins.sh
+scripts/apply-pi-package-patches.sh --check
+rg -n 'version|integrity|vendor|export|commit|patch' .pi/upstream-profiles/github.com--danielcherubini--pi-archimedes.md
 ```
 
-### Q20: Adopt released pi-langfuse ports [Depends on: Q16, Q18R]
+### Q20: Adopt maintained pi-langfuse fork ports [Depends on: Q16, Q18V]
 
-**Context:** Run only after Q18R verifies a released reviewed package exposing Q18 contracts. Migrate in one slice; do not retain both private and public production paths.
+**Context:** Run only after Q18V verifies reviewed maintained-fork source plus its derived npm-base projection exposing Q18 contracts. Migrate consumers in one slice; do not retain both private and public production paths. Keep projection machinery still required by the exact npm base.
 
 **Files:**
 - Modify: `pi/agent/extensions/langfuse-config-env.ts`, `pi/agent/extensions/quality-lifecycle.ts`, `pi/agent/extensions/subagent-error-workaround.ts`, `pi/agent/settings.json`, `scripts/update-pi-config.sh`
-- Modify/delete: `patches/pi-packages/pi-langfuse-1.5.12.patch` and exact patch application/docs only when no longer needed
+- Modify/delete: exact pi-langfuse patch application/docs only when Q18V proves a path is no longer needed
 - Test: `tests/test_langfuse_evaluators.py`, `tests/test_subagent_workaround.py`, `tests/test_agent_os_compat.py`, `tests/test_package_patches.py`, `tests/test_pi_packages.py`, `tests/test_update_pi_config.py`
 
 **Steps:**
-1. Verify Q18R's exact reviewed release and public exports before changing imports.
-2. Update tracked package pin plus install/reinstall/rollback logic to that one reviewed release.
-3. Replace all `src/langfuse.js`, `src/redaction.js`, and `src/utils.js` imports.
-4. Remove temporary local projection/patch code replaced by upstream.
+1. Verify Q18V's exact package base, maintained-fork pin, gitlink, derived-patch integrity, rollback source, and public exports before changing imports.
+2. Bind tracked package, gitlink, install/reinstall/rollback, and patch logic to that one reviewed projection.
+3. Replace all `src/langfuse.js`, `src/redaction.js`, and `src/utils.js` imports with `./quality`.
+4. Remove duplicate local consumer/projection paths; retain only patch code still required to materialize the reviewed public port.
 5. Prove local quality lifecycle remains authoritative with package/service unavailable and exact-base install rollback still works.
 
 **Focused verification:**
@@ -884,30 +891,30 @@ rg -n 'release|version|export|commit' .pi/upstream-profiles/github.com--danielch
 ! rg -n 'pi-langfuse/.*/src/|src/(langfuse|redaction|utils)\.js' pi/agent/extensions
 ```
 
-### Q21: Adopt released pi-archimedes ports [Depends on: Q16, Q19R]
+### Q21: Adopt maintained pi-archimedes fork ports [Depends on: Q16, Q19V]
 
-**Context:** Run only after Q19R verifies a released reviewed package exposing Q19 contracts. Keep public composition; delete private layout/type copies in the same slice.
+**Context:** Run only after Q19V verifies reviewed maintained-fork source plus derived npm-base projections exposing Q19 contracts. Keep public composition; delete private layout/type copies in the same slice. Keep projection machinery still required by the exact npm bases.
 
 **Files:**
 - Modify: `pi/agent/extensions/archimedes.ts`, `pi/agent/extensions/subagent-error-workaround.ts`, `pi/agent/settings.json`, `scripts/update-pi-config.sh`
-- Modify/delete: pi-archimedes version-locked patches and exact patch application/docs only when replaced
+- Modify/delete: pi-archimedes version-locked patch application/docs only when Q19V proves a path is no longer needed
 - Test: `tests/test_agent_os_compat.py`, `tests/test_subagent_workaround.py`, `tests/test_package_patches.py`, `tests/test_pi_packages.py`, `tests/test_update_pi_config.py`
 
 **Steps:**
-1. Verify Q19R's exact reviewed release and exported types/result contract.
-2. Update tracked package pin plus install/reinstall/rollback logic to that one reviewed release.
+1. Verify Q19V's exact package bases, maintained-fork pin, gitlink, derived-patch integrity, rollback sources, and exported types/result contract.
+2. Bind tracked packages, gitlink, install/reinstall/rollback, and patch logic to that one reviewed projection.
 3. Remove package-private agent sibling resolution and duplicate OutputContract/SubagentLimits/result/termination shapes.
-4. Keep only pi-setup RPC portability, routing/billing policy, and quality normalization.
-5. Prove upstream result evidence survives unchanged through Pi transport and local metrics, and exact-base install rollback still works.
+4. Keep only pi-setup RPC portability, routing/billing policy, quality normalization, and patch code still required to materialize reviewed public ports.
+5. Prove result evidence survives unchanged through Pi transport and local metrics, and exact-base install rollback still works.
 
 **Focused verification:**
 ```bash
 .venv/bin/python -m pytest tests/test_agent_os_compat.py tests/test_subagent_workaround.py tests/test_package_patches.py tests/test_pi_packages.py tests/test_update_pi_config.py -k 'archimedes or subagent'
 ```
 
-### Q22: Retire package patch scaffolding [Depends on: Q17, Q20, Q21]
+### Q22: Retire obsolete package patch scaffolding [Depends on: Q17, Q20, Q21]
 
-**Context:** Remove only patch machinery with no remaining configured patch. Preserve generic exact-version rollback/install safeguards if another active patch still uses them.
+**Context:** Remove only patch machinery with no remaining configured projection. Preserve active maintained-fork-derived patches and generic exact-version, integrity, apply/reverse, rollback, and install safeguards.
 
 **Files:**
 - Modify/delete as proven: `scripts/apply-pi-package-patches.sh`, `patches/pi-packages/README.md`, obsolete patch files, compatibility docs/tests
@@ -917,7 +924,7 @@ rg -n 'release|version|export|commit' .pi/upstream-profiles/github.com--danielch
 **Steps:**
 1. Inventory configured patches and callers at execution time; delete no generic safeguard still in use.
 2. Preview exact deleted paths and HEAD recovery SHAs.
-3. Verify clean install/update and rollback behavior against released public packages.
+3. Verify clean install/update and rollback behavior against exact npm bases plus maintained-fork-derived projections.
 4. Record final seam/line-count reduction and close the epic only after full gates.
 
 **Focused verification:**

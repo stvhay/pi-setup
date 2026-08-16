@@ -199,28 +199,33 @@ and service rows are evidence only, even if their stored text resembles an
 authority claim. Ports cannot authorize mutation, accept a result, close work,
 or override deterministic local state.
 
-## Upstream proposal and release gate
+## Maintained-fork gate and optional upstream proposal
 
-Proposal target is `https://github.com/gooyoung/pi-langfuse`, base branch
-`main`, with the new public package export `"./quality"`. Suggested source
-location is `src/quality.ts`; exact internal layout remains upstream-owned. No
-issue, branch, commit, PR, tag, package publication, or other upstream mutation
-is authorized by this contract.
+Maintained source is the exact `stvhay/pi-langfuse` commit pinned through
+`forks/pi-langfuse`. The tracked version-locked patch is a derived deployment
+artifact that projects that source onto an exact upstream npm base. Q18V may
+verify the port only after recording all of:
 
-No released package currently satisfies this contract. Q18R may mark the port
-released only after recording all of:
-
-1. exact npm version and registry publication time;
-2. npm tarball integrity and provenance evidence;
-3. reviewed source commit and immutable tag resolving to that commit;
-4. public package export `"./quality"` in the published package manifest;
-5. published type declarations for every interface and factory above;
+1. exact npm base version, registry publication time, tarball integrity, and
+   provenance;
+2. reviewed maintained-fork base/head, published immutable `stvhay` branch ref,
+   and matching superproject gitlink;
+3. derived-patch provenance plus zero-fuzz clean-tarball apply, idempotence, and
+   reverse evidence;
+4. public package export `"./quality"` in the projected package manifest;
+5. package-visible type declarations or TypeScript exports for every interface
+   and factory above;
 6. installed-package contract tests proving capture redaction/lifecycle,
    buffered and flush completion/gaps, bounded trace/observation/score/
    annotation reads, and unavailable-service behavior; and
 7. source review showing no authority, Bead closeout, acceptance, or pi-setup
    policy behavior in the port.
 
-A fork branch, draft PR, or local package patch is not release evidence. Q20
-must name the exact verified version and public imports before deleting private
-imports or the version-locked projection.
+Q20 must name the exact verified npm base, maintained-fork pin, gitlink,
+derived-patch integrity, public imports, and rollback source before deleting
+private imports. Optional upstream proposal target remains
+`https://github.com/gooyoung/pi-langfuse` on `main`, with source location and
+release process upstream-owned. PR submission lives in deferred epic `pi-vzqq`;
+this contract authorizes no issue, branch, commit, PR, tag, publication, or
+other upstream mutation. A future reviewed release may replace the maintained
+projection but does not gate Q20.

@@ -9,6 +9,8 @@
 
 **Architecture:** Preserve upstream `v2.1.0@2ed26aa` as immutable base. Rebuild features as a linear local stack with one coherent commit per branch: bounded execution, one-shot mode, repeated-error protection, then public result ports. Build one vendor projection above that stack for pi-setup-only runtime and footer compatibility; pi-setup keeps routing, billing, authority, persistence, and quality policy. Do not migrate `pi/agent/extensions/archimedes.ts` or delete duplicate consumer types yet: contract assigns that adoption to Q21 after an exact public release; this task proves installed patched public imports separately.
 
+**Current-policy note (2026-08-16):** The final execution-time release gate above is superseded by `pi-rxo3.36`. Q19V may verify the published `stvhay` fork pin, superproject gitlink, and derived exact-npm-base patches; Q21 may then adopt the public ports without external-upstream submission or release. This historical plan still records how `pi-rxo3.24` produced the maintained stack and projections.
+
 **Acceptance Criteria:**
 - [ ] Pi-setup uses exact `pi-archimedes@2.1.0` package bases and exact production patches generated from reviewed vendor source.
 - [ ] Maintained local candidates have exact base/head evidence, one coherent commit per stack step, clean diffs, and no rewritten existing history.

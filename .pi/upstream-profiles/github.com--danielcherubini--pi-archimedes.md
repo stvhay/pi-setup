@@ -143,7 +143,7 @@ Each row is exactly one commit above its predecessor. Final vendor verification 
 - Target: public subpaths `@pi-archimedes/subagent/types`, `@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`; no upstream mutation is authorized by the proposal.
 - Required public result evidence covers output contracts, resolved limits, termination, usage, final output, child session/trace refs, ordered `details.results[]`, and the enclosing Pi tool-result type. Pi `tool_result` remains the only result transport.
 - Agent resolution returns only configured model. Typed bus exports current UI/cost payloads. pi-setup keeps routing, billing, authority, closeout, acceptance, persistence, and quality policy.
-- No released package set currently satisfies this contract. `pi-rxo3.24` local candidates and patches are not release evidence.
+- Q19V verifies the exact `stvhay/pi-archimedes` stack and `forks/pi-archimedes` gitlink as maintained source, plus tracked patches as derived projections onto exact npm bases. Fork/ref provenance, npm integrities, zero-fuzz apply/reverse, public exports/types, rollback, and installed-package contract tests must pass before Q21 adoption. External-upstream submission is deferred under `pi-vzqq`; future releases may replace these projections but do not gate Q21.
 
 ## PR implications
 

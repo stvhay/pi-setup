@@ -118,7 +118,7 @@ source_files:
 - Target: this repository's `main` branch and public package subpath `pi-langfuse/quality`; no upstream issue, branch, commit, PR, tag, or publication is authorized by the proposal.
 - Required public factories: `createObservationCapturePort` and `createServiceEvidencePort`. pi-langfuse owns capture redaction, observation lifecycle, session propagation, export/flush completion, and explicit gaps; bounded private service evidence covers traces, observations, scores, annotation queue items/scores, score configs, completeness, and gaps.
 - Authorization, Bead closeout, result acceptance, and pi-setup quality policy remain outside the package contract.
-- No released package currently satisfies this contract. Q18R must record the exact npm version, tarball integrity/provenance, reviewed source commit and tag, published `"./quality"` export and types, and passing installed-package contract tests before Q20 adoption.
+- Q18V verifies the exact `stvhay/pi-langfuse` fork commit and `forks/pi-langfuse` gitlink as maintained source, plus the tracked patch as its derived projection onto the exact npm base. Fork/ref provenance, npm integrity, zero-fuzz apply/reverse, public `"./quality"` exports/types, rollback, and installed-package contract tests must pass before Q20 adoption. External-upstream submission is deferred under `pi-vzqq`; a future release may replace this projection but does not gate Q20.
 
 ## PR implications
 

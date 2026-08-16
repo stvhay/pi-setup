@@ -558,7 +558,7 @@ def test_archimedes_package_proof_is_executable_and_integrity_pinned():
     assert 'from "@pi-archimedes/core/bus"' in proof
 
 
-def test_langfuse_quality_port_release_gate_requires_exact_public_evidence():
+def test_langfuse_quality_port_maintained_fork_gate_requires_exact_evidence():
     profile = LANGFUSE_PROFILE.read_text(encoding="utf-8")
     contract = LANGFUSE_QUALITY_PORT.read_text(encoding="utf-8")
     patch = (PATCHES / "pi-langfuse-1.5.14.patch").read_text(encoding="utf-8")
@@ -567,36 +567,40 @@ def test_langfuse_quality_port_release_gate_requires_exact_public_evidence():
     assert "createObservationCapturePort" in patch
     assert "createServiceEvidencePort" in patch
     assert "quality_port_status: proposed-unreleased" in profile
-    assert "No released package currently satisfies this contract." in profile
+    assert "Q18V verifies the exact `stvhay/pi-langfuse` fork commit" in profile
     for evidence in (
-        "exact npm version",
-        "npm tarball integrity",
-        "reviewed source commit",
+        "exact npm base version",
+        "reviewed maintained-fork base/head",
+        "published immutable `stvhay` branch ref",
+        "derived-patch provenance",
         'public package export `"./quality"`',
-        "published type declarations",
+        "package-visible type declarations",
         "installed-package contract tests",
+        "deferred epic `pi-vzqq`",
     ):
         assert evidence in contract
-    assert "A fork branch, draft PR, or local package patch is not release evidence." in contract
+    assert "does not gate Q20" in contract
 
 
-def test_archimedes_result_port_release_gate_requires_exact_public_evidence():
+def test_archimedes_result_port_maintained_fork_gate_requires_exact_evidence():
     profile = ARCHIMEDES_PROFILE.read_text(encoding="utf-8")
     assert ARCHIMEDES_RESULT_PORT.exists(), "tracked pi-archimedes result port contract is required"
     contract = ARCHIMEDES_RESULT_PORT.read_text(encoding="utf-8")
 
     assert "result_port_status: proposed-unreleased" in profile
-    assert "No released package set currently satisfies this contract." in profile
+    assert "Q19V verifies the exact `stvhay/pi-archimedes` stack" in profile
     for evidence in (
-        "exact npm versions",
-        "npm tarball integrity",
-        "reviewed source commit",
+        "exact npm base versions",
+        "reviewed maintained-fork stack base/head",
+        "published immutable `stvhay`",
+        "derived-patch provenance",
         'public package exports `"./types"`, `"./agents"`, and `"./bus"`',
-        "published type declarations",
+        "package-visible type declarations",
         "installed-package contract tests",
+        "deferred epic `pi-vzqq`",
     ):
         assert evidence in contract
-    assert "A fork branch, draft PR, or local package patch is not release evidence." in contract
+    assert "do not gate Q21" in contract
 
 
 def test_langfuse_runtime_patch_uses_zero_context_without_losing_source_removals():
