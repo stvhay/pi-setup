@@ -27,7 +27,7 @@ jobs:
         run: |
           curl -fsSLo /tmp/beads.tar.gz "https://github.com/gastownhall/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_amd64.tar.gz"
           echo "${BEADS_LINUX_AMD64_SHA256}  /tmp/beads.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/beads.tar.gz -C /tmp ./bd
+          tar -xzf /tmp/beads.tar.gz -C /tmp bd
           sudo install /tmp/bd /usr/local/bin/bd
       - name: Verify Beads v53 compatibility surface
         run: |
