@@ -89,27 +89,41 @@ def _private_tree(root: Path, parts: Sequence[str]) -> Path:
     return current
 
 
+def resolve_runtime_directories(
+    kinds: Sequence[str],
+    *,
+    cwd: str | os.PathLike[str] | None = None,
+    global_root: str | os.PathLike[str] | None = None,
+) -> tuple[Path, ...]:
+    parts_by_kind = tuple(_kind_parts(kind) for kind in kinds)
+    if not parts_by_kind:
+        return ()
+    start = Path(cwd or os.getcwd()).expanduser().resolve()
+    context = _git_context(start)
+    identity = context[2] if context else f"path:{start}"
+    key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    runtime_root = Path(global_root).expanduser() if global_root is not None else Path.home() / ".pi" / "runtime"
+    paths: list[Path] = []
+    for parts in parts_by_kind:
+        if context:
+            candidate = _safe_project_candidate(context[0], context[1], parts)
+            if candidate is not None:
+                try:
+                    paths.append(_private_directory(candidate))
+                    continue
+                except OSError:
+                    pass
+        paths.append(_private_tree(runtime_root, (key, *parts)))
+    return tuple(paths)
+
+
 def resolve_runtime_directory(
     kind: str,
     *,
     cwd: str | os.PathLike[str] | None = None,
     global_root: str | os.PathLike[str] | None = None,
 ) -> Path:
-    parts = _kind_parts(kind)
-    start = Path(cwd or os.getcwd()).expanduser().resolve()
-    context = _git_context(start)
-    identity = f"path:{start}"
-    if context:
-        git, root, identity = context
-        candidate = _safe_project_candidate(git, root, parts)
-        if candidate is not None:
-            try:
-                return _private_directory(candidate)
-            except OSError:
-                pass
-    key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-    runtime_root = Path(global_root).expanduser() if global_root is not None else Path.home() / ".pi" / "runtime"
-    return _private_tree(runtime_root, (key, *parts))
+    return resolve_runtime_directories((kind,), cwd=cwd, global_root=global_root)[0]
 
 
 def cmd_plans_dir(argv: list[str]) -> int:
@@ -125,13 +139,16 @@ def cmd_plans_dir(argv: list[str]) -> int:
 
 
 def cmd_runtime_path(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="agnt runtime-path", description="Resolve a safe private runtime directory.")
-    parser.add_argument("kind", help="relative artifact kind, such as runs or metrics/invocations")
+    parser = argparse.ArgumentParser(prog="agnt runtime-path", description="Resolve safe private runtime directories.")
+    parser.add_argument("kinds", nargs="+", help="relative artifact kinds, such as runs or metrics/invocations")
     args = parser.parse_args(argv)
     try:
-        path = resolve_runtime_directory(args.kind)
+        paths = resolve_runtime_directories(args.kinds)
     except (OSError, ValueError):
         print("agnt runtime-path: could not resolve private runtime directory", file=os.sys.stderr)
         return 2
-    print(json.dumps({"schemaVersion": 1, "path": str(path)}, sort_keys=True))
+    payload = {"path": str(paths[0])} if len(paths) == 1 else {
+        "paths": {kind: str(path) for kind, path in zip(args.kinds, paths)},
+    }
+    print(json.dumps({"schemaVersion": 1, **payload}, sort_keys=True))
     return 0

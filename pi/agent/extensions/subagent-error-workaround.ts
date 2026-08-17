@@ -83,10 +83,12 @@ type ProviderCircuit = (
   cwd: string,
 ) => void | Promise<void>;
 type ActiveProviderCircuits = (cwd: string) => string[] | Promise<string[]>;
+type RuntimeDirectories = (kinds: string[], cwd: string) => Promise<Record<string, string>>;
 type Dependencies = {
   observe?: Observe;
   providerCircuit?: ProviderCircuit;
   activeProviderCircuits?: ActiveProviderCircuits;
+  runtimeDirectories?: RuntimeDirectories;
   persistDelegatedResult?: typeof persistRuntimeDelegatedResult;
   outputContracts?: readonly SubagentOutputContract[];
 };
@@ -462,6 +464,19 @@ async function runtimeDirectory(kind: string, cwd: string): Promise<string> {
   return result.path;
 }
 
+async function runtimeDirectories(kinds: string[], cwd: string): Promise<Record<string, string>> {
+  const result = await runAgntJson(["runtime-path", ...kinds], cwd, undefined, "agnt runtime-path");
+  const paths = result.paths;
+  if (!paths || typeof paths !== "object" || Array.isArray(paths)) {
+    throw new Error("agnt runtime-path returned no paths");
+  }
+  return Object.fromEntries(kinds.map((kind) => {
+    const path = (paths as Record<string, unknown>)[kind];
+    if (typeof path !== "string" || !path) throw new Error(`agnt runtime-path returned no path for ${kind}`);
+    return [kind, path];
+  }));
+}
+
 function artifactMetadata(result: SubagentResult): Record<string, unknown> {
   const sessionId = childSessionId(result);
   return {
@@ -479,10 +494,11 @@ async function persistSubagentArtifacts(
   ctx: ExtensionContext,
   persist: typeof persistRuntimeDelegatedResult,
   outputContracts: ReadonlySet<SubagentOutputContract>,
+  resolvedRoot?: string,
 ): Promise<SubagentDetails> {
-  let root: string;
+  let root = resolvedRoot;
   try {
-    root = await runtimeDirectory("delegated-results", ctx.cwd);
+    root ??= await runtimeDirectory("delegated-results", ctx.cwd);
   } catch {
     return {
       ...details,
@@ -664,6 +680,7 @@ async function recordSubagentMetrics(
   invocation: InvocationStart,
   providerFailureClasses: Array<ProviderFailureClass | undefined>,
   outputContracts: ReadonlySet<SubagentOutputContract>,
+  resolvedMetricsDir?: string,
 ): Promise<void> {
   const details = event.details as SubagentDetails | undefined;
   if (!details?.results?.length) return;
@@ -686,7 +703,7 @@ async function recordSubagentMetrics(
     .filter((record): record is Record<string, unknown> => record !== undefined);
   if (records.length === 0) return;
 
-  const metricsDir = await runtimeDirectory("metrics/invocations", ctx.cwd);
+  const metricsDir = resolvedMetricsDir ?? await runtimeDirectory("metrics/invocations", ctx.cwd);
   await mkdir(metricsDir, { recursive: true });
   await Promise.all(records.map((record) => {
     const target = String(record.target).replace(/[^a-zA-Z0-9._-]+/g, "__");
@@ -703,6 +720,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     .then((contracts) => new Set(contracts));
   const providerCircuit = dependencies.providerCircuit ?? updateProviderCircuit;
   const activeProviderCircuits = dependencies.activeProviderCircuits ?? loadActiveProviderCircuits;
+  const resolveRuntimeDirectories = dependencies.runtimeDirectories ?? runtimeDirectories;
   const openProviders = new Set<string>();
   const setProviderCircuit = async (
     action: "open" | "success",
@@ -794,6 +812,17 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     while (invocation.invocationIds.length < Math.max(1, details.results.length)) {
       invocation.invocationIds.push(randomUUID());
     }
+    const needsMetrics = details.results.some((result, index) =>
+      !(input.tasks?.[index]?.agent ?? input.agent) && modelDimensions(input, result, index, ctx).target !== null
+    );
+    let runtimePaths: Record<string, string> | undefined;
+    if (needsMetrics) {
+      try {
+        runtimePaths = await resolveRuntimeDirectories(["delegated-results", "metrics/invocations"], ctx.cwd);
+      } catch {
+        // Preserve independent artifact and metric fallback behavior.
+      }
+    }
     details = await persistSubagentArtifacts(
       input,
       details,
@@ -801,6 +830,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       ctx,
       dependencies.persistDelegatedResult ?? persistRuntimeDelegatedResult,
       outputContracts,
+      runtimePaths?.["delegated-results"],
     );
     const providerFailureClasses = details.results.map((result) => providerFailureClass(result.error));
     await Promise.all(details.results.map(async (result, index) => {
@@ -817,7 +847,14 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       }
     }));
     try {
-      await recordSubagentMetrics({ ...event, details }, ctx, invocation, providerFailureClasses, outputContracts);
+      await recordSubagentMetrics(
+        { ...event, details },
+        ctx,
+        invocation,
+        providerFailureClasses,
+        outputContracts,
+        runtimePaths?.["metrics/invocations"],
+      );
     } catch (error) {
       console.error("[subagent-metrics] could not record invocation:", error);
     }

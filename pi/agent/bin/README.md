@@ -51,8 +51,8 @@ For interactive delegation, run `agnt route`, then call the Archimedes `subagent
 
 Classify failures from explicit evidence. `terminationReason=output-limit` plus `terminationSource=caller` identifies an applied caller ceiling; `wrapper` identifies the configured metered default; `provider` identifies a lower/native provider stop and may have no exact known limit. Provider/context/network failures retain their provider or process evidence and must not be relabeled from output shape. A nonzero child exit without valid stronger evidence uses `terminationReason=process-error` and `terminationSource=worker`. Malformed or incomplete JSON alone proves no failure source; it only makes a structured result invalid. Full partial output remains in parent-owned delegated artifacts.
 
-- `agnt runtime-path KIND`
-  - Returns bounded JSON containing safe private directory for runtime kind such as `runs` or `metrics/invocations`. Resolver uses project `.pi/<kind>` only when Git proves path ignored and untracked; otherwise it uses mode-`0700` `~/.pi/runtime/<sha256>/<kind>`. Hash keys canonical Git common directory, including linked worktrees, or canonical working directory outside Git.
+- `agnt runtime-path KIND [KIND ...]`
+  - Returns bounded JSON containing safe private directory for one runtime kind, or a `paths` map for multiple kinds. Batched resolution shares Git identity discovery but rechecks every kind. Resolver uses project `.pi/<kind>` only when Git proves path ignored and untracked; otherwise it uses mode-`0700` `~/.pi/runtime/<sha256>/<kind>`. Hash keys canonical Git common directory, including linked worktrees, or canonical working directory outside Git.
 
 - `agnt provider-circuit status [--provider PROVIDER]`
 - `printf '%s' "$ERROR" | agnt provider-circuit record --provider PROVIDER`

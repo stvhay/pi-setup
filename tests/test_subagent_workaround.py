@@ -1206,6 +1206,79 @@ def test_named_agent_projection_marks_provider_and_thinking_unavailable():
     run_node(script)
 
 
+def test_subagent_result_batches_runtime_path_resolution(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readdir }} from "node:fs/promises";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const calls = [];
+      const cwd = {str(tmp_path)!r};
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        outputContracts: ["inline"],
+        observe() {{}},
+        providerCircuit() {{}},
+        async runtimeDirectories(kinds, requestedCwd) {{
+          calls.push({{ kinds, cwd: requestedCwd }});
+          return {{
+            "delegated-results": `${{cwd}}/.pi/delegated-results`,
+            "metrics/invocations": `${{cwd}}/.pi/metrics/invocations`,
+          }};
+        }},
+        async persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const input = {{ task: "benchmark", model: "openai-codex/gpt-5.6-sol", outputContract: "inline" }};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "batch-paths", input }}, ctx);
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "batch-paths",
+        input,
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "single", results: [{{ exitCode: 0, finalOutput: "done" }}] }},
+        isError: false,
+      }}, ctx);
+
+      assert.deepEqual(calls, [{{
+        kinds: ["delegated-results", "metrics/invocations"],
+        cwd,
+      }}]);
+      assert.equal((await readdir(`${{cwd}}/.pi/metrics/invocations`)).length, 1);
+
+      const fallbackHandlers = {{}};
+      const fallbackRoots = [];
+      install({{ on(name, candidate) {{ fallbackHandlers[name] = candidate; }} }}, {{
+        outputContracts: ["inline"],
+        observe() {{}},
+        providerCircuit() {{}},
+        async runtimeDirectories() {{ throw new Error("batch unavailable"); }},
+        async persistDelegatedResult(root, payload) {{
+          fallbackRoots.push(root);
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+      await fallbackHandlers.tool_call({{ toolName: "subagent", toolCallId: "fallback-paths", input }}, ctx);
+      await fallbackHandlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "fallback-paths",
+        input,
+        content: [{{ type: "text", text: "summary" }}],
+        details: {{ mode: "single", results: [{{ exitCode: 0, finalOutput: "done" }}] }},
+        isError: false,
+      }}, ctx);
+
+      assert.deepEqual(fallbackRoots, [`${{cwd}}/.pi/delegated-results`]);
+      assert.equal((await readdir(`${{cwd}}/.pi/metrics/invocations`)).length, 2);
+    """
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
+
+
 def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")

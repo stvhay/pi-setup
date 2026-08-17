@@ -89,6 +89,50 @@ def test_runtime_directory_supports_worktree_git_file(agnt, tmp_path):
     assert path == worktree / ".pi" / "runs"
 
 
+def test_runtime_directory_reuses_git_identity_but_rechecks_each_candidate(agnt, monkeypatch, tmp_path):
+    repo = init_repo(tmp_path / "repo", ".pi/delegated-results/\n.pi/metrics/\n")
+    resolver = getattr(agnt, "resolve_runtime_directory", None)
+    assert callable(resolver), "runtime directory policy is missing"
+    module = __import__(resolver.__module__, fromlist=["_git"])
+    resolver_many = getattr(module, "resolve_runtime_directories", None)
+    assert callable(resolver_many), "batched runtime directory policy is missing"
+    real_git = module._git
+    calls: list[list[str]] = []
+
+    def recording_git(git_binary, cwd, args):
+        calls.append(list(args))
+        return real_git(git_binary, cwd, args)
+
+    monkeypatch.setattr(module, "_git", recording_git)
+
+    delegated, metrics = resolver_many(
+        ("delegated-results", "metrics/invocations"),
+        cwd=repo,
+        global_root=tmp_path / "global",
+    )
+
+    assert delegated == repo / ".pi" / "delegated-results"
+    assert metrics == repo / ".pi" / "metrics" / "invocations"
+    assert len([args for args in calls if args[0] == "rev-parse"]) == 2
+    assert len([args for args in calls if args[0] == "check-ignore"]) == 2
+    assert len([args for args in calls if args[0] == "ls-files"]) == 2
+
+
+def test_runtime_directory_refreshes_identity_when_nested_repository_appears(agnt, tmp_path):
+    repo = init_repo(tmp_path / "repo", ".pi/runs/\n")
+    nested = repo / "nested"
+    nested.mkdir()
+    global_root = tmp_path / "global"
+
+    before = resolve(agnt, "runs", nested, global_root)
+    git(nested, "init", "-q")
+    (nested / ".gitignore").write_text(".pi/runs/\n", encoding="utf-8")
+    after = resolve(agnt, "runs", nested, global_root)
+
+    assert before == repo / ".pi" / "runs"
+    assert after == nested / ".pi" / "runs"
+
+
 def test_runtime_directory_non_git_fallback_has_deterministic_full_hash(agnt, tmp_path):
     cwd = tmp_path / "plain"
     cwd.mkdir()

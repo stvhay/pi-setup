@@ -40,6 +40,25 @@ def test_runtime_path_command_emits_bounded_json(agnt, monkeypatch, tmp_path, ca
     }
 
 
+def test_runtime_path_command_batches_safe_kinds(agnt, monkeypatch, tmp_path, capsys):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(
+        ".pi/delegated-results/\n.pi/metrics/\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert agnt.main(["runtime-path", "delegated-results", "metrics/invocations"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "paths": {
+            "delegated-results": str(tmp_path / ".pi" / "delegated-results"),
+            "metrics/invocations": str(tmp_path / ".pi" / "metrics" / "invocations"),
+        },
+        "schemaVersion": 1,
+    }
+
+
 def usage_tokens(input_tokens=1_000_000, output_tokens=1_000_000):
     return {
         "input": input_tokens,
