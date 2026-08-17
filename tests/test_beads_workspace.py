@@ -17,8 +17,19 @@ TRACKED_BEADS_FILES = (
 def test_ci_installs_pinned_beads_before_tests():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
-    assert "BEADS_VERSION: 1.1.0" in workflow
+    assert "BEADS_VERSION: 1.2.2" in workflow
+    assert "BEADS_LINUX_AMD64_SHA256: 8140098a51d3b81d5548d1c5e6db1a2d9930e5d141efe2a4bff7d079c4d321e8" in workflow
     assert "beads_${BEADS_VERSION}_linux_amd64.tar.gz" in workflow
+    assert "tar -xzf /tmp/beads.tar.gz -C /tmp ./bd" in workflow
+    assert 'test "$(bd version | awk' in workflow
+    assert "bd comments --help" in workflow
+    assert "bd provenance --help" in workflow
+
+
+def test_beads_config_keeps_mutations_versioned():
+    config = (ROOT / ".beads/config.yaml").read_text()
+
+    assert "dolt.auto-commit: on" in config
 
 
 def test_node_test_runtime_is_pinned():

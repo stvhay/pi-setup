@@ -8,8 +8,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     env:
-      BEADS_VERSION: 1.1.0
-      BEADS_LINUX_AMD64_SHA256: b0f3dd607c3fb989ee08d0a6854fba80d0402971eb108f9af6170bc14d491a34
+      BEADS_VERSION: 1.2.2
+      BEADS_LINUX_AMD64_SHA256: 8140098a51d3b81d5548d1c5e6db1a2d9930e5d141efe2a4bff7d079c4d321e8
     steps:
       - uses: actions/checkout@v7
       - name: Verify published vendor pins (network)
@@ -27,8 +27,16 @@ jobs:
         run: |
           curl -fsSLo /tmp/beads.tar.gz "https://github.com/gastownhall/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_amd64.tar.gz"
           echo "${BEADS_LINUX_AMD64_SHA256}  /tmp/beads.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/beads.tar.gz -C /tmp bd
+          tar -xzf /tmp/beads.tar.gz -C /tmp ./bd
           sudo install /tmp/bd /usr/local/bin/bd
+      - name: Verify Beads v53 compatibility surface
+        run: |
+          test "$(bd version | awk '{print $3}')" = "${BEADS_VERSION}"
+          bd comments --help >/dev/null
+          if bd provenance --help >/dev/null 2>&1; then
+            echo "unexpected v65-only provenance command" >&2
+            exit 1
+          fi
       - run: uv run --with pytest --with ruff python -m ruff check pi/agent/bin/agnt_lib tests
       - run: uv run --with pytest python -m pytest tests/
       - run: bash -n scripts/*.sh

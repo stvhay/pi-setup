@@ -54,6 +54,8 @@
 # - linear.api_key  → use LINEAR_API_KEY env var instead
 # - github.token    → use GITHUB_TOKEN env var instead
 
+# Keep each mutation versioned across Beads releases with different defaults.
+dolt.auto-commit: on
 # Keep the tracked fresh-checkout graph aligned with embedded Dolt mutations.
 export.auto: true
 # Never stage export updates implicitly.

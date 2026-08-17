@@ -27,6 +27,13 @@ def _request_fingerprint(approval: dict) -> str:
     return _fingerprint(identity)
 
 
+def _provenance_comment(source: str, payload: dict) -> str:
+    envelope = {"schemaVersion": 1, "source": source, "payload": payload}
+    return "agnt-provenance-v1 " + json.dumps(
+        envelope, sort_keys=True, separators=(",", ":")
+    )
+
+
 RESOLVER_SECRET = "test-only-resolver-secret"
 
 
@@ -61,6 +68,7 @@ class FakeBeads:
         show_metadata: dict | None = None,
         history_metadata: dict | None = None,
         history_states: list[dict] | None = None,
+        provenance_comments: list[str] | None = None,
     ):
         self.calls: list[list[str]] = []
         self.history_states = history_states or []
@@ -68,36 +76,50 @@ class FakeBeads:
             "pi": {"approval": approval_record(requestingRun="approval-run")}
         }
         self.history_metadata = history_metadata or self.show_metadata
+        approval = self.history_metadata["pi"]["approval"]
+        request_fingerprint = approval.get("requestFingerprint")
+        default_comments = []
+        if isinstance(request_fingerprint, str):
+            request_payload = {
+                "schemaVersion": 1,
+                "kind": "approval-request",
+                "requestFingerprint": request_fingerprint,
+            }
+            grant_fingerprint = approval.get("grantFingerprint")
+            grant = approval.get("grant")
+            if isinstance(grant_fingerprint, str) and isinstance(grant, dict):
+                request_payload["grantFingerprint"] = grant_fingerprint
+                request_payload["grantStatus"] = grant["revocation"]["status"]
+            default_comments.append(
+                _provenance_comment("agnt-approval", request_payload)
+            )
+        default_comments.extend(_provenance_comment("agnt-capability", {
+            "schemaVersion": 1,
+            "kind": "grant-state",
+            **state,
+        }) for state in self.history_states)
+        self.provenance_comments = (
+            list(provenance_comments)
+            if provenance_comments is not None
+            else default_comments
+        )
 
     def __call__(self, args: list[str]):
         self.calls.append(list(args))
         if args[0] == "create":
             return 0, {"id": "pi-decision.1", "title": "Approve risky edit"}, ""
+        if args[:2] == ["comments", "add"]:
+            self.provenance_comments.append(args[3])
+            return 0, {"issue_id": args[2], "text": args[3]}, ""
+        if args[0] == "comments":
+            return 0, [
+                {"issue_id": args[1], "text": text}
+                for text in self.provenance_comments
+            ], ""
         if args[0] == "dep":
             return 0, {"ok": True}, ""
         if args[0] == "show":
             return 0, {"id": args[1], "metadata": json.dumps(self.show_metadata)}, ""
-        if args[:2] == ["provenance", "record"]:
-            return 0, {"recorded": True}, ""
-        if args[:2] == ["provenance", "log"]:
-            approval = self.history_metadata["pi"]["approval"]
-            events = [{
-                "source": "agnt-approval",
-                "payload": json.dumps({
-                    "schemaVersion": 1,
-                    "kind": "approval-request",
-                    "requestFingerprint": approval["requestFingerprint"],
-                }),
-            }]
-            events.extend({
-                "source": "agnt-capability",
-                "payload": json.dumps({
-                    "schemaVersion": 1,
-                    "kind": "grant-state",
-                    **state,
-                }),
-            } for state in self.history_states)
-            return 0, events, ""
         if args[0] == "update":
             return 0, {"id": args[1]}, ""
         if args[0] == "close":
@@ -217,6 +239,12 @@ def test_approved_grant_becomes_active_and_reads_only_resolved_decision(agnt):
     assert result["grantFingerprint"] == agnt.capability_grant_fingerprint(grant)
     assert result["decisionBead"] == "pi-decision.1"
     assert not any(call[:2] == ["show", "pi-work.1"] for call in fake.calls)
+    comment_call = next(call for call in fake.calls if call[:2] == ["comments", "add"])
+    envelope = json.loads(comment_call[3].split(" ", 1)[1])
+    assert envelope["source"] == "agnt-capability"
+    assert envelope["payload"]["status"] == "active"
+    update_index = next(i for i, call in enumerate(fake.calls) if call[0] == "update")
+    assert fake.calls.index(comment_call) < update_index
 
 
 def test_canonical_grant_resolver_returns_bounded_authority(agnt):  # Tests INV-14
@@ -234,7 +262,10 @@ def test_canonical_grant_resolver_returns_bounded_authority(agnt):  # Tests INV-
     assert result["status"] == "active"
     assert result["decisionBead"] == "pi-decision.1"
     assert result["allowedEffects"] == grant["effects"]
-    assert len([call for call in fake.calls if call[:2] in (["show", "pi-decision.1"], ["provenance", "log"])]) == 2
+    assert len([
+        call for call in fake.calls
+        if call[:2] in (["show", "pi-decision.1"], ["comments", "pi-decision.1"])
+    ]) == 2
 
 
 def test_canonical_grant_resolver_fails_closed_when_state_is_unavailable(agnt):  # Tests FAIL-12
@@ -287,6 +318,53 @@ def test_revoked_state_cannot_be_reset_to_pending(agnt):
         agnt.resolve_capability_grant("pi-decision.1", beads_runner=fake)
 
 
+def test_fail12_missing_grant_state_comment_blocks_authority(agnt):  # Tests FAIL-12
+    grant = capability_grant()
+    approval = approval_record(
+        status="approved",
+        resolver={"kind": "human-ui"},
+        grant={**grant, "revocation": {"status": "active", "reason": None, "at": None}},
+        grantFingerprint=agnt.capability_grant_fingerprint(grant),
+    )
+    request_only = _provenance_comment("agnt-approval", {
+        "schemaVersion": 1,
+        "kind": "approval-request",
+        "requestFingerprint": approval["requestFingerprint"],
+    })
+    fake = FakeBeads(
+        show_metadata={"pi": {"approval": approval}},
+        provenance_comments=[request_only],
+    )
+
+    with pytest.raises(ValueError, match="new approval request"):
+        agnt.resolve_capability_grant("pi-decision.1", beads_runner=fake)
+
+
+@pytest.mark.parametrize(
+    "states",
+    [
+        [{"status": "revoked"}, {"status": "active"}],
+        [{"status": "expired"}, {"status": "revoked"}],
+    ],
+)
+def test_fail12_conflicting_grant_comment_history_blocks_authority(agnt, states):  # Tests FAIL-12
+    grant = capability_grant()
+    fingerprint = agnt.capability_grant_fingerprint(grant)
+    approval = approval_record(
+        status="approved",
+        resolver={"kind": "human-ui"},
+        grant={**grant, "revocation": {"status": "revoked", "reason": "stop", "at": "2026-08-17T00:00:00Z"}},
+        grantFingerprint=fingerprint,
+    )
+    fake = FakeBeads(
+        show_metadata={"pi": {"approval": approval}},
+        history_states=[{"grantFingerprint": fingerprint, **state} for state in states],
+    )
+
+    with pytest.raises(ValueError, match="new approval request"):
+        agnt.resolve_capability_grant("pi-decision.1", beads_runner=fake)
+
+
 def test_expired_grant_is_revoked_without_expanding_ceiling(agnt):
     grant = capability_grant()
     grant["expiry"] = "2020-01-01T00:00:00Z"
@@ -307,6 +385,9 @@ def test_expired_grant_is_revoked_without_expanding_ceiling(agnt):
     updated_grant = updated["pi"]["approval"]["grant"]
     assert updated_grant["effects"] == grant["effects"]
     assert updated_grant["revocation"]["status"] == "expired"
+    comment_call = next(call for call in fake.calls if call[:2] == ["comments", "add"])
+    envelope = json.loads(comment_call[3].split(" ", 1)[1])
+    assert envelope["payload"]["status"] == "expired"
 
 
 def test_changed_grant_requires_reissue(agnt):
@@ -368,22 +449,98 @@ def test_create_approval_request_creates_decision_blocks_target_and_updates_run_
     assert metadata["pi"]["approval"]["preview"] == approval_preview()
     assert metadata["pi"]["approval"]["previewFingerprint"] == _fingerprint(approval_preview())
     assert metadata["pi"]["approval"]["requestFingerprint"] == _request_fingerprint(metadata["pi"]["approval"])
-    assert fake.calls[1] == ["dep", "pi-decision.1", "--blocks", "pi-work.1"]
-    provenance = fake.calls[2]
-    assert provenance[:6] == [
-        "provenance", "record", "--issue", "pi-decision.1", "--kind", "cut",
-    ]
-    recorded = json.loads(provenance[provenance.index("--payload") + 1])
-    assert recorded == {
+    provenance = fake.calls[1]
+    assert provenance[:3] == ["comments", "add", "pi-decision.1"]
+    prefix, encoded = provenance[3].split(" ", 1)
+    assert prefix == "agnt-provenance-v1"
+    assert json.loads(encoded) == {
         "schemaVersion": 1,
-        "kind": "approval-request",
-        "requestFingerprint": metadata["pi"]["approval"]["requestFingerprint"],
+        "source": "agnt-approval",
+        "payload": {
+            "schemaVersion": 1,
+            "kind": "approval-request",
+            "requestFingerprint": metadata["pi"]["approval"]["requestFingerprint"],
+        },
     }
+    assert fake.calls[2] == ["dep", "pi-decision.1", "--blocks", "pi-work.1"]
 
     run_result = json.loads((bundle / "result.yaml").read_text(encoding="utf-8"))
     assert run_result["status"] == "needs-human"
     assert run_result["approvalRefs"] == ["pi-decision.1"]
     assert run_result["decisionRefs"] == ["pi-decision.1"]
+
+
+def test_request_provenance_failure_never_blocks_target(agnt):
+    fake = FakeBeads()
+    original = fake.__call__
+
+    def fail_comment(args: list[str]):
+        if args[:2] == ["comments", "add"]:
+            fake.calls.append(list(args))
+            return 1, None, "comment write failed"
+        return original(args)
+
+    with pytest.raises(SystemExit):
+        agnt.create_beads_approval_request(
+            kind="approval",
+            target_bead="pi-work.1",
+            question="Approve risky edit?",
+            context="Implementation needs explicit approval before mutating code.",
+            options=["approve", "reject"],
+            default="reject",
+            preview=approval_preview(),
+            beads_runner=fail_comment,
+        )
+
+    assert [call[0] for call in fake.calls] == ["create", "comments"]
+
+
+def test_comment_provenance_ignores_notes_and_tolerates_exact_duplicates(agnt):
+    approval = approval_record()
+    fake = FakeBeads(show_metadata={"pi": {"approval": approval}})
+    fake.provenance_comments.extend([
+        "Ordinary human note.",
+        fake.provenance_comments[0],
+    ])
+
+    result = agnt.resolve_beads_approval_request(
+        decision_bead="pi-decision.1",
+        outcome="approved",
+        resolver=human_ui_resolver(),
+        beads_runner=fake,
+    )
+
+    assert result["outcome"] == "approved"
+
+
+@pytest.mark.parametrize("case", ["missing", "malformed", "conflicting", "foreign"])
+def test_fail7_unverifiable_comment_provenance_requires_new_request(agnt, case):  # Tests FAIL-7
+    approval = approval_record()
+    fake = FakeBeads(show_metadata={"pi": {"approval": approval}})
+    if case == "missing":
+        fake.provenance_comments = []
+    elif case == "malformed":
+        fake.provenance_comments.append("agnt-provenance-v1 {")
+    elif case == "conflicting":
+        fake.provenance_comments.append(_provenance_comment("agnt-approval", {
+            "schemaVersion": 1,
+            "kind": "approval-request",
+            "requestFingerprint": "sha256:" + "f" * 64,
+        }))
+    else:
+        fake.provenance_comments.append(_provenance_comment("other", {
+            "schemaVersion": 1,
+            "kind": "approval-request",
+            "requestFingerprint": approval["requestFingerprint"],
+        }))
+
+    with pytest.raises(ValueError, match="new approval request"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1",
+            outcome="approved",
+            resolver=human_ui_resolver(),
+            beads_runner=fake,
+        )
 
 
 def test_create_question_request_records_decision_ref_without_approval_ref(agnt, tmp_path):
@@ -744,9 +901,10 @@ def test_fail7_recomputed_fingerprint_still_requires_new_request(agnt):  # Tests
             beads_runner=fake,
         )
 
-    assert fake.calls == [["show", "pi-decision.1"], [
-        "provenance", "log", "pi-decision.1", "--kind", "cut",
-    ]]
+    assert fake.calls == [
+        ["show", "pi-decision.1"],
+        ["comments", "pi-decision.1"],
+    ]
 
 
 def test_fail7_retargeted_approval_requires_new_request(agnt):  # Tests FAIL-7

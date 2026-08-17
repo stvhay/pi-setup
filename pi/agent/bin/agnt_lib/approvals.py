@@ -32,6 +32,8 @@ BeadsRunner = Callable[[List[str]], Tuple[int, Any, str]]
 CANONICAL_GRANT_LOOKUP_LIMIT = 2
 HUMAN_UI_RESOLVER_FD = 3
 MAX_RESOLVER_PROOF_BYTES = 4096
+PROVENANCE_COMMENT_PREFIX = "agnt-provenance-v1 "
+PROVENANCE_SOURCES = {"agnt-approval", "agnt-capability"}
 
 
 def utc_now() -> str:
@@ -258,55 +260,94 @@ def _request_fingerprint(approval: Dict[str, Any]) -> str:
     return _fingerprint(identity)
 
 
-def _provenance_request_fingerprints(value: Any) -> set[str]:
-    if isinstance(value, list):
-        return set().union(*(_provenance_request_fingerprints(item) for item in value), set())
-    if not isinstance(value, dict):
-        return set()
-    found = set()
-    if value.get("source") == "agnt-approval":
-        payload = value.get("payload")
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except json.JSONDecodeError:
-                payload = None
-        if (
-            isinstance(payload, dict)
-            and payload.get("schemaVersion") == 1
-            and payload.get("kind") == "approval-request"
-            and isinstance(payload.get("requestFingerprint"), str)
-        ):
-            found.add(payload["requestFingerprint"])
-    return found.union(*(_provenance_request_fingerprints(item) for item in value.values()), set())
+def _provenance_comment(source: str, payload: Dict[str, Any]) -> str:
+    envelope = {"schemaVersion": 1, "source": source, "payload": payload}
+    return PROVENANCE_COMMENT_PREFIX + json.dumps(
+        envelope, sort_keys=True, separators=(",", ":")
+    )
 
 
-def _provenance_grant_states(value: Any) -> list[tuple[str, str]]:
-    if isinstance(value, list):
-        states: list[tuple[str, str]] = []
-        for item in value:
-            states.extend(_provenance_grant_states(item))
-        return states
-    if not isinstance(value, dict):
-        return []
-    payload = value.get("payload")
-    if isinstance(payload, str):
+def _provenance_records(value: Any) -> list[Dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ValueError("approval provenance comments are invalid")
+    records = []
+    for comment in value:
+        if not isinstance(comment, dict) or not isinstance(comment.get("text"), str):
+            raise ValueError("approval provenance comments are invalid")
+        text = comment["text"]
+        if not text.startswith(PROVENANCE_COMMENT_PREFIX):
+            continue
         try:
-            payload = json.loads(payload)
-        except json.JSONDecodeError:
-            payload = None
-    states: list[tuple[str, str]] = []
-    if isinstance(payload, dict) and payload.get("schemaVersion") == 1:
-        kind = payload.get("kind")
-        fingerprint = payload.get("grantFingerprint")
-        status = payload.get("status")
-        if kind == "approval-request":
-            status = payload.get("grantStatus")
-        if isinstance(fingerprint, str) and isinstance(status, str):
-            states.append((fingerprint, status))
-    for item in value.values():
-        states.extend(_provenance_grant_states(item))
+            envelope = json.loads(text[len(PROVENANCE_COMMENT_PREFIX):])
+        except json.JSONDecodeError as exc:
+            raise ValueError("approval provenance comment is invalid") from exc
+        if (
+            not isinstance(envelope, dict)
+            or set(envelope) != {"schemaVersion", "source", "payload"}
+            or envelope.get("schemaVersion") != 1
+            or envelope.get("source") not in PROVENANCE_SOURCES
+            or not isinstance(envelope.get("payload"), dict)
+        ):
+            raise ValueError("approval provenance comment is invalid")
+        payload = envelope["payload"]
+        if envelope["source"] == "agnt-approval":
+            base = {"schemaVersion", "kind", "requestFingerprint"}
+            grant = {"grantFingerprint", "grantStatus"}
+            if (
+                frozenset(payload) not in {frozenset(base), frozenset(base | grant)}
+                or payload.get("schemaVersion") != 1
+                or payload.get("kind") != "approval-request"
+                or not isinstance(payload.get("requestFingerprint"), str)
+                or (grant.issubset(payload) and not all(
+                    isinstance(payload.get(key), str) for key in grant
+                ))
+            ):
+                raise ValueError("approval provenance comment is invalid")
+        elif (
+            set(payload) != {
+                "schemaVersion", "kind", "grantFingerprint", "status"
+            }
+            or payload.get("schemaVersion") != 1
+            or payload.get("kind") != "grant-state"
+            or not isinstance(payload.get("grantFingerprint"), str)
+            or not isinstance(payload.get("status"), str)
+        ):
+            raise ValueError("approval provenance comment is invalid")
+        records.append(envelope)
+    return records
+
+
+def _provenance_request_fingerprints(records: list[Dict[str, Any]]) -> set[str]:
+    return {
+        record["payload"]["requestFingerprint"]
+        for record in records
+        if record["source"] == "agnt-approval"
+    }
+
+
+def _provenance_grant_states(
+    records: list[Dict[str, Any]],
+) -> list[tuple[str, str]]:
+    states = []
+    for record in records:
+        payload = record["payload"]
+        if record["source"] == "agnt-capability":
+            states.append((payload["grantFingerprint"], payload["status"]))
+        elif "grantFingerprint" in payload:
+            states.append((payload["grantFingerprint"], payload["grantStatus"]))
     return states
+
+
+def _record_provenance(
+    decision_bead: str,
+    source: str,
+    payload: Dict[str, Any],
+    beads_runner: BeadsRunner,
+) -> None:
+    code, data, err = beads_runner([
+        "comments", "add", decision_bead, _provenance_comment(source, payload)
+    ])
+    require_beads_success(code, data, err, "append approval provenance comment")
 
 
 def _record_grant_state(
@@ -314,20 +355,12 @@ def _record_grant_state(
     grant: Dict[str, Any],
     beads_runner: BeadsRunner,
 ) -> None:
-    code, data, err = beads_runner([
-        "provenance", "record",
-        "--issue", decision_bead,
-        "--kind", "cut",
-        "--source", "agnt-capability",
-        "--at", utc_now(),
-        "--payload", _json_arg({
-            "schemaVersion": 1,
-            "kind": "grant-state",
-            "grantFingerprint": capability_grant_fingerprint(grant),
-            "status": grant["revocation"]["status"],
-        }),
-    ])
-    require_beads_success(code, data, err, "record capability grant state")
+    _record_provenance(decision_bead, "agnt-capability", {
+        "schemaVersion": 1,
+        "kind": "grant-state",
+        "grantFingerprint": capability_grant_fingerprint(grant),
+        "status": grant["revocation"]["status"],
+    }, beads_runner)
 
 
 def _require_unchanged_approval_preview(
@@ -356,8 +389,14 @@ def _require_unchanged_approval_preview(
         or approval.get("requestFingerprint") != request_fingerprint
     ):
         raise ValueError("approval preview changed; create a new approval request")
-    code, data, err = beads_runner(["provenance", "log", decision_bead, "--kind", "cut"])
-    provenance = require_beads_success(code, data, err, "read approval provenance")
+    code, data, err = beads_runner(["comments", decision_bead])
+    comments = require_beads_success(code, data, err, "read approval provenance comments")
+    try:
+        provenance = _provenance_records(comments)
+    except ValueError as exc:
+        raise ValueError(
+            "approval provenance is invalid; create a new approval request"
+        ) from exc
     if _provenance_request_fingerprints(provenance) != {request_fingerprint}:
         raise ValueError("approval preview changed; create a new approval request")
     if grant_fingerprint is not None:
@@ -365,12 +404,19 @@ def _require_unchanged_approval_preview(
         state_rank = {"pending": 0, "active": 1, "revoked": 2, "expired": 2}
         highest_state = -1
         terminal_state = None
+        if not states:
+            raise ValueError("approval grant state changed; create a new approval request")
         for fingerprint, status in states:
             if fingerprint != grant_fingerprint:
                 raise ValueError("approval grant changed; create a new approval request")
             if status not in state_rank:
                 raise ValueError("approval grant state changed; create a new approval request")
-            highest_state = max(highest_state, state_rank[status])
+            rank = state_rank[status]
+            if rank < highest_state or (
+                terminal_state is not None and status != terminal_state
+            ):
+                raise ValueError("approval grant state changed; create a new approval request")
+            highest_state = rank
             if status in {"revoked", "expired"}:
                 terminal_state = status
         if state_rank.get(current_grant_status, -1) < highest_state:
@@ -556,10 +602,6 @@ def create_beads_approval_request(
     created = require_beads_success(code, data, err, "create approval request")
     decision_bead = _decision_id_from_create(created)
 
-    dep_args = ["dep", decision_bead, "--blocks", target_bead]
-    dep_code, dep_data, dep_err = beads_runner(dep_args)
-    require_beads_success(dep_code, dep_data, dep_err, "dep approval blocker")
-
     approval = payload["metadata"]["pi"]["approval"]
     provenance_payload = {
         "schemaVersion": 1,
@@ -569,17 +611,13 @@ def create_beads_approval_request(
     if "grantFingerprint" in approval:
         provenance_payload["grantFingerprint"] = approval["grantFingerprint"]
         provenance_payload["grantStatus"] = approval["grant"]["revocation"]["status"]
-    provenance_code, provenance_data, provenance_err = beads_runner([
-        "provenance", "record",
-        "--issue", decision_bead,
-        "--kind", "cut",
-        "--source", "agnt-approval",
-        "--at", approval["createdAt"],
-        "--payload", _json_arg(provenance_payload),
-    ])
-    require_beads_success(
-        provenance_code, provenance_data, provenance_err, "record approval provenance"
+    _record_provenance(
+        decision_bead, "agnt-approval", provenance_payload, beads_runner
     )
+
+    dep_args = ["dep", decision_bead, "--blocks", target_bead]
+    dep_code, dep_data, dep_err = beads_runner(dep_args)
+    require_beads_success(dep_code, dep_data, dep_err, "dep approval blocker")
 
     run_result = None
     if run_bundle is not None:
@@ -751,7 +789,7 @@ def resolve_canonical_capability_grant(
         nonlocal lookup_count
         if args and args[0] == "show":
             lookup_count += 1
-        elif args[:2] == ["provenance", "log"]:
+        elif len(args) == 2 and args[0] == "comments":
             lookup_count += 1
         if lookup_count > CANONICAL_GRANT_LOOKUP_LIMIT:
             raise ValueError("capability grant lookup bound exceeded")
