@@ -7,7 +7,7 @@ qualified:
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-5.6-luna
   - openrouter/anthropic/claude-opus-5
-thinkingLow: high
+thinkingLow: xhigh
 thinkingMedium: xhigh
 thinkingHigh: xhigh
 ---

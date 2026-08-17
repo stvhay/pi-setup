@@ -5,24 +5,29 @@
   "kind": "route",
   "cases": [
     {
-      "name": "review-sol-high-default",
+      "name": "review-sol-medium-default",
       "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--monthly-paid-spend", "0", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high", "fanoutRecommended": true}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "medium", "fanoutRecommended": true}
     },
     {
-      "name": "planning-sol-high-default",
+      "name": "planning-sol-medium-default",
       "args": ["--task", "planning", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "medium"}
     },
     {
-      "name": "research-sol-high-default",
+      "name": "research-sol-medium-default",
       "args": ["--task", "research", "--context-tokens", "200000", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "high"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "medium"}
     },
     {
-      "name": "cheap-peer-luna-low",
+      "name": "cheap-peer-terra-low",
       "args": ["--task", "cheap-peer", "--risk", "low", "--budget", "cheap", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-luna", "thinkingLevel": "low"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-terra", "thinkingLevel": "low"}
+    },
+    {
+      "name": "orchestration-low-policy",
+      "args": ["--task", "orchestration", "--risk", "low", "--ignore-history"],
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "xhigh"}
     },
     {
       "name": "orchestration-high-quality",

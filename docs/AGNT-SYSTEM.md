@@ -71,7 +71,7 @@ For direct coding:
 
 For optional orchestration, action templates may create private run bundles containing invocation metadata, result evidence, artifacts, and metric references. `agnt runs invoke` and `agnt work run` execute those bundles through the internal headless worker. See [Run Artifacts](RUN-ARTIFACTS.md).
 
-Thinking calibration uses observable task features, never model self-confidence: phase, effect severity, ambiguity, novelty, reversibility, testability, and source breadth. Unknown, consequential, architecture, implementation, security, and final-verification work stays high/xhigh. Only exact mechanical inventory, formatting, and documentation profiles may be replayed below high. The tracked [thinking-level calibration](../pi/agent/evals/thinking-level-calibration/README.md) requires quality parity and measured latency benefit before task defaults change; current evidence changed no defaults.
+Feature-based thinking calibration uses observable task facts, never model self-confidence: phase, effect severity, ambiguity, novelty, reversibility, testability, and source breadth. Unknown, consequential, architecture, implementation, security, and final-verification work stays high/xhigh; only calibrated low-risk profiles resolve below high. Task routing separately applies the owner-approved ladder: Terra-low for `cheap-peer`, Sol low/medium/high for planning and research, Sol low/medium/xhigh for review, and Sol xhigh for orchestration; maximum effort remains an explicit exceptional override. The tracked [thinking-level calibration](../pi/agent/evals/thinking-level-calibration/README.md) still gates automatic changes to the feature rubric.
 
 ## Human decisions and safety
 

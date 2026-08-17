@@ -20,12 +20,12 @@ reserveReview:
   - openai-codex/gpt-5.6-sol
 hardCapReview:
   - openai-codex/gpt-5.6-sol
-thinkingLow: high
-thinkingMedium: high
+thinkingLow: low
+thinkingMedium: medium
 thinkingHigh: xhigh
 ---
 
-Temporarily use Sol for first-pass review while matched canaries run. Keep Terra as a subscription-backed challenger. Medium risk adds Kimi K2.7 Code as a bounded different-family challenger; high risk uses Opus 5 plus human adjudication for consequential findings. Verify every finding against files, tests, specifications, or profiling before acting. Model confidence never triggers escalation.
+Use Sol for first-pass review at low or medium thinking and at extra-high thinking for high risk. Keep Terra as a subscription-backed challenger. Medium risk adds Kimi K2.7 Code as a bounded different-family challenger; high risk uses Opus 5 plus human adjudication for consequential findings. Verify every finding against files, tests, specifications, or profiling before acting. Model confidence never triggers escalation.
 
 Kimi K3 remains escalation-only for a concrete unresolved critical finding after fresh adversarial verification and a budget check. Every metered OpenRouter reviewer runs in a fresh bounded worker; never switch a long-running root conversation to it.
 

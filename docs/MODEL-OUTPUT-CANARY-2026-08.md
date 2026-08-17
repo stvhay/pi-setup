@@ -2,13 +2,16 @@
 
 ## Decision
 
-Keep current temporary Sol-first floor unchanged pending lasting policy work. This canary found no basis for replacing Sol with Luna for planning/research or Terra for first-pass review. It also showed that output contracts can reduce parent context without a new output framework:
+`pi-04q7.8` used this canary to resolve the pending policy. The repository owner selected Terra-low as the lowest routine peer rung, followed by Sol low/medium/high/extra-high and explicit exceptional maximum effort. Planning, research, and first-pass review stay Sol-led with risk-calibrated effort; Terra remains an independent review challenger. This canary supports retaining Sol over tested controls, but it did not test Terra-low versus Luna or compare effort rungs. Those parts are operator policy, not measured quality claims.
 
-- `artifact` removed full child results from parent-visible tool output while preserving complete private artifacts, but did not reduce provider generation.
-- `status-only` reduced both provider output and parent-visible result volume on deterministic checks.
-- `pass-no-findings` removed parent-visible result volume, but one of two calls violated the requested one-line shape and generated more output than its inline match.
+Output contracts reduce parent context without a new output framework:
 
-These results are small, synthetic canary evidence, not a permanent model ranking or route decision.
+- `artifact` is the default for deferred full results: it removed full child results from parent-visible tool output while preserving complete private artifacts, but did not reduce provider generation.
+- `status-only` is the default for deterministic checks when the parent needs only completion state; it reduced both provider output and parent-visible result volume.
+- `inline` remains the default when the parent needs content immediately.
+- `pass-no-findings` remains opt-in because one of two calls violated the requested one-line shape and generated more output than its inline match.
+
+These results remain small, synthetic canary evidence, not a permanent model ranking. Routing rollback is a policy-commit revert; live `~/.pi` deployment remains separate.
 
 ## Protocol
 

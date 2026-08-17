@@ -14,11 +14,15 @@ Keep ChatGPT/OpenAI Codex **Pro 20×** as root capacity and default controller. 
 
 Pi has a built-in `openrouter` provider. Authenticate with `/login openrouter` or `OPENROUTER_API_KEY`; do not define a duplicate custom provider and never commit credentials. `pi/agent/models.json` only applies a 16,384-token operational output cap to each approved OpenRouter model, preventing provider credit checks from reserving each model's much larger catalog maximum. Active model selection lives in `pi/agent/settings.json`, deterministic model facts in `pi/agent/catalog.json`, and task routing in `pi/agent/tasks/`.
 
-## Temporary Sol-first floor
+## Lasting routing and output policy
 
-`pi-04q7.2` temporarily routes planning, research, and primary review to Sol at high thinking. Orchestration remains Sol at extra-high thinking, Luna remains the explicit cheap/mechanical peer, and Terra remains a subscription-backed review challenger. Operational reliability and user experience justify this reversible floor; they are not a lasting quality ranking. Matched canaries under `pi-04q7.4` decide whether to retain, narrow, or remove it.
+`pi-04q7.8` replaces the `pi-04q7.2` interim floor with an owner-selected capability/effort ladder: Terra at low thinking, then Sol at low, medium, high, extra-high, and explicit exceptional maximum effort. Existing routing maps `cheap-peer` to Terra-low; planning and research to Sol low/medium/high by risk; review to Sol low/medium/extra-high by risk; and orchestration to Sol extra-high. Maximum effort remains an explicit exceptional override because task routing has three risk levels. Luna remains a subscription-backed fallback, Terra remains a review challenger, and different-family checks remain independent.
 
-Rollback is a policy-only revert: restore the prior routing in `pi/agent/tasks/planning.md`, `research.md`, and `review.md`; restore synchronized guidance in `pi/agent/skills/requesting-code-review/SKILL.md`, `pi/agent/bin/README.md`, and `docs/SELF-IMPROVEMENT.md`; then revert matching routing assertions and this amendment. No provider, credential, budget, or data migration change is involved. Live `~/.pi` deployment remains outside this task.
+Matched evidence is deliberately narrower than this operator decision. Ten planning/research pairs were all usable and favored Sol `10/10` accepted to Luna `8/10`; ten review pairs were all usable and favored Sol `10/10` to Terra `9/10`. One run per synthetic cell gives **Low confidence** in lasting model rank, latency, Terra-low versus Luna, or the effort ladder. The ladder is policy, not a claim that the canary measured every rung.
+
+Output contracts use existing transport only: choose `artifact` for deferred full results, `status-only` for deterministic checks, `inline` when the parent needs content now, and `pass-no-findings` only when explicitly requested. In matched cohorts, `artifact` preserved `5/5` accepted full results while removing parent-visible payload but not generation; `status-only` preserved `3/3` accepted checks while cutting output tokens 84%; `pass-no-findings` was accepted `2/2` but met strict shape only `1/2`.
+
+Rollback is a policy-only revert: restore the previous task frontmatter in `pi/agent/tasks/cheap-peer.md`, `planning.md`, `research.md`, and `review.md`; restore synchronized guidance in `pi/agent/AGENTS.md`, `pi/agent/skills/requesting-code-review/SKILL.md`, `pi/agent/bin/README.md`, and `docs/SELF-IMPROVEMENT.md`; then revert matching eval/test assertions and this amendment. No provider, credential, budget, code schema, or data migration change is involved. Live `~/.pi` deployment remains outside this task.
 
 ## Evidence basis
 
@@ -55,10 +59,10 @@ All metered OpenRouter calls use fresh workers with bounded complete packets. Di
 
 | Work type | Primary | Independent check |
 |---|---|---|
-| Precise, repetitive work | Luna — medium | M3 — bounded 10% shadow sample |
-| Planning and research (temporary) | Sol — high | Luna control in matched canaries |
-| Normal code review (temporary) | Sol — high | Terra challenger; Kimi K2.7 Code diversity pass |
-| Complex/high-risk review (temporary) | Sol — extra high | Opus 5; Terra challenger; human adjudication |
+| Precise, repetitive work | Terra — low through `cheap-peer` | Luna fallback; M3 bounded shadow sample |
+| Planning and research | Sol — low/medium/high by risk | Terra-low advisory pass; bounded different-family critique |
+| Normal code review | Sol — low/medium by risk | Terra challenger; Kimi K2.7 Code diversity pass |
+| Complex/high-risk review | Sol — extra high | Opus 5; Terra challenger; human adjudication |
 | Moderate coding | Sol — high | Kimi K2.7 Code |
 | Orchestration/main agent | Sol — extra high | Opus 5 at phase checkpoints only |
 | Ambiguous change/architecture | Sol — extra high | Opus 5 |
@@ -88,8 +92,8 @@ This is an external-primary canary, not the default. Highest-risk control remain
 
 - Default API budget: **$10–20/month**.
 - Review soft threshold: $12 month-to-date; stop optional shadow sampling.
-- Review reserve threshold: $18; use subscription-backed Sol only during the temporary floor.
-- Review hard cap: $20; use subscription-backed Sol only during the temporary floor and report exhaustion.
+- Review reserve threshold: $18; use subscription-backed Sol only.
+- Review hard cap: $20; use subscription-backed Sol only and report exhaustion.
 - Do not buy an annual plan during the evaluation window.
 - Promote a route only from usable-output rate, accepted-result rate, missed-defect evidence, retries, latency, and real marginal cost—not benchmark claims or model agreement.
 - Consider Pro 5× only after four consecutive weeks with at least 75% stable offload and OpenAI usage consistently below 25% of current capacity.

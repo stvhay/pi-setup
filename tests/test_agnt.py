@@ -998,7 +998,7 @@ def test_repository_access_routes_subscription_agentic_without_default_limits(ag
         "routingTask": "review",
         "model": "openai-codex/gpt-5.6-sol",
         "mode": "agentic",
-        "thinking": "high",
+        "thinking": "medium",
         "sourceAccess": "repository",
     }
     assert all(not target.startswith("openrouter/") for target in result["candidateOrder"])
@@ -1143,19 +1143,27 @@ def test_select_model_honors_avoid_family_policy(agnt):
 
 def test_approved_matrix_uses_task_specific_thinking_levels(agnt):
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: {}}):
+        low_review = agnt.select_model("review", risk="low", paid_review_spend_usd=0.0)
         review = agnt.select_model("review", risk="medium", paid_review_spend_usd=0.0)
         high_review = agnt.select_model("review", risk="high", paid_review_spend_usd=0.0)
         planning = agnt.select_model("planning", risk="medium")
         research = agnt.select_model("research", risk="medium")
         low_planning = agnt.select_model("planning", risk="low", budget="cheap")
         low_research = agnt.select_model("research", risk="low", budget="cheap")
+        high_planning = agnt.select_model("planning", risk="high")
+        high_research = agnt.select_model("research", risk="high")
         cheap_peer = agnt.select_model("cheap-peer", risk="low", budget="cheap")
         implementation = agnt.select_model("implementation", risk="medium")
+        low_orchestration = agnt.select_model("orchestration", risk="low")
         orchestration = agnt.select_model("orchestration", risk="medium")
 
+    assert (low_review["selected"], low_review["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "low",
+    )
     assert (review["selected"], review["thinkingLevel"]) == (
         "openai-codex/gpt-5.6-sol",
-        "high",
+        "medium",
     )
     assert (high_review["selected"], high_review["thinkingLevel"]) == (
         "openai-codex/gpt-5.6-sol",
@@ -1163,28 +1171,40 @@ def test_approved_matrix_uses_task_specific_thinking_levels(agnt):
     )
     assert (planning["selected"], planning["thinkingLevel"]) == (
         "openai-codex/gpt-5.6-sol",
-        "high",
+        "medium",
     )
     assert (research["selected"], research["thinkingLevel"]) == (
         "openai-codex/gpt-5.6-sol",
-        "high",
+        "medium",
     )
     assert (low_planning["selected"], low_planning["thinkingLevel"]) == (
         "openai-codex/gpt-5.6-sol",
-        "high",
+        "low",
     )
     assert (low_research["selected"], low_research["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "low",
+    )
+    assert (high_planning["selected"], high_planning["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "high",
+    )
+    assert (high_research["selected"], high_research["thinkingLevel"]) == (
         "openai-codex/gpt-5.6-sol",
         "high",
     )
     assert (cheap_peer["selected"], cheap_peer["thinkingLevel"]) == (
-        "openai-codex/gpt-5.6-luna",
+        "openai-codex/gpt-5.6-terra",
         "low",
     )
     assert "openai-codex/gpt-5.6-luna" not in planning["candidateOrder"]
     assert "openai-codex/gpt-5.6-luna" not in research["candidateOrder"]
     assert "openai-codex/gpt-5.6-luna" not in review["candidateOrder"]
     assert implementation["thinkingLevel"] == "high"
+    assert (low_orchestration["selected"], low_orchestration["thinkingLevel"]) == (
+        "openai-codex/gpt-5.6-sol",
+        "xhigh",
+    )
     assert (orchestration["selected"], orchestration["thinkingLevel"]) == (
         "openai-codex/gpt-5.6-sol",
         "xhigh",
@@ -1202,12 +1222,12 @@ def test_review_quality_budget_uses_gpt_56_sol_preferred_default(agnt):
 
     assert result["routeStatus"] == "selected"
     assert result["selected"] == target
-    assert result["thinkingLevel"] == "high"
+    assert result["thinkingLevel"] == "medium"
 
 
 def test_routine_routes_prefer_codex_and_exclude_kimi_k3(agnt):
     expected = {
-        "cheap-peer": "openai-codex/gpt-5.6-luna",
+        "cheap-peer": "openai-codex/gpt-5.6-terra",
         "implementation": "openai-codex/gpt-5.6-sol",
         "planning": "openai-codex/gpt-5.6-sol",
         "research": "openai-codex/gpt-5.6-sol",
@@ -1216,6 +1236,7 @@ def test_routine_routes_prefer_codex_and_exclude_kimi_k3(agnt):
         results = {task: agnt.select_model(task) for task in expected}
 
     assert {task: result["selected"] for task, result in results.items()} == expected
+    assert results["cheap-peer"]["thinkingLevel"] == "low"
     assert all(
         "openrouter/moonshotai/kimi-k3" not in result["candidateOrder"]
         for result in results.values()

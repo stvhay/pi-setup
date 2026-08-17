@@ -27,7 +27,7 @@ At start, read shared conventions if needed:
 
 Use `agnt route --task review --access self-contained` for complete discovery packets. Use `--access repository` for filesystem verifiers rather than inventing mode or fanout policy. Review task policy uses:
 
-- **Subscription-backed temporary default:** `openai-codex/gpt-5.6-sol` at high thinking.
+- **Subscription-backed default:** `openai-codex/gpt-5.6-sol` at routed low, medium, or extra-high thinking.
 - **Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`, used for matched canaries or explicit independent checks.
 - **Medium-risk diversity:** `openrouter/moonshotai/kimi-k2.7-code`, scoped and one-shot.
 - **High-risk independent reviewer:** `openrouter/anthropic/claude-opus-5`, scoped and one-shot; human adjudication remains required for consequential findings.
@@ -123,8 +123,8 @@ Do not add a low ad hoc `maxOutputTokens` cap for structured review JSON. Provid
 
 Policy by risk:
 
-- **Low:** subscription-backed Sol behavioral pass.
-- **Medium:** Sol behavioral pass plus one fresh Kimi K2.7 Code diversity pass.
+- **Low:** subscription-backed Sol at low thinking for a behavioral pass.
+- **Medium:** Sol at medium thinking for a behavioral pass plus one fresh Kimi K2.7 Code diversity pass.
 - **High:** Sol at extra-high thinking plus one fresh Opus 5 boundary/adversarial pass; human adjudicates consequential findings.
 - **Reserve/hard cap:** use the subscription-backed Sol target returned by `agnt route`.
 
