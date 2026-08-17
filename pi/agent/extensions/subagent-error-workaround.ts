@@ -1,5 +1,6 @@
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, parse } from "node:path";
@@ -9,6 +10,7 @@ import type {
   SubagentLimits,
   SubagentOutputContract,
   SubagentResult as PublicSubagentResult,
+  SubagentThinkingLevel,
 } from "@pi-archimedes/subagent/types";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
 import { persistDelegatedResult as persistRuntimeDelegatedResult } from "./lib/runtime-artifacts.ts";
@@ -25,6 +27,8 @@ const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
 const INLINE_OUTPUT_MAX_CHARS = 12_000;
 const ARTIFACT_MESSAGE_MAX_CHARS = 4_000;
 const TERMINATION_MESSAGE_MAX_CHARS = 4_000;
+const ROUTING_TASK = /^[a-z][a-z0-9-]{0,63}$/;
+const THINKING_LEVELS = new Set<SubagentThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
 type SubagentLimitKey = keyof SubagentLimits;
 type SubagentTaskInput = {
@@ -34,6 +38,8 @@ type SubagentTaskInput = {
   mode?: "agentic" | "one-shot";
   limits?: SubagentLimits;
   outputContract?: SubagentOutputContract;
+  routingTask?: string;
+  thinking?: SubagentThinkingLevel;
 };
 type SubagentInput = {
   agent?: string;
@@ -42,6 +48,8 @@ type SubagentInput = {
   mode?: "agentic" | "one-shot";
   limits?: SubagentLimits;
   outputContract?: SubagentOutputContract;
+  routingTask?: string;
+  thinking?: SubagentThinkingLevel;
   tasks?: SubagentTaskInput[];
 };
 
@@ -150,7 +158,14 @@ function terminationEvidence(
       usageState: result.finalOutput ? "partial" : "unknown",
     };
   }
-  if (!validReason || validReason === "completed") return undefined;
+  if (!validReason || validReason === "completed") {
+    if ((result.exitCode ?? 1) === 0) return undefined;
+    return {
+      reason: "process-error",
+      source: "worker",
+      usageState: result.finalOutput ? "partial" : "unknown",
+    };
+  }
   const usageState = result.termination?.usageState === "complete" || result.termination?.usageState === "partial"
     ? result.termination.usageState
     : "unknown";
@@ -204,6 +219,15 @@ function resultExecutionOutcome(result: SubagentResult): "succeeded" | "failed" 
   return result.exitCode === 124 || reason === "time-limit" || reason === "user-abort" || startupTimeoutMs(result.error)
     ? "unavailable"
     : "failed";
+}
+
+function routingTask(input: SubagentInput, index: number): string {
+  const value = input.tasks?.[index]?.routingTask ?? input.routingTask;
+  return typeof value === "string" &&
+    ROUTING_TASK.test(value) &&
+    existsSync(join(agentDir, "tasks", `${value}.md`))
+    ? value
+    : "peer";
 }
 
 function outputContract(
@@ -383,9 +407,14 @@ function childSessionId(result: SubagentResult): string | null {
   return typeof value === "string" && value.length > 0 && value.length <= 200 ? value : null;
 }
 
-function effectiveMode(result: SubagentResult): EffectiveMode {
-  const mode = result.execution?.profile?.mode;
+function effectiveMode(input: SubagentInput, result: SubagentResult, index: number): EffectiveMode {
+  const mode = result.execution?.profile?.mode ?? input.tasks?.[index]?.mode ?? input.mode;
   return mode === "agentic" || mode === "one-shot" ? mode : "unknown";
+}
+
+function effectiveThinking(input: SubagentInput, result: SubagentResult, index: number): SubagentThinkingLevel | "default" {
+  const thinking = result.execution?.profile?.thinking ?? input.tasks?.[index]?.thinking ?? input.thinking;
+  return THINKING_LEVELS.has(thinking as SubagentThinkingLevel) ? thinking as SubagentThinkingLevel : "default";
 }
 
 function childTraceAvailability(result: SubagentResult, mode: EffectiveMode): ChildTraceAvailability {
@@ -497,7 +526,7 @@ type ModelDimensions = {
   provider: string | null;
   model: string | null;
   target: string | null;
-  thinkingLevel: "default" | null;
+  thinkingLevel: SubagentThinkingLevel | "default" | null;
   modelDimensionsStatus: "available" | "unavailable" | "unavailable-named-agent";
 };
 
@@ -530,7 +559,7 @@ function modelDimensions(
     provider,
     model,
     target,
-    thinkingLevel: target ? "default" : null,
+    thinkingLevel: target ? effectiveThinking(input, result, index) : null,
     modelDimensionsStatus: target ? "available" : "unavailable",
   };
 }
@@ -599,10 +628,10 @@ function metricRecord(
     artifactFailureClass: result.artifact?.failureClass ?? null,
     outputContract: outputContract(input, index, outputContracts),
     workerElapsedMs,
-    task: "peer",
+    task: routingTask(input, index),
     riskCategory: null,
     thinkingLevel: dimensions.thinkingLevel,
-    invocationMode: "subagent",
+    invocationMode: effectiveMode(input, result, index),
     providerRequests,
     contextChars: prompt.length,
     estimatedInputTokens: prompt ? Math.ceil(prompt.length / 4) : 0,
@@ -797,7 +826,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       const task = input.tasks?.[index]?.task ?? input.task ?? result.task;
       const dimensions = modelDimensions(input, result, index, ctx);
       const contract = outputContract(input, index, outputContracts);
-      const mode = effectiveMode(result);
+      const mode = effectiveMode(input, result, index);
       const termination = terminationEvidence(input, result, index);
       try {
         await (await getObserve())("subagent-result", {
@@ -808,6 +837,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
             index,
             ...dimensions,
             executionOutcome: resultExecutionOutcome(result),
+            routingTask: routingTask(input, index),
             effectiveMode: mode,
             childTraceAvailability: childTraceAvailability(result, mode),
             outputContract: contract,

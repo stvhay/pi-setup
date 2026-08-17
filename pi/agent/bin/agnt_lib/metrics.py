@@ -21,6 +21,17 @@ from .runtime_paths import resolve_runtime_directory
 # Model facts and opportunity-cost rates live in catalog.json.
 MAX_ARTIFACT_REFS = 16
 MAX_ARTIFACT_REF_CHARS = 256
+HANDOFF_STAGES = frozenset({
+    "attempt",
+    "preflight",
+    "selection",
+    "validation",
+    "session-stage",
+    "restart-request",
+    "shutdown-exit",
+    "process-replacement",
+})
+HANDOFF_RESULT_CLASSES = frozenset({"started", "succeeded", "failed", "cancelled", "attempted"})
 
 
 def new_invocation_id() -> str:
@@ -284,6 +295,10 @@ def load_metric_records(files: List[Path], *, include_annotations: bool = True) 
             warnings.append(f"{path}: {exc}")
             continue
         if isinstance(data, dict):
+            if data.get("kind") == "handoff":
+                data.setdefault("sourceFile", str(path))
+                records.append(data)
+                continue
             target = str(data.get("target") or f"{data.get('provider')}/{data.get('model')}")
             data["usage"] = apply_assumed_cost(data.get("usage"), target)
             data.setdefault("family", common.family_for_target(target))
@@ -301,6 +316,46 @@ def load_metric_records(files: List[Path], *, include_annotations: bool = True) 
         warnings.extend(annotation_warnings)
         apply_annotations(records, annotations)
     return records, warnings
+
+
+def compact_handoff_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    stage = record.get("stage")
+    result_class = record.get("resultClass")
+    try:
+        duration_ms = max(0, int(record.get("durationMs") or 0))
+    except (OverflowError, TypeError, ValueError):
+        duration_ms = 0
+    return {
+        "schemaVersion": 2,
+        "kind": "handoff",
+        "stage": stage if stage in HANDOFF_STAGES else "unknown",
+        "resultClass": result_class if result_class in HANDOFF_RESULT_CLASSES else "unknown",
+        "durationMs": duration_ms,
+    }
+
+
+def summarize_handoffs(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "attempts": 0,
+        "records": len(records),
+        "durationMs": 0,
+        "results": {},
+        "byStage": {},
+    }
+    for raw in records:
+        record = compact_handoff_record(raw)
+        stage = record["stage"]
+        result_class = record["resultClass"]
+        duration_ms = record["durationMs"]
+        if stage == "attempt":
+            summary["attempts"] += 1
+        summary["durationMs"] += duration_ms
+        summary["results"][result_class] = summary["results"].get(result_class, 0) + 1
+        item = summary["byStage"].setdefault(stage, {"records": 0, "durationMs": 0, "results": {}})
+        item["records"] += 1
+        item["durationMs"] += duration_ms
+        item["results"][result_class] = item["results"].get(result_class, 0) + 1
+    return summary
 
 
 def usage_summary(records: List[Dict[str, Any]]) -> Dict[str, Any] | None:
@@ -322,6 +377,8 @@ def summarize_metrics(
     quality_annotations: List[Dict[str, Any]] | None = None,
     quality_monitoring: List[Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
+    handoff_records = [record for record in records if record.get("kind") == "handoff"]
+    records = [record for record in records if record.get("kind") != "handoff"]
     by_model: Dict[str, Dict[str, Any]] = {}
     by_task: Dict[str, Dict[str, Any]] = {}
     exit_codes: Dict[str, int] = {}
@@ -333,6 +390,11 @@ def summarize_metrics(
     review_scope_counts: Dict[str, int] = {}
     review_finding_counts = empty_review_finding_stats()
     kind_counts: Dict[str, int] = {}
+    for record in [*records, *handoff_records]:
+        kind = record.get("kind")
+        if kind:
+            kind_key = str(kind)
+            kind_counts[kind_key] = kind_counts.get(kind_key, 0) + 1
     human_overrides = 0
     fallback_uses = 0
     context_chars = 0
@@ -374,10 +436,6 @@ def summarize_metrics(
             fallback_uses += 1
         context_chars += int(record.get("contextChars") or 0)
         estimated_input_tokens += int(record.get("estimatedInputTokens") or 0)
-        kind = record.get("kind")
-        if kind:
-            kind_key = str(kind)
-            kind_counts[kind_key] = kind_counts.get(kind_key, 0) + 1
         for bucket, key in ((by_model, target), (by_task, task)):
             item = bucket.setdefault(
                 key,
@@ -429,6 +487,7 @@ def summarize_metrics(
         "contextChars": context_chars,
         "estimatedInputTokens": estimated_input_tokens,
         "kinds": kind_counts,
+        "handoffs": summarize_handoffs(handoff_records),
         "usage": usage_summary(records),
         "byModel": by_model,
         "byTask": by_task,
@@ -449,6 +508,8 @@ def current_head() -> str | None:
 
 
 def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    if record.get("kind") == "handoff":
+        return compact_handoff_record(record)
     return {
         "schemaVersion": record.get("schemaVersion", 1),
         "invocationId": record.get("invocationId"),

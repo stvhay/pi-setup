@@ -663,6 +663,7 @@ def select_model(
         }
     subagent_example: Dict[str, Any] = {
         "task": f"<{task}-task>",
+        "routingTask": task,
         "model": selected["target"],
         "mode": execution_mode,
         "thinking": selected["thinkingLevel"],

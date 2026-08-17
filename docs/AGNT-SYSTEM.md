@@ -52,11 +52,11 @@ Interactive delegation uses one path:
 1. Run `agnt route` for task, risk, budget, and source access policy.
 2. Use `--access repository` when the child needs filesystem evidence; repository access requires agentic mode.
 3. Use `--access self-contained` and `mode: "one-shot"` only for a complete cold packet.
-4. Call `subagent` with `agent` omitted and copy route-generated model, mode, access, and any metered evidence/limits.
+4. Call `subagent` with `agent` omitted and copy route-generated `routingTask`, model, mode, access, thinking, and any metered evidence/limits.
 5. Prefer qualified subscription routes. Metered agentic repository work requires explicit quality/capability justification, estimated cost, aggregate budget, and bounded children.
 6. Use the `tasks` array for parallel peers.
 
-The tracked subagent observer records compatible payload-free metrics and persists complete child results under private runtime storage. Internal eval and run-bundle workers retain a headless Pi primitive because they execute outside a live Pi tool context; that primitive is not a second public peer command.
+The tracked subagent observer records payload-free metrics with safe route task, effective mode/thinking, output contract, and normalized termination evidence, then persists complete child results under private runtime storage. Internal eval and run-bundle workers retain a headless Pi primitive because they execute outside a live Pi tool context; that primitive is not a second public peer command.
 
 ## Normal lifecycle
 

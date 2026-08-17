@@ -920,6 +920,7 @@ def test_select_model_returns_approved_high_risk_review_fanout(agnt):
     assert result["fanout"][1]["contextPolicy"] == "fresh"
     assert result["subagentExample"] == {
         "task": "<review-task>",
+        "routingTask": "review",
         "model": "openai-codex/gpt-5.6-sol",
         "mode": "one-shot",
         "thinking": "xhigh",
@@ -973,6 +974,7 @@ def test_repository_access_routes_subscription_agentic_without_default_limits(ag
     assert result["selection"]["limits"] == {}
     assert result["subagentExample"] == {
         "task": "<review-task>",
+        "routingTask": "review",
         "model": "openai-codex/gpt-5.6-sol",
         "mode": "agentic",
         "thinking": "high",
@@ -3522,6 +3524,47 @@ def test_compact_metric_preserves_sanitized_termination_evidence(agnt):
         "terminationObserved": 300_012,
         "terminationUsageState": "partial",
         "effectiveMaxDurationMs": 300_000,
+    }
+
+
+def test_handoff_metrics_are_allowlisted_and_excluded_from_invocation_totals(agnt):
+    handoff = {
+        "schemaVersion": "SECRET version",
+        "kind": "handoff",
+        "stage": "preflight",
+        "resultClass": "failed",
+        "durationMs": 17,
+        "sourceBead": "SECRET source",
+        "targetBead": "SECRET target",
+        "sessionId": "SECRET session",
+    }
+
+    compact = agnt.compact_metric_record(handoff)
+    summary = agnt.summarize_metrics([handoff])
+
+    assert compact == {
+        "schemaVersion": 2,
+        "kind": "handoff",
+        "stage": "preflight",
+        "resultClass": "failed",
+        "durationMs": 17,
+    }
+    assert "SECRET" not in json.dumps(compact)
+    assert summary["invocations"] == 0
+    assert summary["byModel"] == {}
+    assert summary["byTask"] == {}
+    assert summary["handoffs"] == {
+        "attempts": 0,
+        "records": 1,
+        "durationMs": 17,
+        "results": {"failed": 1},
+        "byStage": {
+            "preflight": {
+                "records": 1,
+                "durationMs": 17,
+                "results": {"failed": 1},
+            },
+        },
     }
 
 

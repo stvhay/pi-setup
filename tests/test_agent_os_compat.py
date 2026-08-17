@@ -368,6 +368,8 @@ export function resolveAgentModel(name) {
         assert.equal(subagent.prepareArguments({{ task: "prepared" }}).task, "prepared");
         assert.deepEqual(subagent.parameters.properties.outputContract.enum, ["inline", "artifact", "status-only", "pass-no-findings"]);
         assert.deepEqual(subagent.parameters.properties.tasks.items.properties.outputContract.enum, ["inline", "artifact", "status-only", "pass-no-findings"]);
+        assert.equal(subagent.parameters.properties.routingTask.pattern, "^[a-z][a-z0-9-]{{0,63}}$");
+        assert.equal(subagent.parameters.properties.tasks.items.properties.routingTask.pattern, "^[a-z][a-z0-9-]{{0,63}}$");
         assert.deepEqual(subagent.parameters.properties.sourceAccess.enum, ["self-contained", "repository"]);
         assert.deepEqual(subagent.parameters.properties.tasks.items.properties.sourceAccess.enum, ["self-contained", "repository"]);
         assert.deepEqual(subagent.parameters.properties.meteredJustification.enum, ["quality-benefit", "missing-capability"]);
@@ -379,6 +381,7 @@ export function resolveAgentModel(name) {
 
         const singleDelegation = await subagent.execute("single-contract", {{
           task: "Review auth",
+          routingTask: "review",
           outputContract: "status-only",
         }}, undefined, undefined, {{ mode }});
         assert.equal(singleDelegation.details.upstream, true);
@@ -386,8 +389,8 @@ export function resolveAgentModel(name) {
 
         const parallelDelegation = await subagent.execute("parallel-contract", {{
           tasks: [
-            {{ task: "Review auth", outputContract: "inline" }},
-            {{ task: "Check tests", outputContract: "artifact" }},
+            {{ task: "Review auth", routingTask: "review", outputContract: "inline" }},
+            {{ task: "Check tests", routingTask: "final-verification", outputContract: "artifact" }},
           ],
         }}, undefined, undefined, {{ mode }});
         assert.equal(parallelDelegation.details.upstream, true);

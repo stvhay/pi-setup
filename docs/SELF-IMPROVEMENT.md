@@ -44,11 +44,14 @@ Internal eval/run workers write metric records (model, family, task, tokens,
 cost, latency) to the resolved private `metrics/invocations` directory.
 The tracked observer converts Archimedes unnamed `subagent` results
 to the same schema. Projection, parent-owned artifact, and metric records share
-invocation, provider, model, target, effective thinking, and optional output
-contract dimensions; missing/legacy contracts are `unknown`. Config-less workers
-record thinking `default` because Archimedes passes no thinking override. Metrics
-store usage, timing, payload lengths, bounded artifact refs, contract, and sanitized
-termination reason/source/effective deadline—not prompt or response bodies.
+invocation, safe route task, provider, model, target, effective mode/thinking, and
+optional output contract dimensions; missing/legacy contracts are `unknown`.
+Route examples carry `routingTask`, and wrapper strips it before child execution.
+Missing effective thinking records `default`; missing effective mode records
+`unknown`. Metrics store usage, timing, payload lengths, bounded artifact refs,
+contract, and sanitized termination reason/source/effective deadline—not prompt
+or response bodies. Every nonzero child exit without stronger evidence receives
+safe `process-error`/`worker` termination.
 Named-profile projections mark unavailable dimensions
 explicitly, while metrics remain skipped because Archimedes does not expose their
 effective provider or thinking level.
@@ -94,8 +97,11 @@ non-epic work automatically or asks once when several choices exist, then revali
 selection. It stages one empty parent-linked session, gracefully replaces Pi process,
 and sends bounded Bead references plus `bd prime`, `bd ready`, and claiming
 `direct-start` instructions. Fresh work retrieves only referenced durable state;
-source transcript is not copied. `/new` remains human fallback when automated
-handoff is unavailable.
+source transcript is not copied. Existing private metrics storage receives only
+normalized handoff stage, result class, and duration records; no Bead/session IDs,
+paths, payloads, or error text enter those records, and handoff counts stay outside
+invocation/routing totals. `/new` remains human fallback when automated handoff is
+unavailable.
 Quitting and resuming may retain same session. Link and outcome
 commands fail closed rather than overwrite conflicting local ownership or
 malformed ledger state. Direct closeout appends explicit success locally and

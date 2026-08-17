@@ -865,6 +865,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
               executionOutcome: "succeeded",
+              routingTask: "peer",
               effectiveMode: "one-shot",
               childTraceAvailability: "expected-unavailable",
               outputContract: "inline",
@@ -888,8 +889,14 @@ def test_subagent_results_emit_evaluator_ready_observations():
               artifactContentStatus: "available",
               artifactReferenceCount: 1,
               artifactFailureClass: null,
+              terminationReason: "process-error",
+              terminationSource: "worker",
+              terminationLimit: null,
+              terminationObserved: null,
+              terminationUsageState: "unknown",
+              effectiveMaxDurationMs: null,
             }},
-            output: "Provider unavailable",
+            output: "Provider unavailable\\n\\n[delegated termination: process-error; source=worker; output=unknown]",
             metadata: {{
               index: 1,
               provider: "openai-codex",
@@ -898,11 +905,18 @@ def test_subagent_results_emit_evaluator_ready_observations():
               thinkingLevel: "default",
               modelDimensionsStatus: "available",
               executionOutcome: "failed",
+              routingTask: "peer",
               effectiveMode: "agentic",
               childTraceAvailability: "unknown",
               outputContract: "artifact",
               artifactRefs: artifactRefs[1],
               artifactStatus: "persisted",
+              terminationReason: "process-error",
+              terminationSource: "worker",
+              terminationLimit: null,
+              terminationObserved: null,
+              terminationUsageState: "unknown",
+              effectiveMaxDurationMs: null,
               exitCode: 1,
             }},
             level: "ERROR",
@@ -1212,8 +1226,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
 
       const cwd = {str(tmp_path)!r};
       const input = {{ tasks: [
-        {{ task: "SECRET first task", model: "openai/openai/gpt-oss-120b", outputContract: "artifact" }},
-        {{ task: "SECRET second task", model: "openai-codex/gpt-5.6-luna", outputContract: "status-only" }},
+        {{ task: "SECRET first task", routingTask: "research", model: "openai/openai/gpt-oss-120b", mode: "agentic", thinking: "low", outputContract: "artifact" }},
+        {{ task: "SECRET second task", routingTask: "review", model: "openai-codex/gpt-5.6-luna", mode: "one-shot", thinking: "medium", outputContract: "status-only" }},
       ] }};
       const ctx = {{
         cwd,
@@ -1230,8 +1244,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         input,
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
-          {{ childSessionId: "child-session-0", exitCode: 0, model: "openai/gpt-oss-120b", finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
-          {{ childSessionId: "child-session-1", exitCode: 2, model: "gpt-5.6-luna", finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-0", exitCode: 0, model: "openai/gpt-oss-120b", execution: {{ profile: {{ mode: "agentic", thinking: "high" }} }}, finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-1", exitCode: 2, model: "gpt-5.6-luna", execution: {{ profile: {{ mode: "one-shot", thinking: "xhigh" }} }}, finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
         ] }},
         isError: false,
       }}, ctx);
@@ -1253,6 +1267,9 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.failureClass), [null, "provider"]);
       assert.deepEqual(records.map((record) => record.providerFailureClass), [null, "credit"]);
       assert.deepEqual(records.map((record) => record.outputContract), ["artifact", "status-only"]);
+      assert.deepEqual(records.map((record) => record.task), ["research", "review"]);
+      assert.deepEqual(records.map((record) => record.thinkingLevel), ["high", "xhigh"]);
+      assert.deepEqual(records.map((record) => record.invocationMode), ["agentic", "one-shot"]);
       const refs = patch.details.results.map((result) => result.artifact.refs[0]);
       assert.deepEqual(refs, ids.map((id, index) => `runtime:delegated-results/${{id}}/child-${{index}}.json`));
       assert.equal(refs.every((ref) => ref.length < 256), true);
@@ -1260,14 +1277,16 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.artifactRefs), refs.map((ref) => [ref]));
       assert.deepEqual(records.map((record) => record.artifactStatus), ["persisted", "persisted"]);
       assert.deepEqual(records.map((record) => [record.provider, record.model, record.target, record.thinkingLevel]), [
-        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "default"],
-        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default"],
+        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "high"],
+        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "xhigh"],
       ]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.childSessionId), ["child-session-0", "child-session-1"]);
       assert.deepEqual(observations.map((item) => item.options.sessionId), ["parent-logical-session", "parent-logical-session"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.executionOutcome), ["succeeded", "failed"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.outputContract), ["artifact", "status-only"]);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.routingTask), ["research", "review"]);
+      assert.deepEqual(observations.map((item) => item.attributes.metadata.effectiveMode), ["agentic", "one-shot"]);
       assert.deepEqual(observations.map((item) => item.attributes.input.outputContract), ["artifact", "status-only"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactRefs), refs.map((ref) => [ref]));
       assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactStatus), ["persisted", "persisted"]);
@@ -1276,8 +1295,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         const metadata = item.attributes.metadata;
         return [metadata.provider, metadata.model, metadata.target, metadata.thinkingLevel, metadata.modelDimensionsStatus];
       }}), [
-        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "default", "available"],
-        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default", "available"],
+        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "high", "available"],
+        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "xhigh", "available"],
       ]);
       const artifactRoot = `${{cwd}}/.pi/delegated-results`;
       const artifacts = await Promise.all(ids.map((id, index) => readFile(`${{artifactRoot}}/${{id}}/child-${{index}}.json`, "utf8").then(JSON.parse)));
@@ -1479,6 +1498,9 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       assert.equal(records[0].status, "failed");
       assert.equal(records[0].executionOutcome, "failed");
       assert.equal(records[0].outputContract, "unknown");
+      assert.equal(records[0].terminationReason, "process-error");
+      assert.equal(records[0].terminationSource, "worker");
+      assert.equal(records[0].terminationUsageState, "unknown");
       const artifactRef = `runtime:delegated-results/${{invocationId}}/child-0.json`;
       assert.deepEqual(records[0].artifactRefs, [artifactRef]);
       assert.equal(records[0].artifactStatus, "persisted");
@@ -1499,11 +1521,18 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
         thinkingLevel: "default",
         modelDimensionsStatus: "available",
         executionOutcome: "failed",
+        routingTask: "peer",
         effectiveMode: "unknown",
         childTraceAvailability: "unknown",
         outputContract: "unknown",
         artifactRefs: [artifactRef],
         artifactStatus: "persisted",
+        terminationReason: "process-error",
+        terminationSource: "worker",
+        terminationLimit: null,
+        terminationObserved: null,
+        terminationUsageState: "unknown",
+        effectiveMaxDurationMs: null,
         exitCode: 1,
       }});
       assert.equal(result.details.results[0].artifact.refs[0], artifactRef);
@@ -1532,7 +1561,7 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       const cwd = {str(tmp_path)!r};
       const secretPrompt = "SECRET prompt body must not be persisted";
       const secretOutput = "SECRET response body must not be persisted";
-      const input = {{ task: secretPrompt, model: "openai-codex/gpt-5.6-luna" }};
+      const input = {{ task: secretPrompt, routingTask: "secret-api-key", model: "openai-codex/gpt-5.6-luna" }};
       const singleStarted = Date.now();
       await handlers.tool_call({{ toolName: "subagent", toolCallId: "single", input }}, {{ cwd }});
       await handlers.tool_result({{
@@ -1620,7 +1649,7 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       const single = records.find((record) => record.target === "openai-codex/gpt-5.6-luna");
       assert.equal(single.schemaVersion, 2);
       assert.equal(/^[0-9a-f-]{{36}}$/.test(single.invocationId), true);
-      assert.equal(single.invocationMode, "subagent");
+      assert.equal(single.invocationMode, "unknown");
       assert.equal(single.kind, "subagent");
       assert.equal(single.task, "peer");
       assert.equal(single.exitCode, 0);
@@ -1638,7 +1667,7 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
       assert.ok(records.some((record) => record.target === "openrouter/moonshotai/kimi-k2.7-code"));
 
       const serialized = JSON.stringify(records);
-      for (const secret of [secretPrompt, secretOutput, "first private task", "second private task", "first private output", "second private output", "inherited private task", "inherited output"]) {{
+      for (const secret of [secretPrompt, secretOutput, "secret-api-key", "first private task", "second private task", "first private output", "second private output", "inherited private task", "inherited output"]) {{
         assert.equal(serialized.includes(secret), false, `persisted secret: ${{secret}}`);
       }}
     """

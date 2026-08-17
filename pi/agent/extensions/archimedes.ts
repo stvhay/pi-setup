@@ -54,6 +54,11 @@ function outputContractParameter(outputContracts: OutputContracts): Record<strin
     description: "Expected result shape used for parent artifact persistence and quality evaluation.",
   };
 }
+const routingTaskParameter = {
+  type: "string",
+  pattern: "^[a-z][a-z0-9-]{0,63}$",
+  description: "Safe route task category used only for telemetry; stripped before child execution.",
+};
 const sourceAccessParameter = {
   type: "string",
   enum: ["self-contained", "repository"],
@@ -257,6 +262,7 @@ function subagentParameters(parameters: any, outputContracts: OutputContracts): 
     properties: {
       ...properties,
       outputContract,
+      routingTask: routingTaskParameter,
       sourceAccess: sourceAccessParameter,
       meteredJustification: meteredJustificationParameter,
       estimatedCostUsd: estimatedCostParameter,
@@ -268,6 +274,7 @@ function subagentParameters(parameters: any, outputContracts: OutputContracts): 
           properties: {
             ...taskItems.properties,
             outputContract,
+            routingTask: routingTaskParameter,
             sourceAccess: sourceAccessParameter,
             meteredJustification: meteredJustificationParameter,
             estimatedCostUsd: estimatedCostParameter,
@@ -281,6 +288,7 @@ function subagentParameters(parameters: any, outputContracts: OutputContracts): 
 function upstreamSubagentArguments(params: any): any {
   const {
     outputContract: _outputContract,
+    routingTask: _routingTask,
     sourceAccess: _sourceAccess,
     meteredJustification: _meteredJustification,
     estimatedCostUsd: _estimatedCostUsd,
@@ -293,6 +301,7 @@ function upstreamSubagentArguments(params: any): any {
     tasks: upstream.tasks.map((value: any) => {
       const {
         outputContract: _taskOutputContract,
+        routingTask: _taskRoutingTask,
         sourceAccess: _taskSourceAccess,
         meteredJustification: _taskMeteredJustification,
         estimatedCostUsd: _taskEstimatedCostUsd,

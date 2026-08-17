@@ -33,6 +33,11 @@ def fake_agent_dir(tmp_path: Path) -> tuple[Path, Path]:
     agnt.write_text(
         """#!/usr/bin/env bash
 set -eu
+if [ "$1" = runtime-path ]; then
+  if [ "${FAKE_RUNTIME_PATH_DELAY:-0}" != 0 ]; then sleep "$FAKE_RUNTIME_PATH_DELAY"; fi
+  printf '{"path":"%s"}\\n' "${FAKE_METRICS_DIR:-}"
+  exit 0
+fi
 printf '%s\\n' "$@" > "$FAKE_AGNT_ARGS"
 if [ "${FAKE_AGNT_FAIL:-0}" = 1 ]; then
   printf '%s\\n' '{"schemaVersion":1,"status":"error","error":"current work item is not closed"}'
@@ -79,6 +84,110 @@ def test_handoff_command_and_agent_tool_register():
       );
     """
     run_node(script)
+
+
+def test_handoff_telemetry_resolution_timeout_does_not_block_handoff(tmp_path):
+    agent_dir, args_path = fake_agent_dir(tmp_path)
+    session_dir = tmp_path / "sessions"
+    script = loader_prelude() + f"""
+      const command = extension.commands.get("handoff-bead");
+      let exitHandler;
+      const original = {{ argv: process.argv, execve: process.execve, once: process.once }};
+      process.argv = [process.execPath, "/opt/pi/dist/cli.js"];
+      process.once = (_name, listener) => {{ exitHandler = listener; return process; }};
+      process.execve = () => {{}};
+      try {{
+        const started = Date.now();
+        await command.handler("pi-next.1", {{
+          mode: "tui",
+          cwd: {str(tmp_path)!r},
+          sessionManager: {{
+            getSessionFile: () => "/sessions/source.jsonl",
+            getSessionDir: () => {str(session_dir)!r},
+            getSessionId: () => "old-session",
+          }},
+          shutdown() {{}},
+        }});
+        assert.ok(Date.now() - started < 1000, "best-effort telemetry must have a bounded setup delay");
+        assert.equal(typeof exitHandler, "function");
+      }} finally {{
+        process.argv = original.argv;
+        process.execve = original.execve;
+        process.once = original.once;
+      }}
+    """
+    env = {
+        **os.environ,
+        "PI_CODING_AGENT_DIR": str(agent_dir),
+        "FAKE_AGNT_ARGS": str(args_path),
+        "FAKE_RUNTIME_PATH_DELAY": "2",
+    }
+    run_node(script, env=env)
+
+
+def test_handoff_records_count_only_stage_outcomes_without_identifiers(tmp_path):
+    agent_dir, args_path = fake_agent_dir(tmp_path)
+    parent_session = tmp_path / "source-session.jsonl"
+    session_dir = tmp_path / "sessions"
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
+    script = loader_prelude() + f"""
+      import {{ readFileSync, readdirSync }} from "node:fs";
+      const command = extension.commands.get("handoff-bead");
+      let exitHandler;
+      const original = {{ argv: process.argv, execve: process.execve, once: process.once }};
+      process.argv = [process.execPath, "/opt/pi/dist/cli.js"];
+      process.once = (_name, listener) => {{ exitHandler = listener; return process; }};
+      process.execve = () => {{}};
+      try {{
+        await command.handler("pi-next.1", {{
+          mode: "tui",
+          cwd: {str(tmp_path)!r},
+          sessionManager: {{
+            getSessionFile: () => {str(parent_session)!r},
+            getSessionDir: () => {str(session_dir)!r},
+            getSessionId: () => "SECRET old-session",
+          }},
+          shutdown() {{}},
+        }});
+        exitHandler(0);
+        for (let attempt = 0; attempt < 100 && readdirSync({str(metrics_dir)!r}).filter((file) => file.endsWith(".metrics.json")).length < 7; attempt++) {{
+          await new Promise(setImmediate);
+        }}
+        const files = readdirSync({str(metrics_dir)!r}).filter((file) => file.endsWith(".metrics.json")).sort();
+        const records = files.map((file) => JSON.parse(readFileSync(resolve({str(metrics_dir)!r}, file), "utf8")));
+        assert.deepEqual(records.map((record) => [record.stage, record.resultClass]), [
+          ["attempt", "started"],
+          ["preflight", "succeeded"],
+          ["validation", "succeeded"],
+          ["session-stage", "succeeded"],
+          ["restart-request", "succeeded"],
+          ["shutdown-exit", "attempted"],
+          ["process-replacement", "attempted"],
+        ]);
+        for (const record of records) {{
+          assert.deepEqual(Object.keys(record).sort(), ["durationMs", "kind", "resultClass", "schemaVersion", "stage"]);
+          assert.equal(record.schemaVersion, 2);
+          assert.equal(record.kind, "handoff");
+          assert.equal(Number.isInteger(record.durationMs) && record.durationMs >= 0, true);
+        }}
+        const serialized = JSON.stringify(records);
+        for (const secret of ["pi-current.1", "pi-next.1", "SECRET old-session", {str(parent_session)!r}, {str(session_dir)!r}]) {{
+          assert.equal(serialized.includes(secret), false);
+        }}
+      }} finally {{
+        process.argv = original.argv;
+        process.execve = original.execve;
+        process.once = original.once;
+      }}
+    """
+    env = {
+        **os.environ,
+        "PI_CODING_AGENT_DIR": str(agent_dir),
+        "FAKE_AGNT_ARGS": str(args_path),
+        "FAKE_METRICS_DIR": str(metrics_dir),
+    }
+    run_node(script, env=env)
 
 
 def test_handoff_tool_starts_one_parent_linked_session_after_process_replacement(tmp_path):
@@ -298,7 +407,10 @@ def test_handoff_command_asks_once_when_multiple_ready_items_exist(tmp_path):
 def test_handoff_command_rejects_failed_closeout_preflight(tmp_path):
     assert EXTENSION.exists(), "tracked Bead handoff extension is required"
     agent_dir, args_path = fake_agent_dir(tmp_path)
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
     script = loader_prelude() + f"""
+      import {{ readFileSync, readdirSync }} from "node:fs";
       const command = extension.commands.get("handoff-bead");
       let replacements = 0;
       await assert.rejects(
@@ -314,12 +426,23 @@ def test_handoff_command_rejects_failed_closeout_preflight(tmp_path):
         /current work item is not closed/,
       );
       assert.equal(replacements, 0);
+      for (let attempt = 0; attempt < 100 && readdirSync({str(metrics_dir)!r}).filter((file) => file.endsWith(".metrics.json")).length < 2; attempt++) {{
+        await new Promise(setImmediate);
+      }}
+      const records = readdirSync({str(metrics_dir)!r}).filter((file) => file.endsWith(".metrics.json")).sort().map((file) =>
+        JSON.parse(readFileSync(resolve({str(metrics_dir)!r}, file), "utf8"))
+      );
+      assert.deepEqual(records.map((record) => [record.stage, record.resultClass]), [
+        ["attempt", "started"],
+        ["preflight", "failed"],
+      ]);
     """
     env = {
         **os.environ,
         "PI_CODING_AGENT_DIR": str(agent_dir),
         "FAKE_AGNT_ARGS": str(args_path),
         "FAKE_AGNT_FAIL": "1",
+        "FAKE_METRICS_DIR": str(metrics_dir),
     }
     run_node(script, env=env)
 
