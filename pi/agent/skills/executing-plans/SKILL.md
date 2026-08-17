@@ -1,6 +1,6 @@
 ---
 name: executing-plans
-description: Use when you have a written implementation plan to execute with batch checkpoints, verification evidence, and safe branch gates.
+description: Use to execute written plans with checkpoints, evidence, and branch gates.
 ---
 
 # Executing Plans

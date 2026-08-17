@@ -1,6 +1,6 @@
 ---
 name: session-to-skill-extractor
-description: Use when work-learning assigns reusable-pattern review or the user explicitly requests extraction; not for automatic closeout, routine summaries, or implementing an existing skill.
+description: Use for assigned/explicit skill extraction; not closeout, summaries, or existing-skill work.
 ---
 
 # Session-to-Skill Extractor

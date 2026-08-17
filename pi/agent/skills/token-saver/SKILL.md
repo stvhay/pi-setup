@@ -1,6 +1,6 @@
 ---
 name: token-saver
-description: Use when token/context discipline matters for large-source retrieval, deterministic transformations, iterative revisions, or delegated model/tool work; not to weaken safety or verification.
+description: Use when token/context discipline matters for large inputs, revisions, or delegation; never weaken safety or verification.
 ---
 
 # Token Saver

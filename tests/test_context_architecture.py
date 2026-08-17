@@ -386,6 +386,30 @@ def test_project_init_eval_excludes_opt_in_github_templates():
     assert "created opt-in GitHub template without request" in case
 
 
+def test_bounded_scope_rule_and_beads_marker_propagate_without_new_artifacts():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    template = (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md").read_text(encoding="utf-8")
+    contributing = (AGENT / "skills" / "project-init" / "templates" / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    checklist = (AGENT / "skills" / "project-init" / "references" / "audit-checklist.md").read_text(encoding="utf-8")
+    marker = json.loads((ROOT / ".project-init").read_text(encoding="utf-8"))
+
+    for text in (instructions, template):
+        for boundary in ("public interface", "persistent", "security boundary", "dependency", "cross-cutting"):
+            assert boundary in text
+        for preflight in ("outcome", "affected boundary", "smallest implementation", "verification"):
+            assert preflight in text
+        assert "interpretations differ materially" in text
+        assert "one targeted question" in text
+        assert "options and a recommendation" in text
+
+    assert marker["work_tracking"] == "beads"
+    assert "Bead" in contributing.split("## Workflow", 1)[1].split("2.", 1)[0]
+    assert "`work_tracking: beads`" in checklist
+    standard = (AGENT / "skills" / "project-init" / "SKILL.md").read_text(encoding="utf-8").split("## Standard scaffolding", 1)[1].split("## Detect mode", 1)[0]
+    for artifact in ("CHARTER.md", "REQUIREMENTS.md", "RISKS.md", "GLOSSARY.md", "ADR", "C4"):
+        assert artifact not in standard
+
+
 def test_workflow_eval_requires_explicit_skill_provenance():
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
 

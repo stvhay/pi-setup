@@ -4,7 +4,7 @@
 
 Every meaningful change follows this process:
 
-1. File or reference a GitHub issue for persistent work tracking.
+1. Create or reference a Bead for persistent agent-facing work; use GitHub issues only as external adapters when needed.
 2. Use `/skill:brainstorming` for non-trivial design choices.
 3. Use `/skill:writing-plans` to create an implementation plan under `.pi/plans/`.
 4. Implement in small, reviewable steps.

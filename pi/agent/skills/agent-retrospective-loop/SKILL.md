@@ -1,6 +1,6 @@
 ---
 name: agent-retrospective-loop
-description: Use when capability-calibration assigns agent or harness lifecycle review, or when explicitly invoked; not for one-run bugs or branch retrospectives.
+description: Use for assigned agent/harness lifecycle review; not one-run bugs or branch retrospectives.
 ---
 
 # Agent Retrospective Loop

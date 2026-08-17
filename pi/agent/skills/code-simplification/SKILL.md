@@ -1,6 +1,6 @@
 ---
 name: code-simplification
-description: Use when architecture-coherence assigns behavior-preserving cleanup or the user explicitly requests simplification; not for automatic post-verification cleanup.
+description: Use for assigned or requested behavior-preserving simplification; not automatic cleanup.
 ---
 
 # Code Simplification

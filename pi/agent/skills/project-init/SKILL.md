@@ -1,6 +1,6 @@
 ---
 name: project-init
-description: Use when scaffolding a new project or auditing one for Pi-native workflow, Beads, plans, and direnv/Nix setup.
+description: Use to scaffold or audit Pi-native projects with Beads, plans, and direnv/Nix.
 ---
 
 # Project Init

@@ -1,6 +1,6 @@
 ---
 name: dispatching-parallel-agents
-description: Use when facing multiple independent investigation or review domains that can be handled by read-only Pi peers in parallel.
+description: Use for parallel, independent, read-only Pi investigations or reviews.
 ---
 
 # Dispatching Parallel Agents

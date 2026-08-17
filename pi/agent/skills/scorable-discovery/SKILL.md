@@ -1,6 +1,6 @@
 ---
 name: scorable-discovery
-description: Use when optimizing code, algorithms, prompts, heuristics, models, or configurations against an objective scoring metric.
+description: Use to optimize code, prompts, models, or config against an objective score.
 ---
 
 # Scorable Discovery

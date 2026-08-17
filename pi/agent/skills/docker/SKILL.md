@@ -1,6 +1,6 @@
 ---
 name: docker
-description: Use when creating, reviewing, debugging, securing, or operating Dockerfiles, container images, Docker Engine, or Docker Compose; not for Kubernetes-only orchestration or generic container theory.
+description: Use for Dockerfile, image, Engine, or Compose work; not Kubernetes.
 ---
 
 # Docker

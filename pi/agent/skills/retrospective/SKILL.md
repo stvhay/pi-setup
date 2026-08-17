@@ -1,6 +1,6 @@
 ---
 name: retrospective
-description: Use when work-learning assigns a session retrospective or the user explicitly requests one; not for automatic branch, session, or Bead closeout.
+description: Use for assigned/requested retrospectives; not automatic closeout.
 ---
 
 # Retrospective

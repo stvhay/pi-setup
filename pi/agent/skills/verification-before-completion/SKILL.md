@@ -1,6 +1,6 @@
 ---
 name: verification-before-completion
-description: Use before claiming work complete, fixed, or passing, and before commits or PRs, to require fresh verification evidence.
+description: Use before completion claims, commits, or PRs to require fresh evidence.
 ---
 
 # Verification Before Completion

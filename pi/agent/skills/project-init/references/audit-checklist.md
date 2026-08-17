@@ -33,7 +33,7 @@ Pi-native checklist for project-init audits.
 - **Severity:** MISSING/DRIFT
 
 ### SCAFF-8: Project marker
-- **Check:** `.project-init` exists and records `tool: pi` and `skill: project-init`
+- **Check:** `.project-init` exists and records `tool: pi`, `skill: project-init`, and `work_tracking: beads`
 - **Severity:** MISSING/DRIFT
 
 ## Environment

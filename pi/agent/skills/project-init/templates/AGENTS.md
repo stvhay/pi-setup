@@ -6,6 +6,7 @@
 - Keep implementation plans under `.pi/plans/`.
 - Use Beads (`bd`/`beads`) for persistent agent-facing work tracking. Require a Bead before every code-changing task begins.
 - Work directly in the current Pi session by default; select run-artifact orchestration explicitly when useful.
+- Before changing a public interface, persistent state or format, security boundary, dependency, or cross-cutting mechanism, state the outcome, affected boundary, smallest implementation, and verification. Ask one targeted question with options and a recommendation only when interpretations differ materially; otherwise proceed within that boundary.
 - Treat GitHub issues as optional external adapters/exports, not a second source of truth.
 - Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; use the shared development completion contract before closeout.
 - Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees, post-integration removal, and staged deletion of tracked/config-controlled assets. Before cleanup or deletion, show exact paths/branches and commit-SHA recovery sources. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs, remote deletion, force/reset/clean, or history rewrite.

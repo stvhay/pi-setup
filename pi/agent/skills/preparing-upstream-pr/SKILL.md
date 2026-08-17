@@ -1,6 +1,6 @@
 ---
 name: preparing-upstream-pr
-description: Use for preparing or staging contributions to external upstream repositories; not for internal branch closeout, review response, Ready state, or merge.
+description: Use for external upstream work; not internal closeout, reviews, readiness, or merge.
 ---
 
 # Preparing an Upstream Pull Request

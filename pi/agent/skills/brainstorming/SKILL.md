@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: Use when creating or changing functionality and intent, requirements, or alternatives need exploration before implementation.
+description: Use before implementation when intent, requirements, or options need exploration.
 ---
 
 # Brainstorming Ideas Into Designs

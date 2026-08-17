@@ -358,6 +358,8 @@ def test_context_health_reports_skill_discovery_budget(agnt):
     summary = report["summary"]
     assert summary["skillDiscoveryLimit"] == 8000
     assert summary["skillDiscoveryChars"] <= summary["skillDiscoveryLimit"]
+    assert summary["skillDiscoveryRemaining"] > summary["skillDiscoveryWarningRemaining"]
+    assert not any(warning["kind"] == "skill-discovery-budget-warning" for warning in report["warnings"])
     assert not {"skill-description-format", "skill-discovery-budget"} & {
         failure["kind"] for failure in report["failures"]
     }

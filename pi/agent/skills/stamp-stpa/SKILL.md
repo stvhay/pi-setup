@@ -1,6 +1,6 @@
 ---
 name: stamp-stpa
-description: Use when prospectively analyzing system safety, hazards, risk, vulnerabilities, or fault-tree and Swiss-cheese framing.
+description: Use for prospective safety, hazard, risk, vulnerability, fault-tree, or Swiss-cheese analysis.
 ---
 
 # STAMP/STPA Systems Safety Analysis
