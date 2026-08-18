@@ -320,6 +320,17 @@ if len(sys.argv) > 1 and sys.argv[1] == "route":
             "meteredJustification": None,
             "limits": {{}},
         }},
+        "fixture-paid-cold-review": {{
+            "target": "openrouter/anthropic/claude-opus-5",
+            "thinkingLevel": "high",
+            "contextPolicy": "fresh",
+            "sourceAccess": "self-contained",
+            "executionMode": "one-shot",
+            "billingClass": "metered",
+            "estimatedCostUsd": 0.03,
+            "meteredJustification": "quality-benefit",
+            "limits": {{"maxOutputTokens": 2000, "maxDurationMs": 300000}},
+        }},
         "fixture-implementation": {{
             "target": "openrouter/anthropic/claude-opus-5",
             "thinkingLevel": "high",
@@ -651,6 +662,18 @@ export function resolveAgentModel(name) {
             ["Implement second", "fixture-implementation", "openrouter/anthropic/claude-opus-5"],
           ],
         );
+
+        const callsBeforePaidColdRejection = globalThis.__upstreamSubagentCalls.length;
+        const routedPaidColdAggregate = await subagent.execute("routed-paid-cold-aggregate", {{
+          maxMarginalUsd: 0.05,
+          tasks: [
+            {{ task: "Review auth", route: {{ task: "fixture-paid-cold-review", sourceAccess: "self-contained", estimatedInputTokens: 12000, estimatedOutputTokens: 2000, maxMarginalUsd: 0.03, meteredJustification: "quality-benefit" }} }},
+            {{ task: "Review tests", route: {{ task: "fixture-paid-cold-review", sourceAccess: "self-contained", estimatedInputTokens: 12000, estimatedOutputTokens: 2000, maxMarginalUsd: 0.03, meteredJustification: "quality-benefit" }} }},
+          ],
+        }}, undefined, undefined, {{ mode, cwd: process.cwd() }});
+        assert.equal(routedPaidColdAggregate.isError, true);
+        assert.match(routedPaidColdAggregate.content[0].text, /aggregate estimated cost exceeds/i);
+        assert.equal(globalThis.__upstreamSubagentCalls.length, callsBeforePaidColdRejection);
 
         for (const [name, params, expected] of [
           ["route-manual-conflict", {{ task: "Conflict", route: {{ task: "fixture-review" }}, model: "openai-codex/gpt-5.6-sol" }}, /route.*model/i],

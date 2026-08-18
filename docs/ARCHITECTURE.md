@@ -74,15 +74,18 @@ single source for routing facts: cost class, billing class, modalities, context
 window, reasoning capability, and rates. `agnt` and `agent-instructions` read it
 via shared `bin/_agnt_common.py`; no model facts live in code.
 Every metered OpenRouter model runs only in a fresh subagent, never as a
-continuation model for a long root conversation. Repository routes use agentic mode
-and prefer qualified subscription venues at zero marginal cost. Metered agentic
-repository candidates require catalog-rate estimates, `quality-benefit` or
-`missing-capability` justification, an aggregate marginal budget, and per-child
-request/token/cost/duration limits. The tracked Archimedes wrapper rejects repository
-one-shot calls and incomplete metered repository evidence. It also uses this catalog's
-`billingClass`—not provider-name inference—to inject a configurable 16,384-token
-provider output cap only for metered one-shot children. Explicit tighter caps win;
-subscription and other agentic children receive no automatic token or cost cap.
+continuation model for a long root conversation. All metered routes require
+catalog-rate estimates, `quality-benefit` or `missing-capability` justification,
+and aggregate marginal budget before selection. Repository routes use agentic mode
+and prefer qualified subscription venues at zero marginal cost; admitted metered
+repository children receive request/token/cost/duration limits. Metered one-shot
+children receive route-generated output/duration limits because cost cannot stop one
+provider request already in flight. The tracked Archimedes wrapper rejects repository
+one-shot calls and uses catalog `billingClass`—not provider-name inference—to inject
+a configurable 16,384-token default provider output cap only for metered one-shot
+children. Explicit tighter caps win; subscription and other agentic children receive
+no automatic token or cost cap and routine subscription reviews receive no caller
+liveness limit.
 Applied evidence distinguishes that deliberate ceiling
 from a lower existing provider/model ceiling, while every provider `length` stop is
 failed `output-limit` termination with usable partial output preserved in parent-owned

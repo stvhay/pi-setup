@@ -31,7 +31,7 @@ def test_global_instructions_are_compact_and_retain_audited_gates():
         "`agnt work direct-closeout <id> --outcome success --reason \"<reason>\"`",
         "`agnt route --task review --access repository`",
         "`--access self-contained`",
-        "metered OpenRouter only for bounded diversity",
+        "Metered OpenRouter runs only in fresh subagents",
         "Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in",
         "Outside exact preauthorized setup",
         "With no interactive UI, never guess",
@@ -981,22 +981,23 @@ def test_active_skills_use_subagent_for_delegation():
     assert not violations, "peer guidance must use subagent: " + ", ".join(violations)
 
 
-def test_review_skill_uses_liveness_bounds_without_default_request_token_cost_caps():
+def test_review_skill_omits_default_subscription_limits_and_budgets_metered_calls():
     skill = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
     discovery = skill.split("## Run cold discovery passes", 1)[1].split("## Fresh adversarial verification", 1)[0]
     verification = skill.split("## Fresh adversarial verification", 1)[1].split("## Deterministic K3 escalation gate", 1)[0]
 
-    assert "300-second child activity window" in discovery
+    assert "Subscription-backed one-shot review uses no caller liveness limit" in discovery
+    assert "Subscription-backed repository verification also uses no caller liveness limit" in verification
     assert "at most two concrete findings" in discovery
     assert "at most 6,000 characters" in discovery
-    assert '"limits": {"maxIdleMs": 300000}' in discovery
+    assert '"limits": {"maxIdleMs":' not in discovery + verification
     assert "one provider request is intrinsic" in discovery
-    assert "180-second child limit" not in discovery
-    assert '"limits": {"maxIdleMs": 300000}' in verification
     assert "Metered" in discovery and "maxDurationMs" in discovery
+    assert "maxOutputTokens" in discovery
+    assert "max-marginal-usd" in discovery
     assert '"maxProviderRequests":' not in discovery + verification
     assert "maxTotalTokens" not in discovery + verification
-    assert "maxCostUsd" not in discovery + verification
+    assert "One-shot `maxCostUsd` would be false control" in discovery
 
 
 def test_repository_delegation_guidance_is_access_and_billing_aware():
@@ -1012,6 +1013,8 @@ def test_repository_delegation_guidance_is_access_and_billing_aware():
     assert "missing-capability" in reference
     assert "estimated-input-tokens" in reference
     assert "max-marginal-usd" in reference
+    assert "All metered candidates are excluded" in reference
+    assert '"maxMarginalUsd": 0.10' in reference
 
 
 def test_subagent_guidance_calibrates_output_contracts_and_failure_evidence():
@@ -1020,7 +1023,7 @@ def test_subagent_guidance_calibrates_output_contracts_and_failure_evidence():
 
     assert "self-contained cold packets" in instructions.lower() and "one-shot mode" in instructions
     assert "Subscription-backed peers normally omit request/token/cost caps" in instructions
-    assert "Use `maxIdleMs` routinely" in instructions
+    assert "Use `maxIdleMs` only for an identified liveness risk" in instructions
     assert "reserve `maxDurationMs`" in instructions
     for contract in ("inline", "artifact", "status-only", "pass-no-findings"):
         assert f"| `{contract}` |" in reference

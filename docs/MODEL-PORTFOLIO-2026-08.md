@@ -55,14 +55,14 @@ GLM-5.2 remains unconfigured. Earlier relay-path calls produced almost no usable
 
 ## Primary matrix
 
-All metered OpenRouter calls use fresh workers with bounded complete packets. Different-family output is evidence to verify, never authority.
+All metered OpenRouter calls use fresh workers with bounded complete packets. They are ineligible until routing receives token estimates, justification, and aggregate marginal budget; automatic review without that evidence stays subscription-only. Different-family output is evidence to verify, never authority.
 
 | Work type | Primary | Independent check |
 |---|---|---|
 | Precise, repetitive work | Terra — low through `cheap-peer` | Luna fallback; M3 bounded shadow sample |
 | Planning and research | Sol — low/medium/high by risk | Terra-low advisory pass; bounded different-family critique |
-| Normal code review | Sol — low/medium by risk | Terra challenger; Kimi K2.7 Code diversity pass |
-| Complex/high-risk review | Sol — extra high | Opus 5; Terra challenger; human adjudication |
+| Normal code review | Sol — low/medium by risk | Terra challenger; explicitly budgeted Kimi K2.7 Code diversity pass |
+| Complex/high-risk review | Sol — extra high | Explicitly budgeted Opus 5; Terra challenger; human adjudication |
 | Moderate coding | Sol — high | Kimi K2.7 Code |
 | Orchestration/main agent | Sol — extra high | Opus 5 at phase checkpoints only |
 | Ambiguous change/architecture | Sol — extra high | Opus 5 |
@@ -90,8 +90,10 @@ This is an external-primary canary, not the default. Highest-risk control remain
 
 ## Spend and promotion gates
 
-- Default API budget: **$10–20/month**.
-- Review soft threshold: $12 month-to-date; stop optional shadow sampling.
+- Current bring-under-control guard: **$0.25/day provider cap**, which routing cannot infer; do not raise it yet.
+- Automatic paid review budget: **$0**. Explicit specialist eligibility starts at **$0.10 per review** with estimated input/output bounds.
+- Longer-term API ceiling remains **$10–20/month** only after usable completion/cost telemetry supports raising daily cap.
+- Review soft threshold: $12 month-to-date; stop optional shadow sampling. This remains secondary to provider daily cap and explicit per-review admission.
 - Review reserve threshold: $18; use subscription-backed Sol only.
 - Review hard cap: $20; use subscription-backed Sol only and report exhaustion.
 - Do not buy an annual plan during the evaluation window.

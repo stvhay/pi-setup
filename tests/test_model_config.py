@@ -57,14 +57,14 @@ def test_builtin_openrouter_uses_only_bounded_model_overrides():
     assert "apiKey" not in provider
 
 
-def test_metered_openrouter_models_require_fresh_delegation_context():
+def test_metered_openrouter_models_require_fresh_budgeted_delegation_context():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
 
-    assert "metered OpenRouter only for bounded diversity, specialist review, or explicit canary work" in instructions
-    assert "always in fresh subagents" in instructions
-    assert "metered repository inspection requires route-generated justification, estimates, aggregate budget, and per-child limits" in instructions
+    assert "Metered OpenRouter runs only in fresh subagents" in instructions
+    assert "with estimates, justification, and aggregate budget" in instructions
+    assert "repository routes add request/token/cost limits" in instructions
     assert "Route unnamed `subagent` once via `route`" in instructions
-    assert "Keep subscription OpenAI/Codex as root/default controller" in instructions
+    assert "Keep subscription OpenAI/Codex as controller" in instructions
 
 
 def test_delegation_guidance_uses_evidence_bounded_output_contract_defaults():

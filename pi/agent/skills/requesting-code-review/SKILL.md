@@ -34,7 +34,7 @@ Use `agnt route --task review --access self-contained` for complete discovery pa
 - **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3`.
 - **Canary only:** `openrouter/minimax/minimax-m3` until accepted-output evidence supports promotion.
 
-Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker; never switch a long-running root conversation to it. Self-contained discovery uses a bounded complete packet. Repository access requires agentic mode and route-generated justification, estimate, budget, and limits. Only tracked Codex and OpenRouter routes are configured.
+Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker; never switch a long-running root conversation to it. All metered candidates are excluded unless routing receives positive input/output token estimates, `quality-benefit` or `missing-capability` justification, and an aggregate `maxMarginalUsd`. Self-contained discovery then receives route-generated output and duration limits; repository access requires agentic mode and route-generated request, token, cost, and duration limits. Only tracked Codex and OpenRouter routes are configured.
 
 `agnt route` measures month-to-date marginal review spend from OpenRouter, configured metered venues, and positive provider-reported retired venues; it excludes configured subscription targets. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
 
@@ -50,7 +50,7 @@ Budget states:
 - **$18–$19.99:** reserve mode; use subscription-backed Sol only.
 - **$20 or more:** hard-cap mode; keep subscription-backed Sol only and report paid-budget exhaustion.
 
-Set a provider-side cap as a backstop when the provider supports one.
+Keep a provider-side daily cap as hard backstop; routing does not infer its remaining balance. Start explicit review eligibility at `maxMarginalUsd: 0.10` and raise it only after reviewing real completion and cost telemetry.
 
 ## Determine scope and risk
 
@@ -117,16 +117,16 @@ The tracked schema and example are:
 
 ## Run cold discovery passes
 
-Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child activity window stops silent subscription calls without cutting off healthy streaming responses; one provider request is intrinsic, so do not add a redundant `maxProviderRequests` cap. Metered one-shot discovery retains an absolute `maxDurationMs` bound because elapsed execution is part of its approved spend boundary. Reuse the calibrated response contract in every discovery packet: report at most two concrete findings and return at most 6,000 characters. This keeps final JSON below the deliberate 16,384-token metered output ceiling without weakening review evidence.
+Subagent `mode: "one-shot"` disables tools and ambient project context. Subscription-backed one-shot review uses no caller liveness limit: one provider request is intrinsic, and healthy reviews in telemetry exceeded five minutes. Metered one-shot discovery retains route-generated `maxOutputTokens` and absolute `maxDurationMs` bounds because output allowance and elapsed execution are part of its approved spend boundary. Reuse the calibrated response contract in every discovery packet: report at most two concrete findings and return at most 6,000 characters. This keeps final JSON below the deliberate metered output ceiling without weakening review evidence.
 
 Do not add a low ad hoc `maxOutputTokens` cap for structured review JSON. Provider output allowance can include reasoning before visible final output, so a 5,000-token ceiling does not safely guarantee a shorter JSON response. Keep subscription-backed discovery uncapped; retain the tracked metered wrapper ceiling. Use an explicit lower cap only for a bounded experiment or known spend/risk boundary, and record any resulting `output-limit` as a caller limit rather than a provider or network failure.
 
 Policy by risk:
 
 - **Low:** subscription-backed Sol at low thinking for a behavioral pass.
-- **Medium:** Sol at medium thinking for a behavioral pass plus one fresh Kimi K2.7 Code diversity pass.
-- **High:** Sol at extra-high thinking plus one fresh Opus 5 boundary/adversarial pass; human adjudicates consequential findings.
-- **Reserve/hard cap:** use the subscription-backed Sol target returned by `agnt route`.
+- **Medium:** Sol at medium thinking. Add Kimi K2.7 Code only when explicit metered evidence and budget make it eligible.
+- **High:** Sol at extra-high thinking. Add Opus 5 only when explicit metered evidence and budget make it eligible; human adjudicates consequential findings.
+- **Reserve/hard cap or missing metered evidence:** use the subscription-backed Sol target returned by `agnt route`.
 
 Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes. Each task embeds one complete packet and sets:
 
@@ -136,12 +136,11 @@ Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes
   "mode": "one-shot",
   "thinking": "<routed-thinking-level>",
   "sourceAccess": "self-contained",
-  "limits": {"maxIdleMs": 300000},
   "outputContract": "inline"
 }
 ```
 
-Save each returned child output under `$ReviewDir` before validation. The example above is the routine subscription profile. Metered self-contained discovery must use one-shot mode, replace the activity-only limit with `{"maxDurationMs": 300000}`, and keep the Archimedes wrapper's configured provider output cap.
+Save each returned child output under `$ReviewDir` before validation. Example above is routine subscription profile and deliberately has no `limits`. To admit a metered pass, rerun routing with packet estimates, `--max-marginal-usd 0.10`, justification, and requested fanout; copy exact route-generated estimate and limits. Metered self-contained discovery must use one-shot mode and retain its routed `maxOutputTokens` plus `maxDurationMs`. One-shot `maxCostUsd` would be false control because cost is known only after provider request; aggregate admission uses estimate, while provider daily cap remains hard backstop.
 
 ### Recover persisted output before retrying
 
@@ -173,14 +172,13 @@ Verification statuses:
 - `unresolved` — a concrete serious claim survives inspection but conflicting requirements or unavailable evidence prevent a decision;
 - `unverified` — discovery only; never a promotion gate.
 
-Route fresh filesystem verifiers with `agnt route --task review --access repository`. Repository access requires agentic mode. Prefer the qualified subscription-backed target and keep a 300-second child activity window, but omit wall-time, request, token, and cost caps: deep repository inspection may require many healthy active turns. Add a request cap only for an explicit bounded experiment or identified runaway risk, and record it as a caller limit. A metered repository verifier is exceptional: use only route-emitted `quality-benefit` or `missing-capability` evidence and copy its estimate plus bounded limits—including its absolute `maxDurationMs`—exactly; parallel calls also copy the top-level aggregate budget.
+Route fresh filesystem verifiers with `agnt route --task review --access repository`. Repository access requires agentic mode. Subscription-backed repository verification also uses no caller liveness limit and omits wall-time, request, token, and cost caps: deep repository inspection may require many healthy active turns. Add `maxIdleMs` only for an identified stuck-provider risk, and record it as a caller limit. A metered repository verifier is exceptional: use only route-emitted `quality-benefit` or `missing-capability` evidence and copy its estimate plus bounded limits—including its absolute `maxDurationMs`—exactly; parallel calls also copy the top-level aggregate budget.
 
 ```json
 {
   "model": "<routed-subscription-provider/model>",
   "mode": "agentic",
   "sourceAccess": "repository",
-  "limits": {"maxIdleMs": 300000},
   "outputContract": "inline"
 }
 ```

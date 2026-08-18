@@ -69,7 +69,7 @@ def route_cost_rank(target: str, info: Dict[str, Any], budget: str) -> Tuple[int
 
 
 METERED_REPOSITORY_MAX_PROVIDER_REQUESTS = 6
-METERED_REPOSITORY_MAX_DURATION_MS = 300_000
+METERED_MAX_DURATION_MS = 300_000
 
 
 def repository_execution_mode(task: str, source_access: str) -> str:
@@ -521,7 +521,7 @@ def select_model(
         billing_class = str(info.get("billingClass") or "unknown")
         estimate = 0.0 if billing_class == "subscription" else None
         limits: Dict[str, Any] = {}
-        if source_access == "repository" and billing_class == "metered":
+        if billing_class == "metered":
             complete_evidence = (
                 estimated_input_tokens > 0
                 and estimated_output_tokens > 0
@@ -534,8 +534,8 @@ def select_model(
                     "target": target,
                     "diversityGroup": group,
                     "reason": (
-                        "metered repository inspection requires estimated input/output tokens, "
-                        "max marginal USD, and quality-benefit or missing-capability justification"
+                        "metered execution requires estimated input/output tokens, max marginal USD, "
+                        "and quality-benefit or missing-capability justification"
                     ),
                 })
                 continue
@@ -544,7 +544,7 @@ def select_model(
                 rejected.append({
                     "target": target,
                     "diversityGroup": group,
-                    "reason": "metered repository inspection requires catalog input/output rates",
+                    "reason": "metered execution requires catalog input/output rates",
                 })
                 continue
             if estimate > float(max_marginal_usd):
@@ -554,12 +554,18 @@ def select_model(
                     "reason": f"estimated marginal cost ${estimate:.6f} exceeds budget ${max_marginal_usd:.6f}",
                 })
                 continue
-            limits = {
-                "maxProviderRequests": METERED_REPOSITORY_MAX_PROVIDER_REQUESTS,
-                "maxTotalTokens": estimated_input_tokens + estimated_output_tokens,
-                "maxCostUsd": estimate,
-                "maxDurationMs": METERED_REPOSITORY_MAX_DURATION_MS,
-            }
+            if execution_mode == "agentic":
+                limits = {
+                    "maxProviderRequests": METERED_REPOSITORY_MAX_PROVIDER_REQUESTS,
+                    "maxTotalTokens": estimated_input_tokens + estimated_output_tokens,
+                    "maxCostUsd": estimate,
+                    "maxDurationMs": METERED_MAX_DURATION_MS,
+                }
+            else:
+                limits = {
+                    "maxOutputTokens": estimated_output_tokens,
+                    "maxDurationMs": METERED_MAX_DURATION_MS,
+                }
         family = common.family_for_target(target) or target
         candidate = score_candidate(
             task=task,
@@ -640,8 +646,7 @@ def select_model(
     for item in proposed_fanout:
         estimate = float(item.get("estimatedMarginalUsd") or 0.0)
         if (
-            source_access == "repository"
-            and item.get("billingClass") == "metered"
+            item.get("billingClass") == "metered"
             and max_marginal_usd is not None
             and estimated_fanout_usd + estimate > max_marginal_usd
         ):
@@ -652,7 +657,13 @@ def select_model(
             estimated_fanout_usd += estimate
     fanout = [selection_contract(item, rejected, reasons) for item in fanout_items]
     metered_budget = None
-    if source_access == "repository":
+    if (
+        source_access == "repository"
+        or estimated_input_tokens
+        or estimated_output_tokens
+        or max_marginal_usd is not None
+        or metered_justification is not None
+    ):
         metered_budget = {
             "justification": metered_justification,
             "estimatedInputTokens": estimated_input_tokens or None,

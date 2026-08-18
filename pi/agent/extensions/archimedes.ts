@@ -624,9 +624,7 @@ async function resolveRoutedArguments(
       receipts[index] ? withReceiptSelection(task, receipts[index]!, params.limits) : task
     );
     const routedEstimate = receipts.reduce((sum, receipt) =>
-      sum + (receipt?.sourceAccess === "repository" && receipt.billingClass === "metered"
-        ? receipt.estimatedCostUsd ?? 0
-        : 0), 0);
+      sum + (receipt?.billingClass === "metered" ? receipt.estimatedCostUsd ?? 0 : 0), 0);
     return {
       params: {
         ...params,
@@ -783,13 +781,18 @@ function delegationPolicyError(
   for (const task of tasks) {
     const mode = task.mode ?? params.mode ?? "agentic";
     const sourceAccess = task.sourceAccess ?? params.sourceAccess;
-    if (sourceAccess !== "repository") continue;
-    if (mode === "one-shot") return "Repository access requires agentic subagent mode.";
+    if (sourceAccess === "repository" && mode === "one-shot") {
+      return "Repository access requires agentic subagent mode.";
+    }
     const agentModel = typeof task.agent === "string" ? resolveAgentModel(task.agent, cwd) : undefined;
     const model = agentModel ?? task.model ?? params.model ?? inheritedModel;
     if (modelBillingClass(model, ctx, classes) !== "metered") continue;
-    const justification = task.meteredJustification ?? params.meteredJustification;
     const estimatedCost = positiveFinite(task.estimatedCostUsd ?? params.estimatedCostUsd);
+    if (sourceAccess !== "repository") {
+      aggregateEstimatedCost += estimatedCost ?? 0;
+      continue;
+    }
+    const justification = task.meteredJustification ?? params.meteredJustification;
     const limits = { ...(params.limits ?? {}), ...(task.limits ?? {}) };
     const maxCost = positiveFinite(limits.maxCostUsd);
     if (
@@ -807,9 +810,9 @@ function delegationPolicyError(
   }
   if (Array.isArray(params.tasks) && aggregateEstimatedCost > 0) {
     const aggregateBudget = positiveFinite(params.maxMarginalUsd);
-    if (aggregateBudget === undefined) return "Metered repository fanout requires aggregate maxMarginalUsd.";
+    if (aggregateBudget === undefined) return "Metered fanout requires aggregate maxMarginalUsd.";
     if (aggregateEstimatedCost > aggregateBudget) {
-      return "Metered repository aggregate estimated cost exceeds maxMarginalUsd.";
+      return "Metered aggregate estimated cost exceeds maxMarginalUsd.";
     }
   }
   return undefined;

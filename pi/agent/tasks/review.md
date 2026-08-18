@@ -25,8 +25,8 @@ thinkingMedium: medium
 thinkingHigh: xhigh
 ---
 
-Use Sol for first-pass review at low or medium thinking and at extra-high thinking for high risk. Keep Terra as a subscription-backed challenger. Medium risk adds Kimi K2.7 Code as a bounded different-family challenger; high risk uses Opus 5 plus human adjudication for consequential findings. Verify every finding against files, tests, specifications, or profiling before acting. Model confidence never triggers escalation.
+Use Sol for first-pass review at low or medium thinking and at extra-high thinking for high risk. Keep Terra as a subscription-backed challenger. Medium-risk Kimi K2.7 Code and high-risk Opus 5 become eligible only with explicit token estimates, justification, and aggregate marginal budget; without all three, fanout stays subscription-only. Human adjudicates consequential findings. Verify every finding against files, tests, specifications, or profiling before acting. Model confidence never triggers escalation.
 
-Kimi K3 remains escalation-only for a concrete unresolved critical finding after fresh adversarial verification and a budget check. Every metered OpenRouter reviewer runs in a fresh bounded worker; never switch a long-running root conversation to it.
+Kimi K3 remains escalation-only for a concrete unresolved critical finding after fresh adversarial verification and a budget check. Every metered OpenRouter reviewer runs in a fresh bounded worker with routed output/duration limits; never switch a long-running root conversation to it.
 
 Review spend uses deterministic monthly gates. At reserve and hard-cap thresholds, keep subscription-backed Sol only. Annotate real review and verification outcomes so routing accumulates evidence; do not manufacture review work solely to generate metrics.
