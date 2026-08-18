@@ -22,7 +22,8 @@ ARCHIMEDES_LIMITS_HEAD = "23d8fbf7381f2081806165e26d6b0962aef13ef9"
 ARCHIMEDES_ONE_SHOT_HEAD = "f277470d64d014b496efe7e4ae4d57275d8e1907"
 ARCHIMEDES_REPEATED_ERRORS_HEAD = "3576ddfd154fb274813a16e07607a15520ce73b7"
 ARCHIMEDES_RESULT_PORTS_HEAD = "a9efbf159ee8b2717aae1df8742bd7382e97c1a3"
-ARCHIMEDES_VENDOR_HEAD = "1c4750ddb844cd8579f3076922603915098e9f96"
+ARCHIMEDES_PRE_IDLE_HEAD = "1c4750ddb844cd8579f3076922603915098e9f96"
+ARCHIMEDES_VENDOR_HEAD = "8590ec0e1063811f86d1417ded9c2aeb48fd73b6"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
 LANGFUSE_VENDOR_HEAD = "94fa7f0c4410ce10da1f98c8fe4b798374c8df2e"
 LANGFUSE_UPSTREAM_1514 = "04d55a12556bdf4c4b8b208038198dc2fd8e571b"
@@ -392,7 +393,8 @@ def test_archimedes_vendor_submodule_pins_clean_210_stack():
         (ARCHIMEDES_ONE_SHOT_HEAD, ARCHIMEDES_LIMITS_HEAD),
         (ARCHIMEDES_REPEATED_ERRORS_HEAD, ARCHIMEDES_ONE_SHOT_HEAD),
         (ARCHIMEDES_RESULT_PORTS_HEAD, ARCHIMEDES_REPEATED_ERRORS_HEAD),
-        (ARCHIMEDES_VENDOR_HEAD, ARCHIMEDES_RESULT_PORTS_HEAD),
+        (ARCHIMEDES_PRE_IDLE_HEAD, ARCHIMEDES_RESULT_PORTS_HEAD),
+        (ARCHIMEDES_VENDOR_HEAD, ARCHIMEDES_PRE_IDLE_HEAD),
     )
     for expected_head, predecessor in stack:
         actual = subprocess.run(
@@ -508,6 +510,9 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "ResolvedChildExecution" in archimedes
     assert "maxProviderRequests" in archimedes
     assert "maxOutputTokens" in archimedes
+    assert "maxIdleMs" in archimedes
+    assert 'reason: "idle-limit"' in archimedes
+    assert "tool_execution_update" in archimedes
     assert "PI_ARCHIMEDES_OUTPUT_LIMIT" in archimedes
     assert "isCodexResponsesPayload" in archimedes
     assert 'state.error = typeof message.errorMessage' in archimedes
@@ -539,6 +544,8 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "getExtensionStatuses" in footer
     assert "truncateToWidth" in footer
     assert "subagentMaxProviderRequests" in meta
+    assert "subagentMaxIdleMs" in meta
+    assert "defaultLimits.maxIdleMs" in meta
     assert "DEVELOPMENT.md" not in langfuse
     assert "diff --git a/test/" not in langfuse
     assert "diff --git a/src/" in meta
@@ -560,7 +567,7 @@ def test_archimedes_package_proof_is_executable_and_integrity_pinned():
         assert package in proof
         assert integrity in proof
     assert "apply-pi-package-patches.sh\" --check" in proof
-    assert "FORK_HEAD=\"1c4750ddb844cd8579f3076922603915098e9f96\"" in proof
+    assert "FORK_HEAD=\"8590ec0e1063811f86d1417ded9c2aeb48fd73b6\"" in proof
     assert "git ls-remote --heads" in proof
     assert "patch --force --fuzz=0 --reverse --dry-run" in proof
     assert "cmp \"$package_dir/$path\" \"$fork_dir/$path\"" in proof
@@ -575,6 +582,8 @@ def test_archimedes_package_proof_is_executable_and_integrity_pinned():
     assert "node_modules/.bin/tsc" in proof
     assert "const resolveModel: (name: string, cwd: string) => string | undefined" in proof
     assert "const result: SubagentResult" in proof
+    assert "maxIdleMs: 7" in proof
+    assert 'SubagentTerminationReason = "idle-limit"' in proof
     assert "const payloads: ArchimedesEventPayloadMap" in proof
     assert 'from "@pi-archimedes/subagent/agents"' in proof
     assert 'from "@pi-archimedes/subagent/types"' in proof
@@ -649,14 +658,14 @@ def test_archimedes_result_port_maintained_fork_gate_requires_exact_evidence():
         "npm_core_integrity: sha512-TiZBNrhyk8trUw3J66J78HNUEVsgIWkzvDJUqGq2hxvwCDS32FcJWn0K2wX+0Og8lWawmsot2n7lsYUn0ysocw==",
         "maintained_fork_base: 2ed26aa1d3301cc01a927d9409778bbd13df4798",
         "maintained_fork_result_ports: a9efbf159ee8b2717aae1df8742bd7382e97c1a3",
-        "maintained_fork_head: 1c4750ddb844cd8579f3076922603915098e9f96",
+        "maintained_fork_head: 8590ec0e1063811f86d1417ded9c2aeb48fd73b6",
         "maintained_fork_branch: vendor/pi-setup-210",
-        "superproject_gitlink: 1c4750ddb844cd8579f3076922603915098e9f96",
-        "derived_patch_meta_sha256: 571e73ac589c03a256e802286b64f27c1869831fa1ca05f7f87c8b3369fb4a28",
+        "superproject_gitlink: 8590ec0e1063811f86d1417ded9c2aeb48fd73b6",
+        "derived_patch_meta_sha256: ec78cae488833af588bbdca7c203f3e13255d0b8333c793cb4cbc94a7e8f5215",
         "derived_patch_ask_sha256: eaa4c814f481ef95c1a95866170ec59d9553a257ed96634a37422f065fa062cc",
         "derived_patch_core_sha256: 520ff1888ffe785f6648a2de5823023a6c146017ba21d8c7c6c1f12d2b81d73f",
         "derived_patch_footer_sha256: 0e680ca78ed7422abf0241d8dfba982497b93b14064ef375aa4a3f7c0e437e34",
-        "derived_patch_subagent_sha256: 41de1eadb6f329f5c884421d80620df4135c28e34c070b1fc1cb9aba871a5ff0",
+        "derived_patch_subagent_sha256: 2b6b051a88fbd310ee05bd804c0f17d52316d6114eb01748ba26423749bdd787",
         "package_proof: scripts/verify-pi-archimedes-package-patches.sh",
     ):
         assert evidence in profile
@@ -670,12 +679,12 @@ def test_archimedes_result_port_maintained_fork_gate_requires_exact_evidence():
         "installed-package contract tests",
         "deferred epic `pi-vzqq`",
         "## Q19V maintained-fork verification record",
-        "https://github.com/stvhay/pi-archimedes/commit/1c4750ddb844cd8579f3076922603915098e9f96",
+        "https://github.com/stvhay/pi-archimedes/commit/8590ec0e1063811f86d1417ded9c2aeb48fd73b6",
         "`@pi-archimedes/subagent/types`",
         "`@pi-archimedes/subagent/agents`",
         "`@pi-archimedes/core/bus`",
         "reinstall `pi-archimedes@2.1.0`",
-        "100 installed-package tests",
+        "111 installed-package tests",
     ):
         assert evidence in contract
     assert "do not gate Q21" in contract

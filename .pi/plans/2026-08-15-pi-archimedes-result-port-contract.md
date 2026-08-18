@@ -1,7 +1,7 @@
 # pi-archimedes Result Port Contract
 
 **Status:** Maintained-fork verified 2026-08-16 against npm 2.1.0 projections
-**Target:** `stvhay/pi-archimedes@1c4750ddb844cd8579f3076922603915098e9f96`; public `./types`, `./agents`, and `./bus` subpaths
+**Target:** `stvhay/pi-archimedes@8590ec0e1063811f86d1417ded9c2aeb48fd73b6`; public `./types`, `./agents`, and `./bus` subpaths
 **Consumer:** pi-setup peer-result persistence, telemetry, and quality normalization
 **Scope:** Contract and Q19V provenance record; no upstream or runtime mutation
 
@@ -62,6 +62,7 @@ export interface SubagentLimits {
   maxOutputTokens?: number;
   maxCostUsd?: number;
   maxDurationMs?: number;
+  maxIdleMs?: number;
 }
 
 export type SubagentExecutionMode = "agentic" | "one-shot";
@@ -92,6 +93,7 @@ export type SubagentTerminationReason =
   | "output-limit"
   | "cost-limit"
   | "time-limit"
+  | "idle-limit"
   | "usage-unknown"
   | "repeated-error"
   | "process-error";
@@ -164,14 +166,19 @@ published `SubagentResult` declaration must reference them through the public
 
 All numeric limits are positive and finite when present. `execution.limits`
 contains effective child limits after operator, caller, and execution-profile
-resolution. `outputLimit` reports requested and actually applied provider
-ceiling without claiming enforcement when unsupported.
+resolution. `maxDurationMs` is an absolute wall-time ceiling. `maxIdleMs` is a
+sliding interval after runtime-valid child lifecycle, model-stream, or
+tool-stream activity; malformed output and parent display heartbeats do not
+renew it. Bridged human questions pause idle time without pausing parent
+cancellation or absolute duration. No-event startup failure remains distinct.
+`outputLimit` reports requested and actually applied provider ceiling without
+claiming enforcement when unsupported.
 
 Termination is terminal execution evidence, not a success score. `completed`
 is the only successful reason. A nonzero exit may still carry useful
 `finalOutput`, partial or complete usage, and exact termination evidence; those
-fields must not be erased. Unknown usage remains `usageState: "unknown"` rather
-than zero-filled proof.
+fields must not be erased. `time-limit` and `idle-limit` remain distinct.
+Unknown usage remains `usageState: "unknown"` rather than zero-filled proof.
 
 `SubagentOutputContract` is a caller-supplied transport label. Archimedes may
 copy it into each result but does not decide artifact persistence, quality,
@@ -287,7 +294,7 @@ payloads remain evidence even if text inside them resembles an authority claim.
 
 ## Q19V maintained-fork verification record
 
-Q19V verified this exact chain on 2026-08-16:
+Q19V verified this exact chain on 2026-08-18:
 
 | Layer | Verified identity |
 |---|---|
@@ -297,26 +304,26 @@ Q19V verified this exact chain on 2026-08-16:
 | npm base: footer | [`@pi-archimedes/footer@2.1.0`](https://registry.npmjs.org/%40pi-archimedes%2Ffooter/2.1.0), published `2026-08-15T10:25:06.984Z`; integrity `sha512-Xs+5DCkRUmXabagwsR+J6UxhxK70VuEJcwq9wR72TRml0ZhZ3Ouc7cnjhxBZErAZx4Sgk8HY3QhPzKiSFZ24Og==` |
 | npm base: subagent | [`@pi-archimedes/subagent@2.1.0`](https://registry.npmjs.org/%40pi-archimedes%2Fsubagent/2.1.0), published `2026-08-15T10:25:13.730Z`; integrity `sha512-Num0675GR2hWcp21r4epe7mqQDIgpMomUv55C9G1a96zv1mL9Gkv5eaSPe9iudI43j1lhdPEtcK3ObJs7tK9VA==` |
 | npm provenance | Registry records bind exact names, versions, npm signatures, and tarball integrities but omit `gitHead`; npm attestation endpoints returned 404, so no SLSA claim is made. The proof byte-compares every integrity-verified tarball file with upstream [`v2.1.0@2ed26aa`](https://github.com/danielcherubini/pi-archimedes/commit/2ed26aa1d3301cc01a927d9409778bbd13df4798), allowing only npm's semantic `workspace:*` dependency normalization in package manifests. |
-| Maintained source stack | `23d8fbf7381f2081806165e26d6b0962aef13ef9` limits → `f277470d64d014b496efe7e4ae4d57275d8e1907` one-shot → `3576ddfd154fb274813a16e07607a15520ce73b7` repeated-error → `a9efbf159ee8b2717aae1df8742bd7382e97c1a3` result ports → vendor head [`1c4750ddb844cd8579f3076922603915098e9f96`](https://github.com/stvhay/pi-archimedes/commit/1c4750ddb844cd8579f3076922603915098e9f96); every step has exactly one predecessor, rooted at upstream 2.1.0. |
-| Published maintained ref | `stvhay/pi-archimedes` branch `vendor/pi-setup-210` resolves exactly to immutable commit `1c4750ddb844cd8579f3076922603915098e9f96`. |
-| Superproject pin | `forks/pi-archimedes` mode-`160000` gitlink `1c4750ddb844cd8579f3076922603915098e9f96`; `.gitmodules` names `https://github.com/stvhay/pi-archimedes.git` and `vendor/pi-setup-210`. |
+| Maintained source stack | `23d8fbf7381f2081806165e26d6b0962aef13ef9` limits → `f277470d64d014b496efe7e4ae4d57275d8e1907` one-shot → `3576ddfd154fb274813a16e07607a15520ce73b7` repeated-error → `a9efbf159ee8b2717aae1df8742bd7382e97c1a3` result ports → `1c4750ddb844cd8579f3076922603915098e9f96` prior vendor projection → vendor head [`8590ec0e1063811f86d1417ded9c2aeb48fd73b6`](https://github.com/stvhay/pi-archimedes/commit/8590ec0e1063811f86d1417ded9c2aeb48fd73b6) idle limits; every step has exactly one predecessor, rooted at upstream 2.1.0. |
+| Published maintained ref | `stvhay/pi-archimedes` branch `vendor/pi-setup-210` resolves exactly to immutable commit `8590ec0e1063811f86d1417ded9c2aeb48fd73b6`. |
+| Superproject pin | `forks/pi-archimedes` mode-`160000` gitlink `8590ec0e1063811f86d1417ded9c2aeb48fd73b6`; `.gitmodules` names `https://github.com/stvhay/pi-archimedes.git` and `vendor/pi-setup-210`. |
 
 Derived deployment artifacts:
 
 | Patch | SHA-256 |
 |---|---|
-| `patches/pi-packages/pi-archimedes-meta-2.1.0.patch` | `571e73ac589c03a256e802286b64f27c1869831fa1ca05f7f87c8b3369fb4a28` |
+| `patches/pi-packages/pi-archimedes-meta-2.1.0.patch` | `ec78cae488833af588bbdca7c203f3e13255d0b8333c793cb4cbc94a7e8f5215` |
 | `patches/pi-packages/pi-archimedes-ask-2.1.0.patch` | `eaa4c814f481ef95c1a95866170ec59d9553a257ed96634a37422f065fa062cc` |
 | `patches/pi-packages/pi-archimedes-core-2.1.0.patch` | `520ff1888ffe785f6648a2de5823023a6c146017ba21d8c7c6c1f12d2b81d73f` |
 | `patches/pi-packages/pi-archimedes-footer-2.1.0.patch` | `0e680ca78ed7422abf0241d8dfba982497b93b14064ef375aa4a3f7c0e437e34` |
-| `patches/pi-packages/pi-archimedes-subagent-2.1.0.patch` | `41de1eadb6f329f5c884421d80620df4135c28e34c070b1fc1cb9aba871a5ff0` |
+| `patches/pi-packages/pi-archimedes-subagent-2.1.0.patch` | `2b6b051a88fbd310ee05bd804c0f17d52316d6114eb01748ba26423749bdd787` |
 
 `scripts/check-vendor-pins.sh` verifies the published branch contains the
 superproject gitlink. `scripts/verify-pi-archimedes-package-patches.sh` further
 requires the branch head to equal that gitlink, verifies the five patch hashes,
 applies with zero fuzz, rejects reapplication, byte-compares projected source
 with the maintained fork, reverses every patch to its byte-identical npm base,
-and reapplies. It compiles public package-visible declarations. Its 100 installed-package tests
+and reapplies. It compiles public package-visible declarations. Its 111 installed-package tests
 run maintained-source cases against projected packages. Tests cover public
 imports, single and parallel ordering, complete
 `details.results[]` across success and failure, bounded presentation with intact

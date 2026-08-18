@@ -113,6 +113,7 @@ const LIMIT_KEY_BY_REASON: Partial<Record<string, SubagentLimitKey>> = {
   "output-limit": "maxOutputTokens",
   "cost-limit": "maxCostUsd",
   "time-limit": "maxDurationMs",
+  "idle-limit": "maxIdleMs",
 };
 
 function positiveFinite(value: unknown): number | undefined {
@@ -218,7 +219,7 @@ function terminationEvidence(
 function resultExecutionOutcome(result: SubagentResult): "succeeded" | "failed" | "unavailable" {
   if ((result.exitCode ?? 1) === 0) return "succeeded";
   const reason = result.termination?.reason;
-  return result.exitCode === 124 || reason === "time-limit" || reason === "user-abort" || startupTimeoutMs(result.error)
+  return result.exitCode === 124 || reason === "time-limit" || reason === "idle-limit" || reason === "user-abort" || startupTimeoutMs(result.error)
     ? "unavailable"
     : "failed";
 }
@@ -260,6 +261,7 @@ function terminationMetadata(
     terminationObserved: evidence.observed ?? null,
     terminationUsageState: evidence.usageState,
     effectiveMaxDurationMs: positiveFinite(result.execution?.limits?.maxDurationMs) ?? null,
+    effectiveMaxIdleMs: positiveFinite(result.execution?.limits?.maxIdleMs) ?? null,
   };
 }
 
@@ -636,7 +638,9 @@ function metricRecord(
     executionOutcome: resultExecutionOutcome(result),
     failureClass: exitCode === 0
       ? null
-      : termination?.reason === "time-limit" ? "timeout" : failureClass ? "provider" : "process",
+      : termination?.reason === "time-limit" || termination?.reason === "idle-limit"
+        ? "timeout"
+        : failureClass ? "provider" : "process",
     providerFailureClass: exitCode === 0 ? null : failureClass ?? null,
     ...terminationMetadata(result, termination),
     artifactRefs: result.artifact?.refs ?? [],

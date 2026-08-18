@@ -986,13 +986,14 @@ def test_review_skill_uses_liveness_bounds_without_default_request_token_cost_ca
     discovery = skill.split("## Run cold discovery passes", 1)[1].split("## Fresh adversarial verification", 1)[0]
     verification = skill.split("## Fresh adversarial verification", 1)[1].split("## Deterministic K3 escalation gate", 1)[0]
 
-    assert "300-second child limit" in discovery
+    assert "300-second child activity window" in discovery
     assert "at most two concrete findings" in discovery
     assert "at most 6,000 characters" in discovery
-    assert '"limits": {"maxDurationMs": 300000}' in discovery
+    assert '"limits": {"maxIdleMs": 300000}' in discovery
     assert "one provider request is intrinsic" in discovery
     assert "180-second child limit" not in discovery
-    assert '"limits": {"maxDurationMs": 300000}' in verification
+    assert '"limits": {"maxIdleMs": 300000}' in verification
+    assert "Metered" in discovery and "maxDurationMs" in discovery
     assert '"maxProviderRequests":' not in discovery + verification
     assert "maxTotalTokens" not in discovery + verification
     assert "maxCostUsd" not in discovery + verification
@@ -1019,7 +1020,8 @@ def test_subagent_guidance_calibrates_output_contracts_and_failure_evidence():
 
     assert "self-contained cold packets" in instructions.lower() and "one-shot mode" in instructions
     assert "Subscription-backed peers normally omit request/token/cost caps" in instructions
-    assert "Add caps only for explicit bounded experiments or liveness risk" in instructions
+    assert "Use `maxIdleMs` routinely" in instructions
+    assert "reserve `maxDurationMs`" in instructions
     for contract in ("inline", "artifact", "status-only", "pass-no-findings"):
         assert f"| `{contract}` |" in reference
     assert "reasoning may consume that allowance before the visible final answer" in reference

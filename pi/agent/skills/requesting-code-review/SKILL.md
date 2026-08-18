@@ -117,7 +117,7 @@ The tracked schema and example are:
 
 ## Run cold discovery passes
 
-Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child limit bounds stalled calls without cutting off otherwise-healthy slower reviews; one provider request is intrinsic, so do not add a redundant `maxProviderRequests` cap. Reuse the calibrated response contract in every discovery packet: report at most two concrete findings and return at most 6,000 characters. This keeps final JSON below the deliberate 16,384-token metered output ceiling without weakening review evidence.
+Subagent `mode: "one-shot"` disables tools and ambient project context. A 300-second child activity window stops silent subscription calls without cutting off healthy streaming responses; one provider request is intrinsic, so do not add a redundant `maxProviderRequests` cap. Metered one-shot discovery retains an absolute `maxDurationMs` bound because elapsed execution is part of its approved spend boundary. Reuse the calibrated response contract in every discovery packet: report at most two concrete findings and return at most 6,000 characters. This keeps final JSON below the deliberate 16,384-token metered output ceiling without weakening review evidence.
 
 Do not add a low ad hoc `maxOutputTokens` cap for structured review JSON. Provider output allowance can include reasoning before visible final output, so a 5,000-token ceiling does not safely guarantee a shorter JSON response. Keep subscription-backed discovery uncapped; retain the tracked metered wrapper ceiling. Use an explicit lower cap only for a bounded experiment or known spend/risk boundary, and record any resulting `output-limit` as a caller limit rather than a provider or network failure.
 
@@ -136,12 +136,12 @@ Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes
   "mode": "one-shot",
   "thinking": "<routed-thinking-level>",
   "sourceAccess": "self-contained",
-  "limits": {"maxDurationMs": 300000},
+  "limits": {"maxIdleMs": 300000},
   "outputContract": "inline"
 }
 ```
 
-Save each returned child output under `$ReviewDir` before validation. Metered self-contained discovery must use one-shot mode; the Archimedes wrapper applies the configured provider output cap.
+Save each returned child output under `$ReviewDir` before validation. The example above is the routine subscription profile. Metered self-contained discovery must use one-shot mode, replace the activity-only limit with `{"maxDurationMs": 300000}`, and keep the Archimedes wrapper's configured provider output cap.
 
 ### Recover persisted output before retrying
 
@@ -173,14 +173,14 @@ Verification statuses:
 - `unresolved` — a concrete serious claim survives inspection but conflicting requirements or unavailable evidence prevent a decision;
 - `unverified` — discovery only; never a promotion gate.
 
-Route fresh filesystem verifiers with `agnt route --task review --access repository`. Repository access requires agentic mode. Prefer the qualified subscription-backed target and keep the 300-second liveness bound, but omit request, token, and cost caps: deep repository inspection may require many healthy turns. Add a request cap only for an explicit bounded experiment or identified runaway risk, and record it as a caller limit. A metered repository verifier is exceptional: use only route-emitted `quality-benefit` or `missing-capability` evidence and copy its estimate plus bounded limits exactly; parallel calls also copy the top-level aggregate budget.
+Route fresh filesystem verifiers with `agnt route --task review --access repository`. Repository access requires agentic mode. Prefer the qualified subscription-backed target and keep a 300-second child activity window, but omit wall-time, request, token, and cost caps: deep repository inspection may require many healthy active turns. Add a request cap only for an explicit bounded experiment or identified runaway risk, and record it as a caller limit. A metered repository verifier is exceptional: use only route-emitted `quality-benefit` or `missing-capability` evidence and copy its estimate plus bounded limits—including its absolute `maxDurationMs`—exactly; parallel calls also copy the top-level aggregate budget.
 
 ```json
 {
   "model": "<routed-subscription-provider/model>",
   "mode": "agentic",
   "sourceAccess": "repository",
-  "limits": {"maxDurationMs": 300000},
+  "limits": {"maxIdleMs": 300000},
   "outputContract": "inline"
 }
 ```

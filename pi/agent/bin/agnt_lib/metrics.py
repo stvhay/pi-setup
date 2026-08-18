@@ -530,6 +530,7 @@ def compact_metric_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "terminationObserved": record.get("terminationObserved"),
         "terminationUsageState": record.get("terminationUsageState"),
         "effectiveMaxDurationMs": record.get("effectiveMaxDurationMs"),
+        "effectiveMaxIdleMs": record.get("effectiveMaxIdleMs"),
         "artifactRefs": bounded_artifact_refs(record.get("artifactRefs")),
         "artifactStatus": record.get("artifactStatus"),
         "artifactFailureClass": record.get("artifactFailureClass"),

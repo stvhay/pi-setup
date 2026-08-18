@@ -1551,8 +1551,8 @@ def test_cohort_health_separates_monitoring_coverage_missingness_and_zero_values
                 "type": "AGENT",
                 "name": "subagent-result",
                 "metadata": {
-                    "terminationReason": "request-limit",
-                    "terminationSource": "archimedes",
+                    "terminationReason": "idle-limit",
+                    "terminationSource": "caller",
                     "terminationLimit": 10,
                     "terminationObserved": 10,
                     "terminationUsageState": "complete",
@@ -1623,12 +1623,13 @@ def test_cohort_health_separates_monitoring_coverage_missingness_and_zero_values
         "completeEvidence": 1,
         "incompleteEvidence": 1,
         "byReason": {
-            "request-limit": 2,
+            "request-limit": 1,
             "tool-limit": 0,
             "token-limit": 0,
             "output-limit": 0,
             "cost-limit": 0,
             "time-limit": 0,
+            "idle-limit": 1,
         },
     }
     assert "private-release" not in json.dumps(health)

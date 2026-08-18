@@ -3544,12 +3544,13 @@ def test_compact_metric_preserves_sanitized_termination_evidence(agnt):
         "schemaVersion": 2,
         "executionOutcome": "unavailable",
         "failureClass": "timeout",
-        "terminationReason": "time-limit",
+        "terminationReason": "idle-limit",
         "terminationSource": "caller",
         "terminationLimit": 300_000,
         "terminationObserved": 300_012,
         "terminationUsageState": "partial",
-        "effectiveMaxDurationMs": 300_000,
+        "effectiveMaxDurationMs": None,
+        "effectiveMaxIdleMs": 300_000,
     })
 
     assert {key: compact[key] for key in (
@@ -3559,13 +3560,15 @@ def test_compact_metric_preserves_sanitized_termination_evidence(agnt):
         "terminationObserved",
         "terminationUsageState",
         "effectiveMaxDurationMs",
+        "effectiveMaxIdleMs",
     )} == {
-        "terminationReason": "time-limit",
+        "terminationReason": "idle-limit",
         "terminationSource": "caller",
         "terminationLimit": 300_000,
         "terminationObserved": 300_012,
         "terminationUsageState": "partial",
-        "effectiveMaxDurationMs": 300_000,
+        "effectiveMaxDurationMs": None,
+        "effectiveMaxIdleMs": 300_000,
     }
 
 

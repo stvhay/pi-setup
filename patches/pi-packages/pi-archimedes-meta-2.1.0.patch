@@ -24,7 +24,7 @@ index e0bfcfb..85179bb 100644
 @@ -83,0 +101 @@ export function loadAllConfig(): {
 +    subagent: loadSubagentConfigOrDefault(),
 diff --git a/src/settings.ts b/src/settings.ts
-index ea7612c..65a3483 100644
+index ea7612c..e6587a9 100644
 --- a/src/settings.ts
 +++ b/src/settings.ts
 @@ -10,0 +11 @@ import { getSessionNameSettingsItems } from "@pi-archimedes/session-name";
@@ -67,7 +67,7 @@ index ea7612c..65a3483 100644
 +  addSubmenus(subagentItems);
 @@ -182,0 +205 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +    ...subagentItems,
-@@ -235,0 +259,8 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -235,0 +259,9 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +        // ── Subagent settings ──
 +        case "subagentMaxParallel": subagentConfig.maxParallel = Number.parseInt(newValue, 10); break;
 +        case "subagentMaxProviderRequests": subagentConfig.defaultLimits.maxProviderRequests = Number.parseInt(newValue, 10); break;
@@ -75,6 +75,7 @@ index ea7612c..65a3483 100644
 +        case "subagentMaxTotalTokens": subagentConfig.defaultLimits.maxTotalTokens = Number.parseInt(newValue, 10); break;
 +        case "subagentMaxCostUsd": subagentConfig.defaultLimits.maxCostUsd = Number.parseFloat(newValue); break;
 +        case "subagentMaxDurationMs": subagentConfig.defaultLimits.maxDurationMs = Number.parseInt(newValue, 10); break;
++        case "subagentMaxIdleMs": subagentConfig.defaultLimits.maxIdleMs = Number.parseInt(newValue, 10); break;
 +
-@@ -242,0 +274 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
+@@ -242,0 +275 @@ export async function openSettings(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 +          saveSubagentConfig(subagentConfig);

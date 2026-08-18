@@ -49,7 +49,7 @@ optional output contract dimensions; missing/legacy contracts are `unknown`.
 Route examples carry `routingTask`, and wrapper strips it before child execution.
 Missing effective thinking records `default`; missing effective mode records
 `unknown`. Metrics store usage, timing, payload lengths, bounded artifact refs,
-contract, and sanitized termination reason/source/effective deadline—not prompt
+contract, and sanitized termination reason/source/effective hard or idle limit—not prompt
 or response bodies. Every nonzero child exit without stronger evidence receives
 safe `process-error`/`worker` termination.
 Named-profile projections mark unavailable dimensions
@@ -350,7 +350,7 @@ generation is missing, not zero. `provenanceCoverage` counts release and source
 revision availability without emitting either value. `payloadByteCoverage` keeps
 available, unavailable, inferred-unavailable, and not-observed states separate
 and counts zero only when byte metadata is available. `limitTerminations` counts
-allowlisted limit reasons and whether source, limit, observed value, and usage
+allowlisted limit reasons, including distinct absolute-time and idle-time stops, and whether source, limit, observed value, and usage
 state form complete evidence. These aggregates use already-fetched traces and
 observations and add no telemetry calls.
 

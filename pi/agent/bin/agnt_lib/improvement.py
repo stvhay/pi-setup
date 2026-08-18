@@ -72,6 +72,7 @@ LIMIT_TERMINATION_REASONS = (
     "output-limit",
     "cost-limit",
     "time-limit",
+    "idle-limit",
 )
 PAYLOAD_BYTE_STATUSES = ("available", "inferred-unavailable", "not-observed", "unavailable")
 COHORT_CAPTURE_GAPS = (

@@ -1,12 +1,12 @@
 ---
 profile_version: 1
 repository: https://github.com/danielcherubini/pi-archimedes
-last_checked_utc: 2026-08-15T17:59:10Z
+last_checked_utc: 2026-08-18T03:21:54Z
 target_ref: v2.1.0
 source_commit: 2ed26aa1d3301cc01a927d9409778bbd13df4798
 status: current-for-target-ref
 result_port_status: maintained-fork-verified
-result_port_verified_utc: 2026-08-16T18:59:39Z
+result_port_verified_utc: 2026-08-18T03:21:54Z
 npm_pi_archimedes_published_utc: 2026-08-15T10:25:15.706Z
 npm_pi_archimedes_integrity: sha512-TitGWAXRE6W+3bXwg7pIhnoKR7w3PzXW417RGpGyUwHgFIqHi20eRDAs0TipBoDO/HAsQVcdpXjB//W9D/1zRQ==
 npm_pi_archimedes_registry: https://registry.npmjs.org/pi-archimedes/2.1.0
@@ -21,12 +21,13 @@ maintained_fork_limits: 23d8fbf7381f2081806165e26d6b0962aef13ef9
 maintained_fork_one_shot: f277470d64d014b496efe7e4ae4d57275d8e1907
 maintained_fork_repeated_errors: 3576ddfd154fb274813a16e07607a15520ce73b7
 maintained_fork_result_ports: a9efbf159ee8b2717aae1df8742bd7382e97c1a3
-maintained_fork_head: 1c4750ddb844cd8579f3076922603915098e9f96
+maintained_fork_pre_idle: 1c4750ddb844cd8579f3076922603915098e9f96
+maintained_fork_head: 8590ec0e1063811f86d1417ded9c2aeb48fd73b6
 maintained_fork_branch: vendor/pi-setup-210
-maintained_fork_commit: https://github.com/stvhay/pi-archimedes/commit/1c4750ddb844cd8579f3076922603915098e9f96
-superproject_gitlink: 1c4750ddb844cd8579f3076922603915098e9f96
+maintained_fork_commit: https://github.com/stvhay/pi-archimedes/commit/8590ec0e1063811f86d1417ded9c2aeb48fd73b6
+superproject_gitlink: 8590ec0e1063811f86d1417ded9c2aeb48fd73b6
 derived_patch_meta: patches/pi-packages/pi-archimedes-meta-2.1.0.patch
-derived_patch_meta_sha256: 571e73ac589c03a256e802286b64f27c1869831fa1ca05f7f87c8b3369fb4a28
+derived_patch_meta_sha256: ec78cae488833af588bbdca7c203f3e13255d0b8333c793cb4cbc94a7e8f5215
 derived_patch_ask: patches/pi-packages/pi-archimedes-ask-2.1.0.patch
 derived_patch_ask_sha256: eaa4c814f481ef95c1a95866170ec59d9553a257ed96634a37422f065fa062cc
 derived_patch_core: patches/pi-packages/pi-archimedes-core-2.1.0.patch
@@ -34,7 +35,7 @@ derived_patch_core_sha256: 520ff1888ffe785f6648a2de5823023a6c146017ba21d8c7c6c1f
 derived_patch_footer: patches/pi-packages/pi-archimedes-footer-2.1.0.patch
 derived_patch_footer_sha256: 0e680ca78ed7422abf0241d8dfba982497b93b14064ef375aa4a3f7c0e437e34
 derived_patch_subagent: patches/pi-packages/pi-archimedes-subagent-2.1.0.patch
-derived_patch_subagent_sha256: 41de1eadb6f329f5c884421d80620df4135c28e34c070b1fc1cb9aba871a5ff0
+derived_patch_subagent_sha256: 2b6b051a88fbd310ee05bd804c0f17d52316d6114eb01748ba26423749bdd787
 package_proof: scripts/verify-pi-archimedes-package-patches.sh
 recheck_every_use:
   - permissions
@@ -44,7 +45,7 @@ recheck_every_use:
   - issue-requirements
 source_files:
   - path: README.md
-    sha256: 27f60b28d83e607b6c81c3fdb5e4bbe4ac78f4d5ee8f660f45e2eeecafccddd0
+    sha256: bc5cc7db0bf25c017c7ed3a862610c3a14e32fd1f38e101f7f08d74b07667880
   - path: AGENTS.md
     sha256: 27ab8e396b6762270dba593b56d8301a20536e050aa849a77710e65d8044a51b
   - path: LICENSE
@@ -61,10 +62,12 @@ source_files:
     sha256: 013d791ce4f2c3e157545170c35988dde84465b3fe430b4f8599ff1d8f2d2c5a
   - path: packages/core/src/bus.test.ts
     sha256: 26924160cb42e240d7aa8a9d1c0ee4b731c9469104702aad87ce1569aa81c093
+  - path: meta/src/settings.ts
+    sha256: 400a7d364b4aa0cb35ee149f1f57785bd7df96437ec4ff128f705a8597ae0820
   - path: packages/subagent/package.json
     sha256: 60487b3861740fa368080acbd6f575ec18bfbcebb484c02d802f46e54816cb2b
   - path: packages/subagent/README.md
-    sha256: 24768f9384a0f0746e41881a411f697f5148f6bca9d276d9f67309a0c889358d
+    sha256: 5383eb29c045d96dcd8878f60313df656f0d48b7ca3e6f2849a4cf93f3ec26f0
   - path: .github/workflows/ci.yml
     sha256: c602b2e35ededfd4c934b2509eb5786755cca6be7e3c419b3f3e0909e11583e2
   - path: .github/workflows/release.yml
@@ -74,17 +77,21 @@ source_files:
   - path: packages/subagent/src/expanded.ts
     sha256: f328a87bcf873c0be6905ad9422b2385f554532d29386c5c239e4593ebbc94f7
   - path: packages/subagent/src/handlers.ts
-    sha256: 4a9ad5a5ab8733d85ea024868582778766374b5b487295b4f576c0d73f9d0f8e
+    sha256: dfa445f05c657d95d544365f80f0d871f3258539b71c38cfad445304bda6992d
   - path: packages/subagent/src/index.ts
-    sha256: c630e5c5e31062a0ef0c377f1f292c434c809cefcb997830397397537f8efcaa
+    sha256: c1503bf14808c13fdbab5c740e98702f803c4961619acdef7e0c2c2792971802
+  - path: packages/subagent/src/config.ts
+    sha256: 04bce124431ab3ab882f328423a29e189ed04a95c30e9248a0c84dd1997ed6d7
+  - path: packages/subagent/src/limits.ts
+    sha256: 584027dfe69d3efd96faafeb7433a7c30d079e0d3964667d9e5103de5d309757
   - path: packages/subagent/src/spawn.ts
-    sha256: ec5492e224f5b90e88588745ec012368672c762ccc78ef2d524d02a30a323b59
+    sha256: e4801fca8f5ba01a2064a318760575be4754cdeef8a093d21f1a53dfa92851e0
   - path: packages/subagent/src/stream.ts
-    sha256: 578cefc6958cb38bd6516966dfe36cec97fea1b822796b1d1a0c3c19f08068ed
+    sha256: e05924749225e96cfac2e2ad568d51f7b24a26736d6ff922b33ff11e6e56726a
   - path: packages/subagent/src/types.ts
-    sha256: 1a3bbc9079aa1f1e6b9a57ed14ffc7c252f9769de339b9c63e230cb5fc90d01e
+    sha256: 22973b0ffb6073470dff5bade9d97450ba8416e59f986699aa127f803d9c0a20
   - path: packages/subagent/src/execute.ts
-    sha256: fb171ae4c86600976f4f4bbe5bac12aec82453a3fda080e1f3519c6e64cdb816
+    sha256: ee9e28661afb697d936ce732012b3688cafcc5530f9775c32f2487f5d71a6b1f
   - path: packages/subagent/src/agents.ts
     sha256: e1f06b59245af1b6208574dcad4da0ae4fe8d7e185ed58918a052b29859d9d4d
   - path: packages/subagent/src/agents.test.ts
@@ -163,17 +170,17 @@ Built locally from immutable `v2.1.0@2ed26aa` without rewriting existing fork hi
 | `rebuild/subagent-one-shot-mode-210` | `f277470d64d014b496efe7e4ae4d57275d8e1907` | `23d8fbf7381f2081806165e26d6b0962aef13ef9` |
 | `rebuild/subagent-repeated-errors-210` | `3576ddfd154fb274813a16e07607a15520ce73b7` | `f277470d64d014b496efe7e4ae4d57275d8e1907` |
 | `feat/result-ports-210` | `a9efbf159ee8b2717aae1df8742bd7382e97c1a3` | `3576ddfd154fb274813a16e07607a15520ce73b7` |
-| `vendor/pi-setup-210` | `1c4750ddb844cd8579f3076922603915098e9f96` | `a9efbf159ee8b2717aae1df8742bd7382e97c1a3` |
+| `vendor/pi-setup-210` | `8590ec0e1063811f86d1417ded9c2aeb48fd73b6` | `1c4750ddb844cd8579f3076922603915098e9f96` |
 
-Each row is exactly one commit above its predecessor. Final vendor verification passed all recursive TypeScript checks, 271 focused subagent tests, 754 workspace tests, and npm package previews. Exact npm 2.1.0 bases accepted the zero-context projection, idempotent reapply, reverse dry-runs, and public `./agents`, `./types`, and `./bus` imports under Pi's Jiti runtime.
+Each row is exactly one commit above its predecessor. Final vendor verification passed all recursive TypeScript checks, 285 focused subagent tests, 768 workspace tests, and npm package previews. Exact npm 2.1.0 bases accepted the zero-context projection, idempotent reapply, reverse dry-runs, 111 installed-package tests, and public `./agents`, `./types`, and `./bus` imports under Pi's Jiti runtime.
 
 ## Maintained result ports
 
 - Normative contract: `.pi/plans/2026-08-15-pi-archimedes-result-port-contract.md`.
-- Q19V verifies the exact `stvhay/pi-archimedes` stack at immutable commit [`1c4750d`](https://github.com/stvhay/pi-archimedes/commit/1c4750ddb844cd8579f3076922603915098e9f96), published branch `vendor/pi-setup-210`, and matching `forks/pi-archimedes` gitlink as maintained source.
+- Q19V verifies the exact `stvhay/pi-archimedes` stack at immutable commit [`8590ec0`](https://github.com/stvhay/pi-archimedes/commit/8590ec0e1063811f86d1417ded9c2aeb48fd73b6), published branch `vendor/pi-setup-210`, and matching `forks/pi-archimedes` gitlink as maintained source.
 - Public subpaths are `@pi-archimedes/subagent/types`, `@pi-archimedes/subagent/agents`, and `@pi-archimedes/core/bus`. Result evidence covers output contracts, resolved limits, termination, usage, partial output, child session/trace refs, ordered `details.results[]`, and enclosing Pi tool-result type. Pi `tool_result` remains sole result transport.
 - Registry version records for [`pi-archimedes`](https://registry.npmjs.org/pi-archimedes/2.1.0), [`subagent`](https://registry.npmjs.org/%40pi-archimedes%2Fsubagent/2.1.0), and [`core`](https://registry.npmjs.org/%40pi-archimedes%2Fcore/2.1.0) bind exact package names, versions, signatures, and tarball integrities. They omit `gitHead`, and npm attestation endpoints return 404, so Q19V claims no SLSA provenance. The package proof instead byte-compares each integrity-verified tarball file with `v2.1.0@2ed26aa` source, allowing only npm's semantic `workspace:*` manifest normalization.
-- `scripts/verify-pi-archimedes-package-patches.sh` verifies the five patch hashes, zero-fuzz apply/idempotence/reverse, byte-exact maintained source projection, public TypeScript declarations, governance exclusions, and 100 installed-package tests. Reinstall exact 2.1.0 packages for base rollback; restore the pinned gitlink and patches for projection rollback.
+- `scripts/verify-pi-archimedes-package-patches.sh` verifies the five patch hashes, zero-fuzz apply/idempotence/reverse, byte-exact maintained source projection, public TypeScript declarations, governance exclusions, and 111 installed-package tests. Reinstall exact 2.1.0 packages for base rollback; restore the pinned gitlink and patches for projection rollback.
 - Agent resolution returns only configured model. Typed bus exports current UI/cost payloads. pi-setup keeps routing, billing, authority, closeout, acceptance, persistence, and quality policy. External-upstream submission is deferred under `pi-vzqq`; future releases may replace these projections but do not gate Q21.
 
 ## PR implications

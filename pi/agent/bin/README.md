@@ -93,8 +93,10 @@ agnt route --task review --risk medium --budget balanced --access self-contained
 ```
 
 ```json
-{"task":"<complete packet contents>","routingTask":"review","model":"<selected-provider/model>","mode":"one-shot","sourceAccess":"self-contained","thinking":"<routed level>","limits":{"maxDurationMs":300000}}
+{"task":"<complete packet contents>","routingTask":"review","model":"<selected-subscription-provider/model>","mode":"one-shot","sourceAccess":"self-contained","thinking":"<routed level>","limits":{"maxIdleMs":300000}}
 ```
+
+Use this sliding idle bound for routine subscription review. Metered or explicit calibration calls retain their approved absolute `maxDurationMs` and other route-generated limits.
 
 For structured review findings:
 

@@ -68,6 +68,8 @@ def test_pi_archimedes_result_contract_covers_observed_execution_evidence():
         "maxOutputTokens",
         "maxCostUsd",
         "maxDurationMs",
+        "maxIdleMs",
+        "idle-limit",
         "usageState",
         "childSessionId",
         "traceId",
@@ -223,6 +225,7 @@ def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(
         {{ task: "Operator", model: "openai-codex/gpt-5.6-luna", outputContract: "inline" }},
         {{ task: "Cancel", model: "openai-codex/gpt-5.6-luna", outputContract: "inline" }},
         {{ task: "Legacy", model: "openai-codex/gpt-5.6-luna", limits: {{ maxDurationMs: 90000 }}, outputContract: "inline" }},
+        {{ task: "Idle", model: "openai-codex/gpt-5.6-luna", limits: {{ maxIdleMs: 300000 }}, outputContract: "inline" }},
       ] }};
       const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
       await handlers.tool_call({{ toolName: "subagent", toolCallId: "limits", input }}, ctx);
@@ -269,6 +272,13 @@ def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(
             execution: {{ profile: {{ mode: "agentic" }}, limits: {{ maxDurationMs: 90000 }} }},
             finalOutput: "legacy timeout partial",
           }},
+          {{
+            exitCode: 2,
+            execution: {{ profile: {{ mode: "agentic" }}, limits: {{ maxIdleMs: 300000 }} }},
+            finalOutput: "usable idle partial",
+            error: "Subagent stopped: idle-limit",
+            termination: {{ reason: "idle-limit", limit: 300000, observed: 300008, usageState: "partial" }},
+          }},
         ] }},
         isError: true,
       }}, ctx);
@@ -281,6 +291,7 @@ def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(
       assert.match(evidence.text, /Child 4: time-limit; source=operator; limit=240000; observed=240005; output=unknown/);
       assert.match(evidence.text, /Child 5: user-abort; source=parent-cancellation; output=partial/);
       assert.match(evidence.text, /Child 6: time-limit; source=caller; limit=90000; output=partial/);
+      assert.match(evidence.text, /Child 7: idle-limit; source=caller; limit=300000; observed=300008; output=partial/);
       assert.doesNotMatch(evidence.text.split("Child 2:")[1].split("Child 3:")[0], /time-limit/);
       assert.equal(JSON.stringify(patch.content).includes("usable deadline partial"), true);
       assert.equal(JSON.stringify(patch.content).includes("usable verifier partial"), true);
@@ -292,13 +303,15 @@ def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(
         reason: item.attributes.metadata.terminationReason,
         source: item.attributes.metadata.terminationSource,
         deadline: item.attributes.metadata.effectiveMaxDurationMs,
+        idle: item.attributes.metadata.effectiveMaxIdleMs,
       }})), [
-        {{ outcome: "unavailable", reason: "time-limit", source: "caller", deadline: 180000 }},
-        {{ outcome: "failed", reason: "request-limit", source: "caller", deadline: 300000 }},
-        {{ outcome: "unavailable", reason: "time-limit", source: "worker-startup", deadline: null }},
-        {{ outcome: "unavailable", reason: "time-limit", source: "operator", deadline: 240000 }},
-        {{ outcome: "unavailable", reason: "user-abort", source: "parent-cancellation", deadline: null }},
-        {{ outcome: "unavailable", reason: "time-limit", source: "caller", deadline: 90000 }},
+        {{ outcome: "unavailable", reason: "time-limit", source: "caller", deadline: 180000, idle: null }},
+        {{ outcome: "failed", reason: "request-limit", source: "caller", deadline: 300000, idle: null }},
+        {{ outcome: "unavailable", reason: "time-limit", source: "worker-startup", deadline: null, idle: null }},
+        {{ outcome: "unavailable", reason: "time-limit", source: "operator", deadline: 240000, idle: null }},
+        {{ outcome: "unavailable", reason: "user-abort", source: "parent-cancellation", deadline: null, idle: null }},
+        {{ outcome: "unavailable", reason: "time-limit", source: "caller", deadline: 90000, idle: null }},
+        {{ outcome: "unavailable", reason: "idle-limit", source: "caller", deadline: null, idle: 300000 }},
       ]);
       assert.match(observations[0].attributes.output, /usable deadline partial/);
       assert.match(observations[0].attributes.output, /time-limit; source=caller/);
@@ -314,13 +327,15 @@ def test_subagent_limit_evidence_distinguishes_sources_and_keeps_partial_output(
         record.terminationReason,
         record.terminationSource,
         record.effectiveMaxDurationMs,
+        record.effectiveMaxIdleMs,
       ]), [
-        ["unavailable", "timeout", "time-limit", "caller", 180000],
-        ["failed", "process", "request-limit", "caller", 300000],
-        ["unavailable", "timeout", "time-limit", "worker-startup", null],
-        ["unavailable", "timeout", "time-limit", "operator", 240000],
-        ["unavailable", "process", "user-abort", "parent-cancellation", null],
-        ["unavailable", "timeout", "time-limit", "caller", 90000],
+        ["unavailable", "timeout", "time-limit", "caller", 180000, null],
+        ["failed", "process", "request-limit", "caller", 300000, null],
+        ["unavailable", "timeout", "time-limit", "worker-startup", null, null],
+        ["unavailable", "timeout", "time-limit", "operator", 240000, null],
+        ["unavailable", "process", "user-abort", "parent-cancellation", null, null],
+        ["unavailable", "timeout", "time-limit", "caller", 90000, null],
+        ["unavailable", "timeout", "idle-limit", "caller", null, 300000],
       ]);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
@@ -895,6 +910,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
               terminationObserved: null,
               terminationUsageState: "unknown",
               effectiveMaxDurationMs: null,
+              effectiveMaxIdleMs: null,
             }},
             output: "Provider unavailable\\n\\n[delegated termination: process-error; source=worker; output=unknown]",
             metadata: {{
@@ -917,6 +933,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
               terminationObserved: null,
               terminationUsageState: "unknown",
               effectiveMaxDurationMs: null,
+              effectiveMaxIdleMs: null,
               exitCode: 1,
             }},
             level: "ERROR",
@@ -1606,6 +1623,7 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
         terminationObserved: null,
         terminationUsageState: "unknown",
         effectiveMaxDurationMs: null,
+        effectiveMaxIdleMs: null,
         exitCode: 1,
       }});
       assert.equal(result.details.results[0].artifact.refs[0], artifactRef);

@@ -10,7 +10,8 @@ LIMITS_HEAD="23d8fbf7381f2081806165e26d6b0962aef13ef9"
 ONE_SHOT_HEAD="f277470d64d014b496efe7e4ae4d57275d8e1907"
 REPEATED_ERRORS_HEAD="3576ddfd154fb274813a16e07607a15520ce73b7"
 RESULT_PORTS_HEAD="a9efbf159ee8b2717aae1df8742bd7382e97c1a3"
-FORK_HEAD="1c4750ddb844cd8579f3076922603915098e9f96"
+PRE_IDLE_HEAD="1c4750ddb844cd8579f3076922603915098e9f96"
+FORK_HEAD="8590ec0e1063811f86d1417ded9c2aeb48fd73b6"
 FORK_BRANCH="vendor/pi-setup-210"
 FORK_URL="https://github.com/stvhay/pi-archimedes.git"
 
@@ -43,7 +44,8 @@ verify_parent "$LIMITS_HEAD" "$BASE_HEAD"
 verify_parent "$ONE_SHOT_HEAD" "$LIMITS_HEAD"
 verify_parent "$REPEATED_ERRORS_HEAD" "$ONE_SHOT_HEAD"
 verify_parent "$RESULT_PORTS_HEAD" "$REPEATED_ERRORS_HEAD"
-verify_parent "$FORK_HEAD" "$RESULT_PORTS_HEAD"
+verify_parent "$PRE_IDLE_HEAD" "$RESULT_PORTS_HEAD"
+verify_parent "$FORK_HEAD" "$PRE_IDLE_HEAD"
 
 remote_head=$(git ls-remote --heads "$FORK_URL" "refs/heads/$FORK_BRANCH" | awk 'NR == 1 {print $1}')
 [ "$remote_head" = "$FORK_HEAD" ] \
@@ -56,11 +58,11 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 expected = {
-    "pi-archimedes-meta-2.1.0.patch": "571e73ac589c03a256e802286b64f27c1869831fa1ca05f7f87c8b3369fb4a28",
+    "pi-archimedes-meta-2.1.0.patch": "ec78cae488833af588bbdca7c203f3e13255d0b8333c793cb4cbc94a7e8f5215",
     "pi-archimedes-ask-2.1.0.patch": "eaa4c814f481ef95c1a95866170ec59d9553a257ed96634a37422f065fa062cc",
     "pi-archimedes-core-2.1.0.patch": "520ff1888ffe785f6648a2de5823023a6c146017ba21d8c7c6c1f12d2b81d73f",
     "pi-archimedes-footer-2.1.0.patch": "0e680ca78ed7422abf0241d8dfba982497b93b14064ef375aa4a3f7c0e437e34",
-    "pi-archimedes-subagent-2.1.0.patch": "41de1eadb6f329f5c884421d80620df4135c28e34c070b1fc1cb9aba871a5ff0",
+    "pi-archimedes-subagent-2.1.0.patch": "2b6b051a88fbd310ee05bd804c0f17d52316d6114eb01748ba26423749bdd787",
 }
 for name, digest in expected.items():
     actual = hashlib.sha256((root / name).read_bytes()).hexdigest()
@@ -300,7 +302,7 @@ import {
 const resolveModel: (name: string, cwd: string) => string | undefined = resolveAgentModel;
 const mode: SubagentExecutionMode = "one-shot";
 const outputContract: SubagentOutputContract = "artifact";
-const reason: SubagentTerminationReason = "output-limit";
+const reason: SubagentTerminationReason = "idle-limit";
 const usageState: SubagentUsageState = "partial";
 const limits: SubagentLimits = {
   maxProviderRequests: 1,
@@ -309,6 +311,7 @@ const limits: SubagentLimits = {
   maxOutputTokens: 4,
   maxCostUsd: 0.5,
   maxDurationMs: 6,
+  maxIdleMs: 7,
 };
 const profile: SubagentExecutionProfile = { mode, thinking: "high" };
 const outputLimit: OutputLimitEvidence = {
@@ -410,4 +413,4 @@ TS
   "$VITEST" run --silent=true src/bus.test.ts
 )
 
-echo "PASS: Archimedes npm bases, fork projections, reversibility, public declarations, and 100 installed-package tests verified"
+echo "PASS: Archimedes npm bases, fork projections, reversibility, public declarations, and 111 installed-package tests verified"
