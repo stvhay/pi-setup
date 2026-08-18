@@ -289,12 +289,26 @@ async function withQualityAskResults(
   const normalized = normalizeLegacyResult(result, questions);
   const results = normalized?.details?.results;
   if (!Array.isArray(results)) return normalized;
+  const qualityInput = results.map((answer: any, index: number) => {
+    const options = (questions[index]?.options ?? [])
+      .map(({ label }) => clean(label))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    const selectedOptions = Array.isArray(answer?.selectedOptions)
+      ? answer.selectedOptions.map((selected: unknown) => {
+        const value = clean(selected);
+        // ponytail: upstream "option - note" is ambiguous for overlapping labels; use longest until notes are structured.
+        return options.find((option) => value === option || value.startsWith(`${option} - `)) ?? value;
+      })
+      : answer?.selectedOptions;
+    return { ...answer, selectedOptions };
+  });
   const quality = await runAgntJson(
     ["quality", "normalize-ask", "--json"],
     cwd || process.cwd(),
     signal,
     "ask result normalizer",
-    JSON.stringify(results),
+    JSON.stringify(qualityInput),
   );
   if (!Array.isArray(quality.results)) throw new Error("ask result normalizer returned invalid results");
   return {

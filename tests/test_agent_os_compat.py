@@ -456,7 +456,13 @@ export default function registerArchimedes(pi) {
           results: params.questions.map((question) => ({
             id: question.id,
             multi: question.multi,
-            selectedOptions: [question.options[0].label],
+            selectedOptions: question.id === "noted-single"
+              ? [`${question.options[0].label} - note 1`]
+              : question.id === "noted-multi"
+                ? question.options.map((option, index) => `${option.label} - note ${index + 1}`)
+                : question.id === "noted-unknown"
+                  ? ["Gamma - note 1"]
+                  : [question.options[0].label],
           })),
         },
       };
@@ -917,6 +923,31 @@ export function resolveAgentModel(name) {
           assert.equal(upstreamCall.mode, "tui");
           assert.equal(upstreamCall.params.questions[0].multi, false);
           assert.equal("selectionMode" in upstreamCall.params.questions[0], false);
+
+          const notedSingle = await ask.execute("noted-single", {{ questions: [{{
+            id: "noted-single",
+            question: "Choose target with note",
+            options: [{{ label: "Alpha" }}, {{ label: "Beta" }}],
+            selectionMode: "single",
+          }}] }}, undefined, undefined, {{ mode }});
+          assert.deepEqual(notedSingle.details.results[0].selectedOptions, ["Alpha - note 1"]);
+          assert.deepEqual(notedSingle.details.qualityResults[0].selectedOptions, ["Alpha"]);
+
+          const notedMulti = await ask.execute("noted-multi", {{ questions: [{{
+            id: "noted-multi",
+            question: "Choose targets with notes",
+            options: [{{ label: "Alpha" }}, {{ label: "Beta" }}],
+            selectionMode: "multi",
+          }}] }}, undefined, undefined, {{ mode }});
+          assert.deepEqual(notedMulti.details.results[0].selectedOptions, ["Alpha - note 1", "Beta - note 2"]);
+          assert.deepEqual(notedMulti.details.qualityResults[0].selectedOptions, ["Alpha", "Beta"]);
+
+          await assert.rejects(() => ask.execute("noted-unknown", {{ questions: [{{
+            id: "noted-unknown",
+            question: "Choose unknown target with note",
+            options: [{{ label: "Alpha" }}, {{ label: "Beta" }}],
+            selectionMode: "single",
+          }}] }}, undefined, undefined, {{ mode }}), /quality normalize-ask failed/);
         }} else {{
           const confirmations = [false, true, true];
           const customInputs = ["   ", "custom value"];
