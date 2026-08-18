@@ -38,7 +38,9 @@ Task definitions live in `tasks/*.md` and provide model-routing hints. A task is
   - `--ignore-history` is reserved for deterministic policy evaluation; normal routing uses outcome history.
   - Outcome history is aggregated by model family (`agent/catalog.json`) across the global consolidated store and local pending metrics; candidates whose family shows more negative than positive outcomes over at least 5 invocations are demoted with an explicit reason.
 
-For interactive delegation, run `agnt route`, then call the Archimedes `subagent` tool with `agent` omitted and copy the route-generated `routingTask`, model, mode, access, thinking, and any metered evidence/limits. Use its `tasks` array for parallel peers. The wrapper strips telemetry-only `routingTask` before child execution, rejects `sourceAccess: repository` with one-shot mode, and rejects metered agentic repository work whose justification, positive estimate, or request/token/cost/duration bounds are incomplete or inconsistent. Parallel metered repository calls also require top-level `maxMarginalUsd`; summed child estimates may not exceed it. Single/per-child `outputContract` values are `inline`, `artifact`, `status-only`, and `pass-no-findings`; choose `artifact` for deferred full results, `status-only` for deterministic checks, `inline` when content is needed now, and `pass-no-findings` only when explicitly requested. Omitted contracts remain `unknown`. The tracked observer generates one payload-free `invocationId` per child at tool start and reuses it in the projection, metric, and parent-owned result artifact. Before returning, the parent writes full final, partial, and error output under `agnt runtime-path delegated-results`; tool content/details and telemetry gain a bounded `runtime:delegated-results/...` ref plus payload-free persistence status. Failed children expose bounded termination reason/source/effective deadline even when usable partial output exists; every nonzero exit without stronger evidence falls back to `process-error`. Projections and metrics carry matching safe routing task, provider, model, target, effective mode and thinking level, objective execution outcome, and output contract. Quality evaluators receive only a bounded parent-result view plus contract and artifact persistence/content status/count, never raw refs or filesystem paths. Missing effective thinking remains `default`; missing effective mode remains `unknown`. Parallel indexes are metadata, not identity. Named-profile projections mark provider, target, and thinking unavailable, and their metrics remain skipped because Archimedes does not expose those effective values.
+For interactive delegation, call Archimedes `subagent` with `agent` omitted and add a single/per-child `route` object. Route fields map to `agnt route`: required `task`; optional `risk`, `budget`, `contextTokens`, `modality`, `sourceAccess`, input/output token estimates, `maxMarginalUsd`, metered justification, and `ignoreHistory`. Wrapper resolves and validates every route before child launch, intersects caller and route limits by taking each stricter value, strips local routing fields, and adds a trusted route receipt to each aligned child result. Route intent is mutually exclusive with manual `agent`, `model`, `mode`, `thinking`, `sourceAccess`, `routingTask`, or cost evidence; command failure, no candidate, malformed selection, mode-incompatible limits, and unbounded metered agentic `auto` selection return an error without launching children. Direct `agnt route` plus manual copy-then-launch remains supported for policy inspection.
+
+Use `tasks` for parallel peers and put route intent on each routed child. Existing manual/inherited launches remain unchanged. Metered agentic repository routing requires explicit justification, positive estimates, marginal budget, and route-generated bounded children; parallel estimates must fit aggregate `maxMarginalUsd`. Single/per-child `outputContract` values are `inline`, `artifact`, `status-only`, and `pass-no-findings`; choose `artifact` for deferred full results, `status-only` for deterministic checks, `inline` when content is needed now, and `pass-no-findings` only when explicitly requested. Omitted contracts remain `unknown`. Tracked observer generates one payload-free `invocationId` per child and uses trusted receipts for safe route task, provider/model, effective mode, and thinking. Before returning, parent writes full final, partial, and error output under `agnt runtime-path delegated-results`; tool content/details and telemetry gain bounded refs plus payload-free persistence status. Failed children expose normalized termination evidence. Named-profile projections still mark provider, target, and thinking unavailable because Archimedes does not expose those effective values.
 
 `maxOutputTokens` bounds one provider response, not visible final-answer length; reasoning may consume that allowance before the visible final answer. Do not derive a low token cap from requested characters. Subscription-backed one-shot calls normally omit it, while the tracked wrapper keeps the 16,384-token metered one-shot backstop. An explicit lower cap remains appropriate for a bounded experiment or known spend/risk ceiling. One-shot rejects cumulative `maxTotalTokens` and `maxCostUsd`; they cannot constrain a provider request already in flight. One-shot already has one provider turn, so omit `maxProviderRequests`. Subscription-backed agentic work also omits request/token/cost caps unless an explicit bounded experiment or runaway risk requires one.
 
@@ -62,38 +64,43 @@ Classify failures from explicit evidence. `terminationReason=output-limit` plus 
 
 Metrics use `schemaVersion: 2` and are best-effort. Each invocation gets one UUID `invocationId` before execution; the ID is random and never derived from prompt, output, target, or child index. Records normalize `parentSessionId`, optional `childSessionId` for exact delegated-trace lookup, `workItem`, safe routing `task`, `provider`, `model`, `target`, `thinkingLevel`, `invocationMode`, objective `executionOutcome` (`succeeded`, `failed`, or `unavailable`), delegated `outputContract` (or `unknown`), `status` (`succeeded` or `failed`), `failureClass` (`provider`, `process`, `timeout`, or null), optional bounded `providerFailureClass`, sanitized termination reason/source/limit/observed/effective deadline, usage, duration, and bounded artifact refs. Human outcome annotations remain separate and cannot mutate execution. `recordId` remains a backward-compatible selector, and schema-v1 records without v2 fields remain loadable with execution and output contract `unknown`. Handoff records share the private store but compact to only schema, `kind=handoff`, normalized stage/result class, and duration; summaries count them separately from model invocation/routing totals. When Pi/provider usage is unavailable, metrics JSON records `usageSource: "unavailable"` and `usage: null`. When usage is available but the provider reports zero/missing dollars for a known subscription-backed or OpenRouter model, `agnt` fills `usage.cost` with an OpenRouter-price opportunity-cost estimate and marks it with `usage.costSource: "openrouter-assumed"` and `usage.costEstimated: true`. This keeps subscription GPT usage comparable without routing GPT calls through OpenRouter.
 
-Use routed unnamed `subagent` calls for peers. Set `mode: "one-shot"` for cold complete packets and use its `tasks` array for parallel dispatch. Internal eval/run workers keep the same metrics schema without exposing a second public peer command.
+Use unnamed `subagent` calls with route intent for peers. Set route `sourceAccess: "self-contained"` for cold complete packets and use `tasks` with one route per child for parallel dispatch. Internal eval/run workers keep the same metrics schema without exposing a second public peer command.
 
 ## Common routing flow
 
-Repository inspection example (subscription default, no request/token/cost caps):
-
-```bash
-agnt route --task research --risk medium --budget balanced --access repository
-```
+Repository inspection example selects and launches in one tool call (subscription default, no request/token/cost caps):
 
 ```json
-{ "task": "<focused prompt>", "routingTask": "research", "model": "<selected-provider/model>", "mode": "agentic", "sourceAccess": "repository" }
+{ "task": "<focused prompt>", "route": { "task": "research", "risk": "medium", "budget": "balanced", "sourceAccess": "repository" } }
 ```
 
-Bounded metered repository fanout adds explicit evidence:
+Parallel peers carry one route per child:
 
-```bash
-agnt route --task research --risk high --budget quality --access repository \
-  --estimated-input-tokens 50000 --estimated-output-tokens 10000 \
-  --max-marginal-usd 0.10 --metered-justification quality-benefit --fanout-size 2
+```json
+{ "tasks": [
+  { "task": "<first prompt>", "route": { "task": "research", "sourceAccess": "repository" } },
+  { "task": "<second prompt>", "route": { "task": "review", "sourceAccess": "repository" } }
+] }
 ```
 
-Copy each route-generated `estimatedCostUsd`, `meteredJustification`, and `limits` into its subagent task; do not widen them. For parallel calls, copy `meteredBudget.maxMarginalUsd` to top-level `maxMarginalUsd`.
+Run `agnt route --task research --risk medium --budget balanced --access repository` separately only when recommendation details must be inspected before launch.
+
+Bounded metered repository routing adds explicit evidence inside route intent:
+
+```json
+{ "task": "<focused prompt>", "route": {
+  "task": "research", "risk": "high", "budget": "quality", "sourceAccess": "repository",
+  "estimatedInputTokens": 50000, "estimatedOutputTokens": 10000,
+  "maxMarginalUsd": 0.10, "meteredJustification": "quality-benefit"
+} }
+```
+
+One-call routed launches derive selected estimate, evidence, and hard limits internally. Caller limits may only tighten them; top-level `maxMarginalUsd` can impose a stricter aggregate parallel budget.
 
 Cold review example:
 
-```bash
-agnt route --task review --risk medium --budget balanced --access self-contained --fanout-size 3
-```
-
 ```json
-{"task":"<complete packet contents>","routingTask":"review","model":"<selected-subscription-provider/model>","mode":"one-shot","sourceAccess":"self-contained","thinking":"<routed level>","limits":{"maxIdleMs":300000}}
+{"task":"<complete packet contents>","route":{"task":"review","risk":"medium","budget":"balanced","sourceAccess":"self-contained"},"limits":{"maxIdleMs":300000}}
 ```
 
 Use this sliding idle bound for routine subscription review. Metered or explicit calibration calls retain their approved absolute `maxDurationMs` and other route-generated limits.

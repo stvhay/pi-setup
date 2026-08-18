@@ -1316,8 +1316,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
 
       const cwd = {str(tmp_path)!r};
       const input = {{ tasks: [
-        {{ task: "SECRET first task", routingTask: "research", model: "openai/openai/gpt-oss-120b", mode: "agentic", thinking: "low", outputContract: "artifact" }},
-        {{ task: "SECRET second task", routingTask: "review", model: "openai-codex/gpt-5.6-luna", mode: "one-shot", thinking: "medium", outputContract: "status-only" }},
+        {{ task: "SECRET first task", route: {{ task: "research" }}, outputContract: "artifact" }},
+        {{ task: "SECRET second task", route: {{ task: "review" }}, outputContract: "status-only" }},
       ] }};
       const ctx = {{
         cwd,
@@ -1334,8 +1334,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         input,
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
-          {{ childSessionId: "child-session-0", exitCode: 0, model: "openai/gpt-oss-120b", execution: {{ profile: {{ mode: "agentic", thinking: "high" }} }}, finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
-          {{ childSessionId: "child-session-1", exitCode: 2, model: "gpt-5.6-luna", execution: {{ profile: {{ mode: "one-shot", thinking: "xhigh" }} }}, finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-0", exitCode: 0, model: "conflicting-upstream-model", execution: {{ profile: {{ mode: "one-shot", thinking: "xhigh" }} }}, routeReceipt: {{ schemaVersion: 1, authority: "agnt-route", routingTask: "research", target: "openai-codex/gpt-5.6-sol", provider: "openai-codex", model: "gpt-5.6-sol", mode: "agentic", thinking: "medium", sourceAccess: "repository", contextPolicy: "reuse-ok", billingClass: "subscription", estimatedCostUsd: 0, limits: {{}} }}, finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-1", exitCode: 2, model: "conflicting-upstream-model", execution: {{ profile: {{ mode: "agentic", thinking: "low" }} }}, routeReceipt: {{ schemaVersion: 1, authority: "agnt-route", routingTask: "review", target: "openrouter/anthropic/claude-opus-5", provider: "openrouter", model: "anthropic/claude-opus-5", mode: "one-shot", thinking: "high", sourceAccess: "self-contained", contextPolicy: "fresh", billingClass: "metered", estimatedCostUsd: null, limits: {{}} }}, finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
         ] }},
         isError: false,
       }}, ctx);
@@ -1358,7 +1358,7 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.providerFailureClass), [null, "credit"]);
       assert.deepEqual(records.map((record) => record.outputContract), ["artifact", "status-only"]);
       assert.deepEqual(records.map((record) => record.task), ["research", "review"]);
-      assert.deepEqual(records.map((record) => record.thinkingLevel), ["high", "xhigh"]);
+      assert.deepEqual(records.map((record) => record.thinkingLevel), ["medium", "high"]);
       assert.deepEqual(records.map((record) => record.invocationMode), ["agentic", "one-shot"]);
       const refs = patch.details.results.map((result) => result.artifact.refs[0]);
       assert.deepEqual(refs, ids.map((id, index) => `runtime:delegated-results/${{id}}/child-${{index}}.json`));
@@ -1367,8 +1367,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.artifactRefs), refs.map((ref) => [ref]));
       assert.deepEqual(records.map((record) => record.artifactStatus), ["persisted", "persisted"]);
       assert.deepEqual(records.map((record) => [record.provider, record.model, record.target, record.thinkingLevel]), [
-        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "high"],
-        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "xhigh"],
+        ["openai-codex", "gpt-5.6-sol", "openai-codex/gpt-5.6-sol", "medium"],
+        ["openrouter", "anthropic/claude-opus-5", "openrouter/anthropic/claude-opus-5", "high"],
       ]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.invocationId), ids);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.childSessionId), ["child-session-0", "child-session-1"]);
@@ -1385,8 +1385,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         const metadata = item.attributes.metadata;
         return [metadata.provider, metadata.model, metadata.target, metadata.thinkingLevel, metadata.modelDimensionsStatus];
       }}), [
-        ["openai", "openai/gpt-oss-120b", "openai/openai/gpt-oss-120b", "high", "available"],
-        ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "xhigh", "available"],
+        ["openai-codex", "gpt-5.6-sol", "openai-codex/gpt-5.6-sol", "medium", "available"],
+        ["openrouter", "anthropic/claude-opus-5", "openrouter/anthropic/claude-opus-5", "high", "available"],
       ]);
       const artifactRoot = `${{cwd}}/.pi/delegated-results`;
       const artifacts = await Promise.all(ids.map((id, index) => readFile(`${{artifactRoot}}/${{id}}/child-${{index}}.json`, "utf8").then(JSON.parse)));
@@ -1398,11 +1398,12 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         item.childIndex,
         item.executionOutcome,
         item.outputContract,
+        item.model,
         item.finalOutput,
         item.error,
       ]), [
-        [1, ids[0], "parent-logical-session", "child-session-0", 0, "succeeded", "artifact", "SECRET first output", null],
-        [1, ids[1], "parent-logical-session", "child-session-1", 1, "failed", "status-only", "SECRET partial second output", "HTTP 402: available credits can only cover 505 tokens"],
+        [1, ids[0], "parent-logical-session", "child-session-0", 0, "succeeded", "artifact", "openai-codex/gpt-5.6-sol", "SECRET first output", null],
+        [1, ids[1], "parent-logical-session", "child-session-1", 1, "failed", "status-only", "openrouter/anthropic/claude-opus-5", "SECRET partial second output", "HTTP 402: available credits can only cover 505 tokens"],
       ]);
       assert.equal((await stat(artifactRoot)).mode & 0o777, 0o700);
       assert.equal((await stat(`${{artifactRoot}}/${{ids[0]}}`)).mode & 0o777, 0o700);
@@ -1540,6 +1541,49 @@ def test_artifact_write_failure_preserves_execution_result(tmp_path):
       assert.equal(metric.artifactStatus, "failed");
       assert.equal(metric.artifactFailureClass, "write");
       assert.equal(JSON.stringify({{ patch, observations, metric }}).includes("PRIVATE write path"), false);
+    """
+    run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
+
+
+def test_route_failure_without_child_launch_emits_no_child_telemetry(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readdir }} from "node:fs/promises";
+      import install from {EXTENSION.as_uri()!r};
+
+      const handlers = {{}};
+      const observations = [];
+      install({{
+        on(name, candidate) {{ handlers[name] = candidate; }},
+      }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
+        observe(name, attributes) {{ observations.push({{ name, attributes }}); }},
+      }});
+
+      const cwd = {str(tmp_path)!r};
+      const input = {{ task: "private task", route: {{ task: "review" }} }};
+      const ctx = {{ cwd, model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      for (const [toolCallId, details] of [
+        ["route-failure", {{ mode: "single", results: [], routeFailure: true }}],
+        ["upstream-prelaunch-failure", {{ mode: "single", results: [] }}],
+      ]) {{
+        await handlers.tool_call({{ toolName: "subagent", toolCallId, input }}, ctx);
+        const patch = await handlers.tool_result({{
+          toolName: "subagent",
+          toolCallId,
+          input,
+          content: [{{ type: "text", text: "failed before child launch" }}],
+          details,
+          isError: true,
+        }}, ctx);
+        assert.equal(patch, undefined);
+      }}
+
+      assert.equal(observations.length, 0);
+      await assert.rejects(() => readdir(`${{cwd}}/.pi/metrics/invocations`), /ENOENT/);
+      await assert.rejects(() => readdir(`${{cwd}}/.pi/delegated-results`), /ENOENT/);
     """
     run_node(script, env={"PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent")})
 

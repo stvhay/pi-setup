@@ -21,6 +21,16 @@ type ArchimedesTypesModule = typeof import("@pi-archimedes/subagent/types");
 type NormalizedOutputContract = SubagentOutputContract | "unknown";
 type EffectiveMode = "agentic" | "one-shot" | "unknown";
 type ChildTraceAvailability = "expected-available" | "expected-unavailable" | "unknown";
+type RouteReceipt = {
+  schemaVersion: 1;
+  authority: "agnt-route";
+  routingTask: string;
+  target: string;
+  provider: string;
+  model: string;
+  mode: "agentic" | "one-shot";
+  thinking: SubagentThinkingLevel;
+};
 
 const PROJECTION_OBSERVE_REQUEST = "pi-setup:langfuse-projection-observe";
 const EVALUATION_OUTPUT_MAX_CHARS = 12_000;
@@ -39,6 +49,7 @@ type SubagentTaskInput = {
   limits?: SubagentLimits;
   outputContract?: SubagentOutputContract;
   routingTask?: string;
+  route?: { task?: string };
   thinking?: SubagentThinkingLevel;
 };
 type SubagentInput = {
@@ -49,6 +60,7 @@ type SubagentInput = {
   limits?: SubagentLimits;
   outputContract?: SubagentOutputContract;
   routingTask?: string;
+  route?: { task?: string };
   thinking?: SubagentThinkingLevel;
   tasks?: SubagentTaskInput[];
 };
@@ -59,8 +71,11 @@ type ArtifactEnvelope = {
   failureClass?: "resolution" | "write";
 };
 
-type SubagentResult = PublicSubagentResult & { artifact?: ArtifactEnvelope };
-type SubagentDetails = Omit<PublicSubagentDetails, "results"> & { results: SubagentResult[] };
+type SubagentResult = PublicSubagentResult & { artifact?: ArtifactEnvelope; routeReceipt?: RouteReceipt };
+type SubagentDetails = Omit<PublicSubagentDetails, "results"> & {
+  results: SubagentResult[];
+  routeFailure?: boolean;
+};
 
 type ObservationAttributes = {
   input?: unknown;
@@ -224,7 +239,30 @@ function resultExecutionOutcome(result: SubagentResult): "succeeded" | "failed" 
     : "failed";
 }
 
-function routingTask(input: SubagentInput, index: number): string {
+function trustedRouteReceipt(
+  input: SubagentInput,
+  result: SubagentResult,
+  index: number,
+): RouteReceipt | undefined {
+  const receipt = result.routeReceipt;
+  const intentTask = input.tasks?.[index]?.route?.task ?? input.route?.task;
+  if (
+    receipt?.schemaVersion !== 1
+    || receipt.authority !== "agnt-route"
+    || receipt.routingTask !== intentTask
+    || !ROUTING_TASK.test(receipt.routingTask)
+    || !existsSync(join(agentDir, "tasks", `${receipt.routingTask}.md`))
+    || !receipt.target
+    || receipt.target !== `${receipt.provider}/${receipt.model}`
+    || !["agentic", "one-shot"].includes(receipt.mode)
+    || !THINKING_LEVELS.has(receipt.thinking)
+  ) return undefined;
+  return receipt;
+}
+
+function routingTask(input: SubagentInput, result: SubagentResult, index: number): string {
+  const receipt = trustedRouteReceipt(input, result, index);
+  if (receipt) return receipt.routingTask;
   const value = input.tasks?.[index]?.routingTask ?? input.routingTask;
   return typeof value === "string" &&
     ROUTING_TASK.test(value) &&
@@ -412,12 +450,18 @@ function childSessionId(result: SubagentResult): string | null {
 }
 
 function effectiveMode(input: SubagentInput, result: SubagentResult, index: number): EffectiveMode {
-  const mode = result.execution?.profile?.mode ?? input.tasks?.[index]?.mode ?? input.mode;
+  const mode = trustedRouteReceipt(input, result, index)?.mode
+    ?? result.execution?.profile?.mode
+    ?? input.tasks?.[index]?.mode
+    ?? input.mode;
   return mode === "agentic" || mode === "one-shot" ? mode : "unknown";
 }
 
 function effectiveThinking(input: SubagentInput, result: SubagentResult, index: number): SubagentThinkingLevel | "default" {
-  const thinking = result.execution?.profile?.thinking ?? input.tasks?.[index]?.thinking ?? input.thinking;
+  const thinking = trustedRouteReceipt(input, result, index)?.thinking
+    ?? result.execution?.profile?.thinking
+    ?? input.tasks?.[index]?.thinking
+    ?? input.thinking;
   return THINKING_LEVELS.has(thinking as SubagentThinkingLevel) ? thinking as SubagentThinkingLevel : "default";
 }
 
@@ -525,7 +569,7 @@ async function persistSubagentArtifacts(
           executionOutcome: resultExecutionOutcome(result),
           outputContract: outputContract(input, childIndex, outputContracts),
           exitCode: result.exitCode ?? 1,
-          model: result.model ?? null,
+          model: trustedRouteReceipt(input, result, childIndex)?.target ?? result.model ?? null,
           finalOutput: result.finalOutput ?? null,
           error: result.error ?? null,
         });
@@ -554,6 +598,16 @@ function modelDimensions(
   index: number,
   ctx: ExtensionContext,
 ): ModelDimensions {
+  const receipt = trustedRouteReceipt(input, result, index);
+  if (receipt) {
+    return {
+      provider: receipt.provider,
+      model: receipt.model,
+      target: receipt.target,
+      thinkingLevel: receipt.thinking,
+      modelDimensionsStatus: "available",
+    };
+  }
   const task = input.tasks?.[index];
   const namedAgent = task?.agent ?? input.agent;
   if (namedAgent) {
@@ -648,7 +702,7 @@ function metricRecord(
     artifactFailureClass: result.artifact?.failureClass ?? null,
     outputContract: outputContract(input, index, outputContracts),
     workerElapsedMs,
-    task: routingTask(input, index),
+    task: routingTask(input, result, index),
     riskCategory: null,
     thinkingLevel: dimensions.thinkingLevel,
     invocationMode: effectiveMode(input, result, index),
@@ -795,9 +849,12 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
     const invocation = starts.get(event.toolCallId) ?? { startedMs: Date.now(), invocationIds: [] };
     starts.delete(event.toolCallId);
     if (!details || !Array.isArray(details.results)) return;
+    const input = event.input as SubagentInput;
+    const routed = input.route !== undefined
+      || (Array.isArray(input.tasks) && input.tasks.some((task) => task.route !== undefined));
+    if (details.results.length === 0 && (details.routeFailure === true || routed)) return;
 
     const outputContracts = await getOutputContracts();
-    const input = event.input as SubagentInput;
     const synthesized = details.results.length === 0;
     if (synthesized) {
       const tasks = Array.isArray(input.tasks) ? input.tasks : [];
@@ -878,7 +935,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
             index,
             ...dimensions,
             executionOutcome: resultExecutionOutcome(result),
-            routingTask: routingTask(input, index),
+            routingTask: routingTask(input, result, index),
             effectiveMode: mode,
             childTraceAvailability: childTraceAvailability(result, mode),
             outputContract: contract,

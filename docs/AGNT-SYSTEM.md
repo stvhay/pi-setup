@@ -20,7 +20,7 @@ Use the smallest surface that fits the work:
 
 1. Work directly in the current Pi session by default.
 2. Track code-changing work in Beads.
-3. Route delegated work with `agnt route`, then execute it through Pi's `subagent` tool.
+3. Route and execute delegated work through one Pi `subagent` call with explicit route intent; use `agnt route` directly when inspecting policy.
 4. Select optional run bundles only when durable orchestration evidence is needed.
 5. Keep private runtime data out of Git; commit only reviewed policy and code changes.
 
@@ -49,14 +49,14 @@ This keeps the root context small while preserving exact project and safety rule
 
 Interactive delegation uses one path:
 
-1. Run `agnt route` for task, risk, budget, and source access policy.
-2. Use `--access repository` when the child needs filesystem evidence; repository access requires agentic mode.
-3. Use `--access self-contained` and `mode: "one-shot"` only for a complete cold packet.
-4. Call `subagent` with `agent` omitted and copy route-generated `routingTask`, model, mode, access, thinking, and any metered evidence/limits.
-5. Prefer qualified subscription routes. Metered agentic repository work requires explicit quality/capability justification, estimated cost, aggregate budget, and bounded children.
-6. Use the `tasks` array for parallel peers.
+1. Call unnamed `subagent` with prompt plus `route: { task, risk?, budget?, sourceAccess?, ... }`.
+2. Use route `sourceAccess: "repository"` when child needs filesystem evidence; routing selects agentic mode.
+3. Use route `sourceAccess: "self-contained"` only for complete cold packets; routing selects one-shot mode.
+4. For parallel peers, put one route object in each `tasks` entry. Wrapper resolves all routes before launching any child and preserves task/result order.
+5. Prefer qualified subscription routes. Metered agentic work must use explicit repository access with justification, token estimates, marginal budget, and bounded children; unbounded metered `auto` selection fails closed.
+6. Caller limits may tighten route-generated limits but never widen them. Route/manual model, agent, mode, thinking, source-access, routing-task, or cost-evidence input is rejected as ambiguous.
 
-The tracked subagent observer records payload-free metrics with safe route task, effective mode/thinking, output contract, and normalized termination evidence, then persists complete child results under private runtime storage. Internal eval and run-bundle workers retain a headless Pi primitive because they execute outside a live Pi tool context; that primitive is not a second public peer command.
+Wrapper validates `agnt route` output, fails closed on command, no-candidate, or malformed results, and adds trusted route receipts to final child details. Tracked observer uses receipts for route task, provider/model, mode, and thinking telemetry, then persists complete child results under private runtime storage. Direct `agnt route` remains available to inspect recommendations or use manual copy-then-launch behavior. Internal eval and run-bundle workers retain a headless Pi primitive because they execute outside a live Pi tool context; that primitive is not a second public peer command.
 
 ## Normal lifecycle
 

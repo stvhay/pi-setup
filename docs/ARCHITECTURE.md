@@ -208,9 +208,10 @@ and `agnt runs` for message artifacts, `agnt work` for dry-run bead dispatch
 plans, plan trees, manual artifact execution, and health checks, `agnt quality`
 for deterministic five-activity assessment, `agnt approvals` for durable human
 decisions, `agnt gateway` for
-constrained Pi extension access, Archimedes `subagent` for interactive peer
-dispatch, `agnt runs invoke` / `agnt work run` for artifact-backed headless
-worker execution, `agnt context-health` for context entropy checks, and
+constrained Pi extension access, tracked Archimedes `subagent` composition for
+one-call routed interactive peer dispatch, `agnt runs invoke` / `agnt work run`
+for artifact-backed headless worker execution, `agnt context-health` for context
+entropy checks, and
 `pi/agent/evals/` for gates. See the [Orchestration Loop
 Decision](ORCHESTRATION-LOOP.md) for the explicitly selected Beads-first gated
 workflow.
@@ -233,10 +234,11 @@ Raw per-invocation records land in the resolver-selected private
 `metrics/invocations` directory. The resolver uses
 `<git-root>/.pi/metrics/invocations/` only when Git proves the candidate safe;
 otherwise it uses the repository-keyed `~/.pi/runtime/<sha256>/` fallback.
-Internal eval/run workers write their own records; the tracked subagent observer converts
-completed unnamed Archimedes results to the same schema using counts and
-lengths without prompt or response bodies. Before tool return, the parent writes
-full child output under the resolver-selected `delegated-results` directory and
+Internal eval/run workers write their own records; the tracked subagent observer
+converts completed unnamed Archimedes results to the same schema using validated
+route receipts when present and counts/lengths without prompt or response bodies.
+Before tool return, the parent writes full child output under the resolver-selected
+`delegated-results` directory and
 shares only bounded opaque refs in metric metadata. Named-profile metrics are
 skipped because Archimedes does not expose their final provider.
 `agnt metrics consolidate`

@@ -63,6 +63,7 @@ def test_metered_openrouter_models_require_fresh_delegation_context():
     assert "metered OpenRouter only for bounded diversity, specialist review, or explicit canary work" in instructions
     assert "always in fresh subagents" in instructions
     assert "metered repository inspection requires route-generated justification, estimates, aggregate budget, and per-child limits" in instructions
+    assert "Route unnamed `subagent` once via `route`" in instructions
     assert "Keep subscription OpenAI/Codex as root/default controller" in instructions
 
 

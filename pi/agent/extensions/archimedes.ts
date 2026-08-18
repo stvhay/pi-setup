@@ -43,6 +43,35 @@ type AskEmitter = (questions: Question[]) => void;
 type AgentModelResolver = ArchimedesAgentsModule["resolveAgentModel"];
 type OutputContracts = ArchimedesTypesModule["SUBAGENT_OUTPUT_CONTRACTS"];
 type BillingClass = "metered" | "subscription";
+type RouteIntent = {
+  task: string;
+  risk?: "low" | "medium" | "high";
+  budget?: "cheap" | "balanced" | "quality";
+  contextTokens?: number;
+  modality?: "text" | "image" | "audio" | "video";
+  sourceAccess?: "auto" | "self-contained" | "repository";
+  estimatedInputTokens?: number;
+  estimatedOutputTokens?: number;
+  maxMarginalUsd?: number;
+  meteredJustification?: "quality-benefit" | "missing-capability";
+  ignoreHistory?: boolean;
+};
+type RouteReceipt = {
+  schemaVersion: 1;
+  authority: "agnt-route";
+  routingTask: string;
+  target: string;
+  provider: string;
+  model: string;
+  mode: "agentic" | "one-shot";
+  thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  sourceAccess: "auto" | "self-contained" | "repository";
+  contextPolicy: string;
+  billingClass: "metered" | "subscription";
+  estimatedCostUsd?: number;
+  meteredJustification?: "quality-benefit" | "missing-capability";
+  limits: Record<string, number>;
+};
 
 const METERED_ONE_SHOT_CAP_ENV = "PI_ARCHIMEDES_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS";
 const DEFAULT_METERED_ONE_SHOT_MAX_OUTPUT_TOKENS = 16_384;
@@ -78,6 +107,28 @@ const maxMarginalParameter = {
   type: "number",
   exclusiveMinimum: 0,
   description: "Aggregate marginal USD budget for parallel metered repository work.",
+};
+const routeParameter = {
+  type: "object",
+  additionalProperties: false,
+  required: ["task"],
+  properties: {
+    task: {
+      type: "string",
+      pattern: "^[a-z][a-z0-9-]{0,63}$",
+      description: "agnt routing task policy to select before launch.",
+    },
+    risk: { type: "string", enum: ["low", "medium", "high"] },
+    budget: { type: "string", enum: ["cheap", "balanced", "quality"] },
+    contextTokens: { type: "integer", minimum: 0 },
+    modality: { type: "string", enum: ["text", "image", "audio", "video"] },
+    sourceAccess: { type: "string", enum: ["auto", "self-contained", "repository"] },
+    estimatedInputTokens: { type: "integer", minimum: 0 },
+    estimatedOutputTokens: { type: "integer", minimum: 0 },
+    maxMarginalUsd: estimatedCostParameter,
+    meteredJustification: meteredJustificationParameter,
+    ignoreHistory: { type: "boolean" },
+  },
 };
 
 const askParameters = {
@@ -262,6 +313,7 @@ function subagentParameters(parameters: any, outputContracts: OutputContracts): 
     properties: {
       ...properties,
       outputContract,
+      route: routeParameter,
       routingTask: routingTaskParameter,
       sourceAccess: sourceAccessParameter,
       meteredJustification: meteredJustificationParameter,
@@ -274,6 +326,7 @@ function subagentParameters(parameters: any, outputContracts: OutputContracts): 
           properties: {
             ...taskItems.properties,
             outputContract,
+            route: routeParameter,
             routingTask: routingTaskParameter,
             sourceAccess: sourceAccessParameter,
             meteredJustification: meteredJustificationParameter,
@@ -288,6 +341,7 @@ function subagentParameters(parameters: any, outputContracts: OutputContracts): 
 function upstreamSubagentArguments(params: any): any {
   const {
     outputContract: _outputContract,
+    route: _route,
     routingTask: _routingTask,
     sourceAccess: _sourceAccess,
     meteredJustification: _meteredJustification,
@@ -301,6 +355,7 @@ function upstreamSubagentArguments(params: any): any {
     tasks: upstream.tasks.map((value: any) => {
       const {
         outputContract: _taskOutputContract,
+        route: _taskRoute,
         routingTask: _taskRoutingTask,
         sourceAccess: _taskSourceAccess,
         meteredJustification: _taskMeteredJustification,
@@ -309,6 +364,291 @@ function upstreamSubagentArguments(params: any): any {
       } = value;
       return task;
     }),
+  };
+}
+
+const ROUTE_TASK = /^[a-z][a-z0-9-]{0,63}$/;
+const ROUTE_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const ROUTE_MODES = new Set(["agentic", "one-shot"]);
+const ROUTE_ACCESS = new Set(["auto", "self-contained", "repository"]);
+const ROUTE_BILLING = new Set(["metered", "subscription"]);
+const ROUTE_LIMIT_KEYS = [
+  "maxProviderRequests",
+  "maxToolCalls",
+  "maxTotalTokens",
+  "maxOutputTokens",
+  "maxCostUsd",
+  "maxDurationMs",
+  "maxIdleMs",
+] as const;
+const ROUTE_INTEGER_LIMITS = new Set([
+  "maxProviderRequests",
+  "maxToolCalls",
+  "maxTotalTokens",
+  "maxOutputTokens",
+  "maxDurationMs",
+  "maxIdleMs",
+]);
+const MAX_ROUTE_DURATION_MS = 2_147_483_647;
+const ROUTE_MANUAL_FIELDS = [
+  "agent",
+  "model",
+  "mode",
+  "thinking",
+  "sourceAccess",
+  "routingTask",
+  "meteredJustification",
+  "estimatedCostUsd",
+] as const;
+
+function routeFailure(params: any, message: string): any {
+  return {
+    content: [{ type: "text", text: message }],
+    details: {
+      mode: Array.isArray(params?.tasks) ? "parallel" : "single",
+      results: [],
+      progress: undefined,
+      routeFailure: true,
+    },
+    isError: true,
+  };
+}
+
+function routeConflict(params: any): string | undefined {
+  if (Array.isArray(params?.tasks)) {
+    if (params.route !== undefined) return "Top-level route is only valid for single subagent calls.";
+    for (const [index, task] of params.tasks.entries()) {
+      if (task?.route === undefined) continue;
+      const field = ROUTE_MANUAL_FIELDS.find((key) => task[key] !== undefined || params[key] !== undefined);
+      if (field) return `Routed subagent task ${index + 1} cannot also set ${field}.`;
+    }
+    return undefined;
+  }
+  if (params?.route === undefined) return undefined;
+  if (typeof params.task !== "string" || !params.task) return "Top-level route requires a subagent task.";
+  const field = ROUTE_MANUAL_FIELDS.find((key) => params[key] !== undefined);
+  return field ? `Routed subagent cannot also set ${field}.` : undefined;
+}
+
+function routeArguments(intent: RouteIntent): string[] {
+  if (!intent || !ROUTE_TASK.test(intent.task)) throw new Error("invalid route intent");
+  const args = ["route", "--task", intent.task];
+  const values: Array<[unknown, string]> = [
+    [intent.risk, "--risk"],
+    [intent.budget, "--budget"],
+    [intent.contextTokens, "--context-tokens"],
+    [intent.modality, "--modality"],
+    [intent.sourceAccess, "--access"],
+    [intent.estimatedInputTokens, "--estimated-input-tokens"],
+    [intent.estimatedOutputTokens, "--estimated-output-tokens"],
+    [intent.maxMarginalUsd, "--max-marginal-usd"],
+    [intent.meteredJustification, "--metered-justification"],
+  ];
+  for (const [value, flag] of values) if (value !== undefined) args.push(flag, String(value));
+  if (intent.ignoreHistory) args.push("--ignore-history");
+  return args;
+}
+
+function positiveRouteLimits(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const limits = value as Record<string, unknown>;
+  if (Object.keys(limits).some((key) => !ROUTE_LIMIT_KEYS.includes(key as typeof ROUTE_LIMIT_KEYS[number]))) {
+    return undefined;
+  }
+  const normalized: Record<string, number> = {};
+  for (const key of ROUTE_LIMIT_KEYS) {
+    const limit = limits[key];
+    if (limit === undefined) continue;
+    if (
+      typeof limit !== "number"
+      || !Number.isFinite(limit)
+      || limit <= 0
+      || (ROUTE_INTEGER_LIMITS.has(key) && !Number.isInteger(limit))
+      || (key === "maxOutputTokens" && !Number.isSafeInteger(limit))
+      || ((key === "maxDurationMs" || key === "maxIdleMs") && limit > MAX_ROUTE_DURATION_MS)
+    ) return undefined;
+    normalized[key] = limit;
+  }
+  return normalized;
+}
+
+function expectedRouteMode(intent: RouteIntent): "agentic" | "one-shot" {
+  if (intent.sourceAccess === "repository") return "agentic";
+  if (intent.sourceAccess === "self-contained") return "one-shot";
+  return intent.task === "review" ? "one-shot" : "agentic";
+}
+
+function routeReceipt(
+  intent: RouteIntent,
+  result: Record<string, unknown>,
+  classes: ReadonlyMap<string, BillingClass>,
+): RouteReceipt {
+  const selection = result.selection;
+  if (
+    result.schemaVersion !== 1
+    || result.task !== intent.task
+    || result.routeStatus !== "selected"
+    || !selection
+    || typeof selection !== "object"
+    || Array.isArray(selection)
+  ) throw new Error("invalid selected route");
+  const selected = selection as Record<string, unknown>;
+  const target = selected.target;
+  const separator = typeof target === "string" ? target.indexOf("/") : -1;
+  const thinking = selected.thinkingLevel;
+  const mode = selected.executionMode;
+  const sourceAccess = selected.sourceAccess;
+  const contextPolicy = selected.contextPolicy;
+  const billingClass = selected.billingClass;
+  const limits = positiveRouteLimits(selected.limits);
+  const estimatedCost = selected.estimatedCostUsd;
+  const justification = selected.meteredJustification;
+  const catalogBilling = typeof target === "string" ? classes.get(normalizeModelRef(target)!) : undefined;
+  if (
+    result.risk !== (intent.risk ?? "medium")
+    || result.budget !== (intent.budget ?? "balanced")
+    || result.modality !== (intent.modality ?? "text")
+    || result.contextTokens !== (intent.contextTokens ?? 0)
+    || result.selected !== target
+    || result.thinkingLevel !== thinking
+    || result.contextPolicy !== contextPolicy
+    || result.sourceAccess !== sourceAccess
+    || result.executionMode !== mode
+    || separator <= 0
+    || separator === (target as string).length - 1
+    || typeof thinking !== "string"
+    || !ROUTE_THINKING.has(thinking)
+    || typeof mode !== "string"
+    || !ROUTE_MODES.has(mode)
+    || typeof sourceAccess !== "string"
+    || !ROUTE_ACCESS.has(sourceAccess)
+    || sourceAccess !== (intent.sourceAccess ?? "auto")
+    || typeof contextPolicy !== "string"
+    || !contextPolicy
+    || typeof billingClass !== "string"
+    || !ROUTE_BILLING.has(billingClass)
+    || billingClass !== catalogBilling
+    || limits === undefined
+    || (estimatedCost !== null && estimatedCost !== undefined && positiveFinite(estimatedCost) === undefined && estimatedCost !== 0)
+    || (justification !== null && justification !== undefined && !["quality-benefit", "missing-capability"].includes(String(justification)))
+    || mode !== expectedRouteMode(intent)
+    || (intent.maxMarginalUsd !== undefined && typeof estimatedCost === "number" && estimatedCost > intent.maxMarginalUsd)
+  ) throw new Error("invalid selected route");
+  if (billingClass === "metered" && mode === "agentic" && sourceAccess === "auto") {
+    throw new Error("metered agentic routes require explicit repository sourceAccess and bounded routing evidence");
+  }
+  return {
+    schemaVersion: 1,
+    authority: "agnt-route",
+    routingTask: intent.task,
+    target: target as string,
+    provider: (target as string).slice(0, separator),
+    model: (target as string).slice(separator + 1),
+    mode: mode as RouteReceipt["mode"],
+    thinking: thinking as RouteReceipt["thinking"],
+    sourceAccess: sourceAccess as RouteReceipt["sourceAccess"],
+    contextPolicy,
+    billingClass: billingClass as RouteReceipt["billingClass"],
+    ...(typeof estimatedCost === "number" ? { estimatedCostUsd: estimatedCost } : {}),
+    ...(typeof justification === "string" ? { meteredJustification: justification as RouteReceipt["meteredJustification"] } : {}),
+    limits,
+  };
+}
+
+function effectiveRouteLimits(...values: unknown[]): Record<string, number> {
+  const limits: Record<string, number> = {};
+  for (const value of values) {
+    if (value === undefined) continue;
+    const normalized = positiveRouteLimits(value);
+    if (normalized === undefined) throw new Error("subagent limits must contain only positive finite values");
+    for (const [key, limit] of Object.entries(normalized)) {
+      limits[key] = Math.min(limits[key] ?? limit, limit);
+    }
+  }
+  return limits;
+}
+
+function withReceiptSelection(task: any, receipt: RouteReceipt, topLimits?: unknown): any {
+  const limits = effectiveRouteLimits(receipt.limits, topLimits, task.limits);
+  if (receipt.mode === "agentic" && limits.maxOutputTokens !== undefined) {
+    throw new Error("maxOutputTokens is supported only for one-shot routed children");
+  }
+  if (receipt.mode === "one-shot" && (limits.maxTotalTokens !== undefined || limits.maxCostUsd !== undefined)) {
+    throw new Error("maxTotalTokens and maxCostUsd cannot bound one-shot routed children; use maxOutputTokens");
+  }
+  if (receipt.mode === "one-shot") limits.maxProviderRequests = Math.min(limits.maxProviderRequests ?? 1, 1);
+  return {
+    ...task,
+    model: receipt.target,
+    mode: receipt.mode,
+    thinking: receipt.thinking,
+    ...(receipt.sourceAccess === "auto" ? {} : { sourceAccess: receipt.sourceAccess }),
+    ...(receipt.estimatedCostUsd !== undefined ? { estimatedCostUsd: receipt.estimatedCostUsd } : {}),
+    ...(receipt.meteredJustification ? { meteredJustification: receipt.meteredJustification } : {}),
+    ...(Object.keys(limits).length ? { limits } : {}),
+  };
+}
+
+async function resolveRoutedArguments(
+  params: any,
+  cwd: string,
+  classes: ReadonlyMap<string, BillingClass>,
+  signal?: AbortSignal,
+): Promise<{ params: any; receipts: Array<RouteReceipt | undefined> }> {
+  if (Array.isArray(params.tasks)) {
+    const receipts = await Promise.all(params.tasks.map(async (task: any): Promise<RouteReceipt | undefined> => {
+      if (!task.route) return undefined;
+      const result = await runAgntJson(
+        routeArguments(task.route),
+        task.cwd ?? params.cwd ?? cwd,
+        signal,
+        "agnt route",
+      );
+      return routeReceipt(task.route, result, classes);
+    }));
+    const tasks = params.tasks.map((task: any, index: number) =>
+      receipts[index] ? withReceiptSelection(task, receipts[index]!, params.limits) : task
+    );
+    const routedEstimate = receipts.reduce((sum, receipt) =>
+      sum + (receipt?.sourceAccess === "repository" && receipt.billingClass === "metered"
+        ? receipt.estimatedCostUsd ?? 0
+        : 0), 0);
+    return {
+      params: {
+        ...params,
+        tasks,
+        ...(params.maxMarginalUsd === undefined && routedEstimate > 0 ? { maxMarginalUsd: routedEstimate } : {}),
+      },
+      receipts,
+    };
+  }
+  if (!params.route) return { params, receipts: [undefined] };
+  const result = await runAgntJson(routeArguments(params.route), params.cwd ?? cwd, signal, "agnt route");
+  const receipt = routeReceipt(params.route, result, classes);
+  return { params: withReceiptSelection(params, receipt), receipts: [receipt] };
+}
+
+function finalizedReceipts(
+  params: any,
+  receipts: Array<RouteReceipt | undefined>,
+): Array<RouteReceipt | undefined> {
+  return receipts.map((receipt, index) => {
+    if (!receipt) return undefined;
+    const limits = Array.isArray(params.tasks) ? params.tasks[index]?.limits : params.limits;
+    return { ...receipt, limits: positiveRouteLimits(limits ?? {}) ?? receipt.limits };
+  });
+}
+
+function withRouteReceipts(result: any, receipts: Array<RouteReceipt | undefined>): any {
+  if (!receipts.some(Boolean) || !Array.isArray(result?.details?.results)) return result;
+  return {
+    ...result,
+    details: {
+      ...result.details,
+      results: result.details.results.map((child: any, index: number) =>
+        receipts[index] ? { ...child, routeReceipt: receipts[index] } : child
+      ),
+    },
   };
 }
 
@@ -476,8 +816,20 @@ function registerContractAwareSubagent(
     ...upstreamSubagent,
     parameters: subagentParameters(upstreamSubagent.parameters, outputContracts),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const policyError = delegationPolicyError(params, ctx, classes, resolveAgentModel);
+      const conflict = routeConflict(params);
+      if (conflict) return routeFailure(params, conflict);
+      let routed;
+      try {
+        routed = await resolveRoutedArguments(params, ctx?.cwd ?? process.cwd(), classes, signal);
+      } catch (error) {
+        const message = error instanceof Error && error.message === "invalid selected route"
+          ? "Subagent routing returned an invalid selected route."
+          : `Subagent routing failed: ${clean(error instanceof Error ? error.message : error, 4000)}`;
+        return routeFailure(params, message);
+      }
+      const policyError = delegationPolicyError(routed.params, ctx, classes, resolveAgentModel);
       if (policyError) {
+        if (routed.receipts.some(Boolean)) return routeFailure(params, policyError);
         return {
           content: [{ type: "text", text: policyError }],
           details: {
@@ -488,8 +840,15 @@ function registerContractAwareSubagent(
           isError: true,
         };
       }
-      const bounded = withMeteredOneShotCaps(params, ctx, classes, resolveAgentModel, defaultCap);
-      return upstreamSubagent.execute!(toolCallId, upstreamSubagentArguments(bounded), signal, onUpdate, ctx);
+      const bounded = withMeteredOneShotCaps(routed.params, ctx, classes, resolveAgentModel, defaultCap);
+      const result = await upstreamSubagent.execute!(
+        toolCallId,
+        upstreamSubagentArguments(bounded),
+        signal,
+        onUpdate,
+        ctx,
+      );
+      return withRouteReceipts(result, finalizedReceipts(bounded, routed.receipts));
     },
   } as any);
 }

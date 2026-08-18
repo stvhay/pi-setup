@@ -204,7 +204,169 @@ def test_archimedes_custom_input_wrapper_preserves_public_components_and_one_por
     bus_dir.mkdir(parents=True)
     subagent_dir.mkdir(parents=True)
     (agent_dir / "bin").mkdir()
-    (agent_dir / "bin" / "agnt").symlink_to(ROOT / "pi" / "agent" / "bin" / "agnt")
+    real_agnt = ROOT / "pi" / "agent" / "bin" / "agnt"
+    fake_agnt = agent_dir / "bin" / "agnt"
+    fake_agnt.write_text(
+        f'''#!/usr/bin/env python3
+import json
+import os
+import sys
+
+if len(sys.argv) > 1 and sys.argv[1] == "route":
+    task = sys.argv[sys.argv.index("--task") + 1]
+    if task == "fixture-no-candidate":
+        print(json.dumps({{"schemaVersion": 1, "task": task, "routeStatus": "no_candidate", "selected": None, "selection": None}}))
+        raise SystemExit(1)
+    if task == "fixture-malformed":
+        print("{{}}")
+        raise SystemExit(0)
+    routes = {{
+        "fixture-invalid-limits": {{
+            "target": "openai-codex/gpt-5.6-terra",
+            "thinkingLevel": "medium",
+            "contextPolicy": "reuse-ok",
+            "sourceAccess": "auto",
+            "executionMode": "agentic",
+            "billingClass": "subscription",
+            "estimatedCostUsd": 0.0,
+            "meteredJustification": None,
+            "limits": {{"maxProviderRequests": 1.5, "maxDurationMs": 2147483648}},
+        }},
+        "fixture-mismatched-intent": {{
+            "target": "openai-codex/gpt-5.6-terra",
+            "thinkingLevel": "medium",
+            "contextPolicy": "reuse-ok",
+            "sourceAccess": "auto",
+            "executionMode": "agentic",
+            "billingClass": "subscription",
+            "estimatedCostUsd": 0.0,
+            "meteredJustification": None,
+            "limits": {{}},
+        }},
+        "fixture-auto-metered": {{
+            "target": "openrouter/anthropic/claude-opus-5",
+            "thinkingLevel": "high",
+            "contextPolicy": "fresh",
+            "sourceAccess": "auto",
+            "executionMode": "agentic",
+            "billingClass": "metered",
+            "estimatedCostUsd": None,
+            "meteredJustification": None,
+            "limits": {{}},
+        }},
+        "fixture-billing-spoof": {{
+            "target": "openrouter/anthropic/claude-opus-5",
+            "thinkingLevel": "high",
+            "contextPolicy": "fresh",
+            "sourceAccess": "auto",
+            "executionMode": "agentic",
+            "billingClass": "subscription",
+            "estimatedCostUsd": 0.0,
+            "meteredJustification": None,
+            "limits": {{}},
+        }},
+        "review": {{
+            "target": "openai-codex/gpt-5.6-terra",
+            "thinkingLevel": "medium",
+            "contextPolicy": "reuse-ok",
+            "sourceAccess": "auto",
+            "executionMode": "agentic",
+            "billingClass": "subscription",
+            "estimatedCostUsd": 0.0,
+            "meteredJustification": None,
+            "limits": {{}},
+        }},
+        "fixture-self-contained-agentic": {{
+            "target": "openai-codex/gpt-5.6-terra",
+            "thinkingLevel": "medium",
+            "contextPolicy": "reuse-ok",
+            "sourceAccess": "self-contained",
+            "executionMode": "agentic",
+            "billingClass": "subscription",
+            "estimatedCostUsd": 0.0,
+            "meteredJustification": None,
+            "limits": {{}},
+        }},
+        "fixture-over-budget": {{
+            "target": "openrouter/anthropic/claude-opus-5",
+            "thinkingLevel": "high",
+            "contextPolicy": "fresh",
+            "sourceAccess": "repository",
+            "executionMode": "agentic",
+            "billingClass": "metered",
+            "estimatedCostUsd": 0.03,
+            "meteredJustification": "quality-benefit",
+            "limits": {{"maxProviderRequests": 6, "maxTotalTokens": 6000, "maxCostUsd": 0.03, "maxDurationMs": 300000}},
+        }},
+        "fixture-review": {{
+            "target": "openai-codex/gpt-5.6-terra",
+            "thinkingLevel": "medium",
+            "contextPolicy": "reuse-ok",
+            "sourceAccess": "repository",
+            "executionMode": "agentic",
+            "billingClass": "subscription",
+            "estimatedCostUsd": 0.0,
+            "meteredJustification": None,
+            "limits": {{"maxProviderRequests": 4, "maxTotalTokens": 4000, "maxDurationMs": 1000}},
+        }},
+        "fixture-cold-review": {{
+            "target": "openai-codex/gpt-5.6-terra",
+            "thinkingLevel": "medium",
+            "contextPolicy": "reuse-ok",
+            "sourceAccess": "self-contained",
+            "executionMode": "one-shot",
+            "billingClass": "subscription",
+            "estimatedCostUsd": 0.0,
+            "meteredJustification": None,
+            "limits": {{}},
+        }},
+        "fixture-implementation": {{
+            "target": "openrouter/anthropic/claude-opus-5",
+            "thinkingLevel": "high",
+            "contextPolicy": "fresh",
+            "sourceAccess": "repository",
+            "executionMode": "agentic",
+            "billingClass": "metered",
+            "estimatedCostUsd": 0.03,
+            "meteredJustification": "quality-benefit",
+            "limits": {{"maxProviderRequests": 6, "maxTotalTokens": 6000, "maxCostUsd": 0.03, "maxDurationMs": 300000}},
+        }},
+    }}
+    selection = routes.get(task)
+    if selection is None:
+        print(json.dumps({{"schemaVersion": 1, "task": task, "routeStatus": "no_candidate", "selected": None, "selection": None}}))
+        raise SystemExit(1)
+    def option(name, default):
+        return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+    risk = option("--risk", "medium")
+    budget = option("--budget", "balanced")
+    modality = option("--modality", "text")
+    context_tokens = int(option("--context-tokens", "0"))
+    if task == "fixture-mismatched-intent":
+        risk, budget = "high", "quality"
+    print(json.dumps({{
+        "schemaVersion": 1,
+        "task": task,
+        "risk": risk,
+        "budget": budget,
+        "modality": modality,
+        "contextTokens": context_tokens,
+        "routeStatus": "selected",
+        "selected": selection["target"],
+        "thinkingLevel": selection["thinkingLevel"],
+        "contextPolicy": selection["contextPolicy"],
+        "sourceAccess": selection["sourceAccess"],
+        "executionMode": selection["executionMode"],
+        "selection": selection,
+    }}))
+    raise SystemExit(0)
+
+real = {str(real_agnt)!r}
+os.execv(real, [real, *sys.argv[1:]])
+''',
+        encoding="utf-8",
+    )
+    fake_agnt.chmod(0o755)
     (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
     (package_dir / "package.json").write_text(
         json.dumps({"name": "pi-archimedes", "version": "2.1.0", "type": "module", "main": "./index.js"}),
@@ -260,7 +422,24 @@ export default function registerArchimedes(pi) {
     renderResult() { return "upstream-result"; },
     async execute(_id, params) {
       (globalThis.__upstreamSubagentCalls ??= []).push(params);
-      return { content: [{ type: "text", text: "delegated" }], details: { upstream: true, params } };
+      const tasks = params.tasks ?? [params];
+      return {
+        content: [{ type: "text", text: "delegated" }],
+        details: {
+          upstream: true,
+          params,
+          mode: params.tasks ? "parallel" : "single",
+          results: tasks.map((task) => ({
+            agent: task.agent ?? "subagent",
+            task: task.task,
+            exitCode: 0,
+            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1 },
+            model: task.model,
+            execution: { profile: { mode: task.mode ?? "agentic", thinking: task.thinking }, limits: task.limits },
+            finalOutput: task.task,
+          })),
+        },
+      };
     },
     });
   });
@@ -378,6 +557,11 @@ export function resolveAgentModel(name) {
         assert.equal(subagent.parameters.properties.async.type, "boolean");
         assert.equal(subagent.parameters.properties.cwd.type, "string");
         assert.equal(subagent.parameters.properties.tasks.items.properties.cwd.type, "string");
+        assert.equal(subagent.parameters.properties.route.required[0], "task");
+        assert.equal(subagent.parameters.properties.route.properties.task.pattern, "^[a-z][a-z0-9-]{{0,63}}$");
+        assert.deepEqual(subagent.parameters.properties.route.properties.risk.enum, ["low", "medium", "high"]);
+        assert.deepEqual(subagent.parameters.properties.route.properties.sourceAccess.enum, ["auto", "self-contained", "repository"]);
+        assert.equal(subagent.parameters.properties.tasks.items.properties.route.required[0], "task");
 
         const singleDelegation = await subagent.execute("single-contract", {{
           task: "Review auth",
@@ -397,6 +581,94 @@ export function resolveAgentModel(name) {
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           tasks: [{{ task: "Review auth" }}, {{ task: "Check tests" }}],
         }});
+
+        const routedSingle = await subagent.execute("routed-single", {{
+          task: "Review routed auth",
+          route: {{ task: "fixture-review", risk: "medium", sourceAccess: "repository", ignoreHistory: true }},
+          limits: {{ maxProviderRequests: 2, maxToolCalls: 5, maxDurationMs: 9000 }},
+          outputContract: "status-only",
+        }}, undefined, undefined, {{ mode, cwd: process.cwd() }});
+        assert.equal(routedSingle.details.upstream, true);
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          task: "Review routed auth",
+          model: "openai-codex/gpt-5.6-terra",
+          mode: "agentic",
+          thinking: "medium",
+          limits: {{ maxProviderRequests: 2, maxToolCalls: 5, maxTotalTokens: 4000, maxDurationMs: 1000 }},
+        }});
+        assert.deepEqual(routedSingle.details.results[0].routeReceipt, {{
+          schemaVersion: 1,
+          authority: "agnt-route",
+          routingTask: "fixture-review",
+          target: "openai-codex/gpt-5.6-terra",
+          provider: "openai-codex",
+          model: "gpt-5.6-terra",
+          mode: "agentic",
+          thinking: "medium",
+          sourceAccess: "repository",
+          contextPolicy: "reuse-ok",
+          billingClass: "subscription",
+          estimatedCostUsd: 0,
+          limits: {{ maxProviderRequests: 2, maxToolCalls: 5, maxTotalTokens: 4000, maxDurationMs: 1000 }},
+        }});
+
+        const routedCold = await subagent.execute("routed-cold", {{
+          task: "Review cold packet",
+          route: {{ task: "fixture-cold-review", sourceAccess: "self-contained" }},
+          limits: {{ maxIdleMs: 5000 }},
+        }}, undefined, undefined, {{ mode, cwd: process.cwd() }});
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          task: "Review cold packet",
+          model: "openai-codex/gpt-5.6-terra",
+          mode: "one-shot",
+          thinking: "medium",
+          limits: {{ maxProviderRequests: 1, maxIdleMs: 5000 }},
+        }});
+        assert.deepEqual(routedCold.details.results[0].routeReceipt.limits, {{ maxProviderRequests: 1, maxIdleMs: 5000 }});
+
+        const routedParallel = await subagent.execute("routed-parallel", {{
+          tasks: [
+            {{ task: "Review first", route: {{ task: "fixture-review", sourceAccess: "repository" }}, limits: {{ maxProviderRequests: 99 }} }},
+            {{ task: "Implement second", route: {{ task: "fixture-implementation", sourceAccess: "repository", estimatedInputTokens: 5000, estimatedOutputTokens: 1000, maxMarginalUsd: 0.03, meteredJustification: "quality-benefit" }}, limits: {{ maxTotalTokens: 3000 }} }},
+          ],
+        }}, undefined, undefined, {{ mode, cwd: process.cwd() }});
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
+          tasks: [
+            {{ task: "Review first", model: "openai-codex/gpt-5.6-terra", mode: "agentic", thinking: "medium", limits: {{ maxProviderRequests: 4, maxTotalTokens: 4000, maxDurationMs: 1000 }} }},
+            {{ task: "Implement second", model: "openrouter/anthropic/claude-opus-5", mode: "agentic", thinking: "high", limits: {{ maxProviderRequests: 6, maxTotalTokens: 3000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+          ],
+        }});
+        assert.deepEqual(
+          routedParallel.details.results.map((result) => [result.task, result.routeReceipt.routingTask, result.routeReceipt.target]),
+          [
+            ["Review first", "fixture-review", "openai-codex/gpt-5.6-terra"],
+            ["Implement second", "fixture-implementation", "openrouter/anthropic/claude-opus-5"],
+          ],
+        );
+
+        for (const [name, params, expected] of [
+          ["route-manual-conflict", {{ task: "Conflict", route: {{ task: "fixture-review" }}, model: "openai-codex/gpt-5.6-sol" }}, /route.*model/i],
+          ["route-routing-task-conflict", {{ task: "Conflict", route: {{ task: "fixture-review" }}, routingTask: "review" }}, /route.*routingTask/i],
+          ["route-evidence-conflict", {{ task: "Conflict", route: {{ task: "fixture-review", sourceAccess: "repository" }}, estimatedCostUsd: 0.01 }}, /route.*estimatedCostUsd/i],
+          ["route-top-level-parallel", {{ tasks: [{{ task: "One" }}], route: {{ task: "fixture-review" }} }}, /top-level route.*single/i],
+          ["route-no-candidate", {{ task: "No candidate", route: {{ task: "fixture-no-candidate" }} }}, /routing failed/i],
+          ["route-malformed", {{ task: "Malformed", route: {{ task: "fixture-malformed" }} }}, /invalid selected route/i],
+          ["route-invalid-limits", {{ task: "Invalid limits", route: {{ task: "fixture-invalid-limits" }} }}, /invalid selected route/i],
+          ["route-mismatched-intent", {{ task: "Mismatched", route: {{ task: "fixture-mismatched-intent", risk: "low", budget: "cheap" }} }}, /invalid selected route/i],
+          ["route-auto-metered", {{ task: "Auto metered", route: {{ task: "fixture-auto-metered" }} }}, /metered agentic/i],
+          ["route-billing-spoof", {{ task: "Billing spoof", route: {{ task: "fixture-billing-spoof" }} }}, /invalid selected route/i],
+          ["route-auto-review-agentic", {{ task: "Auto review", route: {{ task: "review" }} }}, /invalid selected route/i],
+          ["route-bad-access-mode", {{ task: "Bad semantics", route: {{ task: "fixture-self-contained-agentic", sourceAccess: "self-contained" }} }}, /invalid selected route/i],
+          ["route-over-budget", {{ task: "Over budget", route: {{ task: "fixture-over-budget", sourceAccess: "repository", estimatedInputTokens: 5000, estimatedOutputTokens: 1000, maxMarginalUsd: 0.01, meteredJustification: "quality-benefit" }} }}, /invalid selected route/i],
+          ["route-incompatible-limit", {{ task: "Bad limit", route: {{ task: "fixture-review", sourceAccess: "repository" }}, limits: {{ maxOutputTokens: 1000 }} }}, /maxOutputTokens.*one-shot/i],
+        ]) {{
+          const before = globalThis.__upstreamSubagentCalls.length;
+          const rejected = await subagent.execute(name, params, undefined, undefined, {{ mode, cwd: process.cwd() }});
+          assert.equal(rejected.isError, true);
+          assert.match(rejected.content[0].text, expected);
+          assert.equal(rejected.details.routeFailure, true);
+          assert.equal(globalThis.__upstreamSubagentCalls.length, before);
+        }}
 
         const callsBeforeRepositoryRejection = globalThis.__upstreamSubagentCalls.length;
         const repositoryOneShot = await subagent.execute("repository-one-shot", {{

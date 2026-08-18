@@ -29,7 +29,7 @@ def test_global_instructions_are_compact_and_retain_audited_gates():
         "typed tools stay thin",
         "stop retrying and run read-only `agnt doctor --json`",
         "`agnt work direct-closeout <id> --outcome success --reason \"<reason>\"`",
-        "`agnt route --access repository`",
+        "`agnt route --task review --access repository`",
         "`--access self-contained`",
         "metered OpenRouter only for bounded diversity",
         "Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in",
