@@ -55,6 +55,8 @@ positive final outcome to guess a narrower class.
 
 ## Evidence rules
 
+Session coverage and finding evidence coverage are separate. Each finding cites at most 16 distinct packet EvidenceRefs and uses the smallest representative subset that supports its claim. Every assigned session must still appear exactly once in the completed result, including sessions not cited by a cohort finding.
+
 Classify raw tool errors as events, not mistakes. Record the supported `evidenceStage`; do not collapse or infer missing stages:
 
 1. `event`: observed tool, model, evaluator, or workflow signal.

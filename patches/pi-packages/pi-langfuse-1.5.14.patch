@@ -1203,7 +1203,7 @@ index 23f266e..61f5969 100644
 -  inputBytes: number;
 +  inputByteMetadata: Record<string, unknown>;
 diff --git a/src/utils.ts b/src/utils.ts
-index 1f70387..a3a220b 100644
+index 1f70387..5fba3a5 100644
 --- a/src/utils.ts
 +++ b/src/utils.ts
 @@ -3 +3 @@ import { createCapturePolicy, type CapturePolicy } from "./capture-policy.js";
@@ -1331,3 +1331,28 @@ index 1f70387..a3a220b 100644
 @@ -355 +411 @@ export function extractModelParameters(payload: unknown): Record<string, string
 -      params[key] = value;
 +      params[key] = typeof value === "string" ? redactString(value) : value;
+@@ -371,0 +428,14 @@ export function getMessageFromEvent(event: Record<string, unknown>): Record<stri
++function extractUsageCount(
++  usage: Record<string, unknown>,
++  keys: readonly string[],
++): number | undefined {
++  for (const key of keys) {
++    if (!Object.hasOwn(usage, key)) continue;
++    const value = usage[key];
++    if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0) {
++      return value;
++    }
++  }
++  return undefined;
++}
++
+@@ -384,2 +454,2 @@ export function extractUsage(messageOrEvent: Record<string, unknown>): Record<st
+-  const cacheRead = Number(usage.cacheRead ?? usage.cache_read ?? usage.cachedTokens ?? 0);
+-  const cacheWrite = Number(usage.cacheWrite ?? usage.cache_write ?? 0);
++  const cacheRead = extractUsageCount(usage, ["cacheRead", "cache_read", "cachedTokens"]);
++  const cacheWrite = extractUsageCount(usage, ["cacheWrite", "cache_write"]);
+@@ -391,2 +461,2 @@ export function extractUsage(messageOrEvent: Record<string, unknown>): Record<st
+-    ...(cacheRead ? { cacheRead } : {}),
+-    ...(cacheWrite ? { cacheWrite } : {}),
++    ...(cacheRead !== undefined ? { cacheRead } : {}),
++    ...(cacheWrite !== undefined ? { cacheWrite } : {}),

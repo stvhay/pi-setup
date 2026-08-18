@@ -50,7 +50,9 @@ Route examples carry `routingTask`, and wrapper strips it before child execution
 Missing effective thinking records `default`; missing effective mode records
 `unknown`. Metrics store usage, timing, payload lengths, bounded artifact refs,
 contract, and sanitized termination reason/source/effective hard or idle limit—not prompt
-or response bodies. Every nonzero child exit without stronger evidence receives
+or response bodies. Worker elapsed time prefers validated Archimedes progress and
+otherwise uses bounded parent wall time; source and fallback status remain explicit.
+Every nonzero child exit without stronger evidence receives
 safe `process-error`/`worker` termination.
 Named-profile projections mark unavailable dimensions
 explicitly, while metrics remain skipped because Archimedes does not expose their
@@ -60,7 +62,10 @@ effective provider or thinking level.
 output plus objective outcome, declared contract, artifact persistence/content
 status, and ref count. Parent metadata also carries validated `effectiveMode` and
 a declared child-trace expectation derived from Archimedes's resolved execution
-evidence. Failed-child projections retain bounded termination evidence alongside
+evidence. Projection metadata also carries bounded worker elapsed time with its
+progress-summary or parent-wall source. Named profiles leave provider, model,
+target, and thinking unavailable rather than inferring them from result text.
+Failed-child projections retain bounded termination evidence alongside
 partial output, while complete output and errors remain in parent-owned artifacts.
 Agentic children with a usable foreign key are expected available;
 isolated one-shot children are expected unavailable. It does not receive raw refs
@@ -217,8 +222,11 @@ session correlation; historical mismatches are ignored as outcomes and counted a
 final outcome to `failure` and unavailable execution maps it to `unclear` before
 sampled apparent judgment is considered.
 Useful partial output remains visible as apparent quality, but cannot turn failed
-execution into successful final outcome. `scan` traverses pages up to the operator
-trace cap (default 500). A fixed five-minute settlement lag moves a requested active
+execution into successful final outcome. Each private session also carries an
+`outcomeProof` envelope binding available or unavailable status, production-derived
+source/reason, verified packet EvidenceRef, and integrity; unknown outcomes use the
+`missing-outcome` capture gap rather than a guessed success state. `scan` traverses
+pages up to the operator trace cap (default 500). A fixed five-minute settlement lag moves a requested active
 end time back to an ingestion watermark. Discovery reads through at most one lag
 interval after that watermark to join later parent projections, but only traces at
 or before the watermark enter root selection. Private packets retain requested end,
@@ -237,6 +245,9 @@ be explicitly authorized before packet access.
 
 Current results must cite the exact `assignmentId`, packet/report policy, and
 session EvidenceRefs; completion covers every assigned session exactly once.
+One finding may cite at most 16 distinct packet EvidenceRefs, so a 20-session
+assignment uses the smallest representative subset supporting each cohort claim
+without dropping any session decision.
 `reviewStatus` is `completed`, `unavailable`, `timed-out`,
 `privacy-uncertain`, or `schema-invalid`. Non-completed or invalid output produces
 an explicit gap and `human` route with no marker, finding, effect, or automatic
@@ -271,8 +282,10 @@ unbounded payload sizes. Raw Langfuse records remain unchanged, and packets neve
 copy tool payloads. Generation token aggregates require non-negative integral
 `input`, `cacheRead`, and `output` fields. Present zero remains available; a missing,
 Boolean, fractional, negative, or non-finite field nulls only its affected private
-aggregate and adds `missing-usage`. A present empty `usageDetails` object is not
-replaced by legacy `usage` fallback data.
+aggregate and adds `missing-usage`. The generation producer preserves valid explicit
+zero `cacheRead`/`cacheWrite` values and supported aliases; absent or wholly invalid
+alias sets remain absent rather than being coerced to zero. A present empty
+`usageDetails` object is not replaced by legacy `usage` fallback data.
 
 Scans use exact links and payload-free tool-error signals. Each private session
 feature also includes schema-1 `errorTaxonomy`: count-only
@@ -313,12 +326,17 @@ missing gap only for a successful agentic child under complete discovery.
 Malformed declarations, missing foreign keys, failed children without roots,
 out-of-window child starts, and incomplete discovery remain unknown rather than
 guessed. Private session features also retain allowlisted `subagent-result` projection
-lineage and timing already supplied by Langfuse and Archimedes: observation, trace,
-parent-observation, invocation, and child-session IDs; child index/mode/availability;
-and start/end/latency. Parent identity remains the enclosing session ID. No second
-lineage key is invented. Raw projection input/output is never copied. Safe cohort
-summaries contain none of these IDs or times, and classification adds no per-child
-Langfuse lookup.
+lineage and attribution already supplied by Langfuse and Archimedes: observation,
+trace, parent-observation, invocation, and child-session IDs; child index/mode/
+availability; provider/model/target, route task, thinking, output contract, and
+worker elapsed time with source/status. Langfuse observation latency is named
+`captureLatencySeconds`; it is capture timing, never child worker timing. Malformed
+or unavailable dimensions stay explicit instead of being guessed. Observation-
+targeted evaluator scores link only when their bounded observation ID matches one
+projection; missing or duplicate matches remain `unavailable` or `ambiguous`.
+Parent identity remains the enclosing session ID. No second lineage key is invented.
+Raw projection input/output is never copied. Safe cohort summaries contain none of
+these IDs, dimensions, or times, and classification adds no per-child Langfuse lookup.
 
 Per-session `cost` remains the historical Langfuse nominal USD value. Additive
 schema-1 `costAccounting` classifies each observed generation from enabled
@@ -342,6 +360,13 @@ per query. Aggregate provider/model rows are restricted to the tracked
 unconfigured, malformed, URL/path/hash/secret-shaped, and raw-ID labels count
 only as unknown and never enter the safe summary. Existing private per-session
 model evidence remains unchanged.
+Synthetic fixed replay covers a linked successful non-delegated root, mixed-model
+delegated review, delegated time-limit termination, and unlinked unknown outcome.
+Acceptance is Proof 8/8 and delegated attribution 4/4, with every delegated
+projection complete or explicitly unavailable. Tool evidence remains 4/8 because
+root-tool identity/necessity capture is outside this privacy scope. Synthetic replay
+does not claim live validation; live scanning requires separately approved deployment.
+
 Safe `cohortHealth` also exposes count-only monitoring coverage without copying
 raw provenance or termination values. `lifecycleCoverage` separates known
 objective execution from missing outcomes. Each `usageCoverage` dimension counts

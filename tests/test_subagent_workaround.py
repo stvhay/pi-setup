@@ -834,6 +834,7 @@ def test_subagent_results_emit_evaluator_ready_observations():
             model: "minimax/minimax-m3",
             exitCode: 0,
             execution: {{ profile: {{ mode: "one-shot" }} }},
+            progressSummary: {{ durationMs: 321 }},
             finalOutput: "Auth review complete",
           }},
           {{
@@ -857,6 +858,9 @@ def test_subagent_results_emit_evaluator_ready_observations():
       const artifactRefs = invocationIds.map((id, index) => [`runtime:delegated-results/${{id}}/child-${{index}}.json`]);
       assert.equal(new Set(invocationIds).size, 2);
       assert.equal(invocationIds.every((id) => /^[0-9a-f-]{{36}}$/.test(id)), true);
+      assert.equal(Number.isInteger(observations[1].attributes.metadata.workerElapsedMs), true);
+      assert.equal(observations[1].attributes.metadata.workerElapsedMs >= 0, true);
+      delete observations[1].attributes.metadata.workerElapsedMs;
       for (const observation of observations) delete observation.attributes.metadata.invocationId;
       assert.deepEqual(observations, [
         {{
@@ -884,6 +888,9 @@ def test_subagent_results_emit_evaluator_ready_observations():
               effectiveMode: "one-shot",
               childTraceAvailability: "expected-unavailable",
               outputContract: "inline",
+              workerElapsedMs: 321,
+              workerElapsedSource: "progress-summary",
+              workerElapsedStatus: "available",
               childSessionId: "child-session",
               artifactRefs: artifactRefs[0],
               artifactStatus: "persisted",
@@ -925,6 +932,8 @@ def test_subagent_results_emit_evaluator_ready_observations():
               effectiveMode: "agentic",
               childTraceAvailability: "unknown",
               outputContract: "artifact",
+              workerElapsedSource: "parent-wall",
+              workerElapsedStatus: "fallback",
               artifactRefs: artifactRefs[1],
               artifactStatus: "persisted",
               terminationReason: "process-error",
@@ -1208,6 +1217,7 @@ def test_named_agent_projection_marks_provider_and_thinking_unavailable():
           agent: "configured-reviewer",
           model: "openai/gpt-oss-120b",
           exitCode: 0,
+          progressSummary: {{ durationMs: 77 }},
           finalOutput: "done",
         }}] }},
         isError: false,
@@ -1215,10 +1225,94 @@ def test_named_agent_projection_marks_provider_and_thinking_unavailable():
 
       const metadata = observations[0].attributes.metadata;
       assert.equal(metadata.provider, null);
-      assert.equal(metadata.model, "openai/gpt-oss-120b");
+      assert.equal(metadata.model, null);
       assert.equal(metadata.target, null);
       assert.equal(metadata.thinkingLevel, null);
       assert.equal(metadata.modelDimensionsStatus, "unavailable-named-agent");
+      assert.equal(metadata.workerElapsedMs, 77);
+      assert.equal(metadata.workerElapsedSource, "progress-summary");
+      assert.equal(metadata.workerElapsedStatus, "available");
+    """
+    run_node(script)
+
+
+def test_single_inherited_projection_uses_parent_wall_timing_fallback():
+    script = f"""
+      {SUBAGENT_HARNESS}
+      const observations = [];
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        outputContracts: ["inline", "artifact", "status-only", "pass-no-findings"],
+        observe(_name, attributes) {{ observations.push(attributes); }},
+        persistDelegatedResult(_root, payload) {{
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      const input = {{ task: "Inherited target" }};
+      const ctx = {{ cwd: process.cwd(), model: {{ provider: "openai-codex", id: "gpt-5.6-sol" }} }};
+      await handlers.tool_call({{ toolName: "subagent", toolCallId: "inherited", input }}, ctx);
+      await handlers.tool_result({{
+        toolName: "subagent",
+        toolCallId: "inherited",
+        input,
+        content: [{{ type: "text", text: "done" }}],
+        details: {{ mode: "single", results: [{{ exitCode: 0, finalOutput: "done" }}] }},
+      }}, ctx);
+
+      const metadata = observations[0].metadata;
+      assert.deepEqual([metadata.provider, metadata.model, metadata.target], [
+        "openai-codex", "gpt-5.6-sol", "openai-codex/gpt-5.6-sol",
+      ]);
+      assert.equal(metadata.workerElapsedSource, "parent-wall");
+      assert.equal(metadata.workerElapsedStatus, "fallback");
+      assert.equal(Number.isInteger(metadata.workerElapsedMs), true);
+      assert.equal(metadata.workerElapsedMs >= 0, true);
+    """
+    run_node(script)
+
+
+def test_parent_wall_timing_stops_before_projection_persistence(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".pi/metrics/\n.pi/delegated-results/\n", encoding="utf-8")
+    script = f"""
+      {SUBAGENT_HARNESS}
+      const observations = [];
+      const originalNow = Date.now;
+      let now = 1_000;
+      Date.now = () => now;
+      install({{ on(name, candidate) {{ handlers[name] = candidate; }} }}, {{
+        outputContracts: ["inline"],
+        observe(_name, attributes) {{ observations.push(attributes); }},
+        runtimeDirectories() {{
+          return {{
+            "delegated-results": {str(tmp_path / ".pi" / "delegated-results")!r},
+            "metrics/invocations": {str(tmp_path / ".pi" / "metrics" / "invocations")!r},
+          }};
+        }},
+        persistDelegatedResult(_root, payload) {{
+          now = 6_000;
+          return `runtime:delegated-results/${{payload.invocationId}}/child-${{payload.childIndex}}.json`;
+        }},
+      }});
+
+      try {{
+        const input = {{ task: "Worker", model: "openai-codex/gpt-5.6-sol" }};
+        const ctx = {{ cwd: {str(tmp_path)!r} }};
+        await handlers.tool_call({{ toolName: "subagent", toolCallId: "timing", input }}, ctx);
+        await handlers.tool_result({{
+          toolName: "subagent",
+          toolCallId: "timing",
+          input,
+          content: [{{ type: "text", text: "done" }}],
+          details: {{ mode: "single", results: [{{ exitCode: 0, finalOutput: "done" }}] }},
+        }}, ctx);
+      }} finally {{
+        Date.now = originalNow;
+      }}
+
+      assert.equal(observations[0].metadata.workerElapsedMs, 0);
+      assert.equal(observations[0].metadata.workerElapsedSource, "parent-wall");
+      assert.equal(observations[0].metadata.workerElapsedStatus, "fallback");
     """
     run_node(script)
 
@@ -1334,8 +1428,8 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
         input,
         content: [{{ type: "text", text: "summary" }}],
         details: {{ mode: "parallel", results: [
-          {{ childSessionId: "child-session-0", exitCode: 0, model: "conflicting-upstream-model", execution: {{ profile: {{ mode: "one-shot", thinking: "xhigh" }} }}, routeReceipt: {{ schemaVersion: 1, authority: "agnt-route", routingTask: "research", target: "openai-codex/gpt-5.6-sol", provider: "openai-codex", model: "gpt-5.6-sol", mode: "agentic", thinking: "medium", sourceAccess: "repository", contextPolicy: "reuse-ok", billingClass: "subscription", estimatedCostUsd: 0, limits: {{}} }}, finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
-          {{ childSessionId: "child-session-1", exitCode: 2, model: "conflicting-upstream-model", execution: {{ profile: {{ mode: "agentic", thinking: "low" }} }}, routeReceipt: {{ schemaVersion: 1, authority: "agnt-route", routingTask: "review", target: "openrouter/anthropic/claude-opus-5", provider: "openrouter", model: "anthropic/claude-opus-5", mode: "one-shot", thinking: "high", sourceAccess: "self-contained", contextPolicy: "fresh", billingClass: "metered", estimatedCostUsd: null, limits: {{}} }}, finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-0", exitCode: 0, model: "conflicting-upstream-model", execution: {{ profile: {{ mode: "one-shot", thinking: "xhigh" }} }}, routeReceipt: {{ schemaVersion: 1, authority: "agnt-route", routingTask: "research", target: "openai-codex/gpt-5.6-sol", provider: "openai-codex", model: "gpt-5.6-sol", mode: "agentic", thinking: "medium", sourceAccess: "repository", contextPolicy: "reuse-ok", billingClass: "subscription", estimatedCostUsd: 0, limits: {{}} }}, progressSummary: {{ durationMs: 450 }}, finalOutput: "SECRET first output", usage: {{ turns: 1 }} }},
+          {{ childSessionId: "child-session-1", exitCode: 2, model: "conflicting-upstream-model", execution: {{ profile: {{ mode: "agentic", thinking: "low" }} }}, routeReceipt: {{ schemaVersion: 1, authority: "agnt-route", routingTask: "review", target: "openrouter/anthropic/claude-opus-5", provider: "openrouter", model: "anthropic/claude-opus-5", mode: "one-shot", thinking: "high", sourceAccess: "self-contained", contextPolicy: "fresh", billingClass: "metered", estimatedCostUsd: null, limits: {{}} }}, progressSummary: {{ durationMs: 650 }}, finalOutput: "SECRET partial second output", error: "HTTP 402: available credits can only cover 505 tokens", usage: {{ turns: 1 }} }},
         ] }},
         isError: false,
       }}, ctx);
@@ -1360,6 +1454,10 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(records.map((record) => record.task), ["research", "review"]);
       assert.deepEqual(records.map((record) => record.thinkingLevel), ["medium", "high"]);
       assert.deepEqual(records.map((record) => record.invocationMode), ["agentic", "one-shot"]);
+      assert.deepEqual(records.map((record) => [record.workerElapsedMs, record.workerElapsedSource, record.workerElapsedStatus]), [
+        [450, "progress-summary", "available"],
+        [650, "progress-summary", "available"],
+      ]);
       const refs = patch.details.results.map((result) => result.artifact.refs[0]);
       assert.deepEqual(refs, ids.map((id, index) => `runtime:delegated-results/${{id}}/child-${{index}}.json`));
       assert.equal(refs.every((ref) => ref.length < 256), true);
@@ -1377,6 +1475,14 @@ def test_subagent_telemetry_schema_v2_joins_parallel_metrics_and_projections(tmp
       assert.deepEqual(observations.map((item) => item.attributes.metadata.outputContract), ["artifact", "status-only"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.routingTask), ["research", "review"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.effectiveMode), ["agentic", "one-shot"]);
+      assert.deepEqual(observations.map((item) => [
+        item.attributes.metadata.workerElapsedMs,
+        item.attributes.metadata.workerElapsedSource,
+        item.attributes.metadata.workerElapsedStatus,
+      ]), [
+        [450, "progress-summary", "available"],
+        [650, "progress-summary", "available"],
+      ]);
       assert.deepEqual(observations.map((item) => item.attributes.input.outputContract), ["artifact", "status-only"]);
       assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactRefs), refs.map((ref) => [ref]));
       assert.deepEqual(observations.map((item) => item.attributes.metadata.artifactStatus), ["persisted", "persisted"]);
@@ -1635,6 +1741,9 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       assert.equal(records[0].terminationReason, "process-error");
       assert.equal(records[0].terminationSource, "worker");
       assert.equal(records[0].terminationUsageState, "unknown");
+      assert.equal(records[0].workerElapsedSource, "parent-wall");
+      assert.equal(records[0].workerElapsedStatus, "fallback");
+      assert.equal(Number.isInteger(records[0].workerElapsedMs), true);
       const artifactRef = `runtime:delegated-results/${{invocationId}}/child-0.json`;
       assert.deepEqual(records[0].artifactRefs, [artifactRef]);
       assert.equal(records[0].artifactStatus, "persisted");
@@ -1646,6 +1755,8 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
       ], ["openai-codex", "gpt-5.6-luna", "openai-codex/gpt-5.6-luna", "default"]);
       assert.equal(observations.length, 1);
       assert.equal(observations[0].attributes.metadata.invocationId, invocationId);
+      assert.equal(Number.isInteger(observations[0].attributes.metadata.workerElapsedMs), true);
+      delete observations[0].attributes.metadata.workerElapsedMs;
       assert.deepEqual(observations[0].attributes.metadata, {{
         invocationId,
         index: 0,
@@ -1659,6 +1770,8 @@ def test_empty_subagent_failure_emits_one_metric_and_projection(tmp_path):
         effectiveMode: "unknown",
         childTraceAvailability: "unknown",
         outputContract: "unknown",
+        workerElapsedSource: "parent-wall",
+        workerElapsedStatus: "fallback",
         artifactRefs: [artifactRef],
         artifactStatus: "persisted",
         terminationReason: "process-error",

@@ -1,7 +1,7 @@
 ---
 profile_version: 1
 repository: https://github.com/gooyoung/pi-langfuse
-last_checked_utc: 2026-08-15T15:48:55Z
+last_checked_utc: 2026-08-18T18:11:29Z
 target_ref: v1.5.14
 source_commit: 04d55a12556bdf4c4b8b208038198dc2fd8e571b
 status: current-for-target-ref
@@ -11,12 +11,12 @@ npm_published_utc: 2026-08-13T02:02:51.103Z
 npm_integrity: sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg==
 npm_provenance: https://registry.npmjs.org/-/npm/v1/attestations/pi-langfuse@1.5.14
 maintained_fork_base: 04d55a12556bdf4c4b8b208038198dc2fd8e571b
-maintained_fork_head: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e
+maintained_fork_head: e5596e8df6136b07db143025ef400d325454b958
 maintained_fork_branch: vendor/pi-setup-1514
-maintained_fork_commit: https://github.com/stvhay/pi-langfuse/commit/94fa7f0c4410ce10da1f98c8fe4b798374c8df2e
-superproject_gitlink: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e
+maintained_fork_commit: https://github.com/stvhay/pi-langfuse/commit/e5596e8df6136b07db143025ef400d325454b958
+superproject_gitlink: e5596e8df6136b07db143025ef400d325454b958
 derived_patch: patches/pi-packages/pi-langfuse-1.5.14.patch
-derived_patch_sha256: 27abc3cbf950ceca520dd21a2ab69ed3483bc05dea25c1c4495307d6fc2a90a5
+derived_patch_sha256: 0fa6010e0bbc010d7f9c27e15b88203ea1ce55a4b41259723afc76a5f65186ec
 package_proof: scripts/verify-pi-langfuse-package-patch.sh
 recheck_every_use:
   - permissions
@@ -107,6 +107,7 @@ source_files:
 - Logical Pi session correlation and stable score entity/body IDs remain native; retry-stable ingestion envelope IDs are still absent.
 - v1.5.14 still sends each `ingestBatch()` argument as one request and still lacks media-safe finite ordinary-string handling, so reviewed batching/media contributions remain candidates but must be rebuilt around current fallback, shutdown, and source-metadata seams.
 - Tool byte metadata is computed from `captured.toolInput` and `captured.toolOutput` after capture policy replacement. Disabled tool capture therefore measures an unavailable serialization marker rather than the bounded pre-policy representation; any correction must keep exact counts separately controlled and version the metadata semantics.
+- Maintained commits `1d705405` and `e5596e8d` preserve valid explicit zero cache-read/cache-write usage and supported aliases, including fallback past invalid aliases; absent or wholly invalid cache fields remain absent.
 
 ## Policy findings
 
@@ -127,11 +128,11 @@ source_files:
 ## Maintained quality ports
 
 - Normative contract and full Q18V record: `.pi/plans/2026-08-15-pi-langfuse-quality-port-contract.md`.
-- Verified source: immutable [`stvhay/pi-langfuse@94fa7f0c`](https://github.com/stvhay/pi-langfuse/commit/94fa7f0c4410ce10da1f98c8fe4b798374c8df2e), one commit above upstream/npm base `04d55a12556bdf4c4b8b208038198dc2fd8e571b`. Published branch `vendor/pi-setup-1514` and the `forks/pi-langfuse` gitlink resolved to the same head during verification.
-- Verified deployment projection: `patches/pi-packages/pi-langfuse-1.5.14.patch` at SHA-256 `27abc3cbf950ceca520dd21a2ab69ed3483bc05dea25c1c4495307d6fc2a90a5`, applied to integrity-pinned `pi-langfuse@1.5.14` and byte-compared with the maintained fork.
+- Verified source: immutable [`stvhay/pi-langfuse@e5596e8d`](https://github.com/stvhay/pi-langfuse/commit/e5596e8df6136b07db143025ef400d325454b958), three commits above upstream/npm base `04d55a12556bdf4c4b8b208038198dc2fd8e571b`. Published branch `vendor/pi-setup-1514` and the `forks/pi-langfuse` gitlink resolved to the same head during verification; quality-port ancestor `94fa7f0c` remains unchanged.
+- Verified deployment projection: `patches/pi-packages/pi-langfuse-1.5.14.patch` at SHA-256 `0fa6010e0bbc010d7f9c27e15b88203ea1ce55a4b41259723afc76a5f65186ec`, applied to integrity-pinned `pi-langfuse@1.5.14` and byte-compared with the maintained fork.
 - Public package subpath: `pi-langfuse/quality`; required factories are `createObservationCapturePort` and `createServiceEvidencePort`. Package-visible TypeScript exports include every contract type.
 - `scripts/verify-pi-langfuse-package-patch.sh` verifies npm metadata/tarball integrity, fork/gitlink lineage, zero-fuzz apply/idempotence/reverse, exact fork projection, and all 15 installed-package quality contract tests.
-- Q18V verifies the exact `stvhay/pi-langfuse` fork commit through the evidence above; Q20 may bind this pin and public import without waiting for an upstream release.
+- Q18V verifies the quality-port ancestor `94fa7f0c`; the current head adds only the tested cache-usage producer fix above that contract. Q20 may bind the current pin and public import without waiting for an upstream release.
 - Authorization, Bead closeout, result acceptance, and pi-setup quality policy remain outside the package contract. External-upstream submission is deferred under `pi-vzqq`; a future release may replace this projection but does not gate Q20.
 
 ## PR implications

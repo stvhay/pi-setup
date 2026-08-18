@@ -6,8 +6,10 @@ PATCH="$ROOT/patches/pi-packages/pi-langfuse-1.5.14.patch"
 FORK="$ROOT/forks/pi-langfuse"
 TSX="$FORK/node_modules/.bin/tsx"
 BASE_HEAD="04d55a12556bdf4c4b8b208038198dc2fd8e571b"
-FORK_HEAD="94fa7f0c4410ce10da1f98c8fe4b798374c8df2e"
-PATCH_SHA256="27abc3cbf950ceca520dd21a2ab69ed3483bc05dea25c1c4495307d6fc2a90a5"
+FORK_QUALITY="94fa7f0c4410ce10da1f98c8fe4b798374c8df2e"
+FORK_PREVIOUS="1d705405901c704196154698fade3e9a6a5b5f93"
+FORK_HEAD="e5596e8df6136b07db143025ef400d325454b958"
+PATCH_SHA256="0fa6010e0bbc010d7f9c27e15b88203ea1ce55a4b41259723afc76a5f65186ec"
 NPM_INTEGRITY="sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg=="
 
 fail() {
@@ -22,8 +24,12 @@ read -r mode gitlink stage _ < <(git -C "$ROOT" ls-files --stage -- forks/pi-lan
   || fail "forks/pi-langfuse gitlink does not match $FORK_HEAD"
 [ "$(git -C "$FORK" rev-parse HEAD)" = "$FORK_HEAD" ] \
   || fail "forks/pi-langfuse checkout does not match $FORK_HEAD"
-[ "$(git -C "$FORK" show -s --format=%P HEAD)" = "$BASE_HEAD" ] \
-  || fail "maintained fork head is not one commit on npm base $BASE_HEAD"
+[ "$(git -C "$FORK" show -s --format=%P HEAD)" = "$FORK_PREVIOUS" ] \
+  || fail "maintained fork head is not on expected predecessor $FORK_PREVIOUS"
+[ "$(git -C "$FORK" show -s --format=%P "$FORK_PREVIOUS")" = "$FORK_QUALITY" ] \
+  || fail "maintained fork predecessor is not on quality ancestor $FORK_QUALITY"
+[ "$(git -C "$FORK" show -s --format=%P "$FORK_QUALITY")" = "$BASE_HEAD" ] \
+  || fail "maintained fork quality ancestor is not on npm base $BASE_HEAD"
 
 python3 - "$PATCH" "$PATCH_SHA256" <<'PY'
 import hashlib

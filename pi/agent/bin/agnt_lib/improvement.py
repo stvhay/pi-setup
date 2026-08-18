@@ -65,6 +65,20 @@ CHILD_TRACE_AVAILABILITY = (
     "incomplete",
     "unknown",
 )
+PROJECTION_MODES = {"agentic", "one-shot"}
+PROJECTION_THINKING_LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "default"}
+PROJECTION_OUTPUT_CONTRACTS = {"inline", "artifact", "status-only", "pass-no-findings"}
+PROJECTION_ROUTING_TASK = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
+PROJECTION_ATTRIBUTION_FIELDS = {
+    "modelDimensionsStatus",
+    "provider",
+    "model",
+    "target",
+    "thinkingLevel",
+    "routingTask",
+    "outputContract",
+    "workerElapsedStatus",
+}
 LIMIT_TERMINATION_REASONS = (
     "request-limit",
     "tool-limit",
@@ -733,7 +747,122 @@ def _limit_termination_health(observations: list[dict[str, Any]]) -> dict[str, A
     }
 
 
-def _projection_records(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _projection_attribution(
+    metadata: dict[str, Any],
+    *,
+    allowed_providers: set[str],
+    allowed_models: set[str],
+) -> dict[str, Any]:
+    if not PROJECTION_ATTRIBUTION_FIELDS.intersection(metadata):
+        return {}
+
+    raw_status = metadata.get("modelDimensionsStatus")
+    raw_provider = metadata.get("provider")
+    raw_model = metadata.get("model")
+    raw_target = metadata.get("target")
+    provider = _cohort_dimension(raw_provider)
+    model = _cohort_dimension(raw_model)
+    target = _cohort_dimension(raw_target)
+    syntactic_model_available = (
+        raw_status == "available"
+        and provider is not None
+        and model is not None
+        and target == f"{provider}/{model}"
+    )
+    model_available = (
+        syntactic_model_available
+        and provider in allowed_providers
+        and model in allowed_models
+        and target in allowed_models
+    )
+    model_unavailable = (
+        raw_status in {"unavailable", "unavailable-named-agent"}
+        and all(value in (None, "") for value in (raw_provider, raw_model, raw_target))
+    )
+    if model_available:
+        result: dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+            "target": target,
+            "modelDimensionsStatus": "available",
+        }
+    elif model_unavailable:
+        result = {
+            "provider": None,
+            "model": None,
+            "target": None,
+            "modelDimensionsStatus": raw_status,
+        }
+    elif syntactic_model_available:
+        result = {
+            "provider": None,
+            "model": None,
+            "target": None,
+            "modelDimensionsStatus": "unavailable",
+            "modelDimensionsReason": "unconfigured",
+        }
+    else:
+        result = {
+            "provider": None,
+            "model": None,
+            "target": None,
+            "modelDimensionsStatus": "unavailable",
+            "modelDimensionsReason": "invalid",
+        }
+
+    routing_task = metadata.get("routingTask")
+    routing_available = (
+        isinstance(routing_task, str)
+        and PROJECTION_ROUTING_TASK.fullmatch(routing_task) is not None
+        and _cohort_dimension(routing_task) is not None
+    )
+    result.update({
+        "routingTask": routing_task if routing_available else None,
+        "routingTaskStatus": "available" if routing_available else "unavailable",
+    })
+
+    mode = metadata.get("effectiveMode")
+    result.update({
+        "effectiveMode": mode if mode in PROJECTION_MODES else "unknown",
+        "effectiveModeStatus": "available" if mode in PROJECTION_MODES else "unavailable",
+    })
+
+    thinking = metadata.get("thinkingLevel")
+    thinking_available = thinking in PROJECTION_THINKING_LEVELS
+    result.update({
+        "thinkingLevel": thinking if thinking_available else None,
+        "thinkingLevelStatus": "available" if thinking_available else "unavailable",
+    })
+
+    contract = metadata.get("outputContract")
+    contract_available = contract in PROJECTION_OUTPUT_CONTRACTS
+    result.update({
+        "outputContract": contract if contract_available else "unknown",
+        "outputContractStatus": "available" if contract_available else "unavailable",
+    })
+
+    elapsed = metadata.get("workerElapsedMs")
+    elapsed_valid = type(elapsed) is int and elapsed >= 0
+    elapsed_source = metadata.get("workerElapsedSource")
+    elapsed_status = metadata.get("workerElapsedStatus")
+    timing_available = elapsed_valid and (
+        (elapsed_status == "available" and elapsed_source == "progress-summary")
+        or (elapsed_status == "fallback" and elapsed_source == "parent-wall")
+    )
+    result.update({
+        "workerElapsedMs": elapsed if timing_available else None,
+        "workerElapsedSource": elapsed_source if timing_available else None,
+        "workerElapsedStatus": elapsed_status if timing_available else "unavailable",
+    })
+    return result
+
+
+def _projection_records(
+    observations: list[dict[str, Any]],
+    *,
+    allowed_providers: set[str],
+    allowed_models: set[str],
+) -> list[dict[str, Any]]:
     records = []
     for observation in observations:
         if observation.get("name") != "subagent-result":
@@ -761,13 +890,18 @@ def _projection_records(observations: list[dict[str, Any]]) -> list[dict[str, An
         availability = metadata.get("childTraceAvailability")
         if availability in {"expected-available", "expected-unavailable", "unknown"}:
             record["childTraceAvailability"] = availability
+        record.update(_projection_attribution(
+            metadata,
+            allowed_providers=allowed_providers,
+            allowed_models=allowed_models,
+        ))
         for key in ("startTime", "endTime"):
             value = observation.get(key)
             if isinstance(value, str) and 0 < len(value) <= 64:
                 record[key] = value
         latency = observation.get("latency")
         if type(latency) in {int, float} and math.isfinite(latency) and latency >= 0:
-            record["latencySeconds"] = float(latency)
+            record["captureLatencySeconds"] = float(latency)
         records.append(record)
     return records
 
@@ -826,6 +960,8 @@ def _features(
     trace_discovery_since: str | None = None,
     trace_discovery_until: str | None = None,
     billing_classes: dict[str, str] | None = None,
+    allowed_providers: set[str] | None = None,
+    allowed_models: set[str] | None = None,
 ) -> dict[str, Any]:
     generations = [item for item in observations if item.get("type") == "GENERATION"]
     tools = [item for item in observations if item.get("type") == "TOOL"]
@@ -936,6 +1072,36 @@ def _features(
             if "evaluator" in str(observation.get("name") or "").lower():
                 evaluator_timeouts += 1
 
+    projections = _projection_records(
+        observations,
+        allowed_providers=allowed_providers or set(),
+        allowed_models=allowed_models or set(),
+    )
+    projections_by_observation: dict[str, list[dict[str, Any]]] = {}
+    for projection in projections:
+        projection["evaluatorLinkStatus"] = "unavailable"
+        observation_id = projection.get("observationId")
+        if isinstance(observation_id, str):
+            projections_by_observation.setdefault(observation_id, []).append(projection)
+
+    def projection_link(score: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]]]:
+        candidates = set()
+        observation_id = score.get("observationId")
+        if isinstance(observation_id, str) and 0 < len(observation_id) <= 200:
+            candidates.add(observation_id)
+        subject = score.get("subject")
+        if isinstance(subject, dict) and subject.get("kind") == "observation":
+            subject_id = subject.get("id")
+            if isinstance(subject_id, str) and 0 < len(subject_id) <= 200:
+                candidates.add(subject_id)
+        if len(candidates) != 1:
+            return ("ambiguous" if len(candidates) > 1 else "unavailable", None, [])
+        linked_id = next(iter(candidates))
+        matches = projections_by_observation.get(linked_id, [])
+        if len(matches) == 1:
+            return "linked", linked_id, matches
+        return ("ambiguous" if len(matches) > 1 else "unavailable", None, matches)
+
     evaluator_outcomes = []
     explicit_candidates = []
     apparent_candidates = []
@@ -944,6 +1110,14 @@ def _features(
         if score.get("source") != "EVAL" and "outcome" not in score_name.lower():
             continue
         item = {key: score.get(key) for key in ("name", "value", "dataType", "source") if score.get(key) is not None}
+        if projections:
+            link_status, linked_id, matches = projection_link(score)
+            item["projectionLinkStatus"] = link_status
+            if linked_id is not None:
+                item["projectionObservationId"] = linked_id
+            for projection in matches:
+                if link_status == "ambiguous" or projection["evaluatorLinkStatus"] != "ambiguous":
+                    projection["evaluatorLinkStatus"] = link_status
         evaluator_outcomes.append(item)
         timestamp = str(score.get("timestamp") or score.get("createdAt") or "")
         candidate = (timestamp, index, score.get("value"))
@@ -1074,7 +1248,7 @@ def _features(
         "toolErrorSignals": _tool_error_signals(observations),
         "errorTaxonomy": _error_taxonomy(observations),
         "childTraceHealth": child_trace_health,
-        "projections": _projection_records(observations),
+        "projections": projections,
         "provenanceCoverage": {
             "releaseAvailable": release_available,
             "sourceRevisionAvailable": source_revision_available,
@@ -1663,6 +1837,33 @@ def _improvement_evidence_ref(packet: dict[str, Any], session_index: int) -> dic
         "sensitivity": "private",
         "retention": "cohort",
     })
+
+
+def _outcome_proof(features: dict[str, Any], evidence_ref: dict[str, Any]) -> dict[str, Any]:
+    outcome = features.get("finalOutcome")
+    source = features.get("finalOutcomeSource")
+    status = "available"
+    reason = outcome
+    if outcome == "unclear":
+        status = "unavailable"
+        terminations = features.get("limitTerminations")
+        by_reason = terminations.get("byReason") if isinstance(terminations, dict) else {}
+        reason = next(
+            (key for key in LIMIT_TERMINATION_REASONS if _int(by_reason.get(key)) > 0),
+            "execution-unavailable",
+        )
+    elif outcome == "unknown" or source == "unknown":
+        status = "unavailable"
+        source = "capture-gap"
+        gaps = features.get("captureGaps") if isinstance(features.get("captureGaps"), list) else []
+        reason = "missing-outcome" if "missing-outcome" in gaps else "outcome-unknown"
+    return {
+        "status": status,
+        "source": source,
+        "reason": reason,
+        "integrity": evidence_ref["integrity"],
+        "evidenceRef": evidence_ref,
+    }
 
 
 def _packet_evidence_refs(packet: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3076,6 +3277,7 @@ def scan_sessions(
         reverse=True,
     )
     billing_classes = _cohort_billing_classes(repository_root)
+    allowed_providers, allowed_models = _cohort_dimension_allowlists(repository_root)
 
     sessions = []
     for session_id, session_traces in eligible_groups[:limit]:
@@ -3142,6 +3344,8 @@ def scan_sessions(
             trace_discovery_since=since,
             trace_discovery_until=settled_until,
             billing_classes=billing_classes,
+            allowed_providers=allowed_providers,
+            allowed_models=allowed_models,
         )
         if outcome_mismatch:
             features["captureGaps"].append("mismatched-work-item-outcome")
@@ -3158,7 +3362,6 @@ def scan_sessions(
             "features": features,
         })
 
-    allowed_providers, allowed_models = _cohort_dimension_allowlists(repository_root)
     cohort_health = _cohort_health(
         sessions,
         trace_discovery=trace_discovery,
@@ -3191,7 +3394,9 @@ def scan_sessions(
         "monitoring": monitoring,
     }
     for index, session in enumerate(sessions):
-        session["evidenceRef"] = _improvement_evidence_ref(packet, index)
+        evidence_ref = _improvement_evidence_ref(packet, index)
+        session["evidenceRef"] = evidence_ref
+        session["outcomeProof"] = _outcome_proof(session["features"], evidence_ref)
     assignment = review_assignment(packet) if sessions else None
     assignment_ref = (
         f"artifact:review-assignment-{assignment['assignmentId']}"

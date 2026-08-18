@@ -91,6 +91,11 @@ type Observe = (
 ) => void | Promise<void>;
 
 type ProviderFailureClass = "quota" | "credit" | "authentication" | "availability";
+type WorkerTiming = {
+  workerElapsedMs: number;
+  workerElapsedSource: "progress-summary" | "parent-wall";
+  workerElapsedStatus: "available" | "fallback";
+};
 type ProviderCircuit = (
   action: "open" | "success",
   provider: string,
@@ -133,6 +138,28 @@ const LIMIT_KEY_BY_REASON: Partial<Record<string, SubagentLimitKey>> = {
 
 function positiveFinite(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function boundedElapsedMs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.min(Number.MAX_SAFE_INTEGER, Math.round(value))
+    : undefined;
+}
+
+function workerTiming(result: SubagentResult, startedMs: number, endedMs: number): WorkerTiming {
+  const progressElapsed = boundedElapsedMs(result.progressSummary?.durationMs);
+  if (progressElapsed !== undefined) {
+    return {
+      workerElapsedMs: progressElapsed,
+      workerElapsedSource: "progress-summary",
+      workerElapsedStatus: "available",
+    };
+  }
+  return {
+    workerElapsedMs: boundedElapsedMs(endedMs - startedMs) ?? 0,
+    workerElapsedSource: "parent-wall",
+    workerElapsedStatus: "fallback",
+  };
 }
 
 function callerLimit(input: SubagentInput, index: number, key: SubagentLimitKey): number | undefined {
@@ -613,7 +640,7 @@ function modelDimensions(
   if (namedAgent) {
     return {
       provider: null,
-      model: result.model ?? null,
+      model: null,
       target: null,
       thinkingLevel: null,
       modelDimensionsStatus: "unavailable-named-agent",
@@ -655,7 +682,7 @@ function metricRecord(
 
   const prompt = input.tasks?.[index]?.task ?? input.task ?? result.task ?? "";
   const durationMs = Math.max(0, endedMs - startedMs);
-  const workerElapsedMs = Math.max(0, Math.round(result.progressSummary?.durationMs ?? durationMs));
+  const timing = workerTiming(result, startedMs, endedMs);
   const startedAt = new Date(startedMs).toISOString();
   const endedAt = new Date(endedMs).toISOString();
   const usage = result.usage;
@@ -701,7 +728,7 @@ function metricRecord(
     artifactStatus: result.artifact?.status ?? "failed",
     artifactFailureClass: result.artifact?.failureClass ?? null,
     outputContract: outputContract(input, index, outputContracts),
-    workerElapsedMs,
+    ...timing,
     task: routingTask(input, result, index),
     riskCategory: null,
     thinkingLevel: dimensions.thinkingLevel,
@@ -736,6 +763,7 @@ async function recordSubagentMetrics(
   event: { toolCallId: string; input: Record<string, unknown>; details?: unknown },
   ctx: ExtensionContext,
   invocation: InvocationStart,
+  endedMs: number,
   providerFailureClasses: Array<ProviderFailureClass | undefined>,
   outputContracts: ReadonlySet<SubagentOutputContract>,
   resolvedMetricsDir?: string,
@@ -744,7 +772,6 @@ async function recordSubagentMetrics(
   if (!details?.results?.length) return;
 
   const input = event.input as SubagentInput;
-  const endedMs = Date.now();
   const records = details.results
     .map((result, index) => metricRecord(
       input,
@@ -845,6 +872,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
   pi.on("tool_result", async (event, ctx) => {
     if (event.toolName !== "subagent") return;
 
+    const endedMs = Date.now();
     let details = event.details as SubagentDetails | undefined;
     const invocation = starts.get(event.toolCallId) ?? { startedMs: Date.now(), invocationIds: [] };
     starts.delete(event.toolCallId);
@@ -912,6 +940,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
         { ...event, details },
         ctx,
         invocation,
+        endedMs,
         providerFailureClasses,
         outputContracts,
         runtimePaths?.["metrics/invocations"],
@@ -939,6 +968,7 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
             effectiveMode: mode,
             childTraceAvailability: childTraceAvailability(result, mode),
             outputContract: contract,
+            ...workerTiming(result, invocation.startedMs, endedMs),
             ...artifactMetadata(result),
             ...terminationMetadata(result, termination),
             exitCode: result.exitCode ?? 1,

@@ -25,7 +25,7 @@ ARCHIMEDES_RESULT_PORTS_HEAD = "a9efbf159ee8b2717aae1df8742bd7382e97c1a3"
 ARCHIMEDES_PRE_IDLE_HEAD = "1c4750ddb844cd8579f3076922603915098e9f96"
 ARCHIMEDES_VENDOR_HEAD = "8590ec0e1063811f86d1417ded9c2aeb48fd73b6"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
-LANGFUSE_VENDOR_HEAD = "94fa7f0c4410ce10da1f98c8fe4b798374c8df2e"
+LANGFUSE_VENDOR_HEAD = "e5596e8df6136b07db143025ef400d325454b958"
 LANGFUSE_UPSTREAM_1514 = "04d55a12556bdf4c4b8b208038198dc2fd8e571b"
 LANGFUSE_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--gooyoung--pi-langfuse.md"
 LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality-port-contract.md"
@@ -431,7 +431,7 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
         capture_output=True,
     )
     assert count.returncode == 0, count.stderr
-    assert count.stdout.strip() == "1"
+    assert count.stdout.strip() == "3"
 
 
 
@@ -496,6 +496,8 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "toolPayloadBytesVersion" in langfuse
     assert "captureToolIoBytes" in langfuse
     assert "prepareToolPayload" in langfuse
+    assert "extractUsageCount" in langfuse
+    assert "cacheRead !== undefined" in langfuse
     assert "MAX_INGESTION_REQUEST_BYTES" in langfuse
     assert "scoreEventIds" in langfuse
     assert "AbortSignal.any" in langfuse
@@ -598,6 +600,9 @@ def test_langfuse_package_proof_is_executable_and_integrity_pinned():
     assert "patch --force --fuzz=0 --forward" in proof
     assert "patch --force --fuzz=0 --reverse --dry-run" in proof
     assert "test/quality.test.ts" in proof
+    assert 'FORK_HEAD="e5596e8df6136b07db143025ef400d325454b958"' in proof
+    assert 'FORK_PREVIOUS="1d705405901c704196154698fade3e9a6a5b5f93"' in proof
+    assert 'FORK_QUALITY="94fa7f0c4410ce10da1f98c8fe4b798374c8df2e"' in proof
     assert "cmp " in proof
     assert "diff -qr" in proof
 
@@ -611,16 +616,16 @@ def test_langfuse_quality_port_maintained_fork_gate_requires_exact_evidence():
     assert "createObservationCapturePort" in patch
     assert "createServiceEvidencePort" in patch
     assert "quality_port_status: maintained-fork-verified" in profile
-    assert "Q18V verifies the exact `stvhay/pi-langfuse` fork commit" in profile
+    assert "Q18V verifies the quality-port ancestor `94fa7f0c`" in profile
     for evidence in (
         "npm_published_utc: 2026-08-13T02:02:51.103Z",
         "npm_integrity: sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg==",
         "maintained_fork_base: 04d55a12556bdf4c4b8b208038198dc2fd8e571b",
-        "maintained_fork_head: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e",
+        "maintained_fork_head: e5596e8df6136b07db143025ef400d325454b958",
         "maintained_fork_branch: vendor/pi-setup-1514",
-        "superproject_gitlink: 94fa7f0c4410ce10da1f98c8fe4b798374c8df2e",
+        "superproject_gitlink: e5596e8df6136b07db143025ef400d325454b958",
         "derived_patch: patches/pi-packages/pi-langfuse-1.5.14.patch",
-        "derived_patch_sha256: 27abc3cbf950ceca520dd21a2ab69ed3483bc05dea25c1c4495307d6fc2a90a5",
+        "derived_patch_sha256: 0fa6010e0bbc010d7f9c27e15b88203ea1ce55a4b41259723afc76a5f65186ec",
         "package_proof: scripts/verify-pi-langfuse-package-patch.sh",
     ):
         assert evidence in profile

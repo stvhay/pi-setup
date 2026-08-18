@@ -2137,7 +2137,8 @@ def test_scan_retains_private_projection_timing_and_lineage_across_projects(tmp_
         "childTraceAvailability": "expected-available",
         "startTime": "2026-07-26T12:00:01Z",
         "endTime": "2026-07-26T12:00:03Z",
-        "latencySeconds": 2.0,
+        "captureLatencySeconds": 2.0,
+        "evaluatorLinkStatus": "unavailable",
     }]
     serialized_summary = json.dumps(summary)
     for private in (
@@ -2151,6 +2152,454 @@ def test_scan_retains_private_projection_timing_and_lineage_across_projects(tmp_
         str(tmp_path),
     ):
         assert private not in serialized_summary
+
+
+def test_projection_records_keep_bounded_attribution_and_exact_score_linkage():
+    observation = _child_projection("agentic", "private-child-session")
+    observation.update({
+        "id": "private-projection-observation",
+        "traceId": "private-parent-trace",
+        "parentObservationId": "private-parent-observation",
+        "latency": 1.25,
+        "input": "PRIVATE TASK BODY",
+        "output": "PRIVATE RESULT BODY",
+    })
+    observation["metadata"].update({
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "target": "openai-codex/gpt-5.6-sol",
+        "thinkingLevel": "medium",
+        "modelDimensionsStatus": "available",
+        "routingTask": "review",
+        "outputContract": "inline",
+        "workerElapsedMs": 4321,
+        "workerElapsedSource": "progress-summary",
+        "workerElapsedStatus": "available",
+    })
+    scores = [{
+        "name": "delegated_quality_outcome",
+        "value": "poor",
+        "dataType": "CATEGORICAL",
+        "source": "EVAL",
+        "subject": {"kind": "observation", "id": "private-projection-observation"},
+    }]
+
+    features = improvement._features(
+        [],
+        [observation],
+        scores,
+        allowed_providers={"openai-codex"},
+        allowed_models={"gpt-5.6-sol", "openai-codex/gpt-5.6-sol"},
+    )
+
+    assert features["projections"] == [{
+        "observationId": "private-projection-observation",
+        "traceId": "private-parent-trace",
+        "parentObservationId": "private-parent-observation",
+        "childSessionId": "private-child-session",
+        "effectiveMode": "agentic",
+        "childTraceAvailability": "expected-available",
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "target": "openai-codex/gpt-5.6-sol",
+        "modelDimensionsStatus": "available",
+        "routingTask": "review",
+        "routingTaskStatus": "available",
+        "effectiveModeStatus": "available",
+        "thinkingLevel": "medium",
+        "thinkingLevelStatus": "available",
+        "outputContract": "inline",
+        "outputContractStatus": "available",
+        "workerElapsedMs": 4321,
+        "workerElapsedSource": "progress-summary",
+        "workerElapsedStatus": "available",
+        "captureLatencySeconds": 1.25,
+        "evaluatorLinkStatus": "linked",
+    }]
+    assert features["evaluatorOutcomes"] == [{
+        "name": "delegated_quality_outcome",
+        "value": "poor",
+        "dataType": "CATEGORICAL",
+        "source": "EVAL",
+        "projectionLinkStatus": "linked",
+        "projectionObservationId": "private-projection-observation",
+    }]
+
+    health = improvement._cohort_health(
+        [{"features": features}],
+        trace_discovery={"maxTraces": 1, "complete": True, "continuation": {"hasMore": False}},
+        scan_limit=1,
+        eligible_session_count=1,
+        allowed_providers=set(),
+        allowed_models=set(),
+    )
+    safe = json.dumps(health)
+    for private in (
+        "private-projection-observation",
+        "private-parent-trace",
+        "private-child-session",
+        "openai-codex",
+        "gpt-5.6-sol",
+        "review",
+        "4321",
+        "PRIVATE TASK BODY",
+        "PRIVATE RESULT BODY",
+    ):
+        assert private not in safe
+
+
+def test_projection_records_make_named_and_malformed_dimensions_explicitly_unavailable():
+    named = _child_projection("agentic", "named-child")
+    named.update({"id": "named-projection"})
+    named["metadata"].update({
+        "provider": None,
+        "model": None,
+        "target": None,
+        "thinkingLevel": None,
+        "modelDimensionsStatus": "unavailable-named-agent",
+        "routingTask": "peer",
+        "outputContract": "unknown",
+        "workerElapsedMs": 10,
+        "workerElapsedSource": "parent-wall",
+        "workerElapsedStatus": "fallback",
+    })
+    malformed = _child_projection("future-mode", None)
+    malformed.update({"id": "malformed-projection"})
+    malformed["metadata"].update({
+        "provider": "https://private.example",
+        "model": "/secret/model",
+        "target": "[REDACTED_CREDENTIAL]/model",
+        "thinkingLevel": "impossible",
+        "modelDimensionsStatus": "available",
+        "routingTask": "secret/api/key",
+        "outputContract": "private-output",
+        "workerElapsedMs": -1,
+        "workerElapsedSource": "worker-text",
+        "workerElapsedStatus": "available",
+    })
+
+    records = improvement._features([], [named, malformed], [])["projections"]
+    named_record, malformed_record = records
+    assert {
+        key: named_record[key]
+        for key in (
+            "provider", "model", "target", "modelDimensionsStatus",
+            "routingTask", "routingTaskStatus", "effectiveMode", "effectiveModeStatus",
+            "thinkingLevel", "thinkingLevelStatus", "outputContract", "outputContractStatus",
+            "workerElapsedMs", "workerElapsedSource", "workerElapsedStatus", "evaluatorLinkStatus",
+        )
+    } == {
+        "provider": None,
+        "model": None,
+        "target": None,
+        "modelDimensionsStatus": "unavailable-named-agent",
+        "routingTask": "peer",
+        "routingTaskStatus": "available",
+        "effectiveMode": "agentic",
+        "effectiveModeStatus": "available",
+        "thinkingLevel": None,
+        "thinkingLevelStatus": "unavailable",
+        "outputContract": "unknown",
+        "outputContractStatus": "unavailable",
+        "workerElapsedMs": 10,
+        "workerElapsedSource": "parent-wall",
+        "workerElapsedStatus": "fallback",
+        "evaluatorLinkStatus": "unavailable",
+    }
+    assert {
+        key: malformed_record[key]
+        for key in (
+            "provider", "model", "target", "modelDimensionsStatus", "modelDimensionsReason",
+            "routingTask", "routingTaskStatus", "effectiveMode", "effectiveModeStatus",
+            "thinkingLevel", "thinkingLevelStatus", "outputContract", "outputContractStatus",
+            "workerElapsedMs", "workerElapsedSource", "workerElapsedStatus", "evaluatorLinkStatus",
+        )
+    } == {
+        "provider": None,
+        "model": None,
+        "target": None,
+        "modelDimensionsStatus": "unavailable",
+        "modelDimensionsReason": "invalid",
+        "routingTask": None,
+        "routingTaskStatus": "unavailable",
+        "effectiveMode": "unknown",
+        "effectiveModeStatus": "unavailable",
+        "thinkingLevel": None,
+        "thinkingLevelStatus": "unavailable",
+        "outputContract": "unknown",
+        "outputContractStatus": "unavailable",
+        "workerElapsedMs": None,
+        "workerElapsedSource": None,
+        "workerElapsedStatus": "unavailable",
+        "evaluatorLinkStatus": "unavailable",
+    }
+    assert "private.example" not in json.dumps(malformed_record)
+    assert "/secret" not in json.dumps(malformed_record)
+    assert "ghp_" not in json.dumps(malformed_record)
+
+
+def test_scan_marks_unconfigured_projection_dimensions_unavailable(tmp_path):
+    repository_root = tmp_path / "repo"
+    settings = repository_root / "pi" / "agent" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({
+        "enabledModels": ["openai-codex/gpt-5.6-sol"],
+    }), encoding="utf-8")
+    trace = _private_trace("spoofed-session", "spoofed-trace")
+    observation = _child_projection("one-shot", None)
+    observation.update({"id": "spoofed-projection"})
+    observation["metadata"].update({
+        "provider": "syntactic-provider",
+        "model": "syntactic-model",
+        "target": "syntactic-provider/syntactic-model",
+        "thinkingLevel": "medium",
+        "modelDimensionsStatus": "available",
+        "routingTask": "review",
+        "outputContract": "inline",
+        "workerElapsedMs": 10,
+        "workerElapsedSource": "progress-summary",
+        "workerElapsedStatus": "available",
+    })
+
+    _, packet = _scan_sessions(
+        FakeScanClient([trace], {"spoofed-trace": [observation]}),
+        tmp_path,
+        repository_root=repository_root,
+    )
+
+    projection, = packet["sessions"][0]["features"]["projections"]
+    assert projection["provider"] is None
+    assert projection["model"] is None
+    assert projection["target"] is None
+    assert projection["modelDimensionsStatus"] == "unavailable"
+    assert projection["modelDimensionsReason"] == "unconfigured"
+
+
+def test_evaluator_projection_linkage_keeps_missing_and_ambiguous_states_explicit():
+    metadata = {
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "target": "openai-codex/gpt-5.6-sol",
+        "thinkingLevel": "default",
+        "modelDimensionsStatus": "available",
+        "routingTask": "peer",
+        "effectiveMode": "one-shot",
+        "childTraceAvailability": "expected-unavailable",
+        "outputContract": "inline",
+        "workerElapsedMs": 100,
+        "workerElapsedSource": "progress-summary",
+        "workerElapsedStatus": "available",
+    }
+    observations = [
+        {"name": "subagent-result", "id": "unique-projection", "metadata": {**metadata, "index": 0}},
+        {"name": "subagent-result", "id": "duplicate-projection", "metadata": {**metadata, "index": 1}},
+        {"name": "subagent-result", "id": "duplicate-projection", "metadata": {**metadata, "index": 2}},
+    ]
+    scores = [
+        {"name": "missing-link", "value": "poor", "source": "EVAL"},
+        {
+            "name": "ambiguous-link",
+            "value": "poor",
+            "source": "EVAL",
+            "subject": {"kind": "observation", "id": "duplicate-projection"},
+        },
+        {
+            "name": "exact-link",
+            "value": "good",
+            "source": "EVAL",
+            "observationId": "unique-projection",
+        },
+    ]
+
+    features = improvement._features(
+        [],
+        observations,
+        scores,
+        allowed_providers={"openai-codex"},
+        allowed_models={"gpt-5.6-sol", "openai-codex/gpt-5.6-sol"},
+    )
+
+    assert [item["projectionLinkStatus"] for item in features["evaluatorOutcomes"]] == [
+        "unavailable", "ambiguous", "linked",
+    ]
+    assert "projectionObservationId" not in features["evaluatorOutcomes"][0]
+    assert "projectionObservationId" not in features["evaluatorOutcomes"][1]
+    assert features["evaluatorOutcomes"][2]["projectionObservationId"] == "unique-projection"
+    assert [item["evaluatorLinkStatus"] for item in features["projections"]] == [
+        "linked", "ambiguous", "ambiguous",
+    ]
+
+
+def test_fixed_work_learning_replay_scores_proof_8_and_delegated_attribution_4(tmp_path):
+    repository_root = tmp_path / "repo"
+    settings = repository_root / "pi" / "agent" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({
+        "enabledModels": ["openai-codex/gpt-5.6-sol"],
+    }), encoding="utf-8")
+
+    def delegated(observation_id, *, outcome="succeeded", termination=False):
+        metadata = {
+            "provider": "openai-codex",
+            "model": "gpt-5.6-sol",
+            "target": "openai-codex/gpt-5.6-sol",
+            "thinkingLevel": "medium",
+            "modelDimensionsStatus": "available",
+            "routingTask": "review",
+            "effectiveMode": "one-shot",
+            "childTraceAvailability": "expected-unavailable",
+            "outputContract": "inline",
+            "workerElapsedMs": 200,
+            "workerElapsedSource": "progress-summary",
+            "workerElapsedStatus": "available",
+            "executionOutcome": outcome,
+        }
+        if termination:
+            metadata.update({
+                "terminationReason": "time-limit",
+                "terminationSource": "caller",
+                "terminationLimit": 200,
+                "terminationObserved": 200,
+                "terminationUsageState": "partial",
+            })
+        return {"name": "subagent-result", "id": observation_id, "metadata": metadata}
+
+    success = {"name": "interactive-result", "metadata": {"executionOutcome": "succeeded"}}
+    unavailable = {"name": "interactive-result", "metadata": {"executionOutcome": "unavailable"}}
+    traces = [
+        _private_trace("replay-success", "trace-success"),
+        _private_trace("replay-review", "trace-review"),
+        _private_trace("replay-time-limit", "trace-time-limit"),
+        _private_trace("replay-unlinked", "trace-unlinked"),
+    ]
+    for index, trace in enumerate(traces):
+        trace["timestamp"] = f"2026-07-26T1{index}:00:00Z"
+    observations = {
+        "trace-success": [success],
+        "trace-review": [success, delegated("delegated-review")],
+        "trace-time-limit": [
+            unavailable,
+            delegated("delegated-time-limit", outcome="unavailable", termination=True),
+        ],
+        "trace-unlinked": [],
+    }
+    trace_scores = {
+        "trace-success": [{
+            "name": "Apparent task outcome",
+            "value": "success",
+            "source": "EVAL",
+            "subject": {"kind": "trace", "id": "trace-success"},
+        }],
+        "trace-review": [{
+            "name": "Apparent task outcome",
+            "value": "success",
+            "source": "EVAL",
+            "subject": {"kind": "trace", "id": "trace-review"},
+        }, {
+            "name": "delegated_quality_outcome",
+            "value": "poor",
+            "source": "EVAL",
+            "subject": {"kind": "observation", "id": "delegated-review"},
+        }],
+        "trace-time-limit": [{
+            "name": "delegated_quality_outcome",
+            "value": "poor",
+            "source": "EVAL",
+            "subject": {"kind": "observation", "id": "delegated-time-limit"},
+        }],
+    }
+    _, packet = _scan_sessions(
+        FakeScanClient(traces, observations, trace_scores=trace_scores),
+        tmp_path,
+        limit=4,
+        repository_root=repository_root,
+    )
+    sessions = {session["sessionId"]: session for session in packet["sessions"]}
+    expected_cases = {
+        "replay-success": ("success", "available", "apparent", "success"),
+        "replay-review": ("success", "available", "apparent", "success"),
+        "replay-time-limit": ("unclear", "unavailable", "execution", "time-limit"),
+        "replay-unlinked": ("unknown", "unavailable", "capture-gap", "missing-outcome"),
+    }
+
+    proof_scores = []
+    for session_id, expected in expected_cases.items():
+        expected_outcome, expected_status, expected_source, expected_reason = expected
+        session = sessions[session_id]
+        features = session["features"]
+        evidence_ref = session["evidenceRef"]
+        proof = session["outcomeProof"]
+        complete = (
+            features["finalOutcome"] == expected_outcome
+            and proof["status"] == expected_status
+            and proof["source"] == expected_source
+            and proof["reason"] == expected_reason
+            and proof["integrity"] == "verified"
+            and proof["evidenceRef"] == evidence_ref
+            and evidence_ref["source"] == "improvement-scan"
+        )
+        proof_scores.append(2 if complete else 0)
+
+    delegated_scores = []
+    delegated_observations = {
+        "replay-review": "delegated-review",
+        "replay-time-limit": "delegated-time-limit",
+    }
+    for session_id, observation_id in delegated_observations.items():
+        features = sessions[session_id]["features"]
+        projection, = features["projections"]
+        expected_projection = {
+            "observationId": observation_id,
+            "provider": "openai-codex",
+            "model": "gpt-5.6-sol",
+            "target": "openai-codex/gpt-5.6-sol",
+            "modelDimensionsStatus": "available",
+            "routingTask": "review",
+            "routingTaskStatus": "available",
+            "effectiveMode": "one-shot",
+            "effectiveModeStatus": "available",
+            "thinkingLevel": "medium",
+            "thinkingLevelStatus": "available",
+            "outputContract": "inline",
+            "outputContractStatus": "available",
+            "workerElapsedMs": 200,
+            "workerElapsedSource": "progress-summary",
+            "workerElapsedStatus": "available",
+            "evaluatorLinkStatus": "linked",
+        }
+        linked_scores = [
+            outcome
+            for outcome in features["evaluatorOutcomes"]
+            if outcome.get("projectionObservationId") == observation_id
+        ]
+        complete = (
+            all(projection.get(key) == value for key, value in expected_projection.items())
+            and len(linked_scores) == 1
+            and linked_scores[0]["projectionLinkStatus"] == "linked"
+        )
+        delegated_scores.append(2 if complete else 0)
+
+    assert sessions["replay-time-limit"]["features"]["limitTerminations"]["completeEvidence"] == 1
+    assert sessions["replay-time-limit"]["outcomeProof"] | {"evidenceRef": None} == {
+        "status": "unavailable",
+        "source": "execution",
+        "reason": "time-limit",
+        "integrity": "verified",
+        "evidenceRef": None,
+    }
+    assert sessions["replay-unlinked"]["outcomeProof"] | {"evidenceRef": None} == {
+        "status": "unavailable",
+        "source": "capture-gap",
+        "reason": "missing-outcome",
+        "integrity": "verified",
+        "evidenceRef": None,
+    }
+    assert proof_scores == [2, 2, 2, 2]
+    assert sum(proof_scores) == 8
+    assert delegated_scores == [2, 2]
+    assert sum(delegated_scores) == 4
+    docs = (ROOT / "docs" / "SELF-IMPROVEMENT.md").read_text(encoding="utf-8")
+    assert "Tool evidence remains 4/8" in docs
 
 
 def test_scan_writes_private_atomic_packet_with_restrictive_permissions(tmp_path):
@@ -2951,6 +3400,24 @@ def _current_review_packet():
     return packet
 
 
+def _current_review_packet_with_sessions(count):
+    packet = _current_review_packet()
+    template = packet["sessions"][0]
+    packet["scan"]["limit"] = count
+    packet["sessions"] = []
+    for index in range(count):
+        session = json.loads(json.dumps(template))
+        session["sessionId"] = f"private-session-{index}"
+        session["evidenceRef"]["ref"] = (
+            f"artifact:improvement-{packet['reportId']}-session-{index}"
+        )
+        session["evidenceRef"]["provenance"] = (
+            f"improvement:{packet['reportId']}:session-{index}"
+        )
+        packet["sessions"].append(session)
+    return packet
+
+
 def _current_review_result(packet=None):
     packet = packet or _current_review_packet()
     legacy = _review_decisions()["sessions"][0]["findings"][0]
@@ -3196,6 +3663,29 @@ def test_fail6_invalid_or_private_unsafe_result_becomes_explicit_human_route(): 
     assert unsafe_summary["gaps"] == ["review-private-unsafe"]
 
 
+def test_current_review_allows_representative_16_refs_for_20_session_assignment():
+    packet = _current_review_packet_with_sessions(quality.MAX_REVIEW_ASSIGNMENT_ITEMS)
+    result = _current_review_result(packet)
+    finding = result["sessions"][0]["findings"][0]
+    refs = [session["evidenceRef"] for session in packet["sessions"]]
+    finding["evidenceRefs"] = refs[: quality.MAX_EVIDENCE_REFS]
+    finding["verification"]["evidenceRefs"] = refs[: quality.MAX_EVIDENCE_REFS]
+    result["sessions"] = [
+        result["sessions"][0],
+        *(
+            {"sessionId": session["sessionId"], "decision": "no-action", "findings": []}
+            for session in packet["sessions"][1:]
+        ),
+    ]
+
+    assert improvement.validate_decisions(packet, result) == result
+
+    finding["evidenceRefs"] = refs[: quality.MAX_EVIDENCE_REFS + 1]
+    finding["verification"]["evidenceRefs"] = refs[: quality.MAX_EVIDENCE_REFS + 1]
+    with pytest.raises(ValueError, match="finding evidence references are invalid"):
+        improvement.validate_decisions(packet, result)
+
+
 def test_review_rubric_requires_unknown_and_evidence_thresholds():
     rubric = (ROOT / "pi" / "agent" / "langfuse" / "improvement-review.md").read_text(encoding="utf-8")
 
@@ -3217,6 +3707,8 @@ def test_review_rubric_requires_unknown_and_evidence_thresholds():
         "`reviewStatus`",
         "one attempt",
         "cannot set grant, mode, authority, or allowed effects",
+        "at most 16 distinct packet EvidenceRefs",
+        "smallest representative subset",
     ):
         assert required in rubric
 
