@@ -6,6 +6,8 @@
 
 **Implementation Bead:** `pi-d1sw`
 
+**Amended:** 2026-08-28 by `pi-ddxe` to enable GLM 5.3 Flash as a manual canary
+
 **Revisit:** After 30 days of direct OpenRouter telemetry, before any annual subscription or OpenAI Pro downgrade
 
 ## Decision
@@ -50,8 +52,9 @@ Consequences:
 | Coding/review challenger | `openrouter/moonshotai/kimi-k2.7-code` | Different-family coding or normal-review check |
 | Frontier escalation | `openrouter/moonshotai/kimi-k3` | Concrete unresolved critical issue only, after budget and evidence gates |
 | Independent high-risk reviewer | `openrouter/anthropic/claude-opus-5` | Architecture, high-risk review, or phase checkpoint |
+| Manual canary | `openrouter/z-ai/glm-5.3-flash` | Revealed Ox Alpha successor; picker-only until direct OpenRouter evidence supports task routing |
 
-GLM-5.2 remains unconfigured. Earlier relay-path calls produced almost no usable output; require direct-provider canary evidence before adding it again.
+GLM-5.2 remains unconfigured. GLM-5.3-Flash is enabled only for manual canaries; no task route selects it automatically.
 
 ## Primary matrix
 
@@ -107,7 +110,7 @@ This is an external-primary canary, not the default. Highest-risk control remain
 3. Keep M3 canary-only until it has enough accepted, verified work to compare against Luna/Terra controls.
 4. Buy MiniMax Plus only if M3 handles delegated work non-inferiorly and expected direct M3 API spend exceeds its subscription cost.
 5. Buy Copilot Pro+ only if premium-model usage or access friction consistently exceeds $39/month in value.
-6. Reassess GLM only after a direct-provider transport canary succeeds.
+6. Evaluate GLM-5.3-Flash through manual direct-OpenRouter canaries before adding any task route.
 
 ## Confidence
 
@@ -117,10 +120,11 @@ This is an external-primary canary, not the default. Highest-risk control remain
 
 ## Verified plan sources
 
-Prices and limits were checked on official pages on 2026-08-06:
+Prices and limits were checked on official pages on 2026-08-06; GLM-5.3-Flash metadata was checked on 2026-08-28:
 
 - [OpenAI Codex pricing](https://chatgpt.com/codex/pricing/)
 - [OpenRouter provider support in Pi](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/providers.md)
+- [OpenRouter GLM-5.3-Flash model page](https://openrouter.ai/z-ai/glm-5.3-flash)
 - [Z.AI GLM Coding Plan](https://z.ai/subscribe)
 - [GitHub Copilot plans](https://github.com/features/copilot/plans)
 - [MiniMax Token Plans](https://platform.minimax.io/subscribe/token-plan)

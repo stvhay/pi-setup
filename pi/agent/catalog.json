@@ -147,6 +147,32 @@
           "contextWindow": 1048576
         }
       ]
+    },
+    "glm-5.3-flash": {
+      "openrouterRates": {
+        "input": 0.15,
+        "output": 0.5,
+        "cacheRead": 0.03
+      },
+      "venues": [
+        {
+          "target": "openrouter/z-ai/glm-5.3-flash",
+          "costClass": "cheap",
+          "billingClass": "metered",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": null,
+            "high": "high",
+            "xhigh": null,
+            "max": "max"
+          },
+          "input": ["text", "image"],
+          "contextWindow": 1310720
+        }
+      ]
     }
   }
 }

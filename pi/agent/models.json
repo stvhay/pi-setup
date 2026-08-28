@@ -26,6 +26,9 @@
         },
         "anthropic/claude-opus-5": {
           "maxTokens": 16384
+        },
+        "z-ai/glm-5.3-flash": {
+          "maxTokens": 16384
         }
       }
     }

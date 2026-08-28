@@ -14,6 +14,7 @@ APPROVED_OPENROUTER_MODELS = {
     "openrouter/minimax/minimax-m3",
     "openrouter/moonshotai/kimi-k2.7-code",
     "openrouter/moonshotai/kimi-k3",
+    "openrouter/z-ai/glm-5.3-flash",
 }
 
 
@@ -26,6 +27,8 @@ def test_active_routes_use_builtin_openrouter_without_local_or_olla_targets():
     )
 
     assert {target for target in enabled if target.startswith("openrouter/")} == APPROVED_OPENROUTER_MODELS
+    assert settings["defaultProvider"] == "openai-codex"
+    assert settings["defaultModel"] == "gpt-5.6-sol"
     assert not any(target.startswith(("olla-local/", "olla-cloud/", "ollama/")) for target in enabled)
     assert "olla-local/" not in task_text
     assert "olla-cloud/" not in task_text
@@ -51,6 +54,7 @@ def test_builtin_openrouter_uses_only_bounded_model_overrides():
         "minimax/minimax-m3",
         "moonshotai/kimi-k2.7-code",
         "moonshotai/kimi-k3",
+        "z-ai/glm-5.3-flash",
     }
     assert all(item == {"maxTokens": 16_384} for item in provider["modelOverrides"].values())
     assert "models" not in provider
@@ -100,6 +104,8 @@ def test_lasting_routing_and_output_policy_documents_evidence_and_rollback():
     assert "pi/agent/skills/requesting-code-review/SKILL.md" in portfolio
     assert "docs/SELF-IMPROVEMENT.md" in portfolio
     assert "pi/agent/bin/README.md" in portfolio
+    assert "openrouter/z-ai/glm-5.3-flash" in portfolio
+    assert "manual canary" in portfolio
 
 
 def test_approved_openrouter_models_have_cataloged_runtime_metadata():
@@ -112,6 +118,7 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
         "minimax-m3",
         "kimi-k2.7-code",
         "kimi-k3",
+        "glm-5.3-flash",
     }
     expected = {
         "minimax-m3": {
@@ -133,6 +140,11 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
             "target": "openrouter/anthropic/claude-opus-5",
             "contextWindow": 1_000_000,
             "rates": {"input": 5.0, "output": 25.0, "cacheRead": 0.5, "cacheWrite": 6.25},
+        },
+        "glm-5.3-flash": {
+            "target": "openrouter/z-ai/glm-5.3-flash",
+            "contextWindow": 1_310_720,
+            "rates": {"input": 0.15, "output": 0.5, "cacheRead": 0.03},
         },
     }
 
