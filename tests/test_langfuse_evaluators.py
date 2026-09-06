@@ -165,6 +165,19 @@ def test_check_is_silent_when_remote_matches(capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_check_accepts_api_response_without_write_only_project_scope(capsys):
+    manifest = langfuse.load_manifest(MANIFEST)
+    evaluators = [{**item, "id": f"evaluator-{index}"} for index, item in enumerate(manifest["evaluators"])]
+    rules = [
+        {**item, "id": f"rule-{index}", "evaluator": {"name": item["evaluator"]["name"]}}
+        for index, item in enumerate(manifest["rules"])
+    ]
+    client = FakeClient(evaluators, rules)
+
+    assert langfuse.run_sync(manifest, client, apply=False, quiet=True) == 0
+    assert capsys.readouterr().out == ""
+
+
 def test_check_reports_drift_without_mutating(capsys):
     manifest = langfuse.load_manifest(MANIFEST)
     client = FakeClient()

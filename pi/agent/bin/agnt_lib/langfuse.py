@@ -52,7 +52,11 @@ def run_sync(manifest: dict[str, Any], client: Any, *, apply: bool, quiet: bool)
 
     for desired in manifest["rules"]:
         actual = rules.get(desired["name"])
-        if actual is not None and _same(actual, desired):
+        comparable = desired
+        actual_evaluator = actual.get("evaluator") if actual is not None else None
+        if isinstance(actual_evaluator, dict) and "scope" not in actual_evaluator and desired["evaluator"].get("scope") == "project":
+            comparable = {**desired, "evaluator": {key: value for key, value in desired["evaluator"].items() if key != "scope"}}
+        if actual is not None and _same(actual, comparable):
             continue
         drift = True
         label = "missing" if actual is None else "outdated"
