@@ -25,7 +25,11 @@ pi-setup/ (this repo, source of truth)
   Missing, mismatched, or stale-patch exact package bases are installed before
   tracked patches run; current exact installs stay untouched to avoid broad npm reification.
   Patch-base entries remain exact in the runtime npm manifest so installing one
-  cannot upgrade another through npm's default caret ranges.
+  cannot upgrade another through npm's default caret ranges. The script owns
+  source/live layout checks, itemized rsync preview and managed-config-only backups
+  with dry-run-by-default recovery commands. Local deployment never invokes remote
+  evaluator sync; `agnt langfuse apply` is a separate approved operation. See
+  [deployment recovery](../pi/README.md#deployment-evidence-and-recovery).
 - Edits go in this repo, then deploy. The live `~/.pi` is never the place to
   change config; `rsync --delete` will overwrite it.
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches
@@ -275,8 +279,11 @@ owns durable work and human grants. None can substitute for another.
 
 Three test tiers, cheapest first:
 
-1. `tests/` (pytest) — pure-function coverage of catalog lookups, routing
-   ranks, cost attribution, overlay resolution. Free, instant.
+1. `tests/` (pytest) — pure-function checks plus subprocess-backed extension,
+   deployment, Beads, and process-termination coverage. Model-free, not instant:
+   use focused tests during repair and the full suite on the stable candidate.
+   Deployment fixtures isolate credentials/targets and avoid repeated full-config
+   copies; real-source integration remains covered. Profile with `--durations=15`.
 2. `agnt eval run routing-smoke`, `role-context-smoke`, or
    `quality-process-smoke` — deterministic CLI checks. The quality smoke gate
    reuses six named pytest checks for evidence gaps, observe suppression, grant

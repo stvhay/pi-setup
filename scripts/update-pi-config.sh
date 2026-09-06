@@ -10,6 +10,39 @@ PACKAGE_PATCH_HELPER=${PI_PACKAGE_PATCH_HELPER:-$ROOT/scripts/apply-pi-package-p
 PACKAGE_PATCH_DIR=${PI_PACKAGE_PATCH_DIR:-$ROOT/patches/pi-packages}
 ARCHIMEDES_REINSTALL_BACKUP=
 LANGFUSE_REINSTALL_BACKUP=
+DEPLOY_BACKUP=
+export PYTHONDONTWRITEBYTECODE=1
+
+# Preserve runtime secrets/state while deleting stale managed files. Source-only
+# metadata and caches are not deployed or deletion-protected.
+RSYNC_EXCLUDES=(
+  --filter='-s .git/'
+  --exclude='.git.backup-*'
+  --exclude='/.managed-by-pi-setup'
+  --exclude='agent/auth.json'
+  --exclude='agent/sessions/'
+  --exclude='agent/pi-langfuse/'
+  --exclude='agent/npm/'
+  --exclude='agent/git/'
+  --exclude='agent/mcp-cache.json'
+  --exclude='agent/mcp-onboarding.json'
+  --exclude='agent/models-store.json'
+  --exclude='agent/trust.json'
+  --exclude='agent/extensions/*.local.ts'
+  --exclude='.pi/'
+  --exclude='improvement/'
+  --exclude='metrics/'
+  --exclude='runtime/'
+  --exclude='agent/macbook-ollama-power-*/'
+  --filter='-s __pycache__/'
+  --filter='-s *.py[cod]'
+  --exclude='.DS_Store'
+  --exclude='*.local'
+  --exclude='*.local.json'
+  --exclude='.env'
+  --exclude='.env.*'
+)
+
 
 usage() {
   cat <<'EOF'
@@ -20,6 +53,9 @@ Update ~/.pi from this repository's tracked pi/ directory.
 This repository is the source of truth. The live ~/.pi directory is treated as
 runtime/deployed state. Runtime secrets and local state are preserved. Missing,
 mismatched, or stale-patch exact package bases are installed, then tracked patches run.
+Checks run before and after apply. Managed config backups stay under
+<destination>/runtime/deployment-backups/. --dry-run itemizes actual file changes.
+Remote evaluator changes are separate: agnt langfuse apply (requires approval).
 
 Environment overrides:
   PI_CONFIG_SOURCE          Source config directory. Default: <repo>/pi
@@ -45,6 +81,35 @@ run() {
     printf ' %q' "$@"
     printf '\n'
   fi
+}
+
+preserve_changelog() {
+  python3 - "$1" "$2" <<'PY'
+import json
+import os
+import pathlib
+import sys
+import tempfile
+
+runtime_path = pathlib.Path(sys.argv[1])
+deployed_path = pathlib.Path(sys.argv[2])
+runtime_settings = json.loads(runtime_path.read_text(encoding="utf-8"))
+if "lastChangelogVersion" in runtime_settings:
+    deployed_settings = json.loads(deployed_path.read_text(encoding="utf-8"))
+    deployed_settings["lastChangelogVersion"] = runtime_settings["lastChangelogVersion"]
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=deployed_path.parent,
+        prefix=f".{deployed_path.name}.",
+        delete=False,
+    ) as output:
+        json.dump(deployed_settings, output, indent=2)
+        output.write("\n")
+        temporary_path = pathlib.Path(output.name)
+    temporary_path.chmod(deployed_path.stat().st_mode)
+    os.replace(temporary_path, deployed_path)
+PY
 }
 
 package_is_exact() {
@@ -299,12 +364,21 @@ validate_dest() {
   if [ "$dest_abs" = "$source_abs" ]; then
     refuse_dest "destination is the tracked source directory"
   fi
+  case "$dest_abs/" in "$source_abs/"*) refuse_dest "source and destination overlap" ;; esac
+  case "$source_abs/" in "$dest_abs/"*) refuse_dest "source and destination overlap" ;; esac
+  if [ -L "$dest_abs/runtime" ] || [ -L "$dest_abs/runtime/deployment-backups" ]; then
+    refuse_dest "backup root must not be a symlink"
+  fi
   if [ "$dest_base" != ".pi" ] && [ "${PI_CONFIG_DEST_UNSAFE_OK:-}" != 1 ]; then
     refuse_dest "destination basename must be .pi"
   fi
+  SOURCE=$source_abs
+  DEST=$dest_abs
 }
 
 validate_dest
+printf 'Source: %s\nDestination: %s\nHost: %s\nUser: %s\n' "$SOURCE" "$DEST" "$(hostname)" "$(id -un)"
+(cd "$ROOT" && PI_CONFIG_DIR="$SOURCE" scripts/check-pi-config.sh)
 
 mkdir_parent() {
   local dir
@@ -315,6 +389,42 @@ mkdir_parent() {
 mkdir_parent "$DEST"
 if [ ! -e "$DEST" ]; then
   run mkdir -p "$DEST"
+fi
+
+# Snapshot only managed config, not growing runtime stores or credentials.
+if [ "$MODE" = apply ]; then
+  (umask 077; mkdir -p "$DEST/runtime/deployment-backups")
+  DEPLOY_BACKUP=$(mktemp -d "$DEST/runtime/deployment-backups/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")
+  echo "Managed config backup: $DEPLOY_BACKUP"
+  rsync -a "${RSYNC_EXCLUDES[@]}" "$DEST/" "$DEPLOY_BACKUP/config/"
+  (
+    umask 077
+    printf 'source=%s\ndestination=%s\n' "$SOURCE" "$DEST" >"$DEPLOY_BACKUP/identity.txt"
+    {
+      printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+      declare -f preserve_changelog
+      printf '# Config only: packages, credentials and runtime state are excluded.\n'
+      printf '# Preview first; --apply requires separate approval for managed deletions.\n'
+      printf 'case "${1:---dry-run}" in --dry-run) flags=(--dry-run);; --apply) flags=();; *) exit 2;; esac\n'
+      printf 'test "$(cd %q && pwd -P)" = %q\n' "$DEST" "$DEST"
+      printf 'test "$(cd %q && pwd -P)" = %q\n' "$DEPLOY_BACKUP/config" "$DEPLOY_BACKUP/config"
+      printf 'settings=%q\n' "$DEST/agent/settings.json"
+      cat <<'SH'
+saved_settings=
+trap '[ -z "$saved_settings" ] || rm -f "$saved_settings"' EXIT
+if [ "${1:---dry-run}" = --apply ] && [ -f "$settings" ]; then
+  saved_settings=$(mktemp)
+  cp "$settings" "$saved_settings"
+fi
+SH
+      printf 'rsync -a --delete --itemize-changes "${flags[@]}"'
+      printf ' %q' "${RSYNC_EXCLUDES[@]}" "$DEPLOY_BACKUP/config/" "$DEST/"
+      printf '\n'
+      printf '%s\n' 'if [ -n "$saved_settings" ] && [ -f "$settings" ]; then' \
+        '  preserve_changelog "$saved_settings" "$settings"' 'fi'
+    } >"$DEPLOY_BACKUP/restore.sh"
+  )
+  printf 'Rollback preview: bash %q\n' "$DEPLOY_BACKUP/restore.sh"
 fi
 
 # Retire legacy live git metadata. The repository checkout is now the source of
@@ -335,6 +445,7 @@ RUNTIME_SETTINGS_BACKUP=
 cleanup() {
   local status=$?
   if [ "$status" -ne 0 ]; then
+    [ -z "$DEPLOY_BACKUP" ] || echo "Deploy failed; config backup retained: $DEPLOY_BACKUP" >&2
     restore_archimedes_reinstall_backup
     restore_langfuse_reinstall_backup
   else
@@ -376,64 +487,16 @@ if [ -f "$legacy_ollama_extension" ] && grep -qF './olla-provider.ts' "$legacy_o
   run mv "$legacy_ollama_extension" "$backup"
 fi
 
-# Preserve runtime secrets/state while deleting stale managed files. Source-only
-# metadata and caches are not deployed or deletion-protected.
-RSYNC_EXCLUDES=(
-  --filter='-s .git/'
-  --exclude='.git.backup-*'
-  --exclude='agent/auth.json'
-  --exclude='agent/sessions/'
-  --exclude='agent/pi-langfuse/'
-  --exclude='agent/npm/'
-  --exclude='agent/git/'
-  --exclude='agent/mcp-cache.json'
-  --exclude='agent/mcp-onboarding.json'
-  --exclude='agent/models-store.json'
-  --exclude='agent/trust.json'
-  --exclude='agent/extensions/*.local.ts'
-  --exclude='.pi/'
-  --exclude='improvement/'
-  --exclude='metrics/'
-  --exclude='runtime/'
-  --exclude='agent/macbook-ollama-power-*/'
-  --filter='-s __pycache__/'
-  --filter='-s *.py[cod]'
-  --exclude='.DS_Store'
-  --exclude='*.local'
-  --exclude='*.local.json'
-  --exclude='.env'
-  --exclude='.env.*'
-)
 
-run rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+if [ "$MODE" = dry-run ]; then
+  run rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+  rsync -a --delete --dry-run --itemize-changes "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+else
+  rsync -a --delete --itemize-changes "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/" | tee "$DEPLOY_BACKUP/changes.txt"
+fi
 
 if [ "$MODE" = apply ] && [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
-  python3 - "$RUNTIME_SETTINGS_BACKUP" "$DEST/agent/settings.json" <<'PY'
-import json
-import os
-import pathlib
-import sys
-import tempfile
-
-runtime_path = pathlib.Path(sys.argv[1])
-deployed_path = pathlib.Path(sys.argv[2])
-runtime_settings = json.loads(runtime_path.read_text(encoding="utf-8"))
-if "lastChangelogVersion" in runtime_settings:
-    deployed_settings = json.loads(deployed_path.read_text(encoding="utf-8"))
-    deployed_settings["lastChangelogVersion"] = runtime_settings["lastChangelogVersion"]
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=deployed_path.parent,
-        prefix=f".{deployed_path.name}.",
-        delete=False,
-    ) as output:
-        json.dump(deployed_settings, output, indent=2)
-        output.write("\n")
-        temporary_path = pathlib.Path(output.name)
-    temporary_path.chmod(deployed_path.stat().st_mode)
-    os.replace(temporary_path, deployed_path)
-PY
+  preserve_changelog "$RUNTIME_SETTINGS_BACKUP" "$DEST/agent/settings.json"
 elif [ "$MODE" = dry-run ] && [ -f "$DEST/agent/settings.json" ]; then
   echo "DRY-RUN: preserve Pi-managed lastChangelogVersion in $DEST/agent/settings.json"
 fi
@@ -456,27 +519,11 @@ else
   exit 1
 fi
 
+# Local deployment never changes remote evaluators, even when credentials exist.
 if [ "$MODE" = apply ]; then
-  if [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_BASE_URL:-${LANGFUSE_HOST:-}}" ] || python3 - "$DEST/agent/pi-langfuse/config.json" <<'PY'
-import json
-import pathlib
-import sys
-
-try:
-    config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-except (OSError, json.JSONDecodeError):
-    raise SystemExit(1)
-raise SystemExit(0 if all(config.get(key) for key in ("publicKey", "secretKey", "host")) else 1)
-PY
-  then
-    PI_CONFIG_DIR="$DEST" "$DEST/agent/bin/agnt" langfuse apply
-  else
-    echo "Skipping Langfuse evaluator sync: credentials are not configured."
-  fi
+  (cd "$ROOT" && PI_CONFIG_DIR="$DEST" scripts/check-pi-config.sh) 2>&1 | tee "$DEPLOY_BACKUP/verification.txt"
+  touch "$DEST/.managed-by-pi-setup"
+  echo "Done. Local config verified; remote Langfuse evaluators unchanged."
 else
-  echo "DRY-RUN: $DEST/agent/bin/agnt langfuse apply (when Langfuse credentials are configured)"
+  echo "Preview only. Apply will back up managed config and verify the destination."
 fi
-
-run touch "$DEST/.managed-by-pi-setup"
-
-echo "Done. Verify with: PI_CONFIG_DIR=$DEST scripts/check-pi-config.sh"

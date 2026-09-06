@@ -29,6 +29,8 @@ When changing Pi config:
 3. Deploy to verified local-live `~/.pi` only when the initial approved scope names that exact deployment or later approval does, using `scripts/update-pi-config.sh`; dry-run and verify first, retain rollback evidence, and stop if canonical source/destination identity differs.
 4. Never commit runtime secrets, sessions, caches, onboarding state, trust state, or API keys.
 
+Deployment-only: follow `pi/README.md#deployment-evidence-and-recovery`; reuse verified source, not full tests.
+
 Track `flake.lock` for reproducible Nix/direnv environments.
 
 ## Verification
@@ -45,7 +47,7 @@ bash -n scripts/*.sh
 
 # deterministic Python checks (also enforced in .github/workflows/ci.yml)
 .venv/bin/python -m ruff check pi/agent/bin/agnt_lib tests
-.venv/bin/python -m pytest tests/
+.venv/bin/python -m pytest tests/ --durations=15
 
 # deterministic agnt evals (no model calls)
 pi/agent/bin/agnt eval run routing-smoke

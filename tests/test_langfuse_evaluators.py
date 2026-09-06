@@ -215,11 +215,11 @@ def test_langfuse_wrapper_loads_without_optional_package(tmp_path):
     run_node(script, {"PI_CODING_AGENT_DIR": str(agent_dir)})
 
 
-def test_setup_applies_and_startup_checks_evaluators():
+def test_setup_stays_local_and_startup_checks_evaluators():
     setup = UPDATE_SCRIPT.read_text(encoding="utf-8")
     extension = STARTUP_EXTENSION.read_text(encoding="utf-8")
 
-    assert '"$DEST/agent/bin/agnt" langfuse apply' in setup
+    assert '"$DEST/agent/bin/agnt" langfuse apply' not in setup
     assert 'pi?.on("session_start"' in extension
     assert 'resolve(agentDir, "bin", "agnt")' in extension
     assert 'langfuse", "check", "--quiet"' in extension

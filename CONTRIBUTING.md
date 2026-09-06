@@ -43,13 +43,17 @@ bash -n scripts/*.sh
 
 # deterministic Python checks for agnt/agent-instructions internals
 .venv/bin/python -m ruff check pi/agent/bin/agnt_lib tests
-.venv/bin/python -m pytest tests/
+.venv/bin/python -m pytest tests/ --durations=15
 
 # deterministic agnt evals (no model calls)
 pi/agent/bin/agnt eval run routing-smoke
 pi/agent/bin/agnt eval run role-context-smoke
 pi/agent/bin/agnt eval run quality-process-smoke
 ```
+
+During repair, run the relevant test file or node ID, not the full suite after every edit. Run the full matrix once on the stable candidate. A deployment-only request for an unchanged verified source uses the deployment script's checks instead of repeating the development suite. Use `--durations=15` to identify slow checks; do not increase timeouts or add parallel workers before checking isolation and the slowest cases. Recent isolated full runs take about two minutes locally; allow at least 300 seconds at the command runner to avoid discarding useful results.
+
+Deployment tests strip inherited Langfuse credentials and Pi config/target overrides before child execution. Synthetic cases use a minimal config tree and fake package commands; one real-source integration retains full layout coverage. Keep this boundary intact: deterministic tests must not reach live services or the deployed `~/.pi`. Real process-termination and Beads-bootstrap tests remain part of the suite.
 
 Manual behavioral canary (runs real models; not a routine completion gate): run
 `scripts/eval-workflow-compliance.sh --skill-mode candidate` only when user

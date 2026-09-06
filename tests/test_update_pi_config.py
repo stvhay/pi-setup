@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -17,19 +18,61 @@ SCRIPT = ROOT / "scripts" / "update-pi-config.sh"
 def run_update(
     dest: Path, *args: str, env_overrides: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
+    env = {
+        key: value for key, value in os.environ.items()
+        if not key.startswith(("LANGFUSE_", "PI_CONFIG_", "PI_PACKAGE_PATCH_", "PI_CODING_AGENT_"))
+    }
     env["PI_CONFIG_DEST"] = str(dest)
     env["PI_COMMAND"] = "/usr/bin/true"
     env["PI_PACKAGE_PATCH_HELPER"] = "/usr/bin/true"
-    env.update(env_overrides or {})
-    return subprocess.run(
-        ["bash", str(SCRIPT), *args],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    with TemporaryDirectory(prefix="pi-deploy-source-") as directory:
+        source = config_source(Path(directory))
+        env["PI_CONFIG_SOURCE"] = str(source)
+        env.update(env_overrides or {})
+        return subprocess.run(
+            ["bash", str(SCRIPT), *args],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+
+
+def config_source(source: Path) -> Path:
+    for directory in ("agent/bin", "agent/skills", "agent/extensions"):
+        (source / directory).mkdir(parents=True, exist_ok=True)
+    for name in ("README.md", ".gitignore", "agent/AGENTS.md"):
+        (source / name).write_text("test config\n", encoding="utf-8")
+    (source / "agent/settings.json").write_text('{"packages": []}\n', encoding="utf-8")
+    (source / "agent/catalog.json").write_text('{}\n', encoding="utf-8")
+    agnt = source / "agent/bin/agnt"
+    agnt.write_text('#!/bin/sh\nprintf "{}\\n"\n', encoding="utf-8")
+    agnt.chmod(0o755)
+    return source
+
+
+def test_update_helper_isolates_ambient_credentials_and_targets(monkeypatch, tmp_path):
+    inherited = {
+        "LANGFUSE_PUBLIC_KEY": "ambient-public",
+        "LANGFUSE_SECRET_KEY": "ambient-secret",
+        "LANGFUSE_BASE_URL": "https://example.invalid",
+        "LANGFUSE_HOST": "https://example.invalid",
+        "PI_CONFIG_SOURCE": "/ambient/source",
+        "PI_CONFIG_DEST_UNSAFE_OK": "1",
+        "PI_PACKAGE_PATCH_DIR": "/ambient/patches",
+        "PI_CODING_AGENT_DIR": "/ambient/agent",
+    }
+    for key, value in inherited.items():
+        monkeypatch.setenv(key, value)
+    seen = {}
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: seen.update(kwargs))
+
+    run_update(tmp_path / ".pi")
+
+    assert all(seen["env"].get(key) != value for key, value in inherited.items())
+    assert seen["env"]["PI_CONFIG_DEST"] == str(tmp_path / ".pi")
 
 
 def langfuse_patch_dir(tmp_path: Path) -> Path:
@@ -191,7 +234,8 @@ def test_update_preserves_pi_managed_mutable_state(tmp_path):
     models_store = '{"openrouter":{"models":[{"id":"cached-model"}]}}\n'
     (agent / "models-store.json").write_text(models_store, encoding="utf-8")
 
-    proc = run_update(dest)
+    # Keep one real-source integration; synthetic cases need only the config layout.
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(ROOT / "pi")})
 
     assert proc.returncode == 0, proc.stderr
     deployed_settings = json.loads((agent / "settings.json").read_text(encoding="utf-8"))
@@ -720,7 +764,7 @@ def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path,
     assert not list((dest / "agent" / "npm").glob(".langfuse-reinstall.*"))
 
 
-@pytest.mark.parametrize("failure", ["install", "patch-helper", "langfuse-apply"])
+@pytest.mark.parametrize("failure", ["install", "patch-helper", "live-check"])
 def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
     dest = tmp_path / ".pi"
     modules = dest / "agent" / "npm" / "node_modules"
@@ -765,18 +809,16 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
         "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
         "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path)),
     }
-    if failure == "langfuse-apply":
-        source = tmp_path / "source"
+    if failure == "live-check":
+        source = config_source(tmp_path / "source")
         agnt = source / "agent/bin/agnt"
-        agnt.parent.mkdir(parents=True)
-        (source / "agent/AGENTS.md").write_text("test config\n", encoding="utf-8")
-        agnt.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+        agnt.write_text(
+            '#!/bin/sh\n[ "$PI_CONFIG_DIR" != "$PI_CONFIG_DEST" ] || exit 7\nprintf "{}\\n"\n',
+            encoding="utf-8",
+        )
         agnt.chmod(0o755)
         overrides.update({
             "PI_CONFIG_SOURCE": str(source),
-            "LANGFUSE_PUBLIC_KEY": "test-public",
-            "LANGFUSE_SECRET_KEY": "test-secret",
-            "LANGFUSE_BASE_URL": "https://example.invalid",
         })
 
     proc = run_update(dest, env_overrides=overrides)
@@ -789,7 +831,7 @@ def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
     assert not list((dest / "agent" / "npm").glob(".langfuse-reinstall.*"))
 
 
-@pytest.mark.parametrize("failure", ["second-move", "langfuse-install", "patch-helper", "langfuse-apply"])
+@pytest.mark.parametrize("failure", ["second-move", "langfuse-install", "patch-helper", "live-check"])
 def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure):
     dest = tmp_path / ".pi"
     modules = dest / "agent" / "npm" / "node_modules"
@@ -858,18 +900,16 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
         )
         fake_mv.chmod(0o755)
         overrides["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
-    if failure == "langfuse-apply":
-        source = tmp_path / "source"
+    if failure == "live-check":
+        source = config_source(tmp_path / "source")
         agnt = source / "agent/bin/agnt"
-        agnt.parent.mkdir(parents=True)
-        (source / "agent/AGENTS.md").write_text("test config\n", encoding="utf-8")
-        agnt.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+        agnt.write_text(
+            '#!/bin/sh\n[ "$PI_CONFIG_DIR" != "$PI_CONFIG_DEST" ] || exit 7\nprintf "{}\\n"\n',
+            encoding="utf-8",
+        )
         agnt.chmod(0o755)
         overrides.update({
             "PI_CONFIG_SOURCE": str(source),
-            "LANGFUSE_PUBLIC_KEY": "test-public",
-            "LANGFUSE_SECRET_KEY": "test-secret",
-            "LANGFUSE_BASE_URL": "https://example.invalid",
         })
 
     proc = run_update(dest, env_overrides=overrides)
@@ -928,3 +968,114 @@ def test_tracked_settings_omit_pi_managed_changelog_version():
     )
 
     assert "lastChangelogVersion" not in settings
+
+
+def test_update_dry_run_itemizes_changes_without_writing(tmp_path):
+    dest = tmp_path / ".pi"
+    dest.mkdir()
+    (dest / "stale.txt").write_text("old", encoding="utf-8")
+    proc = run_update(dest, "--dry-run")
+    assert proc.returncode == 0, proc.stderr
+    assert "*deleting" in proc.stdout and "stale.txt" in proc.stdout
+    assert "agent/settings.json" in proc.stdout
+    assert sorted(path.name for path in dest.iterdir()) == ["stale.txt"]
+
+
+def test_update_is_local_even_with_langfuse_credentials(tmp_path):
+    source = config_source(tmp_path / "source")
+    (source / "agent/bin/agnt").write_text(
+        '#!/bin/sh\n[ "$1" != langfuse ] || exit 91\nprintf "{}\\n"\n', encoding="utf-8"
+    )
+    dest = tmp_path / ".pi"
+    credentials = dest / "agent/pi-langfuse/config.json"
+    credentials.parent.mkdir(parents=True)
+    content = '{"publicKey":"fake", "secretKey":"fake", "host":"https://example.invalid"}'
+    credentials.write_text(content, encoding="utf-8")
+    proc = run_update(dest, env_overrides={
+        "PI_CONFIG_SOURCE": str(source),
+        "LANGFUSE_PUBLIC_KEY": "fake", "LANGFUSE_SECRET_KEY": "fake",
+        "LANGFUSE_BASE_URL": "https://example.invalid",
+    })
+    assert proc.returncode == 0, proc.stderr
+    assert credentials.read_text(encoding="utf-8") == content
+
+
+def test_update_backs_up_managed_config_and_retains_restore_command(tmp_path):
+    dest = tmp_path / ".pi"
+    (dest / "agent").mkdir(parents=True)
+    settings = '{"lastChangelogVersion":"previous", "theme":"old"}\n'
+    (dest / "agent/settings.json").write_text(settings, encoding="utf-8")
+    (dest / "stale.txt").write_text("previous", encoding="utf-8")
+    private_paths = ["agent/auth.json", "agent/npm/private.txt", "runtime/private.txt"]
+    for name in private_paths:
+        path = dest / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("private", encoding="utf-8")
+    proc = run_update(dest)
+    assert proc.returncode == 0, proc.stderr
+    backups = list((dest / "runtime/deployment-backups").glob("*"))
+    assert len(backups) == 1
+    backup = backups[0]
+    assert backup.stat().st_mode & 0o777 == 0o700
+    assert (backup / "config/agent/settings.json").read_text() == settings
+    assert (backup / "config/stale.txt").read_text() == "previous"
+    assert all(not (backup / "config" / name).exists() for name in private_paths)
+    assert "stale.txt" in (backup / "changes.txt").read_text()
+    assert str(backup) in proc.stdout
+    current = json.loads((dest / "agent/settings.json").read_text())
+    current["lastChangelogVersion"] = "newer-runtime-marker"
+    (dest / "agent/settings.json").write_text(json.dumps(current), encoding="utf-8")
+    preview = subprocess.run(["bash", str(backup / "restore.sh")], capture_output=True, text=True, timeout=10)
+    assert preview.returncode == 0, preview.stderr
+    assert (dest / "agent/settings.json").read_text() != settings
+    restored = subprocess.run(["bash", str(backup / "restore.sh"), "--apply"], capture_output=True, text=True, timeout=10)
+    assert restored.returncode == 0, restored.stderr
+    expected = {**json.loads(settings), "lastChangelogVersion": "newer-runtime-marker"}
+    assert json.loads((dest / "agent/settings.json").read_text()) == expected
+    assert (dest / "stale.txt").read_text() == "previous"
+    assert not (dest / "agent/catalog.json").exists()
+    assert all((dest / name).read_text() == "private" for name in private_paths)
+
+
+def test_update_checks_source_before_destination_mutation(tmp_path):
+    source = config_source(tmp_path / "source")
+    (source / "agent/catalog.json").unlink()
+    dest = tmp_path / ".pi"
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    assert not dest.exists()
+
+
+def test_update_retains_backup_when_live_check_fails(tmp_path):
+    source = config_source(tmp_path / "source")
+    (source / "agent/bin/agnt").write_text(
+        '#!/bin/sh\n[ "$PI_CONFIG_DIR" != "$PI_CONFIG_DEST" ] || exit 7\nprintf "{}\\n"\n',
+        encoding="utf-8",
+    )
+    dest = tmp_path / ".pi"
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    assert not (dest / ".managed-by-pi-setup").exists()
+    assert len(list((dest / "runtime/deployment-backups").glob("*/restore.sh"))) == 1
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_update_refuses_overlapping_source_and_destination(tmp_path, nested):
+    dest = tmp_path / ".pi"
+    source = config_source(dest / "source" if nested else tmp_path / "source")
+    if not nested:
+        dest = source / ".pi"
+    proc = run_update(dest, "--dry-run", env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    assert "overlap" in proc.stderr
+
+
+def test_update_refuses_symlinked_backup_root(tmp_path):
+    dest = tmp_path / ".pi"
+    dest.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (dest / "runtime").symlink_to(outside, target_is_directory=True)
+    proc = run_update(dest)
+    assert proc.returncode != 0
+    assert not list(outside.iterdir())
