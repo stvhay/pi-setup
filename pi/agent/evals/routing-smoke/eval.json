@@ -5,19 +5,19 @@
   "kind": "route",
   "cases": [
     {
-      "name": "review-sol-medium-default",
+      "name": "review-astra-medium-default",
       "args": ["--task", "review", "--risk", "medium", "--budget", "cheap", "--monthly-paid-spend", "0", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "medium", "fanoutRecommended": true}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-6-astra", "thinkingLevel": "medium", "fanoutRecommended": true}
     },
     {
-      "name": "planning-sol-medium-default",
+      "name": "planning-astra-medium-default",
       "args": ["--task", "planning", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "medium"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-6-astra", "thinkingLevel": "medium"}
     },
     {
-      "name": "research-sol-medium-default",
+      "name": "research-astra-medium-default",
       "args": ["--task", "research", "--context-tokens", "200000", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "medium"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-6-astra", "thinkingLevel": "medium"}
     },
     {
       "name": "cheap-peer-terra-low",
@@ -27,17 +27,17 @@
     {
       "name": "orchestration-low-policy",
       "args": ["--task", "orchestration", "--risk", "low", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "xhigh"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-6-astra", "thinkingLevel": "high"}
     },
     {
       "name": "orchestration-high-quality",
       "args": ["--task", "orchestration", "--risk", "high", "--budget", "quality", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "thinkingLevel": "xhigh"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-6-astra", "thinkingLevel": "high"}
     },
     {
       "name": "review-repository-subscription-agentic",
       "args": ["--task", "review", "--risk", "medium", "--access", "repository", "--fanout-size", "3", "--monthly-paid-spend", "0", "--ignore-history"],
-      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-5.6-sol", "sourceAccess": "repository", "executionMode": "agentic"}
+      "assert": {"exitCode": 0, "routeStatus": "selected", "selected": "openai-codex/gpt-6-astra", "sourceAccess": "repository", "executionMode": "agentic"}
     },
     {
       "name": "review-impossible-video-context",

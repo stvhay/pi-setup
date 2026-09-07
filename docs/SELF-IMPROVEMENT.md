@@ -181,8 +181,8 @@ contribute to cross-project routing history.
 one venue covers all venues of the same weights) and demotes any candidate
 whose family shows more negative than positive outcomes over ≥5 invocations.
 For review, approved risk-specific fanout and month-to-date marginal-spend
-gates apply before model output exists: Sol leads at low/medium effort and
-extra-high effort for high risk, while Terra remains a subscription-backed
+gates apply before model output exists: Astra leads at medium effort and
+high effort for high risk, while Terra remains a subscription-backed
 challenger. Kimi K2.7 medium-risk diversity and Opus 5 high-risk review are
 ineligible without explicit token estimates, justification, and aggregate
 marginal budget; missing evidence, reserve, and hard-cap states keep actual

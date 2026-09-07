@@ -28,7 +28,8 @@ def test_active_routes_use_builtin_openrouter_without_local_or_olla_targets():
 
     assert {target for target in enabled if target.startswith("openrouter/")} == APPROVED_OPENROUTER_MODELS
     assert settings["defaultProvider"] == "openai-codex"
-    assert settings["defaultModel"] == "gpt-5.6-sol"
+    assert settings["defaultModel"] == "gpt-6-astra"
+    assert settings["defaultThinkingLevel"] == "medium"
     assert not any(target.startswith(("olla-local/", "olla-cloud/", "ollama/")) for target in enabled)
     assert "olla-local/" not in task_text
     assert "olla-cloud/" not in task_text
@@ -80,10 +81,10 @@ def test_delegation_guidance_uses_evidence_bounded_output_contract_defaults():
     assert "`pass-no-findings` only when explicitly requested" in instructions
 
 
-def test_review_skill_matches_approved_sol_first_diversity_matrix():
+def test_review_skill_matches_approved_astra_first_diversity_matrix():
     skill = (AGENT / "skills" / "requesting-code-review" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "**Subscription-backed default:** `openai-codex/gpt-5.6-sol` at routed low, medium, or extra-high thinking" in skill
+    assert "**Subscription-backed default:** `openai-codex/gpt-6-astra` at routed medium or high thinking" in skill
     assert "**Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`" in skill
     assert "openrouter/moonshotai/kimi-k2.7-code" in skill
     assert "openrouter/anthropic/claude-opus-5" in skill
@@ -111,6 +112,7 @@ def test_lasting_routing_and_output_policy_documents_evidence_and_rollback():
 def test_approved_openrouter_models_have_cataloged_runtime_metadata():
     families = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
     assert set(families) == {
+        "gpt-6-astra",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",

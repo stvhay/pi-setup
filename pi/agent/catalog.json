@@ -2,6 +2,27 @@
   "schemaVersion": 1,
   "comment": "Model family catalog. A family is one set of weights (or a close equivalent) reachable through multiple venues. Routing policy lives in tasks/*.md; venue facts and opportunity-cost rates live here. Family ids key AGENTS.d/models/<family>.md overlays so prompt learning transfers across venues.",
   "families": {
+    "gpt-6-astra": {
+      "venues": [
+        {
+          "target": "openai-codex/gpt-6-astra",
+          "costClass": "frontier",
+          "billingClass": "subscription",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "input": ["text", "image"],
+          "contextWindow": 272000
+        }
+      ]
+    },
     "gpt-5.6-sol": {
       "venues": [
         {

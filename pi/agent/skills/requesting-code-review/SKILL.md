@@ -27,7 +27,7 @@ At start, read shared conventions if needed:
 
 Use `agnt route --task review --access self-contained` for complete discovery packets. Use `--access repository` for filesystem verifiers rather than inventing mode or fanout policy. Review task policy uses:
 
-- **Subscription-backed default:** `openai-codex/gpt-5.6-sol` at routed low, medium, or extra-high thinking.
+- **Subscription-backed default:** `openai-codex/gpt-6-astra` at routed medium or high thinking.
 - **Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`, used for matched canaries or explicit independent checks.
 - **Medium-risk diversity:** `openrouter/moonshotai/kimi-k2.7-code`, scoped and one-shot.
 - **High-risk independent reviewer:** `openrouter/anthropic/claude-opus-5`, scoped and one-shot; human adjudication remains required for consequential findings.
@@ -47,8 +47,8 @@ Budget states:
 
 - **Below $12:** normal Codex-first risk policy; scoped diversity passes are allowed.
 - **$12–$17.99:** stop optional shadow sampling.
-- **$18–$19.99:** reserve mode; use subscription-backed Sol only.
-- **$20 or more:** hard-cap mode; keep subscription-backed Sol only and report paid-budget exhaustion.
+- **$18–$19.99:** reserve mode; use subscription-backed Astra only.
+- **$20 or more:** hard-cap mode; keep subscription-backed Astra only and report paid-budget exhaustion.
 
 Keep a provider-side daily cap as hard backstop; routing does not infer its remaining balance. Start explicit review eligibility at `maxMarginalUsd: 0.10` and raise it only after reviewing real completion and cost telemetry.
 
@@ -123,10 +123,10 @@ Do not add a low ad hoc `maxOutputTokens` cap for structured review JSON. Provid
 
 Policy by risk:
 
-- **Low:** subscription-backed Sol at low thinking for a behavioral pass.
-- **Medium:** Sol at medium thinking. Add Kimi K2.7 Code only when explicit metered evidence and budget make it eligible.
-- **High:** Sol at extra-high thinking. Add Opus 5 only when explicit metered evidence and budget make it eligible; human adjudicates consequential findings.
-- **Reserve/hard cap or missing metered evidence:** use the subscription-backed Sol target returned by `agnt route`.
+- **Low:** subscription-backed Astra at medium thinking for a behavioral pass.
+- **Medium:** Astra at medium thinking. Add Kimi K2.7 Code only when explicit metered evidence and budget make it eligible.
+- **High:** Astra at high thinking. Add Opus 5 only when explicit metered evidence and budget make it eligible; human adjudicates consequential findings.
+- **Reserve/hard cap or missing metered evidence:** use the subscription-backed Astra target returned by `agnt route`.
 
 Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes. Each task embeds one complete packet and sets:
 

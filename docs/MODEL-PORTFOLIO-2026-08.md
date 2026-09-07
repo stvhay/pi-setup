@@ -8,6 +8,8 @@
 
 **Amended:** 2026-08-28 by `pi-ddxe` to enable GLM 5.3 Flash as a manual canary
 
+**Amended:** 2026-09-07 by `pi-6j6t` to adopt Astra using the owner-selected effort heuristic
+
 **Revisit:** After 30 days of direct OpenRouter telemetry, before any annual subscription or OpenAI Pro downgrade
 
 ## Decision
@@ -16,9 +18,27 @@ Keep ChatGPT/OpenAI Codex **Pro 20×** as root capacity and default controller. 
 
 Pi has a built-in `openrouter` provider. Authenticate with `/login openrouter` or `OPENROUTER_API_KEY`; do not define a duplicate custom provider and never commit credentials. `pi/agent/models.json` only applies a 16,384-token operational output cap to each approved OpenRouter model, preventing provider credit checks from reserving each model's much larger catalog maximum. Active model selection lives in `pi/agent/settings.json`, deterministic model facts in `pi/agent/catalog.json`, and task routing in `pi/agent/tasks/`.
 
+## Astra matrix amendment — September 2026
+
+Owner selected `openai-codex/gpt-6-astra` as interactive default at **medium**, and primary for all six previously Sol-led task routes. Map each former Sol effort down one level with a medium floor: Sol low/medium/high → Astra medium; Sol extra-high → Astra high. This is an operator heuristic, not measured equivalence or a quality/latency win.
+
+| Task | Low risk | Medium risk | High risk |
+|---|---|---|---|
+| Planning / research | Astra medium | Astra medium | Astra medium |
+| Implementation / review | Astra medium | Astra medium | Astra high |
+| Orchestration | Astra high | Astra high | Astra high |
+| Frontier advisor | Astra medium | Astra high | Astra high |
+| Cheap peer (unchanged) | Terra low | Terra low | Terra low |
+
+Interactive startup is medium; explicitly routed orchestration remains high because its former Sol policy was extra-high at every risk. Sol remains qualified fallback, Terra remains challenger, and metered specialist eligibility, spend gates, and human adjudication remain unchanged. Task effort applies to fallback/challenger candidates too; this amendment does not add per-model task overrides. Reserve/hard-cap review now uses Astra only. Observational-memory workers remain Sol-low.
+
+Metadata comes from installed Pi's Codex model catalog checked 2026-09-07: 272,000-token context, text/image inputs, native medium/high/xhigh/max effort support. No audio claim or invented opportunity-cost rate. Existing historical Sol/Terra canaries below do not measure Astra. Deterministic routing tests cover the task/risk/budget matrix, capability filtering, fallback and spending constraints; real-model comparative performance remains unmeasured.
+
+Rollback: policy-only revert of this amendment's settings, catalog, task frontmatter, synchronized guidance and test/eval assertions. No schema, credentials, provider transport, or routing algorithm change. Live deployment requires separate approval.
+
 ## Lasting routing and output policy
 
-`pi-04q7.8` replaces the `pi-04q7.2` interim floor with an owner-selected capability/effort ladder: Terra at low thinking, then Sol at low, medium, high, extra-high, and explicit exceptional maximum effort. Existing routing maps `cheap-peer` to Terra-low; planning and research to Sol low/medium/high by risk; review to Sol low/medium/extra-high by risk; and orchestration to Sol extra-high. Maximum effort remains an explicit exceptional override because task routing has three risk levels. Luna remains a subscription-backed fallback, Terra remains a review challenger, and different-family checks remain independent.
+Historical policy (superseded by the Astra amendment above): `pi-04q7.8` replaces the `pi-04q7.2` interim floor with an owner-selected capability/effort ladder: Terra at low thinking, then Sol at low, medium, high, extra-high, and explicit exceptional maximum effort. Existing routing maps `cheap-peer` to Terra-low; planning and research to Sol low/medium/high by risk; review to Sol low/medium/extra-high by risk; and orchestration to Sol extra-high. Maximum effort remains an explicit exceptional override because task routing has three risk levels. Luna remains a subscription-backed fallback, Terra remains a review challenger, and different-family checks remain independent.
 
 Matched evidence is deliberately narrower than this operator decision. Ten planning/research pairs were all usable and favored Sol `10/10` accepted to Luna `8/10`; ten review pairs were all usable and favored Sol `10/10` to Terra `9/10`. One run per synthetic cell gives **Low confidence** in lasting model rank, latency, Terra-low versus Luna, or the effort ladder. The ladder is policy, not a claim that the canary measured every rung.
 
@@ -63,14 +83,14 @@ All metered OpenRouter calls use fresh workers with bounded complete packets. Th
 | Work type | Primary | Independent check |
 |---|---|---|
 | Precise, repetitive work | Terra — low through `cheap-peer` | Luna fallback; M3 bounded shadow sample |
-| Planning and research | Sol — low/medium/high by risk | Terra-low advisory pass; bounded different-family critique |
-| Normal code review | Sol — low/medium by risk | Terra challenger; explicitly budgeted Kimi K2.7 Code diversity pass |
-| Complex/high-risk review | Sol — extra high | Explicitly budgeted Opus 5; Terra challenger; human adjudication |
-| Moderate coding | Sol — high | Kimi K2.7 Code |
-| Orchestration/main agent | Sol — extra high | Opus 5 at phase checkpoints only |
-| Ambiguous change/architecture | Sol — extra high | Opus 5 |
-| Difficult debugging | Sol — extra high | Kimi K3 high after two failed hypotheses |
-| Exceptional single problem | Sol — maximum available | Opus 5; Kimi K3 max only if unresolved |
+| Planning and research | Astra — medium at every risk | Terra-low advisory pass; bounded different-family critique |
+| Normal code review | Astra — medium | Terra challenger; explicitly budgeted Kimi K2.7 Code diversity pass |
+| Complex/high-risk review | Astra — high | Explicitly budgeted Opus 5; Terra challenger; human adjudication |
+| Moderate coding | Astra — medium | Kimi K2.7 Code |
+| Orchestration/main agent | Astra — medium startup; high routed orchestration | Opus 5 at phase checkpoints only |
+| Ambiguous change/architecture | Astra — high | Opus 5 |
+| Difficult debugging | Astra — high | Kimi K3 high after two failed hypotheses |
+| Exceptional single problem | Astra — explicit max override | Opus 5; Kimi K3 max only if unresolved |
 | Large decomposable project | Ultra-capability OpenAI coordinator | M3/Luna workstreams; Opus 5 final gate |
 
 Use provider-native/default effort when Pi exposes no model-specific control. Never claim an unsupported effort level.
@@ -85,10 +105,10 @@ This is an external-primary canary, not the default. Highest-risk control remain
 | Normal code review | M3 | Terra high |
 | Complex/high-risk review | M3 first pass | Terra extra high + human |
 | Moderate coding | M3 | Terra high |
-| Orchestration/main agent | M3 bounded phase | Sol extra high at every phase boundary |
-| Architecture | M3 draft | Sol extra high final decision |
-| Difficult debugging | M3 hypotheses/tests | Sol extra high after narrowing |
-| Exceptional single problem | Keep Sol maximum as primary | Opus 5 or Kimi K3 independent check |
+| Orchestration/main agent | M3 bounded phase | Astra high at every phase boundary |
+| Architecture | M3 draft | Astra high final decision |
+| Difficult debugging | M3 hypotheses/tests | Astra high after narrowing |
+| Exceptional single problem | Keep Astra maximum as primary | Opus 5 or Kimi K3 independent check |
 | Large decomposable project | Keep OpenAI coordinator; M3 workstreams | Terra extra high + Opus 5 integration gate |
 
 ## Spend and promotion gates
@@ -97,8 +117,8 @@ This is an external-primary canary, not the default. Highest-risk control remain
 - Automatic paid review budget: **$0**. Explicit specialist eligibility starts at **$0.10 per review** with estimated input/output bounds.
 - Longer-term API ceiling remains **$10–20/month** only after usable completion/cost telemetry supports raising daily cap.
 - Review soft threshold: $12 month-to-date; stop optional shadow sampling. This remains secondary to provider daily cap and explicit per-review admission.
-- Review reserve threshold: $18; use subscription-backed Sol only.
-- Review hard cap: $20; use subscription-backed Sol only and report exhaustion.
+- Review reserve threshold: $18; use subscription-backed Astra only.
+- Review hard cap: $20; use subscription-backed Astra only and report exhaustion.
 - Do not buy an annual plan during the evaluation window.
 - Promote a route only from usable-output rate, accepted-result rate, missed-defect evidence, retries, latency, and real marginal cost—not benchmark claims or model agreement.
 - Consider Pro 5× only after four consecutive weeks with at least 75% stable offload and OpenAI usage consistently below 25% of current capacity.
