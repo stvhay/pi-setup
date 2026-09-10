@@ -1819,8 +1819,9 @@ def test_direct_closeout_requires_matching_success_readback(
     }
 
 
+@pytest.mark.parametrize("audit_mode", ["absent", "during-close", "retry"])
 def test_direct_closeout_exports_parity_and_commits_shared_beads_only(
-    agnt, monkeypatch, tmp_path
+    agnt, monkeypatch, tmp_path, audit_mode
 ):
     direct_closeout = getattr(agnt, "direct_closeout", None)
     assert direct_closeout is not None, "direct_closeout is missing"
@@ -1831,6 +1832,16 @@ def test_direct_closeout_exports_parity_and_commits_shared_beads_only(
     portable = beads / "issues.jsonl"
     target = {"_type": "issue", "id": "pi-test.close", "status": "open"}
     shared = {"_type": "issue", "id": "pi-test.shared", "status": "open", "notes": "old"}
+    interactions = beads / "interactions.jsonl"
+    if audit_mode != "absent":
+        interactions.write_text("", encoding="utf-8")
+    closure = json.dumps({
+        "id": "int-test-close", "kind": "field_change",
+        "created_at": "2026-08-11T12:00:00Z", "actor": "tester",
+        "issue_id": target["id"],
+        "extra": {"field": "status", "old_value": "in_progress",
+                  "new_value": "closed", "reason": "Verified and complete."},
+    }) + "\n"
     portable.write_text(
         "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in (target, shared)),
         encoding="utf-8",
@@ -1858,10 +1869,16 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
         "close_reason": None,
     }
     calls = []
+    if audit_mode == "retry":
+        interactions.write_text(closure, encoding="utf-8")
+        canonical.update(status="closed", closed_at="2026-08-11T12:00:00Z",
+                         close_reason="Verified and complete.")
 
     def fake_beads(args):
         calls.append(args)
         if args[0] == "close":
+            if audit_mode == "during-close" and canonical["status"] != "closed":
+                interactions.write_text(closure, encoding="utf-8")
             canonical.update(
                 status="closed",
                 closed_at="2026-08-11T12:00:00Z",
@@ -1934,7 +1951,11 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
         check=True,
         capture_output=True,
         text=True,
-    ).stdout.splitlines() == [".beads/issues.jsonl"]
+    ).stdout.splitlines() == (
+        [".beads/issues.jsonl"] if audit_mode == "absent"
+        else [".beads/interactions.jsonl", ".beads/issues.jsonl"]
+    )
+    assert agnt.handoff_closeout_is_clean(canonical) is True
     assert subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
         check=True,
@@ -1950,6 +1971,54 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
     assert subprocess.run(
         ["git", "status", "--short"], check=True, capture_output=True, text=True
     ).stdout == "?? unrelated.txt\n"
+
+
+@pytest.mark.parametrize("change", ["other-bead", "other-reason", "edit-history", "malformed", "extra-data", "staged-other", "symlink"])
+def test_direct_closeout_rejects_unowned_audit_changes(agnt, monkeypatch, tmp_path, change):
+    init_test_git(tmp_path)
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "issues.jsonl").write_text('{"id":"pi-test.close","status":"open"}\n')
+    audit = beads / "interactions.jsonl"
+    original = '{"id":"int-old"}\n'
+    audit.write_text(original)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "baseline"], check=True)
+    row = {"id": "int-close", "kind": "field_change", "actor": "tester",
+           "created_at": "2026-08-11T12:00:00Z", "issue_id": "pi-test.close",
+           "extra": {"field": "status", "old_value": "in_progress", "new_value": "closed", "reason": "Done."}}
+    if change == "other-bead":
+        row["issue_id"] = "pi-other.1"
+    if change == "other-reason":
+        row["extra"]["reason"] = "Unrelated close."
+    if change == "extra-data":
+        row["payload"] = "must not be committed"
+    audit.write_text(("" if change == "edit-history" else original) + json.dumps(row) + "\n")
+    if change == "malformed":
+        audit.write_text(original + "not json\n")
+    if change == "staged-other":
+        audit.write_text(original + '{"unrelated":"staged"}\n')
+        subprocess.run(["git", "-C", str(tmp_path), "add", str(audit)], check=True)
+        audit.write_text(original + json.dumps(row) + "\n")
+    if change == "symlink":
+        outside = tmp_path / "outside"
+        outside.write_text(audit.read_text())
+        audit.unlink()
+        audit.symlink_to(outside)
+    before = audit.read_bytes()
+    head = subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "HEAD"])
+    monkeypatch.chdir(tmp_path)
+    with patch.dict(agnt.direct_closeout.__globals__, {
+        "record_current_session_outcome": lambda *_args: {},
+        "current_session_id": lambda: "session-closeout",
+        "session_handoff_source": lambda _id: {"beadId": "pi-test.close", "outcome": "success"},
+        "run_beads_json": lambda _args: pytest.fail("must reject before Beads mutation"),
+    }):
+        result = agnt.direct_closeout("pi-test.close", outcome="success", reason="Done.")
+    assert result["status"] == "error"
+    assert result["repair"]["failedStage"] == "preflight"
+    assert audit.read_bytes() == before
+    assert subprocess.check_output(["git", "rev-parse", "HEAD"]) == head
 
 
 def test_direct_closeout_reports_exhausted_visibility_wait(agnt):

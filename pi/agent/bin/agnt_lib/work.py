@@ -1191,6 +1191,49 @@ def _portable_issue_rows(path: Path) -> Dict[str, Dict[str, Any]]:
     return rows
 
 
+def _closeout_audit_paths(root: Path, bead_id: str, reason: str) -> List[str]:
+    """Own only tracked, append-only status-closure audit rows, including retries."""
+    name = ".beads/interactions.jsonl"
+    if _git(root, ["ls-files", "--error-unmatch", "--", name]).returncode != 0:
+        return []  # Untracked runtime data remains outside commit authority.
+    path = root / name
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o111:
+        raise ValueError("audit path is not a regular non-executable file")
+    blobs = []
+    for ref in (f"HEAD:{name}", f":{name}"):
+        result = subprocess.run(
+            ["git", "-C", str(root), "show", ref], capture_output=True,
+        )
+        if result.returncode != 0:
+            raise ValueError("audit history is unavailable")
+        blobs.append(result.stdout)
+    committed, staged = blobs
+    current = path.read_bytes()
+    if staged not in (committed, current):
+        raise ValueError("audit index differs from committed and working state")
+    if not current.startswith(committed) or (committed and not committed.endswith(b"\n")):
+        raise ValueError("audit history is not append-only")
+    suffix = current[len(committed):]
+    if suffix and not suffix.endswith(b"\n"):
+        raise ValueError("audit append is incomplete")
+    for line in suffix.splitlines():
+        row = json.loads(line)
+        if not isinstance(row, dict) or set(row) != {"id", "kind", "created_at", "actor", "issue_id", "extra"}:
+            raise ValueError("unexpected audit record")
+        extra = row["extra"]
+        if (
+            row["kind"] != "field_change" or row["issue_id"] != bead_id
+            or any(not isinstance(row[key], str) or not row[key] for key in ("id", "created_at", "actor"))
+            or not isinstance(extra, dict)
+            or set(extra) != {"field", "old_value", "new_value", "reason"}
+            or extra["field"] != "status" or extra["new_value"] != "closed"
+            or not isinstance(extra["old_value"], str) or not extra["old_value"]
+            or extra["old_value"] == "closed" or extra["reason"] != reason
+        ):
+            raise ValueError("audit append does not belong to this closeout")
+    return [name]
+
+
 def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any]:
     stages: Dict[str, Any] = {}
     closed = False
@@ -1252,6 +1295,10 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     tracked = _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"])
     if tracked.returncode != 0:
         return failed("preflight", "portable Beads export is not tracked")
+    try:
+        audit_paths = _closeout_audit_paths(root, bead_id, reason)
+    except (OSError, ValueError):
+        return failed("preflight", "tracked audit changes are not owned closure appends")
     dirty = _git(
         root,
         [
@@ -1262,6 +1309,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
             "--",
             ".",
             ":(exclude).beads/issues.jsonl",
+            *[f":(exclude){path}" for path in audit_paths],
         ],
     )
     if dirty.returncode != 0:
@@ -1317,14 +1365,20 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
 
-    added = _git(root, ["add", "--", ".beads/issues.jsonl"])
+    try:
+        if _closeout_audit_paths(root, bead_id, reason) != audit_paths:
+            return failed("stage", "tracked audit paths changed during closeout")
+    except (OSError, ValueError):
+        return failed("stage", "tracked audit changes are not owned closure appends")
+    owned_paths = [".beads/issues.jsonl", *audit_paths]
+    added = _git(root, ["add", "--", *owned_paths])
     if added.returncode != 0:
         return failed("stage", "portable Beads export could not be staged")
     staged = _git(root, ["diff", "--cached", "--name-only", "-z"])
     if staged.returncode != 0:
         return failed("stage", "staged paths could not be inspected")
     staged_paths = [path for path in staged.stdout.split("\0") if path]
-    if any(path != ".beads/issues.jsonl" for path in staged_paths):
+    if any(path not in owned_paths for path in staged_paths):
         return failed("stage", "unrelated tracked paths are staged")
     if staged_paths:
         stages["stage"] = {"status": "succeeded"}
@@ -1336,7 +1390,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
                 "-m",
                 f"chore(beads): close {bead_id}",
                 "--",
-                ".beads/issues.jsonl",
+                *owned_paths,
             ],
         )
         if committed.returncode != 0:
@@ -1350,6 +1404,9 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         stages["stage"] = {"status": "skipped", "reason": "already-recorded"}
         stages["commit"] = {"status": "skipped", "reason": "already-recorded"}
         commit = None
+    if not handoff_closeout_is_clean(canonical):
+        return failed("clean", "committed closeout is not ready for handoff")
+    stages["clean"] = {"status": "succeeded"}
     return {
         "schemaVersion": 1,
         "status": "closed",
