@@ -134,6 +134,32 @@ export SEARXNG_URL=https://your-searxng.example
 
 `SEARXNG_URL` enables `agnt web-search`. No local or relay model provider is configured; restore prior provider code from Git history only after explicit approval.
 
+### Local Laya decisions
+
+`agent/extensions/laya.ts` registers `laya_predict`, an explicit advisory tool, not a model provider or automatic routing gate. It posts to fixed `http://127.0.0.1:8001/v1/systemone` with the English checkpoint. No custom server or project Python dependency is needed. Install the shared CLI once, then run its server separately:
+
+```bash
+uv tool install --python 3.12 'laya[serve]==0.3.20'
+# First load requires a separately authorized Hugging Face model download.
+LAYA_HOST=127.0.0.1 LAYA_PORT=8001 LAYA_MODELS=english laya-serve
+# After weights are cached, add HF_HUB_OFFLINE=1 to prevent Hub access.
+curl --fail http://127.0.0.1:8001/health
+```
+
+Keep the server on loopback: upstream defaults to all interfaces. Package environment and model cache remain outside `pi/`; config deployment neither installs Laya nor starts it. After approved config deployment, `/reload` exposes the tool across projects. In RPC, loopback means the Pi host, not the browser's computer. This adapter does not support authenticated servers or configurable endpoints.
+
+Example tool arguments:
+
+```json
+{"state":"Please refund my duplicate payment.","questions":{"intent":{"type":"choice","instructions":"What does the customer request?","criteria":{"refund":"return money","other":"another request"}}}}
+```
+
+`choice` uses 2–10 named, described options; `score` uses 2–10 distinct ordered descriptions; `noul` asks yes/no and optionally describes `true` and `false`. Question/option IDs contain 1–40 ASCII letters, digits, underscores, or hyphens. Limits: 1–8 questions, 4,000 state characters, 300 instruction characters, 200 characters per option description, 32 KiB request and 64 KiB response. These are transport bounds, not a token-fit guarantee: the English model's 512-token total context may truncate text, so use short, front-loaded inputs and short option descriptions.
+
+The tool returns validated `answers`, retaining probabilities unchanged and omitting unrelated server metadata. It rejects malformed/inconsistent answers, refuses redirects, and stops waiting on cancellation or a 30-second deadline. Errors do not trigger retries, server startup, downloads, or cloud fallback. Cancellation does not guarantee server-side inference stops. Server offline mode is operator-controlled.
+
+Probabilities are advisory, not permission, a security guarantee, or verified calibration. The current English checkpoint warns about clamping its `choice:11+` calibration; this tool limits choices to 10, but still requires task-specific evaluation. Tool inputs/results participate in normal Pi session/model context; local inference does not make the surrounding Pi conversation local-only.
+
 ## Excluded runtime state
 
 Do not commit credentials, sessions, caches, trust state, onboarding state, API keys, metrics, or ordinary run artifacts. Common excluded paths include:
