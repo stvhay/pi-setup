@@ -1,6 +1,6 @@
 ---
 name: layer-theme
-description: Use when restyling or dark-mode theming a third-party website via userscript or UserStyle, including applying a named saved style.
+description: Use when theming third-party sites via userscript or UserStyle, including saved styles.
 ---
 
 # Layer Theme

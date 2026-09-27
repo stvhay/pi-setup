@@ -1,6 +1,6 @@
 ---
 name: heilmeier-catechism
-description: Use when evaluating ambitious research or innovation initiatives, feasibility, technology gaps, moonshots, or go/no-go decisions.
+description: Use when evaluating research, innovation, feasibility, technology gaps, moonshots, or go/no-go.
 ---
 
 # Heilmeier Catechism Research Initiative Skill

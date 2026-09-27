@@ -1,6 +1,6 @@
 ---
 name: writing-clearly-and-concisely
-description: Use when writing or editing human-facing prose such as documentation, messages, reports, explanations, or UI copy.
+description: "Use when writing or editing prose: docs, messages, reports, explanations, or UI copy."
 ---
 
 # Writing Clearly and Concisely

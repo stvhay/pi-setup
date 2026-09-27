@@ -1,6 +1,6 @@
 ---
 name: design-principles
-description: Use when implementing GUI interfaces - dashboards, admin interfaces, SaaS products, web applications requiring professional polish
+description: "Use when implementing polished GUIs: dashboards, admin tools, SaaS, or web apps."
 ---
 
 # Design Principles

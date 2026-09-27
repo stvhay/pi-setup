@@ -1,6 +1,6 @@
 ---
 name: documentation-standards
-description: Use when drafting or validating project docs after design or implementation changes, including READMEs, architecture, and specs.
+description: Use when writing or validating project READMEs, architecture docs, or specs.
 ---
 
 # Documentation Standards

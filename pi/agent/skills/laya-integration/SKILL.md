@@ -1,6 +1,6 @@
 ---
 name: laya-integration
-description: Add fast, local, typed decisions to any project with Laya, an open-source non-generative decision model (pip install laya). It classifies, routes, scores and answers yes/no questions about a piece of text, returning calibrated probabilities in roughly 20-35 ms on a laptop GPU, with no LLM call and no data leaving the machine. Use this skill whenever the user wants to classify or route text, triage tickets or emails, detect spam, phishing, toxicity or intent, put a guardrail in front of an agent or LLM, score something against a rubric, or replace an LLM-based classifier to cut latency or cost. Also use it when they mention Laya, Jev, a "System 1 model", "typed decisions" or a "decision model", even if they never name Laya.
+description: Use when integrating Laya/Jev, System 1 or typed decision models; classify or route text, triage, detect spam/phishing/toxicity/intent, or score rubrics. Not generation or multi-step reasoning.
 metadata:
   author: brain function collapse
   source: https://brainfunctioncollapse.com/laya
