@@ -16,12 +16,20 @@ Tracked portable files:
 
 Local/runtime files are ignored by `.beads/.gitignore`, including the embedded
 Dolt database, locks, export state, and interaction logs. Native `export.auto`
-refreshes tracked `issues.jsonl` after each mutation; `export.git-add` remains
-disabled, so normal Git review and staging still apply.
+is throttled by `export.interval` (currently 60s), so rapid mutations may leave
+`issues.jsonl` stale. `export.git-add` remains disabled. Direct closeout explicitly
+exports with `bd export --readonly`, verifies canonical target closure parity,
+and commits portable state before handoff. Dolt is authoritative; JSONL is
+interchange, not a full history backup or remote sync mechanism.
+
+Pi is a custom lifecycle integration, not a built-in `bd setup` recipe. The tested
+profile is Beads **1.3.1**, embedded Dolt, no automatic hooks or Git operations,
+and explicit portable-state boundaries. Auto-export may be disabled in another
+project without changing that boundary.
 
 ## Fresh checkout
 
-CI pins Beads 1.1.0 and verifies that a temporary checkout can import the tracked
+CI pins Beads 1.3.1 and verifies that a temporary checkout can import the tracked
 JSONL export and query the resulting work graph. Bootstrap a new local checkout
 with:
 
@@ -36,9 +44,37 @@ bd prime              # dynamic Beads workflow context
 bd status             # project work graph summary
 bd ready              # unblocked work
 bd show <id>          # inspect a bead
-bd update <id> --claim
-bd close <id> --reason "completed with verification"
+agnt work direct-start <id> --claim
+# Implement, verify, and commit task-owned changes first.
+agnt work direct-closeout <id> --outcome success --reason "completed with verification"
+# Then call handoff_bead (no target) in Pi.
 ```
+
+Raw `bd update --claim` and `bd close` are low-level Beads transitions, not
+substitutes for Pi session linking and closeout. Prime's “stealth/no git ops”
+wording concerns Beads sync; project Git authority still governs local commits.
+
+## Audit and diagnostics
+
+Beads 1.3.1's optional interaction sidecar defaults off; it is incomplete and
+non-authoritative. With audit enabled, explicit status updates and closure emit
+rows, but claim and the `reopen` command do not. Current Pi handoff writes no
+reopen transition. A historical reopen-shaped row alone does not identify its
+caller. Dolt retains canonical history independently.
+
+This repository ignores runtime sidecars. Existing projects that track
+`.beads/interactions.jsonl` must preserve their history: direct closeout accepts
+unchanged committed history plus exact append-only closure rows for the target
+and reason. Dirty reopen, assignment, foreign, malformed or tampered rows are
+not adopted. Stop and ask the originating transition owner to verify and commit
+those appends at that boundary; never delete, untrack, or silently sweep them
+into a later closeout.
+
+`agnt doctor --json` checks the supported version and JSON capability/result,
+not exit status alone. Embedded full doctor is unsupported: health remains
+unverified/degraded even when `bd list` and supported conventions checks pass.
+Those checks prove queryability and lint/stale/orphans only, not full database
+integrity. Never follow diagnostic reinitialization/migration hints automatically.
 
 ## Worktrees and lifecycle
 

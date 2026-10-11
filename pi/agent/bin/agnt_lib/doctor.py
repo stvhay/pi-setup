@@ -86,24 +86,56 @@ def check_beads() -> Dict[str, Any]:
             severity="medium",
             suggested_actions=["Install Beads or ensure bd/beads is on PATH before using Beads-backed workflows."],
         )
-    evidence: Dict[str, Any] = {"path": exe}
-    if Path.cwd().joinpath(".beads").exists():
-        try:
-            proc = run_quiet([exe, "doctor"], timeout=10)
-            evidence.update({"doctorExit": proc.returncode})
-            if proc.returncode != 0:
+    evidence: Dict[str, Any] = {"path": exe, "supportedVersion": "1.3.1", "healthVerified": False}
+    try:
+        version = run_quiet([exe, "version", "--json"])
+        data = json.loads(version.stdout)
+        evidence["version"] = data.get("version") if isinstance(data, dict) else None
+        if version.returncode != 0 or evidence["version"] != evidence["supportedVersion"]:
+            return check_result(
+                "command.bd", WARNING, "Beads version is outside the tested Pi profile",
+                severity="medium", evidence=evidence,
+                suggested_actions=["Review Beads compatibility before changing the binary or database; no automatic migration."],
+            )
+        if Path.cwd().joinpath(".beads").exists():
+            proc = run_quiet([exe, "doctor", "--json"], timeout=10)
+            # Embedded unsupported capability JSON is emitted on stderr in 1.3.1.
+            data = json.loads(proc.stdout or proc.stderr)
+            evidence["doctorExit"] = proc.returncode
+            evidence["healthVerified"] = proc.returncode == 0 and _beads_checks_ok(data)
+            if isinstance(data, dict) and (data.get("unsupported") or data.get("code") == "embedded_unsupported"):
+                evidence["doctorCapability"] = "unsupported"
+                query = run_quiet([exe, "list", "--limit", "1", "--json"], timeout=10)
+                evidence["queryVerified"] = query.returncode == 0 and isinstance(json.loads(query.stdout), list)
+                supported = data.get("checks_supported_in_embedded_mode")
+                if isinstance(supported, list) and "conventions" in supported:
+                    conventions = run_quiet([exe, "doctor", "--check=conventions", "--json"], timeout=10)
+                    evidence["conventionsVerified"] = conventions.returncode == 0 and _beads_checks_ok(json.loads(conventions.stdout))
+            if not evidence["healthVerified"]:
                 return check_result(
-                    "command.bd",
-                    WARNING,
-                    "bd doctor reported issues",
-                    severity="medium",
-                    evidence=evidence,
-                    suggested_actions=["Run `bd doctor` and address the reported Beads workspace issues."],
+                    "command.bd", WARNING, "Beads database health is unverified",
+                    severity="medium", evidence=evidence,
+                    suggested_actions=["Inspect `bd doctor --json`; embedded query/conventions checks do not verify full database health. Do not reinitialize or migrate automatically."],
                 )
-        except Exception as exc:  # pragma: no cover - defensive around external tool behavior
-            evidence["doctorError"] = str(exc)
-            return check_result("command.bd", WARNING, "bd doctor could not run", severity="medium", evidence=evidence)
-    return check_result("command.bd", PASS, "bd/beads executable found", evidence=evidence)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return check_result(
+            "command.bd", WARNING, "Beads diagnostics unavailable or malformed",
+            severity="medium", evidence=evidence,
+        )
+    return check_result("command.bd", PASS, "Beads tested profile available", evidence=evidence)
+
+
+def _beads_checks_ok(data: Any) -> bool:
+    if (
+        not isinstance(data, dict) or data.get("unsupported") or data.get("error")
+        or data.get("code") == "embedded_unsupported"
+    ):
+        return False
+    checks = data.get("checks")
+    return (
+        data.get("overall_ok") is True and isinstance(checks, list) and bool(checks)
+        and all(isinstance(check, dict) and check.get("status") == "ok" for check in checks)
+    )
 
 
 def check_python_version() -> Dict[str, Any]:
@@ -411,7 +443,7 @@ def doctor_report(
     return {
         "schemaVersion": 1,
         "status": status,
-        "passed": not failures,
+        "passed": not failures and not warnings,
         "summary": {"checkCount": len(checks), "failureCount": len(failures), "warningCount": len(warnings)},
         "checks": checks,
         "failures": failures,

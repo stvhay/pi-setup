@@ -561,6 +561,7 @@ def capture_session_link(
     beads_runner: Any,
     directory: str | os.PathLike[str] | None = None,
     evidence_refs: list[str] | None = None,
+    before_link: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     session_id = _session_id(session_id)
     bead_id = _bead_id(bead_id)
@@ -580,6 +581,11 @@ def capture_session_link(
             raise SessionWorkItemConflict(
                 "current Pi session belongs to another work item; use handoff_bead or the /new human fallback and retry"
             )
+        # Keep claim preflight and linking serialized with every ledger writer.
+        if before_link is not None:
+            if _outcome is not None:
+                raise SessionWorkItemConflict("current Pi session already has a final outcome")
+            before_link()
         if not any(_record_matches(row, expected) for row in rows):
             _append_row(fd, root, {"schemaVersion": 1, **expected, "capturedAt": _captured_at()})
     return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}

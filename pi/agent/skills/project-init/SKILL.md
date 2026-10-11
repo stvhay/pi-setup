@@ -77,7 +77,7 @@ find . -maxdepth 3 \( -name AGENTS.md -o -name CONTRIBUTING.md -o -name .project
 2. List files to create, exact files to update, and restricted actions excluded.
 3. Ask approval unless current prompt already approved that exact scope.
 4. Create only missing files. Initialize Beads only when separately approved.
-5. Verify created paths and report next commands.
+5. Verify created paths and the Beads/Pi lifecycle profile in `references/audit-checklist.md`; report next commands.
 
 Use repository templates instead of duplicating them:
 
@@ -100,7 +100,7 @@ Keep `.envrc`, `.envrc.d/`, `flake.nix`, and `flake.lock` tracked. Ignore `.work
 
 ## Audit/update
 
-Read `references/audit-checklist.md` when useful, adapting legacy names to Pi conventions.
+Read `references/audit-checklist.md`, including the Beads/Pi lifecycle profile. Adapt legacy names to Pi conventions without changing existing audit/history policy.
 
 For every standard artifact, report `OK`, `MISSING`, `DRIFT`, or `SKIP`, then propose minimum remediation. Ask approval before edits.
 

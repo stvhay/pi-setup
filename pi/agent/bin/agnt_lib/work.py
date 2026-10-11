@@ -1106,34 +1106,28 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
 
     bead = shown
     stages["show"] = {"status": "succeeded"}
-    if not claim:
-        stages["claim"] = {"status": "skipped", "reason": "not-requested"}
-    elif str(bead.get("status") or "").lower().replace("-", "_") == "in_progress":
-        stages["claim"] = {"status": "skipped", "reason": "already-in-progress"}
-    else:
+
+    def claim_bead() -> None:
+        nonlocal bead
+        if not claim:
+            stages["claim"] = {"status": "skipped", "reason": "not-requested"}
+            return
+        # Native CAS is idempotent for this actor and rejects foreign live claims.
+        stages["claim"] = {"status": "failed", "error": "bead claim failed"}
         code, data, _error = run_beads_json(["update", bead_id, "--claim"])
         if code != 0:
-            stages.update({
-                "claim": {"status": "failed", "error": "bead claim failed"},
-                "link": {"status": "skipped", "reason": "claim-failed"},
-            })
-            return {
-                "schemaVersion": 1,
-                "status": "partial",
-                "bead": bead,
-                "stages": stages,
-                "repair": {"failedStage": "claim", "retryCommand": retry_command, "safeToRetry": True},
-            }
+            raise RuntimeError("bead claim failed")
         bead = normalize_bead(data) or bead
         stages["claim"] = {"status": "succeeded"}
 
     try:
-        link_result = link_current_session(bead_id)
+        link_result = link_current_session(bead_id, before_link=claim_bead)
     except SessionWorkItemConflict:
-        stages["link"] = {"status": "failed", "error": "session belongs to another work item"}
+        stages["claim"] = {"status": "skipped", "reason": "session-conflict"}
+        stages["link"] = {"status": "failed", "error": "session belongs to another work item or has a final outcome"}
         return {
             "schemaVersion": 1,
-            "status": "partial",
+            "status": "error",
             "bead": bead,
             "stages": stages,
             "repair": {
@@ -1141,24 +1135,27 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
                 "requiredAction": "start-fresh-session",
                 "retryCommand": retry_command,
                 "safeToRetry": False,
-                "handoffTool": {
-                    "name": "handoff_bead",
-                    "arguments": {"targetBead": bead_id},
-                },
-                "humanFallback": {
-                    "command": "/new",
-                    "retryCommand": retry_command,
-                },
+                "humanFallback": {"command": "/new", "retryCommand": retry_command},
             },
         }
     except (OSError, RuntimeError, ValueError):
-        stages["link"] = {"status": "failed", "error": "session link failed"}
+        claim_stage = stages.setdefault("claim", {"status": "skipped", "reason": "link-preflight-failed"})
+        claim_failed = claim_stage["status"] == "failed"
+        stages["link"] = (
+            {"status": "skipped", "reason": "claim-failed"} if claim_failed
+            else {"status": "failed", "error": "session link failed"}
+        )
         return {
             "schemaVersion": 1,
-            "status": "partial",
+            "status": "partial" if claim_stage["status"] in {"succeeded", "failed"} else "error",
             "bead": bead,
             "stages": stages,
-            "repair": {"failedStage": "link", "retryCommand": retry_command, "safeToRetry": True},
+            "repair": {
+                "failedStage": "claim" if claim_failed else "link",
+                "requiredAction": "retry-same-session",
+                "retryCommand": retry_command,
+                "safeToRetry": True,
+            },
         }
 
     stages["link"] = {"status": "succeeded"}
@@ -1422,7 +1419,7 @@ def cmd_work(argv: List[str]) -> int:
     sub = parser.add_subparsers(dest="command")
     direct_start_cmd = sub.add_parser("direct-start", help="validate a bead, optionally claim it, and link this Pi session")
     direct_start_cmd.add_argument("bead_id")
-    direct_start_cmd.add_argument("--claim", action="store_true", help="claim the bead only when it is not already in progress")
+    direct_start_cmd.add_argument("--claim", action="store_true", help="atomically claim the bead; idempotent for the current actor")
     status_cmd = sub.add_parser("status", help="show in-progress Beads and current session work-item correlation")
     status_cmd.add_argument("--session-id", required=True)
     direct_closeout_cmd = sub.add_parser("direct-closeout", help="close a directly worked bead and commit its portable state")

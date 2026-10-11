@@ -1359,7 +1359,8 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
         bead_calls.append(args)
         return 0, [bead], ""
 
-    def fake_link(bead_id):
+    def fake_link(bead_id, *, before_link):
+        before_link()
         link_calls.append(bead_id)
         return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
 
@@ -1819,7 +1820,7 @@ def test_direct_closeout_requires_matching_success_readback(
     }
 
 
-@pytest.mark.parametrize("audit_mode", ["absent", "during-close", "retry"])
+@pytest.mark.parametrize("audit_mode", ["absent", "during-close", "retry", "legacy-reopen"])
 def test_direct_closeout_exports_parity_and_commits_shared_beads_only(
     agnt, monkeypatch, tmp_path, audit_mode
 ):
@@ -1833,8 +1834,13 @@ def test_direct_closeout_exports_parity_and_commits_shared_beads_only(
     target = {"_type": "issue", "id": "pi-test.close", "status": "open"}
     shared = {"_type": "issue", "id": "pi-test.shared", "status": "open", "notes": "old"}
     interactions = beads / "interactions.jsonl"
+    legacy = json.dumps({
+        "id": "int-legacy", "kind": "field_change", "actor": "historical",
+        "created_at": "2026-08-10T12:00:00Z", "issue_id": target["id"],
+        "extra": {"field": "status", "old_value": "in_progress", "new_value": "open"},
+    }) + "\n" if audit_mode == "legacy-reopen" else ""
     if audit_mode != "absent":
-        interactions.write_text("", encoding="utf-8")
+        interactions.write_text(legacy, encoding="utf-8")
     closure = json.dumps({
         "id": "int-test-close", "kind": "field_change",
         "created_at": "2026-08-11T12:00:00Z", "actor": "tester",
@@ -1877,8 +1883,8 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
     def fake_beads(args):
         calls.append(args)
         if args[0] == "close":
-            if audit_mode == "during-close" and canonical["status"] != "closed":
-                interactions.write_text(closure, encoding="utf-8")
+            if audit_mode in {"during-close", "legacy-reopen"} and canonical["status"] != "closed":
+                interactions.write_text(legacy + closure, encoding="utf-8")
             canonical.update(
                 status="closed",
                 closed_at="2026-08-11T12:00:00Z",
@@ -1926,6 +1932,8 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
         )
 
     assert result["status"] == retry["status"] == "closed"
+    if audit_mode == "legacy-reopen":
+        assert interactions.read_text() == legacy + closure
     assert result["stages"]["outcome"]["evidenceGaps"] == [
         "langfuse-projection-unavailable"
     ]
@@ -1973,7 +1981,7 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
     ).stdout == "?? unrelated.txt\n"
 
 
-@pytest.mark.parametrize("change", ["other-bead", "other-reason", "edit-history", "malformed", "extra-data", "staged-other", "symlink"])
+@pytest.mark.parametrize("change", ["other-bead", "other-reason", "edit-history", "malformed", "extra-data", "staged-other", "symlink", "dirty-reopen"])
 def test_direct_closeout_rejects_unowned_audit_changes(agnt, monkeypatch, tmp_path, change):
     init_test_git(tmp_path)
     beads = tmp_path / ".beads"
@@ -1987,6 +1995,8 @@ def test_direct_closeout_rejects_unowned_audit_changes(agnt, monkeypatch, tmp_pa
     row = {"id": "int-close", "kind": "field_change", "actor": "tester",
            "created_at": "2026-08-11T12:00:00Z", "issue_id": "pi-test.close",
            "extra": {"field": "status", "old_value": "in_progress", "new_value": "closed", "reason": "Done."}}
+    if change == "dirty-reopen":
+        row["extra"] = {"field": "status", "old_value": "in_progress", "new_value": "open"}
     if change == "other-bead":
         row["issue_id"] = "pi-other.1"
     if change == "other-reason":
@@ -2267,7 +2277,8 @@ def test_direct_start_claim_is_explicit_and_idempotent(agnt):
             return 0, [bead], ""
         return 0, [bead.copy()], ""
 
-    def fake_link(bead_id):
+    def fake_link(bead_id, *, before_link):
+        before_link()
         link_calls.append(bead_id)
         return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
 
@@ -2280,14 +2291,12 @@ def test_direct_start_claim_is_explicit_and_idempotent(agnt):
 
     assert first["status"] == second["status"] == "started"
     assert first["stages"]["claim"] == {"status": "succeeded"}
-    assert second["stages"]["claim"] == {
-        "reason": "already-in-progress",
-        "status": "skipped",
-    }
+    assert second["stages"]["claim"] == {"status": "succeeded"}
     assert bead_calls == [
         ["show", "pi-test.claim"],
         ["update", "pi-test.claim", "--claim"],
         ["show", "pi-test.claim"],
+        ["update", "pi-test.claim", "--claim"],
     ]
     assert link_calls == ["pi-test.claim", "pi-test.claim"]
 
@@ -2300,7 +2309,8 @@ def test_direct_start_reports_retryable_partial_link_failure(agnt, capsys):
     def fake_beads(args):
         return 0, [bead], ""
 
-    def fail_link(_bead_id):
+    def fail_link(_bead_id, *, before_link):
+        before_link()
         raise RuntimeError("private failure detail")
 
     with patch.dict(cmd_work.__globals__, {
@@ -2318,6 +2328,7 @@ def test_direct_start_reports_retryable_partial_link_failure(agnt, capsys):
     }
     assert result["repair"] == {
         "failedStage": "link",
+        "requiredAction": "retry-same-session",
         "retryCommand": "agnt work direct-start pi-test.partial --claim",
         "safeToRetry": True,
     }
@@ -2331,19 +2342,19 @@ def test_direct_start_requires_fresh_session_after_work_item_conflict(agnt, caps
 
     conflict = agnt.cmd_improve.__globals__["SessionWorkItemConflict"]
 
-    def fail_link(_bead_id):
+    def fail_link(_bead_id, *, before_link):
         raise conflict("current Pi session belongs to another work item; prior pi-private.1")
 
     with patch.dict(cmd_work.__globals__, {
         "run_beads_json": lambda _args: (0, [bead], ""),
         "link_current_session": fail_link,
     }):
-        assert agnt.main(["work", "direct-start", "pi-test.second", "--claim"]) == 3
+        assert agnt.main(["work", "direct-start", "pi-test.second", "--claim"]) == 2
 
     result = json.loads(capsys.readouterr().out)
-    assert result["status"] == "partial"
+    assert result["status"] == "error"
     assert result["stages"]["link"] == {
-        "error": "session belongs to another work item",
+        "error": "session belongs to another work item or has a final outcome",
         "status": "failed",
     }
     assert result["repair"] == {
@@ -2351,10 +2362,6 @@ def test_direct_start_requires_fresh_session_after_work_item_conflict(agnt, caps
         "requiredAction": "start-fresh-session",
         "retryCommand": "agnt work direct-start pi-test.second --claim",
         "safeToRetry": False,
-        "handoffTool": {
-            "name": "handoff_bead",
-            "arguments": {"targetBead": "pi-test.second"},
-        },
         "humanFallback": {
             "command": "/new",
             "retryCommand": "agnt work direct-start pi-test.second --claim",
@@ -2681,7 +2688,7 @@ def test_direct_start_reports_retryable_partial_claim_failure(agnt):
 
     with patch.dict(direct_start.__globals__, {
         "run_beads_json": fake_beads,
-        "link_current_session": lambda _bead_id: pytest.fail("failed claim must not link"),
+        "link_current_session": lambda _bead_id, before_link: before_link(),
     }):
         result = direct_start("pi-test.claim-failure", claim=True)
 
@@ -2693,6 +2700,7 @@ def test_direct_start_reports_retryable_partial_claim_failure(agnt):
     }
     assert result["repair"] == {
         "failedStage": "claim",
+        "requiredAction": "retry-same-session",
         "retryCommand": "agnt work direct-start pi-test.claim-failure --claim",
         "safeToRetry": True,
     }
@@ -3845,3 +3853,92 @@ def test_route_reports_no_candidate_when_constraints_eliminate_all_models():
     assert result["candidateOrder"] == []
     assert any("missing modality video" in item["reason"] for item in result["rejectedCandidates"])
     assert any("no candidates satisfy hard constraints" in reason for reason in result["reasons"])
+
+
+@pytest.fixture
+def direct_start_state(agnt, monkeypatch, tmp_path):
+    quality = sys.modules["agnt_lib.quality"]
+    improvement = sys.modules["agnt_lib.improvement"]
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda _kind: tmp_path / "quality")
+    monkeypatch.setenv("PI_SESSION_ID", "session-start")
+    monkeypatch.setattr(improvement, "_best_effort_projection", lambda summary, _project: summary)
+    bead = {"id": "pi-start.1", "status": "open"}
+    calls = []
+
+    def beads(args):
+        calls.append(args)
+        if args[0] == "update":
+            bead["status"] = "in_progress"
+        return 0, [{**bead, "id": args[1]}], ""
+
+    monkeypatch.setitem(agnt.direct_start.__globals__, "run_beads_json", beads)
+    return quality, bead, calls
+
+
+def test_direct_start_open_conflict_does_not_claim(agnt, direct_start_state):
+    quality, bead, calls = direct_start_state
+    quality.capture_session_link("session-start", "pi-prior.1", beads_runner=lambda args: (0, {"id": args[1]}, ""))
+    result = agnt.direct_start(bead["id"], claim=True)
+    assert bead["status"] == "open"
+    assert not any(call[0] == "update" for call in calls)
+    assert result["status"] == "error"
+    assert result["repair"]["safeToRetry"] is False
+    assert "handoffTool" not in result["repair"]
+
+
+@pytest.mark.parametrize("bad_state", ["missing-session", "malformed-ledger"])
+def test_direct_start_bad_session_never_claims(agnt, monkeypatch, tmp_path, direct_start_state, bad_state):
+    quality, bead, calls = direct_start_state
+    if bad_state == "missing-session":
+        monkeypatch.delenv("PI_SESSION_ID")
+        monkeypatch.delenv("PI_SESSION_FILE", raising=False)
+    else:
+        root = tmp_path / "quality"
+        root.mkdir()
+        (root / "ledger.jsonl").write_text("broken\n")
+    result = agnt.direct_start(bead["id"], claim=True)
+    assert bead["status"] == "open"
+    assert not any(call[0] == "update" for call in calls)
+    assert result["status"] == "error"
+
+
+def test_direct_start_claim_failure_does_not_link(agnt, monkeypatch, direct_start_state):
+    quality, bead, calls = direct_start_state
+    def beads(args):
+        calls.append(args)
+        return (1, None, "foreign claim") if args[0] == "update" else (0, [bead], "")
+    monkeypatch.setitem(agnt.direct_start.__globals__, "run_beads_json", beads)
+    bead["status"] = "in_progress"
+    result = agnt.direct_start(bead["id"], claim=True)
+    assert result["stages"]["claim"]["status"] == "failed"
+    assert quality.session_work_item("session-start") is None
+
+
+def test_direct_start_link_storage_failure_retries_same_session(agnt, monkeypatch, direct_start_state):
+    quality, bead, calls = direct_start_state
+    append = quality._append_row
+    def fail_append(*_args):
+        raise OSError("disk unavailable")
+    monkeypatch.setattr(quality, "_append_row", fail_append)
+    result = agnt.direct_start(bead["id"], claim=True)
+    assert result["status"] == "partial"
+    assert result["repair"]["requiredAction"] == "retry-same-session"
+    assert "handoffTool" not in result["repair"]
+    assert quality.session_work_item("session-start") is None
+    monkeypatch.setattr(quality, "_append_row", append)
+    retry = agnt.direct_start(bead["id"], claim=True)
+    assert retry["status"] == "started"
+    assert quality.session_work_item("session-start") == bead["id"]
+    assert len([call for call in calls if call[0] == "update"]) == 2
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "partial", "unclear"])
+def test_direct_start_final_session_does_not_reclaim(agnt, direct_start_state, outcome):
+    quality, bead, calls = direct_start_state
+    assert agnt.direct_start(bead["id"], claim=False)["status"] == "started"
+    quality.capture_session_outcome("session-start", bead["id"], outcome,
+                                   beads_runner=lambda _args: (0, [bead], ""))
+    calls.clear()
+    result = agnt.direct_start(bead["id"], claim=True)
+    assert result["status"] == "error"
+    assert not any(call[0] == "update" for call in calls)

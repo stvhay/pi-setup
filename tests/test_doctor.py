@@ -171,3 +171,55 @@ def test_node_lts_passes(agnt, monkeypatch, tmp_path):
 def test_doctor_rejects_retired_profile_option(agnt):
     with pytest.raises(SystemExit):
         agnt.cmd_doctor(["--profile", "orchestrator-startup"])
+
+
+@pytest.mark.parametrize("payload", [
+    {"unsupported": True, "code": "embedded_unsupported", "checks_supported_in_embedded_mode": ["conventions"]},
+    {"code": "embedded_unsupported", "overall_ok": True, "checks": [{"name": "db", "status": "ok"}], "checks_supported_in_embedded_mode": 1},
+    {"error": "unavailable"},
+    {"overall_ok": False, "checks": [{"name": "db", "status": "error"}]},
+    {"overall_ok": True, "checks": [{"name": "db", "status": "warning"}]},
+    {"overall_ok": True, "checks": []},
+    [], "bad json",
+])
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_beads_doctor_zero_exit_is_not_health_proof(agnt, monkeypatch, tmp_path, payload, stream):
+    (tmp_path / ".beads").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(agnt.shutil, "which", lambda _name: "/bin/bd")
+    calls = []
+    def run(argv, **_kwargs):
+        calls.append(argv)
+        if argv[1] == "version":
+            return FakeProc(stdout=json.dumps({"version": "1.3.1"}))
+        if "--check=conventions" in argv:
+            return FakeProc(stdout=json.dumps({"overall_ok": True, "checks": [{"name": "lint", "status": "ok"}]}))
+        if argv[1] == "list":
+            return FakeProc(stdout="[]")
+        return FakeProc(**{stream: payload if isinstance(payload, str) else json.dumps(payload)})
+    monkeypatch.setattr(agnt.subprocess, "run", run)
+    report = agnt.doctor_report(check_names=["command.bd"])
+    assert report["status"] == "degraded"
+    assert report["passed"] is False
+    assert report["checks"][0]["evidence"]["healthVerified"] is False
+    assert ["/bin/bd", "doctor", "--json"] in calls
+    if isinstance(payload, dict) and payload.get("unsupported"):
+        assert report["checks"][0]["evidence"]["conventionsVerified"] is True
+        assert report["checks"][0]["evidence"]["queryVerified"] is True
+    assert all("--fix" not in command for command in calls)
+
+
+@pytest.mark.parametrize("version,expected", [("1.3.1", "passed"), ("1.2.2", "degraded")])
+def test_beads_doctor_checks_supported_version_and_json_health(agnt, monkeypatch, tmp_path, version, expected):
+    (tmp_path / ".beads").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(agnt.shutil, "which", lambda _name: "/bin/bd")
+    def run(argv, **_kwargs):
+        payload = {"version": version} if argv[1] == "version" else {
+            "overall_ok": True, "checks": [{"name": "db", "status": "ok"}],
+        }
+        return FakeProc(stdout=json.dumps(payload))
+    monkeypatch.setattr(agnt.subprocess, "run", run)
+    report = agnt.doctor_report(check_names=["command.bd"])
+    assert report["status"] == expected
+    assert report["checks"][0]["evidence"]["version"] == version

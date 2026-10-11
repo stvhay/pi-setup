@@ -46,6 +46,21 @@ quality/
   assignments/<receipt-id>.json
 ```
 
+### Direct-work session capture
+
+`capture_session_link` validates ownership under the private ledger lock before
+running its optional `before_link` callback and appending the invocation. A final
+outcome blocks this callback; ordinary idempotent capture remains unchanged. Direct
+work uses this callback for Beads' idempotent native claim CAS; other capture
+callers omit it. Callback failure writes no invocation. Lock serialization
+prevents a competing session-link writer from slipping between preflight and
+claim. A storage/process failure after the external claim is not transactional:
+retain the claim and retry the same session/Bead after repair, never auto-unclaim.
+Langfuse projection runs outside this authoritative boundary. Regression coverage:
+`tests/test_quality.py::test_session_link_claim_callback_is_under_ownership_lock`
+and the direct-start/real CLI lifecycle tests in `tests/test_agnt.py` and
+`tests/test_beads_workspace.py`.
+
 ## Public Interface
 
 | Interface | Contract |

@@ -149,9 +149,9 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Validates required `invocation.yaml` and `result.yaml` fields. With `--require-followups-exist`, every `result.yaml.followUps[]` id must resolve to a Beads item.
 
 - `agnt work direct-start BEAD [--claim]`
-  - Starts ordinary direct work by validating and showing the Bead, optionally claiming it only when `--claim` is explicit and the Bead is not already in progress, then idempotently linking the current Pi session in the private local quality ledger.
+  - Starts ordinary direct work by validating and showing the Bead, validating session ownership under the private ledger lock, then optionally claiming it only when `--claim` is explicit before appending the session link. Beads 1.3.1's native claim CAS runs on every explicit claim, including retries: own claims are idempotent and foreign live claims are rejected.
   - One logical session belongs to one Bead. A conflicting prior link or outcome is not overwritten. Langfuse projection is best effort; projection failure appears as `langfuse-projection-unavailable` evidence without blocking authoritative local capture. After successful current Bead closeout, call `handoff_bead` without a target; sole ready non-epic work continues automatically, while several choices use one selection. `/new` is the human fallback when the tool is unavailable. Quitting and resuming may retain the same logical session.
-  - Returns JSON with each stage, safe retry guidance after partial failure, and no run bundle or worktree creation.
+  - Conflicting, finalized, missing or malformed session authority stops before claim. Claim failure writes no session link. The two stores are not one transaction: a crash/storage failure after claim may leave the claim without a link. Repair storage and retry the same session/Bead; never automatically unclaim or route claimed work through ready-only handoff. A conflicting session requires `/new` (or normal handoff only after successful source closeout). Returns bounded stage/recovery JSON, no run bundle or worktree.
 
 - `agnt work status --session-id SESSION`
   - Reads canonical `in_progress` Beads and private local session-work correlation without mutation, returning deterministic priority/ID-ordered JSON for presentation adapters.
@@ -162,6 +162,7 @@ agnt metrics annotate <recordId> --findings-file .pi/reviews/<id>/findings.json 
   - Use `agnt improve outcome` separately for `partial`, `failure`, `unclear`, or manual/repair recording; non-success work stops without direct closeout or handoff.
   - Refuses tracked non-Beads changes, closes the Bead idempotently, explicitly exports canonical regular issues through `bd export --readonly`, and verifies target `status`, `closed_at`, and `close_reason` parity before replacing `.beads/issues.jsonl`.
   - Stages and creates a second local commit containing `.beads/issues.jsonl` and, when already tracked, `.beads/interactions.jsonl`. Audit changes must be append-only status-closure records for this exact Bead and reason; history edits, unrelated records, malformed appends and conflicting staged content are rejected. Untracked audit/runtime files remain untouched. It never pushes.
+  - Committed legacy audit rows remain byte-for-byte history. Dirty non-closure rows require verified reconciliation by their originating owner before closeout, never deletion/untracking or inference from matching Bead ID. Beads 1.3.1 sidecars are optional/incomplete; current handoff has no status writer. Auto-export is throttled and not a portable-state guarantee; Dolt history and remote sync remain separate.
   - Verifies the same committed portable parity and clean tracked checkout required by handoff before reporting success. Returns bounded stage JSON; failure after closure is `partial`. A retry can commit validated closure audit appends left by an earlier attempt without discarding shared rows.
 
 - `agnt work integrate --target-branch BRANCH --expected-head SHA --source-sha SHA [--timeout-seconds N]`
@@ -223,7 +224,8 @@ Definitions live in `agent/langfuse/evaluators.json`. Credentials come from `LAN
 
 - `agnt doctor [--json] [--strict] [--check CHECK ...] [--skip CHECK ...]`
   - Checks local Pi/agnt operational readiness: core binaries, Python, git root, Beads, Node LTS policy, provider env vars, and core config parsing.
-  - Reports JSON with check status, evidence, redacted env-var presence, warnings, and suggested actions.
+  - Reports JSON with check status, evidence, redacted env-var presence, warnings, and suggested actions. `passed` is false for degraded or failed reports; CLI `--strict` still exits nonzero only on failures.
+  - Beads profile is 1.3.1. Version mismatch, malformed JSON, unsupported doctor, or unhealthy checks cannot prove health. Embedded full doctor stays degraded/unverified; supported list/conventions checks report limited evidence, not database integrity. No install, repair or migration occurs.
   - `--strict` exits nonzero when required checks fail. The doctor is read-only and never edits shell startup files.
   - After repeated tool, provider, or environment failures, run `agnt doctor` and fix the environment instead of retrying blindly.
 

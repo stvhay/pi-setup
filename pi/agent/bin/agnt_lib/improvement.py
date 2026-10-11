@@ -17,7 +17,7 @@ from collections import Counter
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .actions import assignment_action_contract
 from .langfuse import DEFAULT_MAX_TRACES, MAX_PAGE_SIZE, LangfuseError, _client_from_env
@@ -3447,12 +3447,15 @@ def _beads(args: list[str]) -> tuple[int, Any, str]:
     return run_beads_json(args)
 
 
-def link_current_session(bead_id: str) -> dict[str, Any]:
+def link_current_session(
+    bead_id: str, *, before_link: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     session_id = current_session_id()
     summary = capture_session_link(
         session_id,
         bead_id,
         beads_runner=_beads,
+        before_link=before_link,
     )
     return _best_effort_projection(
         summary,

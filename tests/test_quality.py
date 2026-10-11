@@ -3111,3 +3111,32 @@ def test_inv16_scheduler_result_classes_are_stable_and_expose_gaps():  # Tests I
         {**receipt, "gaps": []},
         {"status": "blocked", "reason": "policy-mismatch"},
     )["resultClass"] == "blocked"
+
+
+def test_session_link_claim_callback_is_under_ownership_lock(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    attempts = []
+
+    def claim():
+        with (tmp_path / "ledger.jsonl").open("rb") as stream:
+            with pytest.raises(BlockingIOError):
+                quality.fcntl.flock(stream.fileno(), quality.fcntl.LOCK_EX | quality.fcntl.LOCK_NB)
+        attempts.append("first")
+        entered.set()
+        assert release.wait(5)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(quality.capture_session_link, "session-1", "pi-first.1",
+                            beads_runner=beads_ok, directory=tmp_path, before_link=claim)
+        try:
+            assert entered.wait(5)
+            second = pool.submit(quality.capture_session_link, "session-1", "pi-second.1",
+                                 beads_runner=beads_ok, directory=tmp_path,
+                                 before_link=lambda: attempts.append("second"))
+        finally:
+            release.set()
+        assert first.result()["status"] == "linked"
+        with pytest.raises(quality.SessionWorkItemConflict):
+            second.result()
+    assert attempts == ["first"]

@@ -75,3 +75,25 @@ Only audit if the project has opted into generated release automation.
 ### SAFE-2: Verification commands documented
 - **Check:** README, CONTRIBUTING, or AGENTS documents test/lint/typecheck commands
 - **Severity:** DRIFT
+
+## Beads/Pi lifecycle profile
+
+### BEADS-1: Tested compatibility
+- **Check:** `bd version --json` matches the project's CI pin and documented profile (this Pi integration tests 1.3.1); `bd comments --help` and `bd provenance --help` succeed. Pi is a custom integration, not a generic `bd setup` recipe. Report drift; do not install binaries, migrate databases, or enable hooks/remotes automatically.
+- **Severity:** DRIFT
+
+### BEADS-2: Session lifecycle and Git authority
+- **Check:** quickrefs use `bd prime`, `bd ready`, `agnt work direct-start <id> --claim`, then verified task-owned commit and `agnt work direct-closeout <id> --outcome success --reason ...`; call `handoff_bead` only after clean success or from an unassigned session. Raw claim/close are lower-level transitions. Beads stealth/no-git-ops text does not override project Git authority.
+- **Severity:** DRIFT
+
+### BEADS-3: Portable-state boundary
+- **Check:** inspect `bd config get export.auto`, `bd config get export.interval`, and `bd config get export.git-add`. Document that auto-export is optional/throttled, not an every-mutation guarantee. Direct closeout explicitly runs `bd export --readonly`, verifies canonical target parity, and commits before handoff. Dolt is canonical; JSONL is interchange, not history backup or remote sync. Test consecutive mutations/export parity in an isolated workspace, never live history.
+- **Severity:** DRIFT
+
+### BEADS-4: Audit ownership
+- **Check:** inspect `bd config get audit.enabled` and `git ls-files -- .beads/interactions.jsonl`. Sidecar is optional/incomplete in 1.3.1; preserve existing tracked history. Closeout owns exact closure appends only. Dirty reopen/assignment/foreign rows require origin-owner reconciliation and persistence at that transition boundary, not deletion, untracking, or broad closeout acceptance. Do not attribute old rows to current handoff without writer evidence.
+- **Severity:** DRIFT
+
+### BEADS-5: Honest health evidence
+- **Check:** `agnt doctor --json` and `bd doctor --json` report capability, not merely exit code. Embedded `embedded_unsupported` is degraded/unverified; `bd list --limit 1 --json` and supported `bd doctor --check=conventions --json` prove only queryability and conventions. No automatic reinitialization or server-mode migration.
+- **Severity:** DRIFT / NOT_SURE when full health cannot be verified
