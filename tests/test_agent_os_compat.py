@@ -244,7 +244,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "route":
             "limits": {{}},
         }},
         "fixture-auto-metered": {{
-            "target": "openrouter/anthropic/claude-opus-5",
+            "target": "openrouter/anthropic/claude-opus-5.5",
             "thinkingLevel": "high",
             "contextPolicy": "fresh",
             "sourceAccess": "auto",
@@ -255,7 +255,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "route":
             "limits": {{}},
         }},
         "fixture-billing-spoof": {{
-            "target": "openrouter/anthropic/claude-opus-5",
+            "target": "openrouter/anthropic/claude-opus-5.5",
             "thinkingLevel": "high",
             "contextPolicy": "fresh",
             "sourceAccess": "auto",
@@ -288,7 +288,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "route":
             "limits": {{}},
         }},
         "fixture-over-budget": {{
-            "target": "openrouter/anthropic/claude-opus-5",
+            "target": "openrouter/anthropic/claude-opus-5.5",
             "thinkingLevel": "high",
             "contextPolicy": "fresh",
             "sourceAccess": "repository",
@@ -321,7 +321,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "route":
             "limits": {{}},
         }},
         "fixture-paid-cold-review": {{
-            "target": "openrouter/anthropic/claude-opus-5",
+            "target": "openrouter/anthropic/claude-opus-5.5",
             "thinkingLevel": "high",
             "contextPolicy": "fresh",
             "sourceAccess": "self-contained",
@@ -332,7 +332,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "route":
             "limits": {{"maxOutputTokens": 2000, "maxDurationMs": 300000}},
         }},
         "fixture-implementation": {{
-            "target": "openrouter/anthropic/claude-opus-5",
+            "target": "openrouter/anthropic/claude-opus-5.5",
             "thinkingLevel": "high",
             "contextPolicy": "fresh",
             "sourceAccess": "repository",
@@ -388,7 +388,7 @@ os.execv(real, [real, *sys.argv[1:]])
             "schemaVersion": 1,
             "families": {
                 "metered": {"venues": [{
-                    "target": "openrouter/anthropic/claude-opus-5",
+                    "target": "openrouter/anthropic/claude-opus-5.5",
                     "billingClass": "metered",
                 }]},
                 "subscription": {"venues": [{
@@ -516,7 +516,7 @@ export default function registerArchimedes(pi) {
         """
 export function resolveAgentModel(name) {
   return {
-    "metered-agent": "openrouter/anthropic/claude-opus-5",
+    "metered-agent": "openrouter/anthropic/claude-opus-5.5",
     "subscription-agent": "openai-codex/gpt-5.6-terra",
   }[name];
 }
@@ -652,14 +652,14 @@ export function resolveAgentModel(name) {
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           tasks: [
             {{ task: "Review first", model: "openai-codex/gpt-5.6-terra", mode: "agentic", thinking: "medium", limits: {{ maxProviderRequests: 4, maxTotalTokens: 4000, maxDurationMs: 1000 }} }},
-            {{ task: "Implement second", model: "openrouter/anthropic/claude-opus-5", mode: "agentic", thinking: "high", limits: {{ maxProviderRequests: 6, maxTotalTokens: 3000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+            {{ task: "Implement second", model: "openrouter/anthropic/claude-opus-5.5", mode: "agentic", thinking: "high", limits: {{ maxProviderRequests: 6, maxTotalTokens: 3000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
           ],
         }});
         assert.deepEqual(
           routedParallel.details.results.map((result) => [result.task, result.routeReceipt.routingTask, result.routeReceipt.target]),
           [
             ["Review first", "fixture-review", "openai-codex/gpt-5.6-terra"],
-            ["Implement second", "fixture-implementation", "openrouter/anthropic/claude-opus-5"],
+            ["Implement second", "fixture-implementation", "openrouter/anthropic/claude-opus-5.5"],
           ],
         );
 
@@ -712,7 +712,7 @@ export function resolveAgentModel(name) {
 
         const incompleteMeteredRepository = await subagent.execute("metered-repository-incomplete", {{
           task: "Inspect auth callers",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           mode: "agentic",
           sourceAccess: "repository",
         }}, undefined, undefined, {{ mode }});
@@ -721,7 +721,7 @@ export function resolveAgentModel(name) {
 
         const overBudgetMeteredRepository = await subagent.execute("metered-repository-over-budget", {{
           task: "Inspect auth callers",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           mode: "agentic",
           sourceAccess: "repository",
           meteredJustification: "quality-benefit",
@@ -733,7 +733,7 @@ export function resolveAgentModel(name) {
 
         const allowedMeteredRepository = await subagent.execute("metered-repository-bounded", {{
           task: "Inspect auth callers",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           mode: "agentic",
           sourceAccess: "repository",
           meteredJustification: "quality-benefit",
@@ -744,7 +744,7 @@ export function resolveAgentModel(name) {
         assert.equal(allowedMeteredRepository.details.upstream, true);
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           task: "Inspect auth callers",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           mode: "agentic",
           limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.05, maxDurationMs: 300000 }},
         }});
@@ -753,8 +753,8 @@ export function resolveAgentModel(name) {
           sourceAccess: "repository",
           maxMarginalUsd: 0.05,
           tasks: [
-            {{ task: "Inspect auth", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
-            {{ task: "Inspect tests", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+            {{ task: "Inspect auth", model: "openrouter/anthropic/claude-opus-5.5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+            {{ task: "Inspect tests", model: "openrouter/anthropic/claude-opus-5.5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
           ],
         }}, undefined, undefined, {{ mode }});
         assert.equal(aggregateMeteredRepository.isError, true);
@@ -764,8 +764,8 @@ export function resolveAgentModel(name) {
           sourceAccess: "repository",
           maxMarginalUsd: 0.06,
           tasks: [
-            {{ task: "Inspect auth", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
-            {{ task: "Inspect tests", model: "openrouter/anthropic/claude-opus-5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+            {{ task: "Inspect auth", model: "openrouter/anthropic/claude-opus-5.5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
+            {{ task: "Inspect tests", model: "openrouter/anthropic/claude-opus-5.5", meteredJustification: "quality-benefit", estimatedCostUsd: 0.03, limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.03, maxDurationMs: 300000 }} }},
           ],
         }}, undefined, undefined, {{ mode }});
         assert.equal(allowedMeteredFanout.details.upstream, true);
@@ -775,44 +775,44 @@ export function resolveAgentModel(name) {
 
         const allowedMeteredReview = await subagent.execute("metered-review-one-shot", {{
           task: "Review auth",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           mode: "one-shot",
         }}, undefined, undefined, {{ mode }});
         assert.equal(allowedMeteredReview.details.upstream, true);
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           task: "Review auth",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           mode: "one-shot",
           limits: {{ maxOutputTokens: expectedCap }},
         }});
 
         const allowedMeteredNonReview = await subagent.execute("metered-research", {{
           task: "Map auth callers",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
         }}, undefined, undefined, {{ mode }});
         assert.equal(allowedMeteredNonReview.details.upstream, true);
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           task: "Map auth callers",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
         }});
 
         await subagent.execute("metered-one-shot", {{
           task: "Map auth callers",
           mode: "one-shot",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           outputContract: "inline",
         }}, undefined, undefined, {{ mode }});
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           task: "Map auth callers",
           mode: "one-shot",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           limits: {{ maxOutputTokens: expectedCap }},
         }});
 
         await subagent.execute("metered-tighter", {{
           task: "Map auth callers",
           mode: "one-shot",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           limits: {{ maxOutputTokens: 8192 }},
         }}, undefined, undefined, {{ mode }});
         assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, 8192);
@@ -820,7 +820,7 @@ export function resolveAgentModel(name) {
         await subagent.execute("metered-wider", {{
           task: "Map auth callers",
           mode: "one-shot",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
           limits: {{ maxOutputTokens: 32768 }},
         }}, undefined, undefined, {{ mode }});
         assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, expectedCap);
@@ -835,15 +835,15 @@ export function resolveAgentModel(name) {
         await subagent.execute("inherited-metered-one-shot", {{
           task: "Map auth callers",
           mode: "one-shot",
-        }}, undefined, undefined, {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }});
+        }}, undefined, undefined, {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5.5" }} }});
         assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, expectedCap);
 
         await subagent.execute("registry-alias-metered-one-shot", {{
           task: "Map auth callers",
           mode: "one-shot",
-          model: "anthropic/claude-opus-5",
+          model: "anthropic/claude-opus-5.5",
         }}, undefined, undefined, {{ mode, modelRegistry: {{ getAll: () => [
-          {{ provider: "openrouter", id: "anthropic/claude-opus-5" }},
+          {{ provider: "openrouter", id: "anthropic/claude-opus-5.5" }},
         ] }} }});
         assert.equal(globalThis.__upstreamSubagentCalls.at(-1).limits.maxOutputTokens, expectedCap);
 
@@ -865,24 +865,24 @@ export function resolveAgentModel(name) {
           agent: "subscription-agent",
           task: "Map auth callers",
           mode: "one-shot",
-        }}, undefined, undefined, {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5" }} }});
+        }}, undefined, undefined, {{ mode, model: {{ provider: "openrouter", id: "anthropic/claude-opus-5.5" }} }});
         assert.equal("limits" in globalThis.__upstreamSubagentCalls.at(-1), false);
 
         await subagent.execute("mixed-parallel-one-shot", {{
           mode: "one-shot",
           tasks: [
-            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5", outputContract: "inline" }},
+            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5.5", outputContract: "inline" }},
             {{ task: "Subscription", model: "openai-codex/gpt-5.6-terra", outputContract: "artifact" }},
-            {{ task: "Agentic metered", mode: "agentic", model: "openrouter/anthropic/claude-opus-5" }},
+            {{ task: "Agentic metered", mode: "agentic", model: "openrouter/anthropic/claude-opus-5.5" }},
             {{ task: "Named metered", agent: "metered-agent" }},
           ],
         }}, undefined, undefined, {{ mode }});
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           mode: "one-shot",
           tasks: [
-            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5", limits: {{ maxOutputTokens: expectedCap }} }},
+            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5.5", limits: {{ maxOutputTokens: expectedCap }} }},
             {{ task: "Subscription", model: "openai-codex/gpt-5.6-terra" }},
-            {{ task: "Agentic metered", mode: "agentic", model: "openrouter/anthropic/claude-opus-5" }},
+            {{ task: "Agentic metered", mode: "agentic", model: "openrouter/anthropic/claude-opus-5.5" }},
             {{ task: "Named metered", agent: "metered-agent", limits: {{ maxOutputTokens: expectedCap }} }},
           ],
         }});
@@ -896,14 +896,14 @@ export function resolveAgentModel(name) {
         for (const task of ["Fix reviewer avatar rendering", "Summarize App Store reviews"]) {{
           const incidentalReviewWord = await subagent.execute("incidental-review-word", {{
             task,
-            model: "openrouter/anthropic/claude-opus-5",
+            model: "openrouter/anthropic/claude-opus-5.5",
           }}, undefined, undefined, {{ mode }});
           assert.equal(incidentalReviewWord.details.upstream, true);
         }}
 
         const noContext = await subagent.execute("no-context", {{
           task: "Map auth callers",
-          model: "openrouter/anthropic/claude-opus-5",
+          model: "openrouter/anthropic/claude-opus-5.5",
         }}, undefined, undefined, undefined);
         assert.equal(noContext.details.upstream, true);
 
@@ -1038,7 +1038,7 @@ export function resolveAgentModel(name) {
       await offTools.find((tool) => tool.name === "subagent").execute("off", {{
         task: "Map auth callers",
         mode: "one-shot",
-        model: "openrouter/anthropic/claude-opus-5",
+        model: "openrouter/anthropic/claude-opus-5.5",
       }}, undefined, undefined, {{}});
       assert.equal("limits" in globalThis.__upstreamSubagentCalls.at(-1), false);
 

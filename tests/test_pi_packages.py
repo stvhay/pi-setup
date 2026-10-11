@@ -213,14 +213,14 @@ def test_builtin_image_paste_keybinding_is_disabled_for_archimedes():
     assert keybindings["app.clipboard.pasteImage"] == []
 
 
-def test_gpt56_codex_subscription_context_matches_routing_catalog():
+def test_codex_subscription_context_matches_routing_catalog():
     assert MODELS.is_file(), "tracked models.json must enforce the Codex subscription context"
     models = json.loads(MODELS.read_text(encoding="utf-8"))
     provider = models["providers"]["openai-codex"]
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
 
     assert set(provider) == {"modelOverrides"}
-    for family in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+    for family in ("gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"):
         assert provider["modelOverrides"][family] == {"contextWindow": 272_000}
         assert catalog[family]["venues"][0]["contextWindow"] == 272_000
 
@@ -236,7 +236,7 @@ def test_observational_memory_compaction_precedes_native_threshold():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     config = settings["observational-memory"]
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
-    sol_context = catalog["gpt-5.6-sol"]["venues"][0]["contextWindow"]
+    sol_context = catalog["gpt-6.1-sol"]["venues"][0]["contextWindow"]
 
     assert "npm:pi-observational-memory@3.0.3" in settings["packages"]
     assert config["compactAfterTokens"] == 81_000
@@ -279,7 +279,7 @@ def test_observational_memory_workers_use_low_thinking_sol():
 
     assert config["model"] == {
         "provider": "openai-codex",
-        "id": "gpt-5.6-sol",
+        "id": "gpt-6.1-sol",
         "thinking": "low",
     }
     assert config["model"]["thinking"] not in {"medium", "high", "xhigh"}

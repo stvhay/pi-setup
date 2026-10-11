@@ -10,7 +10,7 @@ SETTINGS = AGENT / "settings.json"
 MODELS = AGENT / "models.json"
 CATALOG = AGENT / "catalog.json"
 APPROVED_OPENROUTER_MODELS = {
-    "openrouter/anthropic/claude-opus-5",
+    "openrouter/anthropic/claude-opus-5.5",
     "openrouter/minimax/minimax-m3",
     "openrouter/moonshotai/kimi-k2.7-code",
     "openrouter/moonshotai/kimi-k3",
@@ -51,7 +51,7 @@ def test_builtin_openrouter_uses_only_bounded_model_overrides():
     assert set(models["providers"]) == {"openai-codex", "openrouter"}
     assert set(provider) == {"modelOverrides"}
     assert set(provider["modelOverrides"]) == {
-        "anthropic/claude-opus-5",
+        "anthropic/claude-opus-5.5",
         "minimax/minimax-m3",
         "moonshotai/kimi-k2.7-code",
         "moonshotai/kimi-k3",
@@ -87,7 +87,7 @@ def test_review_skill_matches_approved_astra_first_diversity_matrix():
     assert "**Subscription-backed default:** `openai-codex/gpt-6-astra` at routed medium or high thinking" in skill
     assert "**Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`" in skill
     assert "openrouter/moonshotai/kimi-k2.7-code" in skill
-    assert "openrouter/anthropic/claude-opus-5" in skill
+    assert "openrouter/anthropic/claude-opus-5.5" in skill
     assert "Kimi K3 is never an automatic review target" in skill
     assert "Only tracked Codex and OpenRouter routes are configured" in skill
 
@@ -112,11 +112,14 @@ def test_lasting_routing_and_output_policy_documents_evidence_and_rollback():
 def test_approved_openrouter_models_have_cataloged_runtime_metadata():
     families = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
     assert set(families) == {
-        "gpt-6-astra",
         "gpt-5.6-sol",
-        "gpt-5.6-terra",
         "gpt-5.6-luna",
         "claude-opus-5",
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-5.6-terra",
+        "gpt-6-luna",
+        "claude-opus-5.5",
         "minimax-m3",
         "kimi-k2.7-code",
         "kimi-k3",
@@ -138,10 +141,10 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
             "contextWindow": 1_048_576,
             "rates": {"input": 3.0, "output": 15.0, "cacheRead": 0.3},
         },
-        "claude-opus-5": {
-            "target": "openrouter/anthropic/claude-opus-5",
+        "claude-opus-5.5": {
+            "target": "openrouter/anthropic/claude-opus-5.5",
             "contextWindow": 1_000_000,
-            "rates": {"input": 5.0, "output": 25.0, "cacheRead": 0.5, "cacheWrite": 6.25},
+            "rates": {"input": 4.0, "output": 20.0, "cacheRead": 0.2, "cacheWrite": 5.0},
         },
         "glm-5.3-flash": {
             "target": "openrouter/z-ai/glm-5.3-flash",
@@ -159,12 +162,76 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
         assert family["openrouterRates"] == wanted["rates"]
 
 
+def test_active_task_targets_and_workers_have_enabled_cataloged_overrides(common):
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    enabled = set(settings["enabledModels"])
+    families = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+    venues = {
+        venue["target"]: venue
+        for family in families.values()
+        for venue in family["venues"]
+    }
+    providers = json.loads(MODELS.read_text(encoding="utf-8"))["providers"]
+    route_keys = ("preferred", "qualified", "reviewLow", "reviewMedium", "reviewHigh", "reserveReview", "hardCapReview")
+    for path in sorted((AGENT / "tasks").glob("*.md")):
+        meta, _ = common.parse_frontmatter_file(path)
+        for key in route_keys:
+            for target in meta.get(key, []):
+                assert target in enabled, (path.name, key, target)
+                assert target in venues, (path.name, key, target)
+                assert venues[target]["billingClass"] in {"subscription", "metered"}
+    for provider, config in providers.items():
+        for model in config["modelOverrides"]:
+            target = f"{provider}/{model}"
+            assert target in enabled
+            assert target in venues
+    worker = settings["observational-memory"]["model"]
+    assert f"{worker['provider']}/{worker['id']}" in enabled & venues.keys()
+
+
+def test_retired_catalog_facts_remain_separate_and_disabled(common):
+    enabled = json.loads(SETTINGS.read_text(encoding="utf-8"))["enabledModels"]
+    for target, family in (
+        ("openai-codex/gpt-5.6-sol", "gpt-5.6-sol"),
+        ("openai-codex/gpt-5.6-luna", "gpt-5.6-luna"),
+        ("openrouter/anthropic/claude-opus-5", "claude-opus-5"),
+    ):
+        assert target not in enabled
+        assert common.family_for_target(target) == family
+    assert common.opportunity_rates("openai-codex/gpt-5.6-luna") == {
+        "input": 0.75, "output": 4.5, "cacheRead": 0.0, "cacheWrite": 0.0,
+    }
+    assert common.opportunity_rates("openrouter/anthropic/claude-opus-5") == {
+        "input": 5.0, "output": 25.0, "cacheRead": 0.5, "cacheWrite": 6.25,
+    }
+
+
+def test_october_codex_metadata_does_not_inherit_old_audio_or_effort():
+    families = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+    for family, off in (("gpt-6.1-sol", None), ("gpt-6-luna", "none")):
+        venue = families[family]["venues"][0]
+        assert venue["target"] == f"openai-codex/{family}"
+        assert venue["input"] == ["text", "image"]
+        assert venue["contextWindow"] == 272_000
+        assert venue["reasoning"] is True
+        assert venue["billingClass"] == "subscription"
+        assert venue["thinkingLevelMap"] == {
+            "off": off, "minimal": "low", "low": "low", "medium": "medium",
+            "high": "high", "xhigh": "xhigh", "max": "max",
+        }
+    opus = families["claude-opus-5.5"]["venues"][0]
+    assert opus["thinkingLevelMap"] == {
+        "off": None, "minimal": None, "low": "low", "medium": "medium",
+        "high": "high", "xhigh": "xhigh", "max": "max",
+    }
+
+
 def test_approved_dispatch_roles_use_direct_openrouter_targets():
     task = lambda name: (AGENT / "tasks" / f"{name}.md").read_text(encoding="utf-8")
 
     assert "openrouter/minimax/minimax-m3" in task("cheap-peer")
     assert "openrouter/moonshotai/kimi-k2.7-code" in task("implementation")
     assert "openrouter/moonshotai/kimi-k2.7-code" in task("review")
-    assert "openrouter/anthropic/claude-opus-5" in task("review")
+    assert "openrouter/anthropic/claude-opus-5.5" in task("review")
     assert "openrouter/moonshotai/kimi-k3" not in task("implementation")
     assert "openrouter/moonshotai/kimi-k3" not in task("cheap-peer")

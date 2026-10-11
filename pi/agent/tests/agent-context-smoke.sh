@@ -13,9 +13,9 @@ bin/agnt tasks >/tmp/agnt-tasks.txt
 rg -n "orchestration|review|research" /tmp/agnt-tasks.txt >/dev/null
 
 bin/agnt tasks --models >/tmp/agnt-task-models.txt
-rg -n "openai-codex/gpt-5\.6-sol" /tmp/agnt-task-models.txt >/dev/null
+rg -nF "openai-codex/gpt-6.1-sol" /tmp/agnt-task-models.txt >/dev/null
 rg -n "openrouter/minimax/minimax-m3" /tmp/agnt-task-models.txt >/dev/null
-rg -n "openrouter/anthropic/claude-opus-5" /tmp/agnt-task-models.txt >/dev/null
+rg -nF "openrouter/anthropic/claude-opus-5.5" /tmp/agnt-task-models.txt >/dev/null
 
 bin/agnt metrics -h >/tmp/agnt-metrics-help.txt
 rg -n "status|consolidate|reset|prune|annotate" /tmp/agnt-metrics-help.txt >/dev/null

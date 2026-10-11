@@ -72,7 +72,7 @@ def usage_tokens(input_tokens=1_000_000, output_tokens=1_000_000):
 def test_route_cost_rank_cheap_budget_orders_subscription_before_metered(agnt):
     info = agnt.configured_model_info()
     subscription = agnt.route_cost_rank(
-        "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "cheap"
+        "openai-codex/gpt-6.1-sol", info["openai-codex/gpt-6.1-sol"], "cheap"
     )
     metered = agnt.route_cost_rank(
         "openrouter/minimax/minimax-m3", info["openrouter/minimax/minimax-m3"], "cheap"
@@ -83,7 +83,7 @@ def test_route_cost_rank_cheap_budget_orders_subscription_before_metered(agnt):
 def test_route_cost_rank_quality_budget_prefers_frontier(agnt):
     info = agnt.configured_model_info()
     frontier = agnt.route_cost_rank(
-        "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "quality"
+        "openai-codex/gpt-6.1-sol", info["openai-codex/gpt-6.1-sol"], "quality"
     )
     cheap = agnt.route_cost_rank(
         "openrouter/minimax/minimax-m3", info["openrouter/minimax/minimax-m3"], "quality"
@@ -93,10 +93,10 @@ def test_route_cost_rank_quality_budget_prefers_frontier(agnt):
 
 def test_configured_model_info_loads_catalog(agnt):
     info = agnt.configured_model_info()
-    codex = info["openai-codex/gpt-5.6-sol"]
+    codex = info["openai-codex/gpt-6.1-sol"]
     assert codex["costClass"] == "frontier"
     assert codex["reasoning"] is True
-    assert codex["family"] == "gpt-5.6-sol"
+    assert codex["family"] == "gpt-6.1-sol"
     m3 = info["openrouter/minimax/minimax-m3"]
     assert m3["family"] == "minimax-m3"
     assert m3["cost"] == {"input": 0.3, "output": 1.2, "cacheRead": 0.06}
@@ -104,16 +104,16 @@ def test_configured_model_info_loads_catalog(agnt):
 
 def test_catalog_marks_subscription_and_metered_billing(agnt):
     info = agnt.configured_model_info()
-    assert info["openai-codex/gpt-5.6-sol"]["billingClass"] == "subscription"
+    assert info["openai-codex/gpt-6.1-sol"]["billingClass"] == "subscription"
     assert info["openrouter/minimax/minimax-m3"]["billingClass"] == "metered"
-    assert info["openrouter/anthropic/claude-opus-5"]["billingClass"] == "metered"
+    assert info["openrouter/anthropic/claude-opus-5.5"]["billingClass"] == "metered"
 
 
 def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
     info = agnt.configured_model_info()
     assert (
         agnt.choose_thinking_level(
-            "high", "balanced", info["openai-codex/gpt-5.6-sol"]
+            "high", "balanced", info["openai-codex/gpt-6.1-sol"]
         )
         == "high"
     )
@@ -121,7 +121,7 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
         agnt.choose_thinking_level(
             "medium",
             "balanced",
-            info["openai-codex/gpt-5.6-luna"],
+            info["openai-codex/gpt-6-luna"],
         )
         == "medium"
     )
@@ -195,10 +195,10 @@ def test_high_risk_quality_fallbacks_stay_subscription_without_metered_budget(ag
     assert result["selected"] == "openai-codex/gpt-6-astra"
     assert result["fallbacks"] == [
         "openai-codex/gpt-5.6-terra",
-        "openai-codex/gpt-5.6-sol",
+        "openai-codex/gpt-6.1-sol",
     ]
     assert any(
-        item["target"] == "openrouter/anthropic/claude-opus-5"
+        item["target"] == "openrouter/anthropic/claude-opus-5.5"
         and "metered execution requires" in item["reason"]
         for item in result["rejectedCandidates"]
     )
@@ -637,7 +637,7 @@ def test_verification_phases_eval_preserves_final_gate_and_baseline_truth():
     prompt = (eval_dir / "prompt.md").read_text(encoding="utf-8")
 
     assert spec["skill"] == "../../skills/verification-before-completion/SKILL.md"
-    assert spec["defaultModels"] == ["openai-codex/gpt-5.6-luna"]
+    assert spec["defaultModels"] == ["openai-codex/gpt-6-luna"]
     expected = [
         "BASELINE: RECORD_ONCE",
         "BASELINE_FAILURE: PRE_EXISTING",
@@ -893,7 +893,7 @@ def test_review_policy_targets_vary_by_risk_and_paid_spend(agnt):
     astra = "openai-codex/gpt-6-astra"
     terra = "openai-codex/gpt-5.6-terra"
     kimi = "openrouter/moonshotai/kimi-k2.7-code"
-    opus = "openrouter/anthropic/claude-opus-5"
+    opus = "openrouter/anthropic/claude-opus-5.5"
 
     assert agnt.review_policy_targets(meta, "low", 0.0) == ([astra], "normal")
     assert agnt.review_policy_targets(meta, "medium", 0.0) == ([astra, kimi], "normal")
@@ -917,6 +917,8 @@ def test_paid_review_spend_counts_monthly_marginal_cost_only(agnt):
         record("m3", "openrouter/minimax/minimax-m3", 0.25),
         record("kimi", "openrouter/moonshotai/kimi-k2.7-code", 4.0),
         record("subscription", "openai-codex/gpt-5.6-terra", 8.0, source="provider-reported"),
+        record("retired-sol", "openai-codex/gpt-5.6-sol", 8.0, source="provider-reported"),
+        record("retired-luna", "openai-codex/gpt-5.6-luna", 8.0, source="provider-reported"),
         record("retired-metered", "retired-relay/model", 2.0),
         record("old", "openrouter/minimax/minimax-m3", 9.0, started="2026-06-30T23:59:59Z"),
         record("other-task", "openrouter/minimax/minimax-m3", 9.0, task="research"),
@@ -938,15 +940,15 @@ def test_unbudgeted_high_risk_review_fanout_stays_subscription_only(agnt):
 
     assert result["reviewPolicyTargets"] == [
         "openai-codex/gpt-6-astra",
-        "openrouter/anthropic/claude-opus-5",
+        "openrouter/anthropic/claude-opus-5.5",
     ]
     assert result["reviewBudgetState"] == "normal"
-    assert "openrouter/anthropic/claude-opus-5" not in result["candidateOrder"]
+    assert "openrouter/anthropic/claude-opus-5.5" not in result["candidateOrder"]
     assert [item["target"] for item in result["fanout"]] == [
         "openai-codex/gpt-6-astra"
     ]
     assert any(
-        item["target"] == "openrouter/anthropic/claude-opus-5"
+        item["target"] == "openrouter/anthropic/claude-opus-5.5"
         and "metered execution requires" in item["reason"]
         for item in result["rejectedCandidates"]
     )
@@ -1124,9 +1126,9 @@ def test_quality_rank_prefers_subscription_within_same_cost_class(agnt):
     info = agnt.configured_model_info()
 
     assert agnt.route_cost_rank(
-        "openai-codex/gpt-5.6-sol", info["openai-codex/gpt-5.6-sol"], "quality"
+        "openai-codex/gpt-6.1-sol", info["openai-codex/gpt-6.1-sol"], "quality"
     ) < agnt.route_cost_rank(
-        "openrouter/anthropic/claude-opus-5", info["openrouter/anthropic/claude-opus-5"], "quality"
+        "openrouter/anthropic/claude-opus-5.5", info["openrouter/anthropic/claude-opus-5.5"], "quality"
     )
 
 
@@ -1236,9 +1238,9 @@ def test_approved_matrix_uses_task_specific_thinking_levels(agnt):
         "openai-codex/gpt-5.6-terra",
         "low",
     )
-    assert "openai-codex/gpt-5.6-luna" not in planning["candidateOrder"]
-    assert "openai-codex/gpt-5.6-luna" not in research["candidateOrder"]
-    assert "openai-codex/gpt-5.6-luna" not in review["candidateOrder"]
+    assert "openai-codex/gpt-6-luna" not in planning["candidateOrder"]
+    assert "openai-codex/gpt-6-luna" not in research["candidateOrder"]
+    assert "openai-codex/gpt-6-luna" not in review["candidateOrder"]
     assert implementation["thinkingLevel"] == "medium"
     assert (low_orchestration["selected"], low_orchestration["thinkingLevel"]) == (
         "openai-codex/gpt-6-astra",
@@ -1274,10 +1276,15 @@ def test_astra_matrix_floor_capabilities_and_fallback(agnt):
                 assert (result["selected"], result["thinkingLevel"]) == (target, effort)
                 assert result["selection"]["billingClass"] == "subscription"
                 assert result["selection"]["limits"] == {}
-                assert "openai-codex/gpt-5.6-sol" in result["candidateOrder"]
+                assert "openai-codex/gpt-6.1-sol" in result["candidateOrder"]
     audio = agnt.select_model("research", modality="audio", use_history=False)
-    assert audio["selected"] == "openai-codex/gpt-5.6-sol"
-    assert target not in audio["candidateOrder"]
+    assert audio["routeStatus"] == "no_candidate"
+    assert audio["candidateOrder"] == []
+    for model in (target, "openai-codex/gpt-6.1-sol"):
+        assert any(
+            item["target"] == model and item["reason"] == "missing modality audio"
+            for item in audio["rejectedCandidates"]
+        )
     oversized = agnt.select_model("research", context_tokens=272_001, use_history=False)
     assert oversized["routeStatus"] == "no_candidate"
 

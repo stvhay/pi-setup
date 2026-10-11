@@ -4,7 +4,7 @@
   "summary": "Verify baseline, stable-candidate, focused-repair, and final-gate decisions without hiding failures or rerunning complete gates early.",
   "kind": "invoke",
   "task": "review",
-  "defaultModels": ["openai-codex/gpt-5.6-luna"],
+  "defaultModels": ["openai-codex/gpt-6-luna"],
   "skill": "../../skills/verification-before-completion/SKILL.md",
   "prompt": "prompt.md",
   "assert": {

@@ -4,7 +4,7 @@
   "summary": "Smoke-test independent closeout scenarios without redundant skill stacking or weakened gates.",
   "kind": "invoke",
   "task": "orchestration",
-  "defaultModels": ["openai-codex/gpt-5.6-luna"],
+  "defaultModels": ["openai-codex/gpt-6-luna"],
   "skill": "../../skills/finishing-a-development-branch/SKILL.md",
   "prompt": "prompt.md",
   "assert": {

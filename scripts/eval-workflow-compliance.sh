@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 MODEL_PROVIDER=${MODEL_PROVIDER:-openai-codex}
-MODEL=${MODEL:-gpt-5.6-luna}
+MODEL=${MODEL:-gpt-6-luna}
 OUT_ROOT=${OUT_ROOT:-/tmp/pi-workflow-evals}
 RUN_STAMP=$(date +%Y%m%d-%H%M%S)
 RUN_ID=""
@@ -42,7 +42,7 @@ Options:
 
 Environment:
   MODEL_PROVIDER   Pi provider. Default: openai-codex
-  MODEL            Pi model. Default: gpt-5.6-luna
+  MODEL            Pi model. Default: gpt-6-luna
   OUT_ROOT         Output root. Default: /tmp/pi-workflow-evals
   WORKFLOW_EVAL_CASE_TIMEOUT_SECONDS
                    Per-case absolute timeout in decimal seconds, without a

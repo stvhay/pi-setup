@@ -30,7 +30,7 @@ Use `agnt route --task review --access self-contained` for complete discovery pa
 - **Subscription-backed default:** `openai-codex/gpt-6-astra` at routed medium or high thinking.
 - **Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`, used for matched canaries or explicit independent checks.
 - **Medium-risk diversity:** `openrouter/moonshotai/kimi-k2.7-code`, scoped and one-shot.
-- **High-risk independent reviewer:** `openrouter/anthropic/claude-opus-5`, scoped and one-shot; human adjudication remains required for consequential findings.
+- **High-risk independent reviewer:** `openrouter/anthropic/claude-opus-5.5`, scoped and one-shot; human adjudication remains required for consequential findings.
 - **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3`.
 - **Canary only:** `openrouter/minimax/minimax-m3` until accepted-output evidence supports promotion.
 
@@ -125,7 +125,7 @@ Policy by risk:
 
 - **Low:** subscription-backed Astra at medium thinking for a behavioral pass.
 - **Medium:** Astra at medium thinking. Add Kimi K2.7 Code only when explicit metered evidence and budget make it eligible.
-- **High:** Astra at high thinking. Add Opus 5 only when explicit metered evidence and budget make it eligible; human adjudicates consequential findings.
+- **High:** Astra at high thinking. Add Opus 5.5 only when explicit metered evidence and budget make it eligible; human adjudicates consequential findings.
 - **Reserve/hard cap or missing metered evidence:** use the subscription-backed Astra target returned by `agnt route`.
 
 Send one `subagent` call. Use `task` for one pass or `tasks` for parallel passes. Each task embeds one complete packet and sets:

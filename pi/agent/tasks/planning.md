@@ -6,8 +6,8 @@ preferred:
 qualified:
   - openrouter/minimax/minimax-m3
   - openrouter/moonshotai/kimi-k2.7-code
-  - openrouter/anthropic/claude-opus-5
-  - openai-codex/gpt-5.6-sol
+  - openrouter/anthropic/claude-opus-5.5
+  - openai-codex/gpt-6.1-sol
 thinkingLow: medium
 thinkingMedium: medium
 thinkingHigh: medium

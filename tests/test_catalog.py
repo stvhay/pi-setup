@@ -2,16 +2,15 @@
 
 
 def test_family_resolution_for_active_venues(common):
-    assert common.family_for_target("openai-codex/gpt-5.6-sol") == "gpt-5.6-sol"
+    assert common.family_for_target("openai-codex/gpt-6.1-sol") == "gpt-6.1-sol"
     assert common.family_for_target("openrouter/minimax/minimax-m3") == "minimax-m3"
     assert common.family_for_target("openrouter/moonshotai/kimi-k3") == "kimi-k3"
     assert common.family_for_target("unknown/model") is None
 
 
 def test_catalog_opportunity_rates(common):
-    rates = common.opportunity_rates("openai-codex/gpt-5.6-luna")
-    assert rates["input"] == 0.75
-    assert rates["output"] == 4.5
+    rates = common.opportunity_rates("openai-codex/gpt-6-luna")
+    assert rates == {"input": 0.1, "output": 0.5, "cacheRead": 0.01, "cacheWrite": 0.125}
 
     rates = common.opportunity_rates("openrouter/minimax/minimax-m3")
     assert rates["input"] == 0.3

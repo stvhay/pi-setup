@@ -5,7 +5,7 @@
   "kind": "invoke",
   "task": "cheap-peer",
   "skill": "../../skills/systematic-debugging/SKILL.md",
-  "defaultModels": ["openai-codex/gpt-5.6-luna"],
+  "defaultModels": ["openai-codex/gpt-6-luna"],
   "prompt": "prompt.md",
   "assert": {
     "nonEmptyOutput": true,

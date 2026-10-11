@@ -5,10 +5,10 @@ preferred:
   - openai-codex/gpt-6-astra
 qualified:
   - openai-codex/gpt-5.6-terra
-  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-6-luna
   - openrouter/moonshotai/kimi-k2.7-code
   - openrouter/minimax/minimax-m3
-  - openai-codex/gpt-5.6-sol
+  - openai-codex/gpt-6.1-sol
 thinkingLow: medium
 thinkingMedium: medium
 thinkingHigh: high

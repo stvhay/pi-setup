@@ -468,7 +468,7 @@ def test_stalled_case_times_out_and_preserves_completed_results(tmp_path):
     assert "COMPLETE writing_plans_creates_plan status=TIMEOUT elapsed=" in result.stdout
     assert "TIMEOUT writing_plans_creates_plan: idle for 1s" in result.stderr
     assert "lastEvent=" in result.stderr
-    assert "provider/model=openai-codex/gpt-5.6-luna" in result.stderr
+    assert "provider/model=openai-codex/gpt-6-luna" in result.stderr
     assert "writing_plans_creates_plan.events.jsonl" in result.stderr
     run_dirs = [path for path in output_root.iterdir() if path.is_dir()]
     assert len(run_dirs) == 1

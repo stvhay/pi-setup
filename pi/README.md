@@ -41,7 +41,7 @@ Local deployment never applies remote evaluator changes, even when credentials a
 
 Pi's native auto-compaction threshold is `contextWindow - reserveTokens`, or 255,616 tokens with Pi's default 16,384-token reserve. Native Pi and observational memory use different token counters, but the 51,616-token configured gap keeps routine threshold crossings separate. A narrow asynchronous race can still occur around a new prompt; observational memory rechecks after deferral and rejects duplicate compaction hooks. Native and manual compactions still use the prepared observational-memory summary.
 
-Background observer, reflector, and dropper workers use `openai-codex/gpt-5.6-sol` with `low` thinking. The package exposes one shared worker model, so this cannot target reflection alone. Compaction itself does not call a model; it renders prepared memory state.
+Background observer, reflector, and dropper workers use `openai-codex/gpt-6.1-sol` with `low` thinking. The package exposes one shared worker model, so this cannot target reflection alone. Compaction itself does not call a model; it renders prepared memory state.
 
 ### Archimedes subagents
 

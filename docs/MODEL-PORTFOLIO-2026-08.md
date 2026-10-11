@@ -10,6 +10,8 @@
 
 **Amended:** 2026-09-07 by `pi-6j6t` to adopt Astra using the owner-selected effort heuristic
 
+**Amended:** 2026-10-11 by `pi-x7w4` to complete the owner-selected October model upgrades
+
 **Revisit:** After 30 days of direct OpenRouter telemetry, before any annual subscription or OpenAI Pro downgrade
 
 ## Decision
@@ -35,6 +37,16 @@ Interactive startup is medium; explicitly routed orchestration remains high beca
 Metadata comes from installed Pi's Codex model catalog checked 2026-09-07: 272,000-token context, text/image inputs, native medium/high/xhigh/max effort support. No audio claim or invented opportunity-cost rate. Existing historical Sol/Terra canaries below do not measure Astra. Deterministic routing tests cover the task/risk/budget matrix, capability filtering, fallback and spending constraints; real-model comparative performance remains unmeasured.
 
 Rollback: policy-only revert of this amendment's settings, catalog, task frontmatter, synchronized guidance and test/eval assertions. No schema, credentials, provider transport, or routing algorithm change. Live deployment requires separate approval.
+
+## October model alignment
+
+Owner confirmed completing the settings-only upgrade in commit `776f79e`: use `openai-codex/gpt-6.1-sol`, `openai-codex/gpt-6-luna`, and `openrouter/anthropic/claude-opus-5.5` throughout active catalog, task routes, overrides, worker settings and operational eval defaults. Astra remains controller with the same effort matrix; Terra remains challenger. Sol 6.1 remains qualified fallback and supplies memory workers at low thinking; Luna 6 remains fallback only in its existing task roles.
+
+Facts were read offline from installed Pi 1.1.0's `@earendil-works/pi-ai/dist/providers/{openai-codex,openrouter}.models.js` on 2026-10-11. Sol 6.1 and Luna 6 have 272,000-token Codex context and text/image inputs, **not audio**. Both support native low/medium/high/xhigh/max; minimal maps to low. Sol does not support off; Luna maps off to none. Research therefore has no eligible audio target under the current task portfolio. Opus 5.5 has 1,000,000-token context, text/image inputs, native low/medium/high/xhigh/max and no off/minimal support. Its OpenRouter rates per million tokens are $4 input, $20 output, $0.20 cache read and $5 cache write; the 16,384-token operational output cap remains. Luna 6's base OpenRouter opportunity rates are $0.10 input, $0.50 output, $0.01 cache read and $0.125 cache write, not subscription cash spend. Higher-context price tiers are outside the 272,000-token Codex cap; no OpenRouter Luna route is added.
+
+Metered estimates, justification, aggregate budget, fresh-worker rules, provider circuits and spend thresholds are unchanged. Historical Sol 5.6/Luna 5.6 calibration manifests and results remain version-pinned; they are not evidence of new-model performance. Retired catalog entries and generic historical telemetry fixtures retain old IDs and facts, without enabled targets or active task routes. This preserves subscription-spend classification and historical rates without transferring old-model outcomes to upgraded families. No model calls, remote metadata refresh, or live deployment were performed. Provider availability and comparative quality remain unverified.
+
+Rollback is a policy-only revert of this amendment and its synchronized configuration/tests, not a routing-code or state migration. Live deployment still requires separate approval.
 
 ## Lasting routing and output policy
 
@@ -71,7 +83,7 @@ Consequences:
 | Bulk/canary peer | `openrouter/minimax/minimax-m3` | Cheap bounded critique, extraction, research, or decomposed workstream; shadow/canary until qualified |
 | Coding/review challenger | `openrouter/moonshotai/kimi-k2.7-code` | Different-family coding or normal-review check |
 | Frontier escalation | `openrouter/moonshotai/kimi-k3` | Concrete unresolved critical issue only, after budget and evidence gates |
-| Independent high-risk reviewer | `openrouter/anthropic/claude-opus-5` | Architecture, high-risk review, or phase checkpoint |
+| Independent high-risk reviewer | `openrouter/anthropic/claude-opus-5.5` | Architecture, high-risk review, or phase checkpoint |
 | Manual canary | `openrouter/z-ai/glm-5.3-flash` | Revealed Ox Alpha successor; picker-only until direct OpenRouter evidence supports task routing |
 
 GLM-5.2 remains unconfigured. GLM-5.3-Flash is enabled only for manual canaries; no task route selects it automatically.
@@ -85,13 +97,13 @@ All metered OpenRouter calls use fresh workers with bounded complete packets. Th
 | Precise, repetitive work | Terra — low through `cheap-peer` | Luna fallback; M3 bounded shadow sample |
 | Planning and research | Astra — medium at every risk | Terra-low advisory pass; bounded different-family critique |
 | Normal code review | Astra — medium | Terra challenger; explicitly budgeted Kimi K2.7 Code diversity pass |
-| Complex/high-risk review | Astra — high | Explicitly budgeted Opus 5; Terra challenger; human adjudication |
+| Complex/high-risk review | Astra — high | Explicitly budgeted Opus 5.5; Terra challenger; human adjudication |
 | Moderate coding | Astra — medium | Kimi K2.7 Code |
-| Orchestration/main agent | Astra — medium startup; high routed orchestration | Opus 5 at phase checkpoints only |
-| Ambiguous change/architecture | Astra — high | Opus 5 |
+| Orchestration/main agent | Astra — medium startup; high routed orchestration | Opus 5.5 at phase checkpoints only |
+| Ambiguous change/architecture | Astra — high | Opus 5.5 |
 | Difficult debugging | Astra — high | Kimi K3 high after two failed hypotheses |
-| Exceptional single problem | Astra — explicit max override | Opus 5; Kimi K3 max only if unresolved |
-| Large decomposable project | Ultra-capability OpenAI coordinator | M3/Luna workstreams; Opus 5 final gate |
+| Exceptional single problem | Astra — explicit max override | Opus 5.5; Kimi K3 max only if unresolved |
+| Large decomposable project | Ultra-capability OpenAI coordinator | M3/Luna workstreams; Opus 5.5 final gate |
 
 Use provider-native/default effort when Pi exposes no model-specific control. Never claim an unsupported effort level.
 
@@ -108,8 +120,8 @@ This is an external-primary canary, not the default. Highest-risk control remain
 | Orchestration/main agent | M3 bounded phase | Astra high at every phase boundary |
 | Architecture | M3 draft | Astra high final decision |
 | Difficult debugging | M3 hypotheses/tests | Astra high after narrowing |
-| Exceptional single problem | Keep Astra maximum as primary | Opus 5 or Kimi K3 independent check |
-| Large decomposable project | Keep OpenAI coordinator; M3 workstreams | Terra extra high + Opus 5 integration gate |
+| Exceptional single problem | Keep Astra maximum as primary | Opus 5.5 or Kimi K3 independent check |
+| Large decomposable project | Keep OpenAI coordinator; M3 workstreams | Terra extra high + Opus 5.5 integration gate |
 
 ## Spend and promotion gates
 

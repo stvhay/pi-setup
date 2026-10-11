@@ -11,7 +11,7 @@
     },
     {
       "name": "implementation-worker-role",
-      "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-5.6-luna"],
+      "args": ["--role", "implementation-worker", "--context", "openai-codex/gpt-6-luna"],
       "contains": ["# Role: implementation worker", "Do not push, merge, reset, clean", "agnt work direct-start <id> [--claim]", "Work directly in the current Pi session by default", "implementation approval includes staging and one local atomic commit", "Ticket gateway, run artifacts, worktree-per-epic dispatch, and strict orchestration are opt-in", "Use transient `ask`", "Use durable `ticket_question`", "Approvals are not questions", "# Project Instructions"]
     },
     {
@@ -21,12 +21,12 @@
     },
     {
       "name": "finding-discoverer-role",
-      "args": ["--role", "finding-discoverer", "--context", "openai-codex/gpt-5.6-luna"],
+      "args": ["--role", "finding-discoverer", "--context", "openai-codex/gpt-6-luna"],
       "contains": ["# Role: finding discoverer", "specific failure scenario", "review-findings.schema.json"]
     },
     {
       "name": "finding-verifier-role",
-      "args": ["--role", "finding-verifier", "--context", "openai-codex/gpt-5.6-sol"],
+      "args": ["--role", "finding-verifier", "--context", "openai-codex/gpt-6.1-sol"],
       "contains": ["# Role: finding verifier", "Treat every discovery finding as a hypothesis to refute", "confirmed", "refuted", "unresolved"]
     }
   ]

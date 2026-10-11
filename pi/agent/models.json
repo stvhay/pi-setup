@@ -2,13 +2,13 @@
   "providers": {
     "openai-codex": {
       "modelOverrides": {
-        "gpt-5.6-sol": {
+        "gpt-6.1-sol": {
           "contextWindow": 272000
         },
         "gpt-5.6-terra": {
           "contextWindow": 272000
         },
-        "gpt-5.6-luna": {
+        "gpt-6-luna": {
           "contextWindow": 272000
         }
       }
@@ -24,7 +24,7 @@
         "moonshotai/kimi-k3": {
           "maxTokens": 16384
         },
-        "anthropic/claude-opus-5": {
+        "anthropic/claude-opus-5.5": {
           "maxTokens": 16384
         },
         "z-ai/glm-5.3-flash": {

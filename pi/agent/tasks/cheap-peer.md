@@ -4,7 +4,7 @@ summary: Low-cost advisory passes, critique, classification, or simple extractio
 preferred:
   - openai-codex/gpt-5.6-terra
 qualified:
-  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-6-luna
   - openrouter/minimax/minimax-m3
   - openrouter/moonshotai/kimi-k2.7-code
 thinkingLow: low

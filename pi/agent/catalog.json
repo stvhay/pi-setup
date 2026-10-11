@@ -23,21 +23,23 @@
         }
       ]
     },
-    "gpt-5.6-sol": {
+    "gpt-6.1-sol": {
       "venues": [
         {
-          "target": "openai-codex/gpt-5.6-sol",
+          "target": "openai-codex/gpt-6.1-sol",
           "costClass": "frontier",
           "billingClass": "subscription",
           "reasoning": true,
           "thinkingLevelMap": {
-            "minimal": null,
-            "low": "instant",
+            "off": null,
+            "minimal": "low",
+            "low": "low",
             "medium": "medium",
             "high": "high",
-            "xhigh": "extra high"
+            "xhigh": "xhigh",
+            "max": "max"
           },
-          "input": ["text", "image", "audio"],
+          "input": ["text", "image"],
           "contextWindow": 272000
         }
       ]
@@ -61,43 +63,52 @@
         }
       ]
     },
-    "gpt-5.6-luna": {
+    "gpt-6-luna": {
       "openrouterRates": {
-        "input": 0.75,
-        "output": 4.5
+        "input": 0.1,
+        "output": 0.5,
+        "cacheRead": 0.01,
+        "cacheWrite": 0.125
       },
       "venues": [
         {
-          "target": "openai-codex/gpt-5.6-luna",
+          "target": "openai-codex/gpt-6-luna",
           "costClass": "balanced",
           "billingClass": "subscription",
           "reasoning": true,
           "thinkingLevelMap": {
-            "minimal": null,
-            "low": "instant",
+            "off": "none",
+            "minimal": "low",
+            "low": "low",
             "medium": "medium",
             "high": "high",
-            "xhigh": "extra high"
+            "xhigh": "xhigh",
+            "max": "max"
           },
-          "input": ["text", "image", "audio"],
+          "input": ["text", "image"],
           "contextWindow": 272000
         }
       ]
     },
-    "claude-opus-5": {
+    "claude-opus-5.5": {
       "openrouterRates": {
-        "input": 5.0,
-        "output": 25.0,
-        "cacheRead": 0.5,
-        "cacheWrite": 6.25
+        "input": 4.0,
+        "output": 20.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 5.0
       },
       "venues": [
         {
-          "target": "openrouter/anthropic/claude-opus-5",
+          "target": "openrouter/anthropic/claude-opus-5.5",
           "costClass": "frontier",
           "billingClass": "metered",
           "reasoning": true,
           "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
             "xhigh": "xhigh",
             "max": "max"
           },
@@ -192,6 +203,70 @@
           },
           "input": ["text", "image"],
           "contextWindow": 1310720
+        }
+      ]
+    },
+    "gpt-5.6-sol": {
+      "venues": [
+        {
+          "target": "openai-codex/gpt-5.6-sol",
+          "costClass": "frontier",
+          "billingClass": "subscription",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "low": "instant",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "extra high"
+          },
+          "input": ["text", "image", "audio"],
+          "contextWindow": 272000
+        }
+      ]
+    },
+    "gpt-5.6-luna": {
+      "openrouterRates": {
+        "input": 0.75,
+        "output": 4.5
+      },
+      "venues": [
+        {
+          "target": "openai-codex/gpt-5.6-luna",
+          "costClass": "balanced",
+          "billingClass": "subscription",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "low": "instant",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "extra high"
+          },
+          "input": ["text", "image", "audio"],
+          "contextWindow": 272000
+        }
+      ]
+    },
+    "claude-opus-5": {
+      "openrouterRates": {
+        "input": 5.0,
+        "output": 25.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      },
+      "venues": [
+        {
+          "target": "openrouter/anthropic/claude-opus-5",
+          "costClass": "frontier",
+          "billingClass": "metered",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "input": ["text", "image"],
+          "contextWindow": 1000000
         }
       ]
     }
