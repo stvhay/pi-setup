@@ -1,6 +1,6 @@
 ---
 name: stamp-cast
-description: Use when analyzing an accident, incident, near-miss, root-cause claim, or failed controls through a systemic retrospective lens.
+description: Use when reviewing accidents/incidents/near-misses, root-cause claims or failed controls systemically.
 ---
 
 # CAST (Causal Analysis based on System Theory)

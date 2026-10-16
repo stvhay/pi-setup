@@ -1,6 +1,6 @@
 ---
 name: stamp-stpa-sec
-description: Use when threat-modeling control structures, especially adversarial, cyber, attack-surface, or combined security/safety risks.
+description: Use when threat-modeling control structures; adversarial/cyber, attack-surface or security/safety risks.
 ---
 
 # STPA-Sec: Security Analysis Extension

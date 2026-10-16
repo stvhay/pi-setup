@@ -1,6 +1,6 @@
 ---
 name: subagent-driven-development
-description: Use when implementation-plan tasks can be explored or executed independently with peers or isolated worktrees.
+description: Use when exploring/executing independent plan tasks via peers or isolated worktrees.
 ---
 
 # Subagent-Driven Development

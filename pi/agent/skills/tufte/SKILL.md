@@ -1,6 +1,6 @@
 ---
 name: tufte
-description: Use when creating or reviewing data visualizations, quantitative diagrams, small multiples, sparklines, or publication graphics in SVG, PDF, PNG, JPG, or GIF, especially Tufte-style figures for papers, books, documentation, or slides. Not for decorative illustration or image conversion without data-design work.
+description: Use when making/reviewing data graphics; quantitative diagrams, small multiples/sparklines, publication SVG/PDF/PNG/JPG/GIF. Not decoration or conversion without data design.
 ---
 
 # Tufte: evidence-first graphics

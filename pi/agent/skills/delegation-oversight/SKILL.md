@@ -1,6 +1,6 @@
 ---
 name: delegation-oversight
-description: Use when designing human-AI handoff for agentic systems - when the core problem is "when should the agent ask vs. act"
+description: Use when designing human-AI handoff or agent ask-vs-act decisions.
 ---
 
 # Delegation & Oversight

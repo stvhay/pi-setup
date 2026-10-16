@@ -1,6 +1,6 @@
 ---
 name: failure-choreography
-description: Use when designing graceful agent-system failure, partial-progress preservation, or dignified human handoff.
+description: Use when designing graceful agent failure, saved partial progress or dignified human handoff.
 ---
 
 # Failure Choreography
