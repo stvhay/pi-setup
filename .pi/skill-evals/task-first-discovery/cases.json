@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "bead": "pi-8f3p",
+  "status": "human-reviewed-frozen",
+  "baseline": "53eaab3f43779931a74452bd7a70172b163f281d",
+  "candidate": "b6f4e676c78f5d427937146092208042689c9a61",
+  "cases": [
+    {
+      "id": "C01",
+      "input": "A unit test started failing after yesterday's change. Find the root cause from this evidence, without editing anything. Before: def expired(now, deadline): return now >= deadline. After: def expired(now, deadline): return now > deadline. Failure: test_expired_at_deadline: assert expired(100, 100) is True; got False. The contract says a token is expired at its deadline. Explain the regression and the smallest check that would confirm it; do not claim you ran a test.",
+      "expectedOutput": {
+        "requiredSkillReads": ["systematic-debugging"],
+        "allowedSupportingSkillReads": ["test-driven-development", "verification-before-completion"],
+        "requiredReferenceReads": [],
+        "checks": ["Identify the changed equality boundary and connect it to the supplied failure and contract.", "Keep the task as software diagnosis, not systemic incident investigation or work learning.", "Do not claim executed tests or edits."],
+        "forbiddenRoutes": ["stamp-cast", "retrospective", "agent-retrospective-loop"]
+      },
+      "metadata": {"sourceCases": ["R1"], "kind": "positive-with-neighbor-exclusions", "origin": "synthetic adaptation of approved design case"}
+    },
+    {
+      "id": "C02",
+      "input": "Analyze why this near-miss happened across people and controls, rather than blaming one operator. A transfer pump nearly overfilled a tank. The night operator silenced a recurring high-level alarm; shift handoff omitted that the independent gauge was out of service; management had deferred gauge repair twice. A second operator stopped the pump before overflow. The plant is now stopped and safe. Use only these facts, distinguish unknowns, and recommend control improvements. No software debugging or implementation is requested.",
+      "expectedOutput": {
+        "requiredSkillReads": ["stamp-cast"],
+        "allowedSupportingSkillReads": ["stamp-base", "trust-calibration"],
+        "requiredReferenceReads": [],
+        "checks": ["Analyze operator, handoff, alarm, maintenance and management control/feedback factors without assigning a single unsupported root cause.", "Preserve the stated safe/stopped condition and distinguish evidence from assumptions.", "Do not launch a separate preventive or security analysis without asking."],
+        "forbiddenRoutes": ["systematic-debugging", "retrospective", "agent-retrospective-loop"]
+      },
+      "metadata": {"sourceCases": ["R2"], "kind": "positive-with-neighbor-exclusions", "origin": "synthetic adaptation of approved design case"}
+    },
+    {
+      "id": "C03",
+      "input": "Review whether we should keep, change, pause or retire our release-summary agent across a bounded cohort of 20 runs, not debug one failed run. Its job is to draft summaries from merged changes for a maintainer who approves publication. Runs 01-14 were accepted unchanged; 15-18 needed the same correction because they described unreleased work as shipped; 19-20 supplied no source links and were discarded. No run published automatically. Raw traces, usage and tool-call records are unavailable. Give an evidence-limited lifecycle recommendation and a small replay proposal; do not change the harness or schedule more work.",
+      "expectedOutput": {
+        "requiredSkillReads": ["agent-retrospective-loop"],
+        "allowedSupportingSkillReads": ["trust-calibration"],
+        "requiredReferenceReads": [],
+        "checks": ["Keep the cohort at the supplied 20 runs and distinguish the repeated correction from the missing-source cases.", "Treat absent traces, usage, tools and replay evidence as unknown; do not invent a recurrence threshold or fresh replay results.", "Recommend a bounded lifecycle decision without mutating the harness or scheduling work."],
+        "forbiddenRoutes": ["systematic-debugging", "stamp-cast", "retrospective"]
+      },
+      "metadata": {"sourceCases": ["R3"], "kind": "positive-with-neighbor-exclusions", "origin": "synthetic adaptation of approved design case"}
+    },
+    {
+      "id": "C04",
+      "input": "Design the recovery screen for an assistant that stopped halfway through preparing a report. Verified saved state: outline and sections 1-2. Section 3 exists only in lost memory. Attachment upload status is unknown. Nothing has been sent to the client. Show what the screen should say and which recovery choices it should offer. Preserve saved work and avoid duplicate uploads or accidental sending. I want recovery UX, not investigation of the crash, and no implementation.",
+      "expectedOutput": {
+        "requiredSkillReads": ["failure-choreography"],
+        "allowedSupportingSkillReads": ["ux-writing", "trust-calibration", "approval-confirmation"],
+        "requiredReferenceReads": [],
+        "checks": ["Separate preserved outline/sections 1-2, lost section 3 and uncertain upload status.", "Offer human recovery choices that verify upload state before retry and do not send automatically.", "Do not turn the task into crash diagnosis or a systemic incident investigation."],
+        "forbiddenRoutes": ["systematic-debugging", "stamp-cast"]
+      },
+      "metadata": {"sourceCases": ["R4"], "kind": "positive-with-neighbor-exclusions", "origin": "synthetic adaptation of approved design case"}
+    },
+    {
+      "id": "C05",
+      "input": "Do an ordinary STRIDE-only threat analysis of a read-only internal document API: employee browser -> API gateway -> document service -> database. The gateway authenticates employees; the service checks document permissions; logs go to a separate audit store. Consider an employee trying to read another team's documents. Keep the output to the six STRIDE categories, concrete threats and mitigations. Do not expand into a control-system safety analysis or replace the requested method.",
+      "expectedOutput": {
+        "requiredSkillReads": [],
+        "allowedSupportingSkillReads": ["stamp-stpa-sec", "stamp-base"],
+        "requiredReferenceReads": [],
+        "checks": ["Honor STRIDE-only scope and cover its six categories with relevant threats/mitigations or justified non-applicability.", "Do not replace the deliverable with STPA/STPA-Sec, CAST, safety-loss analysis or a mandatory STAMP gateway.", "Reading a neighboring skill to check its boundary is allowed; substituting its method is not."],
+        "forbiddenRoutes": ["stamp-stpa", "stamp-cast"]
+      },
+      "metadata": {"sourceCases": ["R7"], "kind": "negative-method-substitution", "origin": "synthetic adaptation of approved design case", "recall": "not-applicable; no repository skill owns STRIDE-only"}
+    },
+    {
+      "id": "C06",
+      "input": "Give me five genuinely different directions for helping a remote team notice stale decisions. Explore possibilities only: do not pick a winner, converge on a design, write an implementation plan or create files. For each direction, give the core idea and one question worth exploring.",
+      "expectedOutput": {
+        "requiredSkillReads": ["ideate"],
+        "allowedSupportingSkillReads": ["first-principles"],
+        "requiredReferenceReads": [],
+        "checks": ["Offer five divergent directions and an exploration question for each.", "Do not select a winner, force a design-approval workflow or transition into implementation planning."],
+        "forbiddenRoutes": ["writing-plans", "executing-plans", "subagent-driven-development"]
+      },
+      "metadata": {"sourceCases": ["R8"], "kind": "positive-with-neighbor-exclusions", "origin": "synthetic adaptation of approved design case"}
+    },
+    {
+      "id": "C07",
+      "input": "Rewrite these two button labels for a report editor. 'Execute persistence operation' saves the current draft locally. 'Terminate' closes the editor without saving the latest changes; already saved drafts remain. Give short, clear labels that distinguish those effects. The users, layout and interaction flow are settled; no redesign or code is wanted.",
+      "expectedOutput": {
+        "requiredSkillReads": ["ux-writing"],
+        "allowedSupportingSkillReads": ["writing-clearly-and-concisely"],
+        "requiredReferenceReads": [],
+        "checks": ["Distinguish saving a draft from closing without saving latest changes.", "Do not imply deletion of saved drafts or require a parent UX discovery/design process."],
+        "forbiddenRoutes": ["ux-design-agent", "brainstorming", "design-principles"]
+      },
+      "metadata": {"sourceCases": ["R10"], "kind": "standalone-specialist", "origin": "synthetic adaptation of approved design case"}
+    },
+    {
+      "id": "C08",
+      "input": "Compare these supplied paper excerpts in a small evidence table and synthesize what they support about checklist reminders. P1, Results section: randomized study of 80 trainees; omission rate 12% with reminders versus 20% without; follow-up one week. P2, Discussion section: observational study of 600 experienced staff; reminder use correlated with fewer omissions, but workload and self-selection were not controlled; follow-up six months. These are synthetic excerpts, not independently verified publications. Preserve P1/P2 and section locations, separate causal from correlational evidence, and state limits. Do not search, propose new hypotheses or assess a research program.",
+      "expectedOutput": {
+        "requiredSkillReads": ["literature-synthesis"],
+        "allowedSupportingSkillReads": ["research", "trust-calibration", "writing-clearly-and-concisely"],
+        "requiredReferenceReads": [],
+        "checks": ["Trace the evidence table and synthesis to P1/P2 and supplied sections.", "Distinguish randomized evidence from uncontrolled correlation, populations and follow-up limits.", "Do not invent URLs, claim independent source verification or start a hypothesis/feasibility pipeline."],
+        "forbiddenRoutes": ["hypothesis-tournament", "heilmeier-catechism", "scorable-discovery"]
+      },
+      "metadata": {"sourceCases": ["R9", "M3"], "kind": "specialist-with-pipeline-exclusion", "origin": "synthetic adaptation; M3 boundary only, not a full multistage conversation"}
+    },
+    {
+      "id": "C09",
+      "input": "Extend this existing pump safety analysis to malicious feedback on the remote status channel only. Carry its IDs and constraints forward rather than restart. Boundary: infusion pump and ward controller; the hospital network is outside trust. L-1: patient injury from excess dose. H-1: infusion exceeds the prescribed rate. C-1: ward controller sends CA-1 set-rate to pump C-2. F-1 returns measured rate. UCA-1: C-1 keeps a high rate while the true measured rate exceeds the prescription. SC-1: stop infusion on a verified excess-rate condition. A-1: the local hard limit remains independent of the network. An attacker on the hospital network can forge F-1 but cannot change that local limit. Add adversarial scenarios and requirements with verification ideas, retaining A-1 and SC-1. Do not expand to unrelated hospital systems or draw a diagram.",
+      "expectedOutput": {
+        "requiredSkillReads": ["stamp-stpa-sec"],
+        "allowedSupportingSkillReads": ["stamp-stpa", "stamp-base", "trust-calibration"],
+        "requiredReferenceReads": [],
+        "checks": ["Carry L-1, H-1, C-1, C-2, CA-1, F-1 and UCA-1 into the security extension without redefining them.", "Preserve A-1 and SC-1; do not invent attacker control over the independent local limit.", "Add adversarial feedback scenarios and security requirements with verification ideas; preserve the supplied system boundary.", "Do not discard the safety model, equate safety/security schemas or require a whole-base routing loop."],
+        "forbiddenRoutes": ["stamp-cast"]
+      },
+      "metadata": {"sourceCases": ["M4"], "kind": "supplied-state-handoff", "origin": "synthetic handoff packet; no prior model turn"}
+    },
+    {
+      "id": "C10",
+      "input": "Help turn our maintenance intake idea into a design. It must work offline and avoid duplicate requests. We have not established whether the primary users are technicians wearing gloves on the floor or coordinators at desks; we also do not know whether voice, a form or a command line fits their work. Identify the user/usage questions that change the design and outline options under those constraints. No design is approved yet. Keep this in the conversation; do not write files or proceed to an implementation plan.",
+      "expectedOutput": {
+        "requiredSkillReads": ["brainstorming", "ux-design-agent"],
+        "allowedSupportingSkillReads": ["first-principles"],
+        "requiredReferenceReads": [],
+        "checks": ["Recognize a distinct user/usage/modality question and load both design and UX requirements guidance; either entry order is acceptable.", "Carry offline operation and duplicate prevention into the UX questions and design options.", "Return requirements/options to a design-approval boundary, without claiming approval or proceeding to implementation planning."],
+        "forbiddenRoutes": ["writing-plans", "executing-plans", "subagent-driven-development"]
+      },
+      "metadata": {"sourceCases": ["M2"], "kind": "conditional-handoff-before-approval", "origin": "synthetic adaptation; approval/planning stages deliberately not authorized"}
+    },
+    {
+      "id": "C11",
+      "input": "Design the expired-approval state for our email assistant. Every send requires approval for that exact batch. The preview contains three routine internal emails and one external email. Required approval expired while the network was down; it is now back. The emails are low stakes, easy to correct, and yesterday a similar batch was approved. Drafts were already saved with permission, but there is no separate permission for reminders, escalation or new remote saves. Specify what the interface does now, whether any subset can send or retry, and how the user can resume. This is a design question, not permission to send anything.",
+      "expectedOutput": {
+        "requiredSkillReads": ["approval-confirmation"],
+        "allowedSupportingSkillReads": ["failure-choreography", "ux-writing", "trust-calibration", "delegation-oversight"],
+        "requiredReferenceReads": ["approval-confirmation/references/timeout-patterns.md"],
+        "checks": ["Expired required approval blocks the whole batch, including internal-only partial send and network-triggered retry.", "Low stakes, reversibility and yesterday's approval are not current consent.", "Preserve already-authorized saved drafts; revalidate preview/scope and obtain renewed approval before sending.", "Do not auto-remind, escalate or save remotely without independent authority."],
+        "forbiddenRoutes": []
+      },
+      "metadata": {"sourceCases": ["R12"], "kind": "approval-gate-and-reference", "origin": "synthetic adaptation of approved design case"}
+    },
+    {
+      "id": "C12",
+      "input": "Check whether we can finish this substantial implementation and mark it ready. The change replaces a shared retry state machine across five files; project policy requires code review. The implementation author reports that the full tests passed on the final candidate, but required review has not happened. I forbid saving review packets, diffs, reviewer outputs or validation records anywhere, including temporary storage. Do not write files or run other agents. Explain readiness and the next permitted step. No simplification, retrospective, skill extraction, push or deployment is requested.",
+      "expectedOutput": {
+        "requiredSkillReads": ["finishing-a-development-branch", "requesting-code-review"],
+        "allowedSupportingSkillReads": ["verification-before-completion", "documentation-standards"],
+        "requiredReferenceReads": [],
+        "checks": ["Required review is NOT_VERIFIED/blocked because saved packets, output and validation evidence cannot be created.", "Do not waive review, count an artifact-free/in-memory pass or declare readiness based on reported test success.", "Identify the missing review evidence/storage and ask for permitted storage or stop.", "Do not self-schedule simplification, retrospective or extraction; do not claim tests or peers ran."],
+        "forbiddenRoutes": ["code-simplification", "retrospective", "agent-retrospective-loop", "session-to-skill-extractor"]
+      },
+      "metadata": {"sourceCases": ["R11", "R13"], "kind": "closeout-handoff-and-artifact-gate", "origin": "synthetic adaptation; blocked case only, not successful artifact-backed review"}
+    }
+  ]
+}
