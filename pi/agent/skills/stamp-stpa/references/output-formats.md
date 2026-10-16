@@ -59,20 +59,7 @@ Use this schema for agent handoff, stored analysis, or machine-actionable output
 
 ## Depict control-structure notation
 
-Depict maps directly to STAMP control concepts.
-
-| Concept | Syntax | Example |
-|---|---|---|
-| Vertical hierarchy | names on separate lines | `supervisor` then `operator` then `process` |
-| Horizontal peers | end line with `-` | `sensor_a sensor_b sensor_c -` |
-| Control action | `controller process: action` | `pilot aircraft: pitch_cmd` |
-| Feedback | `process controller: / feedback` | `aircraft pilot: / altitude` |
-| Bidirectional | `a b: action / feedback` | `operator system: start / status` |
-| Multiple labels | comma-separated | `ctrl proc: open, close, stop` |
-| Nesting | `parent [ child ]` | `cockpit [ pilot copilot ]` |
-| Placeholder | `_` | `ctrl _ proc` |
-| Highlighting | `@red` suffix | `ctrl proc: unsafe_action @red` |
-| Separator | `;` | `a; b; c` |
+When a diagram is requested, read `~/.pi/agent/skills/stamp-base/references/depict.md` for the shared grammar; no whole-base skill load is needed. Machine-readable-only output does not need the diagram reference.
 
 Example:
 

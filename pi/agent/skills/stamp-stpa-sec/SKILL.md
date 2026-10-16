@@ -1,6 +1,6 @@
 ---
 name: stamp-stpa-sec
-description: Use when threat-modeling control structures; adversarial/cyber, attack-surface or security/safety risks.
+description: Use for control-structure threat modeling (STPA-Sec), attack surfaces or safety/security risks.
 ---
 
 # STPA-Sec: Security Analysis Extension
@@ -9,37 +9,11 @@ STPA-Sec extends STPA to address cybersecurity through a systems-theoretic lens.
 
 ## When to Use
 
-```dot
-digraph routing {
-    rankdir=TB;
+Use for adversarial control/feedback analysis linked to mission or safety losses, or an explicit STPA-Sec request. Ordinary threat modeling may suffice without that control-system objective. Honor STRIDE-only requests without silently replacing them with STPA-Sec; offer integration only as an option.
 
-    entry [label="Security/threat\nconcern raised" shape=ellipse];
-    control [label="System has\ncontrol structure?" shape=diamond];
-    incident [label="Attack already\noccurred?" shape=diamond];
+Establish the requested output before asking prospective-versus-incident questions. Software bugs use `~/.pi/agent/skills/systematic-debugging/SKILL.md`; proposal critique uses `~/.pi/agent/skills/redteam/SKILL.md`. Read the selected skill with scope, evidence and constraints rather than launching formal analysis by keyword. Stabilize active incidents before retrospective analysis.
 
-    stpasec [label="Use STPA-Sec\n(this skill)" shape=box style=filled fillcolor=lightgreen];
-    cast [label="Use stamp-cast\n(incident analysis)" shape=box style=filled fillcolor=lightgray];
-    other [label="Traditional threat\nmodeling may suffice" shape=box style=filled fillcolor=lightyellow];
-
-    entry -> control;
-    control -> incident [label="yes"];
-    control -> other [label="no"];
-    incident -> cast [label="yes"];
-    incident -> stpasec [label="no"];
-}
-```
-
-| Entry Point | Route To | Why |
-|-------------|----------|-----|
-| "Threat model this system" | STPA-Sec | Prospective security analysis |
-| "What could an attacker do?" | STPA-Sec | Adversarial scenario analysis |
-| "Security review of control system" | STPA-Sec | Security + control structure |
-| "We were hacked, what happened?" | CAST | Retrospective—use stamp-cast |
-| "Map attack surface" | STPA-Sec | Identify vulnerable control/feedback paths |
-| "STRIDE analysis needed" | STPA-Sec | Integrate STRIDE with control structure |
-
-**When ambiguous:** Ask one question:
-> "Are we analyzing what an attacker could do (prospective), or what an attacker did (incident)?"
+Direct STPA-Sec entry needs no whole-base preload. When shared theory is needed, read `~/.pi/agent/skills/stamp-base/references/stamp-foundations.md`.
 
 ## Agentic Behavior
 
@@ -101,17 +75,13 @@ STPA-Sec generates compliance artifacts as outputs, not separate activities:
 
 ### Skill Handoffs
 
-**To stamp-stpa** — If analysis reveals safety implications:
-> "These security scenarios could cause safety hazards. Want me to extend this with full STPA for safety requirements?"
+Load only for a distinct requested/approved output (reuse already-loaded instructions):
 
-**To stamp-cast** — If discussing a past security incident:
-> "This sounds like an incident that already occurred. Want me to switch to CAST for retrospective analysis?"
+- Safety requirements beyond security: `~/.pi/agent/skills/stamp-stpa/SKILL.md`.
+- Systemic explanation of a specific past incident: `~/.pi/agent/skills/stamp-cast/SKILL.md`.
+- Idea-level critique before formal modeling: `~/.pi/agent/skills/redteam/SKILL.md`.
 
-**From stamp-stpa** — When STPA identifies adversarial concerns:
-> Receive handoff when stamp-stpa detects security-relevant control paths.
-
-**To redteam** — For idea-level adversarial analysis before formal threat modeling:
-> "Want to stress-test this architecture's assumptions before we map the full control structure? Redteam can attack the design from 32 perspectives."
+From STPA, retain the existing control model and add adversarial scenarios only when requested. Across handoffs carry boundary, losses/hazards, controllers, actions/feedback, stable IDs, assumptions, evidence and constraints. The schemas are not interchangeable. Ask before expanding scope; do not discard earlier constraints or make these steps mandatory.
 
 ## Methodology Deep Dive
 
@@ -194,29 +164,7 @@ Use this schema when:
 
 ## Depict Syntax
 
-Use depict notation for control structure diagrams. Depict is purpose-built for STAMP—its semantics match control-theoretic concepts directly.
-
-### Quick Reference
-
-| Concept | Depict Syntax | Example |
-|---------|---------------|---------|
-| Vertical hierarchy | Names on separate lines | `cloud_mgmt`<br>`api_gateway`<br>`backend` |
-| Horizontal layout | End with `-` | `svc_a svc_b svc_c -` |
-| Control action (↓) | `controller process: action` | `admin server: deploy_config` |
-| Feedback (↑) | `controller process: / feedback` | `server admin: / health_status` |
-| Bidirectional | `a b: action / feedback` | `client api: request / response` |
-| Multiple labels | Comma-separated | `mgmt system: auth, provision, revoke` |
-| Nesting/composition | `parent [ child ]` | `dmz [ web_server api_gateway ]` |
-| Placeholder | `_` (underscore) | `external _ backend` (skip middle) |
-| Vulnerable path | `@red` suffix | `external api: query @red` |
-| Line separator | `;` (semicolon) | `a; b; c` (same as newlines) |
-
-### Naming
-
-Names can include hyphens, asterisks, parentheses, and angle brackets for clarity:
-- `auth-service`, `api-gateway`
-- `endpoint(exposed)`, `port<443>`
-- `service*` (asterisk for annotation)
+When producing a diagram, read `~/.pi/agent/skills/stamp-base/references/depict.md` for generic grammar (reuse if loaded); no whole-base routing step is needed. Without a diagram request, skip that reference. Keep the method-specific examples and annotations below.
 
 ### Example: API Security Control Structure
 

@@ -54,11 +54,14 @@ Use shell tools first:
 ```bash
 git status --short
 git diff --stat
-find . -name SPEC.md -o -name README.md -o -path './docs/*.md' | sort
+find . \( -name SPEC.md -o -name '*.SPEC.md' \) -print | sort
+find . -maxdepth 4 \( -name README.md -o -path './docs/*.md' -o -path './.pi/plans/*.md' \) -print | sort
 rg -n "<important term>|TODO|FIXME" . --glob '!node_modules' --glob '!vendor' 2>/dev/null || true
 ```
 
 If `graphify-out/graph.json` exists, map the affected subsystem with `agnt graphify explain "<symbol>"` (short keyword labels) before reading broadly; it surfaces dependents that belong in the plan's file list. See the knowledge-graph section of `dev-workflow-common`.
+
+Consult `docs/specs/MANIFEST.md` when present, then read relevant sibling `<module>.SPEC.md` and governing directory/root `SPEC.md` files.
 
 Read only the relevant files. Put paths in the plan so implementers can find context with `rg`/`read` rather than relying on chat history.
 

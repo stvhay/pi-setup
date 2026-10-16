@@ -133,7 +133,7 @@ Handoff stages one empty parent-linked session, gracefully shuts down current Pi
 - [`agent/bin/`](agent/bin/) — helper commands used by skills and instructions; see the [agnt command reference](agent/bin/README.md)
 - `agent/evals/` — deterministic routing, prompt, and instruction checks
 - `agent/extensions/` — Pi extensions
-- `agent/skills/` — Pi skills
+- [`agent/skills/`](agent/skills/README.md) — Pi skills, task-first selection and canonical procedure owners
 
 For the conceptual overview, see [The agnt System](../docs/AGNT-SYSTEM.md). For the implementation map, see [Architecture](../docs/ARCHITECTURE.md).
 

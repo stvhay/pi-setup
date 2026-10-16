@@ -15,64 +15,24 @@ Extract requirements, model users, select modality. Hand off to implementation s
 
 ## When to Use
 
-```dot
-digraph when_to_use {
-    "User-facing interface?" [shape=diamond];
-    "Agentic system?" [shape=diamond];
-    "User model obvious?" [shape=diamond];
-    "Skip to writing-plans" [shape=box];
-    "Use ux-design-agent" [shape=box];
+Use for unclear users, usage or interaction modality. If these are already established, return them to design approval rather than repeating discovery. An obvious user model does not authorize planning or implementation.
 
-    "User-facing interface?" -> "User model obvious?" [label="yes"];
-    "User-facing interface?" -> "Agentic system?" [label="no"];
-    "Agentic system?" -> "Use ux-design-agent" [label="yes"];
-    "Agentic system?" -> "Skip to writing-plans" [label="no"];
-    "User model obvious?" -> "Skip to writing-plans" [label="yes"];
-    "User model obvious?" -> "Use ux-design-agent" [label="no"];
-}
-```
+Copy, consent, recovery and evidence communication can enter their specialist skills directly; this skill is not a mandatory gateway.
 
 ## Skill Coordination
 
-When designing agentic interfaces, multiple skills coordinate:
+Load only the specialist needed for the requested output (reuse unchanged loaded instructions):
 
-```dot
-digraph ux_flow {
-    rankdir=TB;
+| Need | Read | Output |
+|---|---|---|
+| Polished GUI | `~/.pi/agent/skills/design-principles/SKILL.md` | Visual design |
+| Ask-versus-act boundaries | `~/.pi/agent/skills/delegation-oversight/SKILL.md` | Delegation/handoff design |
+| Informed consent | `~/.pi/agent/skills/approval-confirmation/SKILL.md` | Approval preview and scope |
+| Recovery after failure | `~/.pi/agent/skills/failure-choreography/SKILL.md` | Preserved/lost/uncertain state and recovery |
+| Confidence framing | `~/.pi/agent/skills/trust-calibration/SKILL.md` | Calibrated claims/evidence |
+| Interface copy | `~/.pi/agent/skills/ux-writing/SKILL.md` | Buttons, errors and notifications |
 
-    ux_design [label="ux-design-agent\n(requirements, user model, modality)" shape=box];
-    modality [label="Modality?" shape=diamond];
-
-    design_principles [label="design-principles" shape=box];
-    delegation [label="delegation-oversight" shape=box];
-    approval [label="approval-confirmation" shape=box];
-    failure [label="failure-choreography" shape=box];
-
-    trust [label="trust-calibration" shape=box style=dashed];
-    ux_writing [label="ux-writing" shape=box style=dashed];
-
-    writing_plans [label="writing-plans" shape=box style=filled fillcolor=lightgreen];
-
-    ux_design -> modality;
-    modality -> design_principles [label="GUI"];
-    modality -> delegation [label="Agentic"];
-    modality -> writing_plans [label="CLI/Voice"];
-
-    design_principles -> writing_plans;
-
-    delegation -> approval [label="when approval needed"];
-    approval -> failure [label="on timeout/rejection"];
-    delegation -> writing_plans [label="design complete"];
-
-    trust -> delegation [style=dashed label="confidence"];
-    trust -> approval [style=dashed];
-    trust -> failure [style=dashed];
-    ux_writing -> approval [style=dashed label="copy"];
-    ux_writing -> failure [style=dashed];
-}
-```
-
-**Dashed boxes:** Technique skills invoked within others (not workflow steps).
+Carry user/task, constraints, current state, allowed effects, unresolved decisions and existing artifact. Return the selected output to the design; ask before expanding scope. These are optional collaborations, not an automatic pipeline.
 
 ## The Process
 
@@ -97,23 +57,19 @@ digraph ux_flow {
 
 ### Phase 4: Hand Off
 
-**If GUI selected:**
-- **REQUIRED SUB-SKILL:** Use design-principles for visual design
-- design-principles covers the full aesthetic range — from restrained enterprise (Precision, Utility) to bold creative (Maximalist, Editorial). Guide the user toward the right direction based on product context and user model from Phase 2.
-- Then: Use writing-plans for implementation
+Select relevant specialists above for GUI or agentic needs; CLI/voice may need only requirements. Preserve supplied evidence rather than restarting discovery.
 
-**If Agentic selected:**
-- **REQUIRED SUB-SKILL:** Use delegation-oversight for handoff patterns
-- delegation-oversight will invoke approval-confirmation, failure-choreography as needed
-- Then: Use writing-plans for implementation
-
-**If CLI/Voice selected:**
-- Document requirements
-- Then: Use writing-plans for implementation
+Return requirements/options to `~/.pi/agent/skills/brainstorming/SKILL.md` when converging on a design. Present the design and obtain approval before file writes or implementation planning. Once approved, read `~/.pi/agent/skills/writing-plans/SKILL.md` with that design, constraints and acceptance criteria to produce the implementation plan. Stop if approval or scope is unresolved.
 
 ## Output
 
-Save requirements to: `docs/plans/YYYY-MM-DD-<feature>-requirements.md`
+Before design approval, present requirements in the response only. After approval, resolve the project plan directory:
+
+```bash
+PLANS_DIR=$(~/.pi/agent/bin/agnt plans-dir)
+```
+
+Save useful requirements to `$PLANS_DIR/YYYY-MM-DD-<feature>-requirements.md`; reuse an approved combined design-plan instead of duplicating it.
 
 Format:
 ```markdown
@@ -146,18 +102,6 @@ Format:
 [From failure-choreography]
 ```
 
-Then: **REQUIRED SUB-SKILL:** Use writing-plans to create implementation plan.
-
 ## Integration
 
-**Called by:** brainstorming (when UX design recommended and user confirms)
-
-**Invokes:**
-- design-principles (GUI modality)
-- delegation-oversight (agentic modality)
-
-**Technique skills used throughout:**
-- trust-calibration (confidence framing)
-- ux-writing (copy refinement)
-
-**Hands off to:** writing-plans (implementation planning)
+Brainstorming may conditionally load this skill for unclear users/usage/modality. Direct entry is also valid. Return the requirements to the caller's design approval gate; only an approved design proceeds to implementation planning.

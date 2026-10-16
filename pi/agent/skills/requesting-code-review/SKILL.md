@@ -79,6 +79,8 @@ Large line count is first a segmentation trigger, not proof that a frontier mode
 
 Follow the shared evidence-complete packet contract. A reviewer should decide from primary evidence without transcript access or a second evidence-finding model call.
 
+If required artifacts cannot be created, required review is `NOT_VERIFIED` and closeout is blocked. State the missing evidence path and ask for permitted storage or stop. Do not waive required review or claim an unsupported in-memory pass. Trivial diffs may legitimately not trigger review.
+
 Create one review directory:
 
 ```bash
@@ -229,7 +231,7 @@ Produce a concise summary:
 **Review ID:** ...
 **Reviewers/scopes:** ...
 **Paid spend state:** normal | soft | reserve | hard-cap
-**Verdict:** PASS | NEEDS_WORK | UNRESOLVED
+**Verdict:** PASS | NEEDS_WORK | UNRESOLVED | NOT_VERIFIED
 
 ### Confirmed
 - `finding-id` — `file:line` — evidence and required action

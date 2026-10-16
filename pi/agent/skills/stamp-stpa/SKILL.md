@@ -1,6 +1,6 @@
 ---
 name: stamp-stpa
-description: Use for prospective safety, hazard, risk, vulnerability, fault-tree, or Swiss-cheese analysis.
+description: Use for prospective safety hazards, STPA, fault-tree or Swiss-cheese analysis; not generic critique.
 ---
 
 # STAMP/STPA Systems Safety Analysis
@@ -9,16 +9,18 @@ STAMP treats losses as inadequate control of system behavior, not only chains of
 
 ## Route correctly
 
-| Situation | Route |
+Use STPA for prospective system-safety hazards and control constraints, not generic design critique. Honor an explicit named method; a requested fault tree or Swiss-cheese analysis is not silently replaced. Offer STPA as an optional extension.
+
+| Requested output | Read selected skill |
 |---|---|
-| Designing or reviewing what could go wrong | STPA — this skill |
-| Specific loss already occurred | `stamp-cast` |
-| Prospective adversarial/security analysis | `stamp-stpa-sec` |
-| Shared theory or uncertain method | `stamp-base` |
+| Investigate a specific systemic incident | `~/.pi/agent/skills/stamp-cast/SKILL.md` |
+| Adversarial control/feedback scenarios | `~/.pi/agent/skills/stamp-stpa-sec/SKILL.md` |
+| Argument/plan critique | `~/.pi/agent/skills/redteam/SKILL.md` |
+| Software repair | `~/.pi/agent/skills/systematic-debugging/SKILL.md` |
 
-When timing is ambiguous, ask: "Are we analyzing something that already happened, or preventing something that might happen?"
+Past incidents may inform prospective hazards without switching to CAST. Ask only when the requested deliverable is materially ambiguous; timing alone is not a router. Stabilize active incidents first. For shared theory only, read `~/.pi/agent/skills/stamp-base/references/stamp-foundations.md`; direct STPA entry needs no base gateway.
 
-Past incidents may inform prospective hazards without switching to CAST. Switch only when investigating a specific event in depth.
+Carry scope, losses/hazards, control model, IDs, evidence and assumptions. Ask before expanding into another method; schemas are not interchangeable. Reuse loaded instructions and preserve prior constraints.
 
 ## Scope checkpoints
 
@@ -138,7 +140,7 @@ Keep identifiers stable. Every hazard links to loss; every UCA links to hazard; 
 
 ## References
 
-- `stamp-base` — shared theory and methodology routing
+- `~/.pi/agent/skills/stamp-base/references/stamp-foundations.md` — shared theory when needed
 - [references/stpa-methodology.md](references/stpa-methodology.md) — detailed STPA procedure
 - [references/examples.md](references/examples.md) — worked examples
 - [references/traditional-methods-critique.md](references/traditional-methods-critique.md) — comparison with event-chain methods

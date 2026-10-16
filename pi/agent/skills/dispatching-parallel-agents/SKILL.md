@@ -172,9 +172,6 @@ ADVISORY_DISPATCH
 
 ## Escalation to implementation
 
-If advisory analysis identifies independent implementation tasks, use `subagent-driven-development`:
+Read-only patch proposals stay here under the same advisory procedure, including when entered from development Mode A. Do not redirect them back to Mode A.
 
-- Mode A if peers should only propose patches.
-- Mode B if true parallel implementation is approved and per-task worktrees are appropriate.
-
-Do not perform parallel writes from this skill.
+For actual parallel implementation, read `~/.pi/agent/skills/subagent-driven-development/SKILL.md` Mode B with the verified task graph, proposed write sets, evidence and verification targets. That skill owns task classification and write/worktree approval; stop until disjoint worktrees and external-state isolation/coordination are authorized. Otherwise recommend serial execution. Do not perform parallel writes from this skill.

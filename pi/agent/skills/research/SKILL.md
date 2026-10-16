@@ -1,6 +1,6 @@
 ---
 name: research
-description: Use when doing multi-source research or investigating a topic; not for due diligence or background checks.
+description: Use for multi-source topic research; not software debugging, due diligence or background checks.
 ---
 
 # Research Skill
@@ -17,9 +17,18 @@ See `references/UrlVerificationProtocol.md` for details.
 
 ## Workflow Routing
 
-Route to the appropriate workflow based on the request.
+Select the requested output before depth or fanout. For a distinct analytical deliverable, read the selected skill (reuse if already loaded):
 
-**CRITICAL:** For due diligence, company/person background checks, or vetting -> **USE OSINT SKILL INSTEAD**
+| Outcome | Read |
+|---|---|
+| Compare papers and synthesize evidence | `~/.pi/agent/skills/literature-synthesis/SKILL.md` |
+| Generate/rank explanations with falsification tests | `~/.pi/agent/skills/hypothesis-tournament/SKILL.md` |
+| Assess research-program feasibility/go-no-go | `~/.pi/agent/skills/heilmeier-catechism/SKILL.md` |
+| Optimize against an explicit objective score | `~/.pi/agent/skills/scorable-discovery/SKILL.md` |
+
+Carry question, source IDs/locations, findings, limitations and requested next output. These are optional stages, not a mandatory pipeline; ask before expanding scope. Fact lookup and retrieval-only calls from a specialist stay here for search/URL verification, then return evidence to that caller without rerouting.
+
+Due diligence, company/person background checks and vetting are outside this skill. Use a separately available appropriate workflow or clarify scope; do not assume an OSINT skill exists.
 
 ### Research Modes (Primary Workflows)
 - Quick/minor research (1 agent, 1 query) -> `workflows/QuickResearch.md`

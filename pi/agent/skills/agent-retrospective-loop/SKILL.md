@@ -1,6 +1,6 @@
 ---
 name: agent-retrospective-loop
-description: Use for assigned agent/harness lifecycle review; not one-run bugs or branch retrospectives.
+description: Use for assigned/requested agent/harness lifecycle review; not one-run bugs or work retrospectives.
 ---
 
 # Agent Retrospective Loop

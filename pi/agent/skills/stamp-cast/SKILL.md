@@ -1,6 +1,6 @@
 ---
 name: stamp-cast
-description: Use when reviewing accidents/incidents/near-misses, root-cause claims or failed controls systemically.
+description: Use for systemic incidents, accidents or near-misses (CAST); not code debugging or work retrospectives.
 ---
 
 # CAST (Causal Analysis based on System Theory)
@@ -9,37 +9,16 @@ CAST identifies why safety controls failed to prevent a loss, enabling recommend
 
 ## When to Use
 
-```dot
-digraph routing {
-    rankdir=TB;
+Use for systemic incident, accident or near-miss explanation, or an explicit CAST request. A failed test or generic “root cause” phrase does not establish that outcome.
 
-    entry [label="Safety/failure\nconcern raised" shape=ellipse];
-    timing [label="Has loss already\noccurred?" shape=diamond];
-    future [label="Want to prevent\nfuture incidents?" shape=diamond];
+| Requested output | Read selected skill |
+|---|---|
+| Software bug/test repair | `~/.pi/agent/skills/systematic-debugging/SKILL.md` |
+| Completed-work learning | `~/.pi/agent/skills/retrospective/SKILL.md` |
+| Agent/harness lifecycle review across runs | `~/.pi/agent/skills/agent-retrospective-loop/SKILL.md` |
+| Recovery UX/human resumption | `~/.pi/agent/skills/failure-choreography/SKILL.md` |
 
-    cast [label="Use CAST\n(this skill)" shape=box style=filled fillcolor=lightgreen];
-    stpa [label="Use stamp-stpa\n(prospective)" shape=box style=filled fillcolor=lightgray];
-    both [label="CAST first,\nthen STPA" shape=box style=filled fillcolor=lightblue];
-
-    entry -> timing;
-    timing -> future [label="yes"];
-    timing -> stpa [label="no"];
-    future -> both [label="yes"];
-    future -> cast [label="analysis only"];
-}
-```
-
-| Entry Point | Route To | Why |
-|-------------|----------|-----|
-| "What went wrong with X?" | CAST | Retrospective incident analysis |
-| "Why did this fail?" | CAST | Retrospective |
-| "What was the root cause?" | CAST | Retrospective (will reframe "root cause") |
-| "Investigate this incident" | CAST | Retrospective |
-| "I'm designing X, what could go wrong?" | STPA | Prospective—use stamp-stpa |
-| "Prevent this from happening again" | CAST → STPA | Analyze incident, then hazard analysis |
-
-**When ambiguous:** Ask one question:
-> "Are we analyzing something that already happened, or preventing something that might happen?"
+Ask one scope question only if these outcomes are materially ambiguous. Honor explicit named methods. During active response, stabilize first; systemic analysis can wait. Direct CAST entry needs no base routing step.
 
 ## Agentic Behavior
 
@@ -117,18 +96,16 @@ When incident response or compliance deadline is tight:
 
 ### Skill Handoffs
 
-**To STPA** — If analysis reveals systemic issues worth preventing proactively:
-> "This incident reveals control structure gaps. Want me to switch to STPA to analyze hazards in the current system design?"
+After incident explanation, ask before adding a distinct prospective analysis:
 
-**To stamp-stpa after CAST** — Common pattern for "prevent recurrence":
-> "CAST analysis complete. To prevent similar incidents, want me to run STPA on the redesigned control structure?"
+- Prevent recurrence through safety constraints: read `~/.pi/agent/skills/stamp-stpa/SKILL.md`.
+- Analyze adversarial control/feedback paths: read `~/.pi/agent/skills/stamp-stpa-sec/SKILL.md`.
 
-**To stamp-stpa-sec** — If security failures contributed to the incident:
-> "This incident involved security vulnerabilities in the control structure. Want me to switch to STPA-Sec to analyze adversarial attack scenarios?"
+Carry incident evidence, boundary, losses/hazards, controllers, actions/feedback, IDs, assumptions and recommendations. Reuse the model and loaded instructions; schemas are not interchangeable. Preserve existing constraints and stop if the new scope is not approved.
 
 ## Theoretical Foundation
 
-CAST is built on STAMP (Systems-Theoretic Accident Model and Processes). See stamp-base for the core theoretical framework: why accidents emerge from inadequate control rather than component failures, the four conditions for safe control, and why "human error" is a symptom not a cause.
+CAST is built on STAMP (Systems-Theoretic Accident Model and Processes). When shared theory is needed, read `~/.pi/agent/skills/stamp-base/references/stamp-foundations.md` for inadequate control, the four safe-control conditions and human error as a symptom; do not reroute through the base skill.
 
 For CAST-specific methodology:
 - [references/investigation-pitfalls.md](references/investigation-pitfalls.md) - Root cause seduction, hindsight bias, blame
@@ -328,29 +305,7 @@ Use the control structure diagram (in depict notation—see Depict Syntax below)
 
 ## Depict Syntax
 
-Use depict notation for control structure diagrams. Depict is purpose-built for STAMP—its semantics match control-theoretic concepts directly.
-
-### Quick Reference
-
-| Concept | Depict Syntax | Example |
-|---------|---------------|---------|
-| Vertical hierarchy | Names on separate lines | `regulator`<br>`company`<br>`operator` |
-| Horizontal layout | End with `-` | `team_a team_b team_c -` |
-| Control action (↓) | `controller process: action` | `manager operator: assign_task` |
-| Feedback (↑) | `controller process: / feedback` | `operator manager: / status_report` |
-| Bidirectional | `a b: action / feedback` | `supervisor team: directive / report` |
-| Multiple labels | Comma-separated | `mgmt ops: policy, budget, staffing` |
-| Nesting/composition | `parent [ child ]` | `organization [ management operations ]` |
-| Placeholder | `_` (underscore) | `regulator _ operator` (skip middle) |
-| Flawed interaction | `@red` suffix | `operator process: missed_check @red` |
-| Line separator | `;` (semicolon) | `a; b; c` (same as newlines) |
-
-### Naming
-
-Names can include hyphens, asterisks, parentheses, and angle brackets for clarity:
-- `shift-supervisor`, `night-operator`
-- `valve(stuck)`, `sensor<failed>`
-- `controller*` (asterisk for annotation)
+When producing a diagram, read `~/.pi/agent/skills/stamp-base/references/depict.md` for generic grammar (reuse if loaded); no whole-base routing step is needed. Without a diagram request, skip that reference. Keep the method-specific examples and annotations below.
 
 ### Example: Incident Control Structure
 

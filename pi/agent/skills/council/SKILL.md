@@ -7,7 +7,7 @@ description: Use when a decision needs structured debate or multiple agent persp
 
 Multi-agent debate system where specialized agents discuss topics in rounds, respond to each other's points, and surface insights through intellectual friction.
 
-**Key Differentiator from RedTeam:** Council is collaborative-adversarial (debate to find best path), while RedTeam is purely adversarial (attack the idea). Council produces visible conversation transcripts; RedTeam produces steelman + counter-argument.
+**Boundary:** Council uses reciprocal debate with visible rounds and synthesis. Redteam offers steelman/counterargument or central-critic competition between proposals; it is not reciprocal debate. Keep their distinct output contracts.
 
 ## Workflow Routing
 
@@ -17,7 +17,9 @@ Route to the appropriate workflow based on the request.
 |---------|----------|
 | Full structured debate (3 rounds, visible transcript) | `workflows/Debate.md` |
 | Quick consensus check (1 round, fast) | `workflows/Quick.md` |
-| Pure adversarial analysis | **Use redteam skill instead** |
+| Critique or central-critic competition | Read `~/.pi/agent/skills/redteam/SKILL.md` |
+
+Carry the question, positions, evidence and constraints into that handoff; request critique/proposal evaluation rather than another debate. Ask before expanding scope; do not run both workflows automatically.
 
 ## Quick Reference
 
@@ -58,7 +60,7 @@ Route to the appropriate workflow based on the request.
 ## Integration
 
 **Works well with:**
-- **redteam** (redteam plugin) - Pure adversarial attack after collaborative discussion
+- **redteam** - Optional critique or central-critic competition, not an automatic post-debate phase
 - **brainstorming** (dev-workflow-toolkit plugin) - Before major architectural decisions
 - **research** - Gather context before convening the council
 

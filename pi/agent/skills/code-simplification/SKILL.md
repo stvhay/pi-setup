@@ -172,10 +172,10 @@ Applied N changes, blocked N, skipped N, N opportunities, N escalations.
 
 ### Pipeline Position
 
-Recommended after verification-before-completion for nontrivial work; optional for tiny changes.
+Only after assignment or explicit request and passing focused checks. Verification alone never selects this skill.
 
 ```
-verify → simplify → re-verify → complete
+verify → requested simplify → re-verify → complete
 ```
 
 ### Entry

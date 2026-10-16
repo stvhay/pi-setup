@@ -14,38 +14,25 @@ This base skill provides:
 - Routing to the appropriate methodology skill
 - Shared concepts used across STPA, CAST, and STPA-Sec
 
-## Routing
+## Routing by requested outcome
 
-```dot
-digraph routing {
-    rankdir=TB;
+Choose the requested outcome and object before a method. “Failure,” “risk,” “review” and “root cause” alone do not select STAMP. Honor an explicit named method; offer alternatives without silently substituting STPA for fault trees or STPA-Sec for STRIDE.
 
-    entry [label="Safety/failure\nconcern raised" shape=ellipse];
-    timing [label="Has loss already\noccurred?" shape=diamond];
-    security [label="Adversarial\nthreat?" shape=diamond];
+| Requested output | Read selected skill |
+|---|---|
+| Software diagnosis/repair | `~/.pi/agent/skills/systematic-debugging/SKILL.md` |
+| Completed-work learning | `~/.pi/agent/skills/retrospective/SKILL.md` |
+| Agent/harness lifecycle decision across runs | `~/.pi/agent/skills/agent-retrospective-loop/SKILL.md` |
+| Recovery UX after agent failure | `~/.pi/agent/skills/failure-choreography/SKILL.md` |
+| Argument/plan critique | `~/.pi/agent/skills/redteam/SKILL.md` |
+| Concrete diff correctness | `~/.pi/agent/skills/requesting-code-review/SKILL.md` |
+| Prospective safety hazards/constraints | `~/.pi/agent/skills/stamp-stpa/SKILL.md` |
+| Systemic incident/near-miss explanation | `~/.pi/agent/skills/stamp-cast/SKILL.md` |
+| Adversarial control/feedback analysis | `~/.pi/agent/skills/stamp-stpa-sec/SKILL.md` |
 
-    cast [label="Use stamp-cast\n(retrospective)" shape=box style=filled fillcolor=lightgray];
-    stpa [label="Use stamp-stpa\n(prospective)" shape=box style=filled fillcolor=lightgreen];
-    stpasec [label="Use stamp-stpa-sec\n(security)" shape=box style=filled fillcolor=lightblue];
+Ask one targeted question only if interpretations materially change the deliverable. Timing/adversarial scope select a STAMP method only after systemic control analysis is established. Stabilize an active incident before analysis. Theory-only work stays here.
 
-    entry -> timing;
-    timing -> cast [label="yes"];
-    timing -> security [label="no"];
-    security -> stpasec [label="yes"];
-    security -> stpa [label="no"];
-}
-```
-
-| Entry Point | Route To | Why |
-|-------------|----------|-----|
-| "I'm designing X, what could go wrong?" | stamp-stpa | Prospective hazard analysis |
-| "Something failed / went wrong" | stamp-cast | Retrospective incident analysis |
-| "What was the root cause?" | stamp-cast | Retrospective (will reframe "root cause") |
-| "Security threats to this system" | stamp-stpa-sec | Prospective with adversarial scenarios |
-| "Threat model this system" | stamp-stpa-sec | Security-focused control analysis |
-
-**When ambiguous:** Ask one question:
-> "Are we analyzing something that already happened, or preventing something that might happen?"
+Carry scope, evidence, requested output and constraints. Reuse an already-loaded specialist; direct specialist entry needs no base preload or return routing loop. Ask before expanding scope; the selected skill's approval/stop gates still apply.
 
 ## The Paradigm Shift
 
@@ -58,10 +45,10 @@ STAMP flips the question. Instead of "what failed?" (component fault tree), we a
 STAMP formalizes your intuition. Every system has controllers (human and automated), controlled processes, feedback, and control actions. Accidents happen when control is inadequate.
 
 **If you're designing something new:**
-Use stamp-stpa to identify hazards BEFORE they become problems by analyzing what could go wrong with your control structure.
+For prospective systemic hazards, read `~/.pi/agent/skills/stamp-stpa/SKILL.md` to derive control constraints before losses occur.
 
 **If you're investigating an incident:**
-Use stamp-cast instead. This analyzes what already happened and why the control structure failed.
+For systemic incident explanation, read `~/.pi/agent/skills/stamp-cast/SKILL.md` to analyze why the control structure failed.
 
 ## Core Concepts
 
@@ -104,14 +91,16 @@ STAMP analysis serves different audiences. See [references/output-formats.md](re
 - **Incident Report** — Compliance-ready, methodology-documented
 - **Quick Brief** — Verbal settings, alignment conversations
 
+For Depict diagrams, read `references/depict.md` for shared grammar. Specialists retain their own examples, limitations and schemas; diagram-free analysis need not load it.
+
 ## Combined Workflows
 
-For systems with both safety and security concerns, skills can be chained:
+Only when the next analytical outcome is requested/approved, use the exact specialist paths above:
 - **STPA → STPA-Sec**: Run STPA first for safety hazards, then STPA-Sec to add adversarial scenarios to the same control structure
 - **STPA-Sec → STPA**: Start with security threats, then extend to full safety analysis
 - **CAST → STPA / STPA-Sec**: After incident analysis, run prospective analysis on the redesigned control structure
 
-The control structure model is shared across all three methodologies—each builds on rather than duplicates the others.
+Carry boundary, losses/hazards, controllers, actions/feedback, stable IDs, evidence, assumptions and unresolved questions. Reuse the control model, but schemas are not interchangeable. Preserve existing constraints; a new method adds its distinct analysis, not an automatic full pipeline.
 
 ## Related Skills
 

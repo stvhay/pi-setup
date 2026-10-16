@@ -19,7 +19,7 @@ When designing agent communications that involve:
 - Showing evidence or reasoning
 - Recovering from errors
 
-**Invoked by:** delegation-oversight, approval-confirmation, failure-choreography
+**Standalone applicability:** Use directly for confidence/evidence communication. Optional collaboration with delegation-oversight, approval-confirmation or failure-choreography does not require a parent workflow. Confidence never grants execution permission.
 
 ## The Core Problem
 

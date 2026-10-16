@@ -85,8 +85,9 @@ Trigger when the user asks for any of:
 - "Theme this LuCI / Grafana / phpMyAdmin / etc. install"
 
 Do **not** trigger for: native-app theming (Electron-but-native count varies —
-ask), design-system authoring in a codebase the user controls (use
-`frontend-design`), or single-page CSS tweaks to a file the user owns.
+ask), design-system authoring in a codebase the user controls (read
+`~/.pi/agent/skills/design-principles/SKILL.md` for polished GUI work), or
+single-page CSS tweaks to a file the user owns.
 
 ## The 6-phase workflow
 

@@ -35,8 +35,11 @@ Prefer project-declared tracked docs when present. Search common context files:
 
 ```bash
 rg -n "Tracked Documentation|ARCHITECTURE|DESIGN|SPEC.md|README" AGENTS.md CLAUDE.md README.md docs .pi 2>/dev/null || true
-find . -maxdepth 4 \( -name README.md -o -name SPEC.md -o -path './docs/*.md' -o -path './.pi/plans/*.md' \) | sort
+find . \( -name SPEC.md -o -name '*.SPEC.md' \) -print | sort
+find . -maxdepth 4 \( -name README.md -o -path './docs/*.md' -o -path './.pi/plans/*.md' \) -print | sort
 ```
+
+Consult `docs/specs/MANIFEST.md` when present, then read relevant sibling `<module>.SPEC.md` and governing directory/root `SPEC.md` files.
 
 Default tracked docs:
 
@@ -71,8 +74,10 @@ if [ -n "$base" ]; then git diff --stat "$base"...HEAD; git diff --name-only "$b
 | Architectural decision | `docs/ARCHITECTURE.md` or ADR |
 | New design pattern / convention | `docs/DESIGN.md` |
 | Subsystem invariant / failure mode / interface | nearest `SPEC.md` |
-| New subsystem | recommend creating `SPEC.md` |
+| New subsystem | subsystem contract authoring (handoff below) |
 | Test/quality workflow change | `CONTRIBUTING.md`, README, or project docs |
+
+For subsystem contract authoring, read `~/.pi/agent/skills/codify-subsystem/SKILL.md`. Carry target source/tests, existing sibling/governing specs, manifest and approved scope; return `SPEC.md` or `<module>.SPEC.md` with invariants, failure modes and test traceability. Validate mode only reports gaps; do not create duplicate contracts or edit without authorization.
 
 Usually no docs needed for:
 

@@ -15,7 +15,7 @@ Every time-bounded approval has four components:
 │  ────────           "Respond by 3:00 PM"                  │
 │                                                           │
 │  DEFAULT            What happens on expiry                │
-│  ───────            "Will save as draft"                  │
+│  ───────            "Block; retain authorized state"       │
 │                                                           │
 │  RATIONALE          Why there's a deadline                │
 │  ─────────          "Client expects EOD response"         │
@@ -67,71 +67,35 @@ Visual urgency indicator.
 | 5-15 min | Countdown, warning color |
 | <5 min | Countdown, critical color, pulse/animation |
 
-## Default Behavior Matrix
+## Fail-Closed Default
 
-The right default depends on stakes and reversibility:
+Required approval expiry blocks execution at every stakes/reversibility level. Rejection and cancellation also block; they do not delete already-authorized work. Confidence, prior similar approvals and easy undo are not consent. Revalidate scope and preview before renewed approval.
 
-```
-                    │ Reversible │ Irreversible │
-────────────────────┼────────────┼──────────────┤
-   Low Stakes       │  Proceed   │    Cancel    │
-────────────────────┼────────────┼──────────────┤
-   High Stakes      │  Cancel    │   Escalate   │
-────────────────────┴────────────┴──────────────┘
-```
-
-### Default: Proceed
-Action is low-risk and recoverable.
+### Default: Block and Preserve
 
 ```
 If you don't respond by 3:00 PM:
-→ Email will be sent automatically
-→ You can recall within 30 seconds after send
+→ Email will not be sent
+→ Already-authorized draft and edits remain available
+→ Review current scope and request renewed approval to resume
 ```
 
-**When to use**:
-- Routine actions with easy undo
-- User has approved similar before
-- Delay would cause meaningful harm
+Remote draft saves, notifications, reminders and escalation require independent authority covering their own recipients, effects and expiry. Without it, retain permitted local state and report the blocker; do not contact anyone or create a remote draft. Examples below showing such effects assume that separate authority is still valid.
 
-### Default: Cancel
-Action should not happen without explicit approval.
+### Escalation, When Independently Authorized
 
-```
-If you don't respond by 3:00 PM:
-→ Email will be saved as draft (not sent)
-→ You'll be reminded tomorrow at 9:00 AM
-→ Draft remains editable
-```
+Escalation requests a decision; it does not execute the original action. Show the approved recipient and exact information shared. The recipient must have authority to approve the current scope. Stop when disclosure or decision authority is missing.
 
-**When to use**:
-- High-stakes actions
-- Irreversible consequences
-- User hasn't established pattern
-
-### Default: Escalate
-Decision too important to cancel silently.
+### Partial Batch Approval
 
 ```
-If you don't respond by 3:00 PM:
-→ Will escalate to manager@company.com
-→ They will see: [summary of action and context]
-→ You'll be notified when they respond
+At expiry:
+→ All unapproved items remain blocked, including routine internal emails
+→ Report any items already executed under valid, separate approval
+→ Preserve pending work; request renewed approval for remaining items
 ```
 
-**When to use**:
-- Critical deadlines
-- External commitments
-- Organizational risk
-
-### Default: Partial
-Some items can proceed; others need approval.
-
-```
-If you don't respond by 3:00 PM:
-→ 4 internal emails will send (routine)
-→ 1 external email will save as draft (requires review)
-```
+Do not convert batch similarity into partial consent. A separately authorized scheduled action is not a timeout approval; keep its own scope, conditions and expiry distinct.
 
 ## Timeout Communication Timeline
 
@@ -148,10 +112,10 @@ T+8:00   Second reminder + warning
          "Approval expires in 16 hours. [Default behavior] if no response."
          
 T+24:00  Deadline
-         Execute default behavior
+         Block execution; preserve authorized state
          
 T+24:01  Notification of outcome
-         "[Action] was [saved/sent/escalated] per timeout default."
+         "Approval expired. Action blocked; authorized work preserved."
 ```
 
 ### Urgent Timeline
@@ -164,13 +128,13 @@ T-15:00  Warning (15 min before deadline)
          "Deadline in 15 minutes. [Default behavior] if no response."
          
 T-5:00   Final warning (5 min before deadline)
-         "FINAL: 5 minutes remaining. [Default behavior] about to execute."
+         "5 minutes remaining. Action will remain blocked without approval."
          
 T+0:00   Deadline
-         Execute default behavior
+         Block execution; preserve authorized state
          
 T+0:01   Notification
-         "[Action] was [saved/sent/escalated]."
+         "Approval expired. Action blocked; authorized work preserved."
 ```
 
 ### Deadline Arrived (User Present)
@@ -183,16 +147,18 @@ If user is actively viewing when deadline arrives:
 │                                                         │
 │ Choose now:                                             │
 │                                                         │
-│ [Approve] [Reject] [Extend 1 hour]                      │
+│ [Review and renew] [Reject] [Keep paused]                │
 │                                                         │
-│ Auto-executing default in: 30 seconds                   │
-│ Default: Save as draft                                  │
+│ Execution blocked. Renew approval to continue.          │
+│ Default: Preserve already-authorized state              │
 │                                                         │
 │ [██████████░░░░░░░░░░░░░░░░░░░░]                        │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ## Extension Patterns
+
+Extensions keep the request pending, not approved. After expiry, revalidate context and request renewed approval; extending a display timer cannot revive expired authority.
 
 ### Simple Extension
 
@@ -229,6 +195,8 @@ To prevent indefinite delay:
 ```
 
 ## Escalation Patterns
+
+Use only with the independent disclosure/notification authority described above. Another timeout still leaves the original action blocked.
 
 ### Pre-Escalation Warning
 
@@ -287,7 +255,7 @@ To prevent indefinite delay:
 | Draft artifact | Yes | User may want to complete later |
 | User's edits | Yes | Don't lose their work |
 | Context | Yes | Why this was created |
-| Agent reasoning | Yes | Useful for retry |
+| Decision evidence | Yes | Preserve task rationale for renewed review, not private reasoning |
 | Pending modifications | Yes | User's deselections, parameter changes |
 | Approval history | Yes | Track record |
 
@@ -304,10 +272,10 @@ To prevent indefinite delay:
 │ └── Context: Reply to client's Oct 10 message           │
 │                                                         │
 │ Resume:                                                 │
-│ [Resubmit for approval] [Edit draft] [Send manually]    │
+│ [Review and renew approval] [Edit authorized draft]      │
 │                                                         │
 │ Or start fresh:                                         │
-│ [Ask agent to try again] [Cancel entirely]              │
+│ [Revise request] [Cancel request; keep work]             │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -325,7 +293,7 @@ To prevent indefinite delay:
 │ • No other emails in this thread                        │
 │ • Original context still relevant                       │
 │                                                         │
-│ [Resume approval] [Review changes since] [Start over]   │
+│ [Review and renew] [Review changes since] [Start over]   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -371,6 +339,8 @@ Why: No specific deadline detected.
 
 ## Notification Channel Selection
 
+Urgency guides presentation, never authority to contact additional recipients or channels. Use only independently authorized channels; otherwise report the pending decision locally.
+
 | Urgency | Primary Channel | Fallback |
 |---------|-----------------|----------|
 | Non-urgent | In-app notification | Daily digest email |
@@ -399,11 +369,11 @@ Quiet hours: [10 PM - 8 AM ▾]
 ┌─────────────────────────────────────────────────────────┐
 │ ⚠️ This approval has expired                            │
 │                                                         │
-│ Outcome: Email was saved as draft (default behavior)    │
+│ Outcome: Unsent; authorized draft preserved              │
 │ Expired: 2 hours ago                                    │
 │                                                         │
 │ You can still:                                          │
-│ [Send now] [Edit first] [Keep as draft]                 │
+│ [Review and renew] [Edit authorized draft] [Keep paused] │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -414,9 +384,9 @@ Primary: alice@company.com (timed out)
 Escalation: manager@company.com (also timed out)
 
 Next action:
-○ Escalate to: [director@company.com ▾]
-○ Execute safe default: Save as draft
-○ Cancel action entirely
+○ Request separate escalation authority for new recipient
+○ Keep blocked; preserve already-authorized work
+○ Cancel request; preserve authorized work
 
 [Proceed]
 ```
@@ -442,15 +412,15 @@ Next action:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ ⚠️ Could not execute timeout default                    │
+│ ⚠️ Approval expired while offline                       │
 │                                                         │
-│ Deadline passed, but execution failed:                  │
+│ Deadline passed; action remains blocked.                │
 │ Error: Network unavailable                              │
 │                                                         │
-│ Your approval is still pending.                         │
-│ Will retry when connection restored.                    │
+│ Your approval expired; revalidate scope on return.      │
+│ No automatic retry after expired authorization.         │
 │                                                         │
-│ [Retry now] [Change to different default] [Cancel]      │
+│ [Review and renew approval] [Keep paused] [Cancel]       │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -460,11 +430,11 @@ Next action:
 
 ```
 Default timeout by action type:
-├── Email (internal): 24 hours → Save draft
-├── Email (external): 12 hours → Save draft
-├── Calendar (self): 4 hours → Create event
-├── Calendar (others): 12 hours → Save draft
-├── Document edit: 24 hours → Save changes
+├── Email (internal): 24 hours → Block; preserve authorized state
+├── Email (external): 12 hours → Block; preserve authorized state
+├── Calendar (self): 4 hours → Block; preserve authorized state
+├── Calendar (others): 12 hours → Block; preserve authorized state
+├── Document edit: 24 hours → Block; preserve authorized state
 ├── Financial: No timeout → Must explicitly approve
 └── Publishing: No timeout → Must explicitly approve
 ```
@@ -476,13 +446,13 @@ Your timeout preferences:
 
 Email approvals:
 ├── Timeout: [24 hours ▾]
-├── Default on timeout: [Save as draft ▾]
+├── Default on timeout: Block; preserve authorized state
 └── Escalate to: [None ▾]
 
 Calendar approvals:
 ├── Timeout: [4 hours ▾]
-├── Default on timeout: [Create event ▾]
-└── Escalate to: [assistant@company.com ▾]
+├── Default on timeout: Block; preserve authorized state
+└── Escalate to: [None; separate authority required ▾]
 
 [Save preferences] [Reset to system defaults]
 ```

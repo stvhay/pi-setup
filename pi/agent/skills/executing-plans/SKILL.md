@@ -91,8 +91,10 @@ Before each batch:
 pwd
 git branch --show-current
 git status --short
-find .. -name SPEC.md -print 2>/dev/null | sort
+find . \( -name SPEC.md -o -name '*.SPEC.md' \) -print | sort
 ```
+
+Consult `docs/specs/MANIFEST.md` when present, then read relevant sibling `<module>.SPEC.md` and governing directory/root `SPEC.md` files.
 
 For each task:
 

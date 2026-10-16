@@ -106,13 +106,13 @@ Then map changes to requirements/plan:
 
 ## SPEC.md invariant check
 
-If modified files live under a subsystem with `SPEC.md`:
+Discover specs for modified files, including sibling `<module>.SPEC.md` and governing directory/root `SPEC.md`:
 
-1. Find nearest specs:
+1. Search from the project root:
    ```bash
-   find . -name SPEC.md -print
+   find . \( -name SPEC.md -o -name '*.SPEC.md' \) -print | sort
    ```
-2. For relevant specs, check changed code against invariants/failure modes.
+2. Consult `docs/specs/MANIFEST.md` when present, then read relevant sibling `<module>.SPEC.md` and governing directory/root `SPEC.md` files. For relevant specs, check changed code against invariants/failure modes.
 3. If tests use inline markers like `# Tests INV-N`, verify coverage with `rg "Tests (INV|FAIL)-"`.
 4. Flag stale or missing spec coverage; do not invent certainty.
 

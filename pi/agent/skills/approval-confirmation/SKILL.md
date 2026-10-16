@@ -15,7 +15,7 @@ Design approval interfaces that enable informed consent under time pressure.
 
 ## When to Use
 
-After delegation-oversight identifies checkpoints, use this skill to design the approval UI itself.
+Use directly for consent/approval UI work, or after delegation-oversight identifies a checkpoint. No parent skill is required.
 
 ## The Core Problem
 
@@ -95,18 +95,13 @@ Level 3: Individual detail (on expand)
 
 **Every timeout needs:**
 - Deadline (when it expires)
-- Default behavior (proceed / cancel / escalate)
+- Default behavior (block execution; preserve authorized state)
 - Rationale (why deadline exists)
 - Extension path (how to get more time)
 
-**Default logic:**
+**Required approval expiry always blocks execution**, regardless of stakes or reversibility. Rejection and cancellation also fail closed. Preserve already-authorized work; require renewed approval after revalidating scope. Confidence, prior similar approvals and easy undo are not current consent.
 
-| Stakes | Reversible | Default |
-|--------|------------|---------|
-| Low | Yes | Proceed |
-| Low | No | Cancel |
-| High | Yes | Cancel |
-| High | No | Escalate |
+Escalation, reminders and remote draft saves are effects needing independent authority, not automatic timeout fallbacks. A separately authorized scheduled action is not approval by timeout; it must retain its own valid scope and expiry. Read `references/timeout-patterns.md` when designing expiry/recovery states.
 
 ## Output
 
@@ -126,17 +121,19 @@ Add to requirements document:
 - [What users can adjust]
 
 ### Timeout Behavior
-- Default: [proceed/cancel/escalate]
+- Default: block execution; preserve already-authorized state
+- Recovery: revalidate preview/scope and obtain renewed approval
 - Deadline: [when/why]
 ```
 
 ## Integration
 
-**Called by:** delegation-oversight (when approval needed)
+For a distinct requested output, read only the selected specialist (reuse if already loaded):
+- Recovery after timeout, rejection or partial approval: `~/.pi/agent/skills/failure-choreography/SKILL.md`. Carry preserved/lost/uncertain state and allowed effects; return recovery options.
+- Copy refinement: `~/.pi/agent/skills/ux-writing/SKILL.md`. Carry preview and audience; return interface text.
+- Uncertainty framing: `~/.pi/agent/skills/trust-calibration/SKILL.md`. Carry claims, evidence and limits; return calibrated wording.
 
-**Hands off to:**
-- **failure-choreography** - On timeout, rejection, partial approval
-- **ux-writing** - For copy refinement
+These are optional collaborations, not a pipeline or execution authority. Ask before expanding scope; none may bypass required approval.
 
 ## Anti-Patterns
 

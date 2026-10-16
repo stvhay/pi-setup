@@ -2,6 +2,7 @@
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -1134,3 +1135,193 @@ def test_action_templates_reference_existing_architecture(common):
         if role_meta.get("writeAccess") is False:
             assert not WRITE_EFFECTS.intersection(effects), f"{action_path} gives write effects to read-only role {role}"
         assert meta.get("outputContract")
+
+
+@pytest.mark.parametrize("skill, required, retired", [
+    ("code-simplification", "Only after assignment or explicit request", "Recommended after verification-before-completion"),
+    ("approval-confirmation", "Required approval expiry always blocks execution", "| Low | Yes | Proceed |"),
+    ("finishing-a-development-branch", "NOT_VERIFIED", "either skip peer review"),
+    ("requesting-code-review", "required review is `NOT_VERIFIED`", "artifact-free PASS"),
+    ("brainstorming", "~/.pi/agent/skills/ux-design-agent/SKILL.md", "Skip to writing-plans"),
+    ("ux-design-agent", "agnt plans-dir", "docs/plans/"),
+    ("trust-calibration", "Standalone", "**Invoked by:**"),
+    ("layer-theme", "~/.pi/agent/skills/design-principles/SKILL.md", "`frontend-design`"),
+    ("documentation-standards", "~/.pi/agent/skills/codify-subsystem/SKILL.md", "recommend creating `SPEC.md`"),
+    ("council", "central-critic", "purely adversarial"),
+    ("research", "~/.pi/agent/skills/literature-synthesis/SKILL.md", "USE OSINT SKILL INSTEAD"),
+])
+def test_task_first_contract_repairs(skill, required, retired):
+    text = (AGENT / "skills" / skill / "SKILL.md").read_text()
+    assert required in text
+    assert retired not in text
+
+
+def test_required_approval_timeout_examples_fail_closed():
+    text = (AGENT / "skills/approval-confirmation/references/timeout-patterns.md").read_text()
+    for required in ("renewed approval", "independent authority", "already-authorized", "No automatic retry"):
+        assert required in text
+    for retired in ("Default: Proceed", "Email will be sent automatically", "User has approved similar before",
+                    "4 internal emails will send", "Will retry when connection restored", "→ Create event",
+                    "→ Save changes", "[Create event ▾]"):
+        assert retired not in text
+
+
+@pytest.mark.parametrize("skill", ["documentation-standards", "writing-plans", "executing-plans", "verification-before-completion"])
+def test_documented_spec_find_includes_file_specs(tmp_path, skill):
+    text = (AGENT / "skills" / skill / "SKILL.md").read_text()
+    # Execute the actual documented search, not a second implementation of it.
+    command = next(line.strip() for line in text.splitlines() if line.strip().startswith("find ") and "SPEC.md" in line)
+    for name in ("SPEC.md", "src/store.SPEC.md", "src/deep/module/SPEC.md", "src/space dir/item.SPEC.md", "docs/specs/MANIFEST.md"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    (tmp_path / "src/linked.SPEC.md").symlink_to(tmp_path / "src/store.SPEC.md")
+    result = subprocess.run(["bash", "-c", command], cwd=tmp_path, capture_output=True, text=True, check=True)
+    found = set(result.stdout.splitlines())
+    assert "./src/linked.SPEC.md" in found
+    for name in ("SPEC.md", "src/store.SPEC.md", "src/deep/module/SPEC.md", "src/space dir/item.SPEC.md"):
+        assert f"./{name}" in found
+    assert "docs/specs/MANIFEST.md" in text
+
+
+@pytest.mark.parametrize("target, specs", [
+    ("src/store.py", ["src/store.SPEC.md", "src/SPEC.md", "SPEC.md"]),
+    ("src/space dir/store.py", ["src/space dir/store.SPEC.md", "SPEC.md"]),
+    ("src/tool", ["src/tool.SPEC.md", "SPEC.md"]),
+    ("src/module/", ["src/module/SPEC.md", "SPEC.md"]),
+    ("src/store.py", []),
+])
+def test_documented_codify_walk_checks_sibling_and_root(tmp_path, target, specs):
+    path = tmp_path / target
+    if target.endswith("/"):
+        path.mkdir(parents=True)
+    else:
+        path.parent.mkdir(parents=True)
+        path.touch()
+    for name in specs:
+        (tmp_path / name).touch()
+    text = (AGENT / "skills/codify-subsystem/SKILL.md").read_text()
+    section = text.split("## Step 2: Check existing specs", 1)[1].split("## Step 3:", 1)[0]
+    command = re.search(r"```bash\n(.*?)```", section, re.S).group(1)
+    result = subprocess.run(["bash", "-c", command], cwd=tmp_path,
+                            env={"PATH": "/usr/bin:/bin", "TARGET": target}, capture_output=True, text=True, check=True)
+    assert result.stdout.splitlines() == [str(tmp_path / name) for name in specs]
+    assert "docs/specs/MANIFEST.md" in section
+
+
+@pytest.mark.parametrize("skill, targets, boundary", [
+    ("systematic-debugging", ["stamp-cast", "retrospective", "agent-retrospective-loop", "failure-choreography"], "software"),
+    ("stamp-base", ["systematic-debugging", "retrospective", "failure-choreography", "redteam", "stamp-stpa", "stamp-cast", "stamp-stpa-sec"], "requested outcome"),
+    ("stamp-stpa", ["stamp-cast", "stamp-stpa-sec", "redteam"], "explicit named method"),
+    ("stamp-cast", ["systematic-debugging", "retrospective", "stamp-stpa", "stamp-stpa-sec"], "stabilize first"),
+    ("stamp-stpa-sec", ["stamp-stpa", "stamp-cast", "redteam"], "STRIDE-only"),
+    ("redteam", ["council", "requesting-code-review", "stamp-stpa-sec"], "central-critic"),
+])
+def test_task_first_outcome_handoffs(skill, targets, boundary):
+    text = (AGENT / "skills" / skill / "SKILL.md").read_text()
+    assert boundary in text
+    for target in targets:
+        assert f"~/.pi/agent/skills/{target}/SKILL.md" in text
+    if skill.startswith("stamp-"):
+        assert '"Safety/failure' not in text
+        assert '| "STRIDE analysis needed" | STPA-Sec' not in text
+        assert "schemas are not interchangeable" in text
+
+
+def test_task_first_discovery_preserves_catalog_and_boundaries(common):
+    metadata = {path.parent.name: load_frontmatter(common, path)
+                for path in (AGENT / "skills").glob("*/SKILL.md")}
+    hidden = {name for name, meta in metadata.items() if meta.get("disable-model-invocation")}
+    assert hidden == {"dev-workflow-common", "requirement-simplification-review"}
+    assert len(metadata) - len(hidden) == 48
+    for name, boundary in {
+        "systematic-debugging": "software bugs",
+        "stamp-stpa": "not generic critique",
+        "stamp-cast": "not code debugging or work retrospectives",
+        "stamp-stpa-sec": "(STPA-Sec)",
+        "agent-retrospective-loop": "assigned/requested",
+        "research": "not software debugging",
+    }.items():
+        assert boundary in metadata[name]["description"]
+
+
+
+def test_advisory_procedure_has_one_owner_and_keeps_write_gates():
+    development = (AGENT / "skills/subagent-driven-development/SKILL.md").read_text()
+    dispatch = (AGENT / "skills/dispatching-parallel-agents/SKILL.md").read_text()
+    mode_a = development.split("## Mode A workflow:", 1)[1].split("## Mode B workflow:", 1)[0]
+    assert "~/.pi/agent/skills/dispatching-parallel-agents/SKILL.md" in mode_a
+    assert "agnt route" not in mode_a
+    assert "Mode A if peers should only propose patches" not in dispatch
+    assert "Read-only patch proposals stay here" in dispatch
+    for text in (development, dispatch):
+        assert "mutable" in text and "isolated" in text
+        assert "evidence-complete packet contract" in text
+    for gate in ("tasks write the same file", "serial-only", "explicitly approved worktree implementation",
+                 "agnt work integrate", "one branch at a time"):
+        assert gate in development
+
+
+def test_depict_grammar_is_shared_without_removing_method_outputs():
+    reference = AGENT / "skills/stamp-base/references/depict.md"
+    assert reference.is_file()
+    grammar = reference.read_text()
+    for syntax in ("controller process: action", "a b: action / feedback", "parent [ child ]", "@red", "Placeholder", "Separator"):
+        assert syntax in grammar
+    for skill, file, preserved in [
+        ("stamp-stpa", "references/output-formats.md", ["stpa_analysis:", "causal_scenarios:", "safety_requirements:", "person microwave food:"]),
+        ("stamp-cast", "SKILL.md", ["cast_analysis:", "component_analyses:", "mental_model_flaws:", "### CAST-Specific Usage", "### Example: Incident"]),
+        ("stamp-stpa-sec", "SKILL.md", ["stpa_sec_analysis:", "trust_boundaries:", "security_scenarios:", "security_requirements:", "**Trust boundary workaround:**", "### Example: API"]),
+    ]:
+        text = (AGENT / "skills" / skill / file).read_text()
+        assert "~/.pi/agent/skills/stamp-base/references/depict.md" in text
+        assert "| Placeholder |" not in text
+        for item in preserved:
+            assert item in text
+
+
+def test_task_first_maintainer_map_and_scenarios_cover_contract():
+    readme = AGENT / "skills/README.md"
+    assert readme.is_file()
+    text = readme.read_text()
+    assert "not a runtime gateway" in text
+    assert "not measured" in text
+    assert "agent/skills/README.md" in (ROOT / "pi/README.md").read_text()
+    scenarios = {
+        "systematic-debugging": "task-first-failure-routing", "stamp-base": "task-first-analysis-routing",
+        "brainstorming": "task-first-design-and-ux", "research": "task-first-research-outcomes",
+        "code-simplification": "assigned-only-integration", "approval-confirmation": "timeout-does-not-authorize",
+        "requesting-code-review": "required-review-without-artifacts", "documentation-standards": "file-scoped-spec-handoff",
+        "dispatching-parallel-agents": "advisory-owner-and-write-boundary", "stamp-stpa": "shared-depict-direct-entry",
+    }
+    cases = set()
+    for skill, name in scenarios.items():
+        source = (ROOT / ".pi/skill-evals" / skill / "scenarios" / f"{name}.md").read_text()
+        for heading in ("## Prompt", "## Expected weak baseline", "## Expected with skill", "## Assertions"):
+            assert heading in source
+        assert "Source-observed" in source and "not model-observed" in source
+        cases.update(re.findall(r"\b(?:R|M)\d+\b", source))
+    assert cases == {f"R{i}" for i in range(1, 19)} | {f"M{i}" for i in range(1, 5)}
+
+
+@pytest.mark.parametrize("target_kind", ["file-link", "directory-link", "outside-file"])
+def test_documented_codify_walk_rejects_ambiguous_or_outside_targets(tmp_path, target_kind):
+    root = tmp_path / "project"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "store.py").touch()
+    (root / "SPEC.md").touch()
+    if target_kind == "outside-file":
+        target = outside / "store.py"
+    else:
+        target = root / "link"
+        target.symlink_to(outside / "store.py" if target_kind == "file-link" else outside)
+    text = (AGENT / "skills/codify-subsystem/SKILL.md").read_text()
+    section = text.split("## Step 2: Check existing specs", 1)[1].split("## Step 3:", 1)[0]
+    command = re.search(r"```bash\n(.*?)```", section, re.S).group(1)
+    result = subprocess.run(["bash", "-c", command], cwd=root,
+                            env={"PATH": "/usr/bin:/bin", "TARGET": str(target)}, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert not result.stdout
+    assert "symlink" in result.stderr or "outside project root" in result.stderr

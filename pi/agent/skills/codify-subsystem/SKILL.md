@@ -63,20 +63,32 @@ rg -n "<module-name>|from <package>|import <module>" . 2>/dev/null || true
 
 ## Step 2: Check existing specs
 
-Walk upward from the target to find an existing governing spec:
+From the project root, set `TARGET` to the existing file or directory. Check the sibling file spec first, then every governing directory through the project root:
 
 ```bash
-dir="<target-directory>"
-while [ "$dir" != "." ] && [ "$dir" != "/" ]; do
-  if [ -f "$dir/SPEC.md" ]; then
-    echo "Found SPEC.md at $dir/SPEC.md"
-    break
-  fi
+root=$(pwd -P)
+: "${TARGET:?set TARGET to the file or directory}"
+test -e "$TARGET" || exit 1
+if [ -L "$TARGET" ]; then echo "Resolve symlink target and confirm project root before discovery" >&2; exit 1; fi
+if [ -d "$TARGET" ]; then
+  dir=$(cd "$TARGET" && pwd -P) || exit 1
+else
+  dir=$(cd "$(dirname "$TARGET")" && pwd -P) || exit 1
+fi
+case "$dir/" in "$root/"*) ;; *) echo "Target outside project root" >&2; exit 1 ;; esac
+if [ -f "$TARGET" ]; then
+  name=$(basename "$TARGET")
+  sibling="$dir/${name%.*}.SPEC.md"
+  if [ -f "$sibling" ]; then printf '%s\n' "$sibling"; fi
+fi
+while :; do
+  if [ -f "$dir/SPEC.md" ]; then printf '%s\n' "$dir/SPEC.md"; fi
+  [ "$dir" = "$root" ] && break
   dir=$(dirname "$dir")
 done
 ```
 
-If a parent spec exists, ask whether to create a more specific spec or update the parent.
+Consult `docs/specs/MANIFEST.md` when present. Read existing sibling and governing specs before proposing a new contract. If only a parent spec exists, ask whether to create a more specific spec or update the parent; do not duplicate an existing sibling contract.
 
 ## Step 3: Analyze code
 

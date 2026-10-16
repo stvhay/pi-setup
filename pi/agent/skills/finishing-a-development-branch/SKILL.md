@@ -116,12 +116,13 @@ If deferred, record:
 
 ## Step 5: Request code review
 
-Use `requesting-code-review` for non-trivial diffs unless the user requested no file creation/artifacts. Follow its Codex-first direct OpenRouter matrix and spend gates.
+Read `~/.pi/agent/skills/requesting-code-review/SKILL.md` for non-trivial diffs. Pass the exact candidate, scope and verification evidence; retain its saved packets/output, schema validation and serious-finding verification. Follow its Codex-first direct OpenRouter matrix and spend gates.
 
-If artifact creation is not allowed, either skip peer review with a note or run only direct peer calls whose outputs are summarized in the response without writing `.pi/reviews`.
+If required artifacts cannot be created, required review is `NOT_VERIFIED` and closeout is blocked. State the missing evidence path and ask for permitted storage or stop. Do not waive required review or claim an unsupported in-memory pass. Trivial diffs may legitimately not trigger review.
 
 Review status can be:
 
+- `NOT_VERIFIED` — required artifacts/evidence unavailable; blocked
 - `PASS` — continue
 - `NEEDS_WORK` — block PR-ready status until addressed or explicitly deferred
 - `NOT_SURE` — inspect/ask
@@ -179,7 +180,7 @@ Prepare this summary. For local-only Beads/project workflows, title it `Project 
 - PASS / NEEDS_DOCS / NOT_SURE
 
 ### Review
-- PASS / NEEDS_WORK / NOT_SURE / skipped because <reason>
+- PASS / NEEDS_WORK / NOT_SURE / NOT_VERIFIED / not triggered because <reason>
 
 ### Scope / artifacts
 - <findings>

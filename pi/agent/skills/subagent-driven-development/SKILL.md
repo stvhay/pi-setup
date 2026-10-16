@@ -34,7 +34,7 @@ Use this by default for:
 - implementation strategy comparisons
 - code review before the orchestrator edits
 
-Peers are read-only unless the user explicitly approves write/worktree execution. Peer outputs go under `.pi/peer-runs/<topic>/`. The orchestrator verifies claims and applies any changes manually. Packets state objective, current decision, exact source-of-truth paths/symbols/commands, inaccessible external contract evidence, constraints, output schema, verification target, and stop conditions.
+Peers are read-only unless the user explicitly approves write/worktree execution. Persist peer outputs under `.pi/peer-runs/<topic>/` only when synthesis or handoff needs artifacts. The orchestrator verifies claims and applies any changes manually. Packets state objective, current decision, exact source-of-truth paths/symbols/commands, inaccessible external contract evidence, constraints, output schema, verification target, and stop conditions.
 
 ### Mode B: Worktree implementation — explicit approval required
 
@@ -149,44 +149,9 @@ If tasks are not safe to parallelize, stop with `STOPPED` and recommend `executi
 
 ## Mode A workflow: advisory peers
 
-1. Route the advisory task:
-   ```bash
-   agnt route --task research --risk medium --budget balanced
-   ```
-2. Write focused prompts with read-only constraints:
-   - do not edit files
-   - do not commit
-   - provide exact file references
-   - propose patches only as text if useful
-3. Call `subagent` once with `agent` omitted and one task entry per independent domain:
-   ```json
-   {
-     "tasks": [
-       { "task": "<focused read-only prompt A>", "model": "<routed target A>", "cwd": "<repository>" },
-       { "task": "<focused read-only prompt B>", "model": "<routed target B>", "cwd": "<repository>" }
-     ]
-   }
-   ```
-4. Persist returned outputs under `.pi/peer-runs/<topic>/` only when handoff needs files.
-5. Verify concrete claims against files/tests.
-6. Synthesize findings.
+Read `~/.pi/agent/skills/dispatching-parallel-agents/SKILL.md` and follow its advisory procedure; reuse it if already loaded. Pass the task graph, independent read-only scopes, evidence-complete packets, output contract, verification targets and stop conditions. It owns routing/dispatch, external mutable-resource checks, optional persistence and verified synthesis.
 
-Advisory output format:
-
-```markdown
-ADVISORY_DISPATCH
-
-**Peer outputs:** `.pi/peer-runs/<topic>/`
-
-### Findings
-- <verified finding/proposal>
-
-### Discarded / unverified
-- <claim> — discarded because <reason>
-
-### Recommended next step
-- <manual edit, plan update, worktree implementation, or serial execution>
-```
+Peers must not edit or commit; patch proposals stay text-only. Return `ADVISORY_DISPATCH` with verified findings/proposals, rejected or unverified claims and the recommended next step. Keep task classification and Mode B write/worktree approval here; no advisory-to-Mode-A return loop is needed.
 
 ## Mode B workflow: isolated worktree implementation
 

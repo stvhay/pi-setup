@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: Use for software bugs, failing tests, or unexpected runtime behavior; diagnose before fixes.
 ---
 
 # Systematic Debugging
@@ -44,7 +44,7 @@ If you haven't completed Phase 1, you cannot propose fixes.
 
 ## When to Use
 
-Use for ANY technical issue:
+Use for software diagnosis and repair:
 - Test failures
 - Bugs in production
 - Unexpected behavior
@@ -63,6 +63,17 @@ Use for ANY technical issue:
 - Issue seems simple (simple bugs have root causes too)
 - You're in a hurry (rushing guarantees rework)
 - Manager wants it fixed NOW (systematic is faster than thrashing)
+
+## Outcome boundaries
+
+A failed test or “root cause” request stays here when the deliverable is code repair. For a different requested output, read only the selected skill:
+
+- Systemic incident/control explanation: `~/.pi/agent/skills/stamp-cast/SKILL.md`.
+- Completed-work learning: `~/.pi/agent/skills/retrospective/SKILL.md`.
+- Assigned/requested agent/harness lifecycle review across runs: `~/.pi/agent/skills/agent-retrospective-loop/SKILL.md`.
+- Recovery UX and human resumption: `~/.pi/agent/skills/failure-choreography/SKILL.md`.
+
+Carry reproducer, observed state, evidence, constraints and unresolved questions; request the selected output, not an automatic follow-on. Stabilize active incidents first within authorized scope. Ask before expanding into systemic analysis; routine closeout selects no learning workflow.
 
 ## Lightweight path for deterministic compiler/linter diagnostics
 
@@ -176,7 +187,7 @@ You MUST complete each phase before proceeding to the next.
    - Automated test if possible
    - One-off test script if no framework
    - MUST have before fixing
-   - Use the `test-driven-development` skill for writing proper failing tests
+   - Read `~/.pi/agent/skills/test-driven-development/SKILL.md` with the reproducer and root-cause evidence to write the failing test; implementation still requires normal authority
 
 2. **Implement Single Fix**
    - Address the root cause identified
@@ -247,4 +258,4 @@ These techniques are part of systematic debugging and available in this director
 
 **Related skills:**
 - **test-driven-development** - For creating failing test case (Phase 4, Step 1)
-- **verification-before-completion** - Verify fix worked before claiming success
+- Read `~/.pi/agent/skills/verification-before-completion/SKILL.md` with the candidate and test evidence before claiming success; stop if required checks are unavailable or fail

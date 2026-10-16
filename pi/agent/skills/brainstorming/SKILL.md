@@ -47,6 +47,7 @@ Read only the files that matter. Prefer exact paths and small excerpts.
      - Inspect the project and relevant domain for blind spots (**unknown unknowns**): missing questions, precedent, hidden constraints, failure modes, and what good could look like.
    - Ask only questions whose answers could change scope, architecture, or user-facing behavior. Batch independent questions; ask one at a time when each answer should shape the next.
    - If enough context exists, present assumptions instead of asking obvious questions. Do not recite the taxonomy to the user.
+   - If users, usage or modality need distinct UX work, read `~/.pi/agent/skills/ux-design-agent/SKILL.md`; carry the task, constraints, evidence and unresolved user questions. Return requirements/options here for design approval, not implementation. Keep the pre-approval read-only gate; ask before expanding scope. Copy-only, consent-only and uncertainty-only tasks may enter their specialists directly.
 
 2. **Check project/work state**
    - Surface dirty work, current branch, and likely Bead/issue/PR context.
