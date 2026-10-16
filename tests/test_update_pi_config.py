@@ -53,6 +53,75 @@ def config_source(source: Path) -> Path:
     return source
 
 
+def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path):
+    source = config_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    relative = "agent/extensions/fixture.ts"
+    (source / relative).write_text("new extension\n")
+    (dest / relative).write_text("old extension\n")
+    (dest / relative).chmod(0o640)
+    mcp = dest / "agent/mcp.json"
+    mcp.write_text('{"mcpServers":{"preserved":{}}}\n')
+    settings = (dest / "agent/settings.json").read_bytes()
+    overrides = {"PI_CONFIG_SOURCE": str(source), "PI_COMMAND": "/usr/bin/false",
+                 "PI_PACKAGE_PATCH_HELPER": "/usr/bin/false"}
+
+    preview = run_update(dest, "--dry-run", "--file", relative, env_overrides=overrides)
+    assert preview.returncode == 0, preview.stderr
+    assert (dest / relative).read_text() == "old extension\n"
+    assert not (dest / "runtime").exists()
+    assert relative in preview.stdout
+    assert "*deleting" not in preview.stdout
+
+    applied = run_update(dest, "--file", relative, env_overrides=overrides)
+    assert applied.returncode == 0, applied.stderr
+    assert (dest / relative).read_text() == "new extension\n"
+    assert mcp.read_text() == '{"mcpServers":{"preserved":{}}}\n'
+    assert (dest / "agent/settings.json").read_bytes() == settings
+    backups = list((dest / "runtime/deployment-backups").glob("*/before.ts"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == "old extension\n"
+    receipt = json.loads((backups[0].parent / "receipt.json").read_text())
+    assert receipt["destination"] == str(dest / relative)
+    assert receipt["verified"] is True
+    assert receipt["beforeMode"] == "0640"
+    assert (dest / relative).stat().st_mode & 0o777 == 0o640
+    repeated = run_update(dest, "--file", relative, env_overrides=overrides)
+    assert repeated.returncode == 0, repeated.stderr
+    assert list((dest / "runtime/deployment-backups").glob("*/before.ts")) == backups
+
+
+@pytest.mark.parametrize("relative", ["agent/auth.json", "../escape.ts", "/tmp/escape.ts",
+                                     "agent/extensions/../escape.ts", "agent/extensions/missing.ts"])
+def test_file_update_rejects_unmanaged_or_missing_paths(tmp_path, relative):
+    dest = config_source(tmp_path / ".pi")
+    proc = run_update(dest, "--file", relative)
+    assert proc.returncode != 0
+    assert not (dest / "runtime").exists()
+
+
+@pytest.mark.parametrize("side", ["source", "destination"])
+def test_file_update_rejects_symlink_files_and_ancestors(tmp_path, side):
+    source = config_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    relative = "agent/extensions/fixture.ts"
+    (source / relative).write_text("new\n")
+    (dest / relative).write_text("old\n")
+    root = source if side == "source" else dest
+    target = tmp_path / "unowned"
+    target.write_text("preserve\n")
+    (root / relative).unlink()
+    (root / relative).symlink_to(target)
+    overrides = {"PI_CONFIG_SOURCE": str(source)}
+    assert run_update(dest, "--file", relative, env_overrides=overrides).returncode != 0
+    (root / relative).unlink()
+    (root / "agent/extensions").rmdir()
+    (root / "agent/extensions").symlink_to(tmp_path, target_is_directory=True)
+    assert run_update(dest, "--file", relative, env_overrides=overrides).returncode != 0
+    assert target.read_text() == "preserve\n"
+    assert not (dest / "runtime").exists()
+
+
 def test_update_helper_isolates_ambient_credentials_and_targets(monkeypatch, tmp_path):
     inherited = {
         "LANGFUSE_PUBLIC_KEY": "ambient-public",

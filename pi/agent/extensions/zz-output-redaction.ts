@@ -103,9 +103,18 @@ function visit(value: unknown, seen: WeakMap<object, unknown>): unknown {
     return redacted === rendered ? value : redacted;
   }
   const output: Record<string, unknown> = {};
+  const record = value as Record<string, unknown>;
+  const png = record.type === "image" && record.mimeType === "image/png";
   seen.set(value, output);
   for (const [key, item] of Object.entries(value)) {
-    output[key] = hasSensitiveField(key) ? redactFieldValue(item) : visit(item, seen);
+    // shortcut: preserve PNG-signature payloads; add header checks when other media formats are needed.
+    if (png && key === "data" && typeof item === "string"
+      && Buffer.from(item, "base64").subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      && Buffer.from(item, "base64").toString("base64") === item) {
+      output[key] = item;
+    } else {
+      output[key] = hasSensitiveField(key) ? redactFieldValue(item) : visit(item, seen);
+    }
   }
   return output;
 }
@@ -152,6 +161,7 @@ function redactToolPayload(value: unknown): void {
   const payload = value as Record<string, unknown>;
   if ("content" in payload) payload.content = redactContent(payload.content).content;
   if ("details" in payload) payload.details = redactOutputValue(payload.details);
+  if ("structuredContent" in payload) payload.structuredContent = redactOutputValue(payload.structuredContent);
 }
 
 export default function outputRedaction(pi: ExtensionAPI): void {
@@ -183,7 +193,12 @@ export default function outputRedaction(pi: ExtensionAPI): void {
   pi.on("tool_result", (event) => {
     const content = redactContent(event.content);
     const details = redactOutputValue(event.details);
-    return { content: content.content as typeof event.content, details };
+    // Pi drops structured results when a content replacement omits them.
+    return {
+      content: content.content as typeof event.content,
+      details,
+      structuredContent: redactOutputValue("structuredContent" in event ? event.structuredContent : undefined),
+    };
   });
 
   pi.on("message_update", (event, ctx) => {
@@ -211,6 +226,7 @@ export default function outputRedaction(pi: ExtensionAPI): void {
           ...event.message,
           content: redactContent(event.message.content).content as typeof event.message.content,
           details: redactOutputValue(event.message.details),
+          structuredContent: redactOutputValue("structuredContent" in event.message ? event.message.structuredContent : undefined),
         },
       };
     }

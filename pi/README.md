@@ -25,6 +25,20 @@ Pi installs packages declared in `agent/settings.json` into the preserved `~/.pi
 
 Both maintained projections remain derived deployment artifacts for the pinned `stvhay/pi-langfuse` and `stvhay/pi-archimedes` forks. PRs continue against those repositories; after a reviewed fork head changes, pi-setup syncs its gitlink and regenerated patch together. Normal deployment applies the patches automatically. Use `scripts/apply-pi-package-patches.sh --check` for read-only state inspection or run its apply mode to repair already installed exact bases. The helper is idempotent and rejects version/source mismatches; tracked patches live under `patches/pi-packages/`. External-upstream releases do not gate local adoption. Langfuse skill and Matt Pocock skill packages intentionally track their default branches without refs; `pi update --extensions` advances those unpinned checkouts after source review.
 
+### Deploy one existing extension
+
+For a bounded fix without reconciling unrelated config or packages:
+
+```bash
+scripts/update-pi-config.sh --dry-run --file agent/extensions/zz-output-redaction.ts
+# Only after approval of this exact file, hashes, and target:
+scripts/update-pi-config.sh --file agent/extensions/zz-output-redaction.ts
+```
+
+`--file` accepts one existing top-level `agent/extensions/NAME.ts` file (not `.local.ts`). Both paths must be regular files with no symlink components beneath the canonical roots. Preview prints before/after SHA-256 hashes and writes nothing. Apply preserves destination permissions, checks for preparation-time drift, atomically replaces only that file, and verifies its bytes. Identical bytes are a no-op. No package actions, config deletions, settings updates, or automatic restart occur.
+
+Recovery bytes and a verification receipt remain in the printed private `runtime/deployment-backups/file-*/` directory as `before.ts` and `receipt.json`. This is a one-file backup, not a full-deployment backup; no bulk `restore.sh` is generated. After separate rollback approval, verify current bytes against the receipt's `afterSha256`, preview `rsync -a --dry-run --itemize-changes <backup>/before.ts <exact-destination-file>`, then use `rsync -a --chmod=<original-mode> <backup>/before.ts <exact-destination-file>` and verify `beforeSha256`. Use the receipt's `beforeMode` for `<original-mode>`; recovery bytes are deliberately mode 0600. Stop on drift or ambiguous ownership. A failed apply retains the backup; no automatic retry or rollback.
+
 ### Deployment evidence and recovery
 
 Use the script for deployment-only work; do not rebuild its steps or rerun an unchanged verified revision's full development suite. Confirm the approved source revision and compare the script's canonical source, destination, host, and user with the approved target. `--dry-run` validates source layout and runs rsync's itemized preview without changing the destination. Package install/patch steps are planned, not executed. Apply still requires the deployment approval contract. The preview is not an authorization receipt: callers must recheck source, target, and effects before apply; drift requires a new preview/approval.
@@ -143,7 +157,7 @@ Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must h
 
 Provider credentials belong in Pi's ignored `auth.json`, the shell environment, or ignored local env files—not in git. Pi has a built-in OpenRouter provider: run `/login openrouter` or set `OPENROUTER_API_KEY`. `models.json` uses only per-model output-cap overrides; it does not duplicate the provider, endpoint, or credential. OpenAI/Codex remains the default root provider; direct OpenRouter is reserved for fresh bounded delegated calls under the approved [model portfolio](../docs/MODEL-PORTFOLIO-2026-08.md). No local or relay provider is configured.
 
-`agent/extensions/zz-output-redaction.ts` defensively redacts credential-shaped values at shared tool, assistant-output, and extension-diagnostic boundaries while preserving surrounding status, exit, path, and error evidence. RPC and JSON text/thinking deltas are withheld until complete redacted end/final events are available. User input is not rewritten; credentials still belong in managed stores or environment references, never prompts or command literals.
+`agent/extensions/zz-output-redaction.ts` defensively redacts credential-shaped values at shared tool, assistant-output, and extension-diagnostic boundaries while preserving surrounding status, exit, path, and error evidence. Structured tool results are redacted alongside visible content, retaining MCP envelopes and error flags for codemode. Canonical base64 PNG data with a PNG signature stays opaque; this is not an image-content privacy check, and other binary formats do not yet have this exemption. RPC and JSON text/thinking deltas are withheld until complete redacted end/final events are available. User input is not rewritten; credentials still belong in managed stores or environment references, never prompts or command literals.
 
 The Langfuse extension and official Langfuse skill share credentials from private `~/.pi/agent/pi-langfuse/config.json`. During Pi sessions, `langfuse-config-env.ts` exposes that config to Langfuse CLI child processes; explicit `LANGFUSE_*` credentials still take precedence. No second credential file is needed.
 

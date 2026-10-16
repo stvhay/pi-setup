@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from conftest import run_node
 
 
@@ -179,4 +181,91 @@ def test_shared_output_boundary_redacts_credentials_and_preserves_diagnostics():
       }}
     """
 
+    run_node(script)
+
+
+def test_encoded_media_exemption_does_not_exempt_text_or_metadata():
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ REDACTED, redactOutputValue }} from {EXTENSION.as_uri()!r};
+      const encoded = "iVBORw0KGgo/" + "AKIA" + "1234567890123456";
+      const credential = ["ghp", "syntheticabcdefghijklmnopqrstuvwxyz1234"].join("_");
+      const block = {{ type: "image", mimeType: "image/png", data: encoded, password: credential }};
+      assert.deepEqual(redactOutputValue(block), {{ ...block, password: REDACTED }});
+      assert.equal(redactOutputValue({{ ...block, data: credential }}).data, REDACTED);
+      assert.notEqual(redactOutputValue({{ ...block, mimeType: "text/plain" }}).data, encoded);
+      assert.notEqual(redactOutputValue({{ data: encoded }}).data, encoded);
+      const plainKey = "AKIA" + "1234567890123456";
+      assert.equal(redactOutputValue({{ ...block, data: plainKey }}).data, REDACTED);
+    """
+    run_node(script)
+
+
+@pytest.mark.parametrize("surface", ["tool_result", "tool_execution_update", "tool_execution_end", "message_end"])
+def test_structured_results_survive_redaction_at_every_output_boundary(surface):
+    script = f"""
+      import assert from "node:assert/strict";
+      import install, {{ REDACTED }} from {EXTENSION.as_uri()!r};
+
+      const handlers = new Map();
+      install({{
+        on(name, handler) {{ handlers.set(name, [handler]); }},
+        registerMarkdownTransformer() {{}},
+      }});
+      try {{
+        const credential = ["ghp", "syntheticabcdefghijklmnopqrstuvwxyz1234"].join("_");
+        // Valid base64 can contain credential-shaped substrings; encoded media is opaque.
+        const image = {{ type: "image", mimeType: "image/png", data: "iVBORw0KGgo/" + "AKIA" + "1234567890123456" }};
+        for (const isError of [false, true]) {{
+          const structured = {{
+            content: [{{ type: "text", text: `diagnostic ${{credential}}` }}, image],
+            structuredContent: {{ password: credential, completed: 1, failed: 1,
+              results: [{{ ok: true }}, {{ ok: false, error: "unknown command" }}] }},
+            isError,
+          }};
+          const payload = {{
+            content: [{{ type: "text", text: "safe diagnostic" }}],
+            details: {{}}, structuredContent: structured, isError,
+          }};
+          let result;
+          const surface = {surface!r};
+          if (surface === "tool_result") {{
+            const patch = await handlers.get(surface)[0]({{
+              type: surface, toolName: "mcp__fixture__inspect", toolCallId: "fixture",
+              input: {{}}, ...payload,
+            }});
+            assert.ok(patch.structuredContent, "content replacement must include structured result");
+            result = {{ ...payload, ...patch }};
+          }} else if (surface === "message_end") {{
+            result = (await handlers.get(surface)[0]({{
+              message: {{ role: "toolResult", ...payload }},
+            }})).message;
+          }} else {{
+            const field = surface === "tool_execution_update" ? "partialResult" : "result";
+            const event = {{ [field]: payload }};
+            await handlers.get(surface)[0](event);
+            result = event[field];
+          }}
+          assert.ok(result.structuredContent, "structured result must survive output hook");
+          assert.equal(result.isError, isError);
+          assert.equal(result.structuredContent.isError, isError);
+          assert.deepEqual(result.structuredContent.content[1], image);
+          assert.deepEqual(result.structuredContent.structuredContent, {{
+            password: REDACTED, completed: 1, failed: 1,
+            results: [{{ ok: true }}, {{ ok: false, error: "unknown command" }}],
+          }});
+          assert.equal(result.structuredContent.content[0].text, `diagnostic ${{REDACTED}}`);
+          assert.equal(JSON.stringify(result).includes(credential), false);
+          assert.equal(structured.structuredContent.password, credential, "do not mutate input");
+        }}
+        for (const value of [null, false, 0, "safe", [1, false], {{ exit_code: 2, output: "failure" }}]) {{
+          const patch = handlers.get("tool_result")[0]({{
+            content: [], details: undefined, structuredContent: value, isError: false,
+          }});
+          assert.deepEqual(patch.structuredContent, value);
+        }}
+      }} finally {{
+        for (const shutdown of handlers.get("session_shutdown")) shutdown();
+      }}
+    """
     run_node(script)

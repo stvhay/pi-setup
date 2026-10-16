@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MODE=apply
+FILE=
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SOURCE=${PI_CONFIG_SOURCE:-$ROOT/pi}
 DEST=${PI_CONFIG_DEST:-$HOME/.pi}
@@ -46,7 +47,7 @@ RSYNC_EXCLUDES=(
 
 usage() {
   cat <<'EOF'
-Usage: scripts/update-pi-config.sh [--dry-run]
+Usage: scripts/update-pi-config.sh [--dry-run] [--file agent/extensions/NAME.ts]
 
 Update ~/.pi from this repository's tracked pi/ directory.
 
@@ -56,6 +57,8 @@ mismatched, or stale-patch exact package bases are installed, then tracked patch
 Checks run before and after apply. Managed config backups stay under
 <destination>/runtime/deployment-backups/. --dry-run itemizes actual file changes.
 Remote evaluator changes are separate: agnt langfuse apply (requires approval).
+--file replaces one existing top-level TypeScript extension only, with a file backup
+and hash receipt. It skips packages, other config, and deletions; symlinks are refused.
 
 Environment overrides:
   PI_CONFIG_SOURCE          Source config directory. Default: <repo>/pi
@@ -67,6 +70,11 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) MODE=dry-run ;;
+    --file)
+      [ $# -ge 2 ] && [ -z "$FILE" ] && [ -n "$2" ] || { usage >&2; exit 2; }
+      FILE=$2
+      shift
+      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -379,6 +387,85 @@ validate_dest() {
 validate_dest
 printf 'Source: %s\nDestination: %s\nHost: %s\nUser: %s\n' "$SOURCE" "$DEST" "$(hostname)" "$(id -un)"
 (cd "$ROOT" && PI_CONFIG_DIR="$SOURCE" scripts/check-pi-config.sh)
+
+if [ -n "$FILE" ]; then
+  python3 - "$SOURCE" "$DEST" "$FILE" "$MODE" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import tempfile
+
+source, destination = map(Path, sys.argv[1:3])
+relative, mode = sys.argv[3:]
+if not re.fullmatch(r"agent/extensions/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ts", relative) or relative.endswith(".local.ts"):
+    raise SystemExit("--file requires one managed top-level TypeScript extension")
+
+
+def checked_file(root):
+    path = root
+    for part in Path(relative).parts:
+        path /= part
+        if path.is_symlink():
+            raise SystemExit(f"Refusing symlink: {path}")
+    if not path.is_file():
+        raise SystemExit(f"Expected existing regular file: {path}")
+    return path
+
+
+src, target = checked_file(source), checked_file(destination)
+new, old = src.read_bytes(), target.read_bytes()
+original_stat = target.stat()
+digest = lambda data: hashlib.sha256(data).hexdigest()
+receipt = {"source": str(src), "destination": str(target), "beforeSha256": digest(old),
+           "afterSha256": digest(new), "beforeMode": f"{stat.S_IMODE(original_stat.st_mode):04o}", "verified": False}
+print(json.dumps(receipt, indent=2))
+if new == old:
+    print("Selected extension already matches; no writes.")
+    raise SystemExit(0)
+if mode == "dry-run":
+    print("Preview only: one extension replacement plus private backup/receipt; no other changes.")
+    raise SystemExit(0)
+
+backup_root = destination / "runtime/deployment-backups"
+backup_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+backup = Path(tempfile.mkdtemp(prefix="file-", dir=backup_root))
+with (backup / "before.ts").open("xb") as output:
+    os.chmod(output.name, 0o600)
+    output.write(old)
+    output.flush()
+    os.fsync(output.fileno())
+receipt_path = backup / "receipt.json"
+receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+print(f"File backup: {backup}", flush=True)
+temporary = None
+try:
+    with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".pi-deploy-", delete=False) as output:
+        temporary = Path(output.name)
+        output.write(new)
+        output.flush()
+        os.fsync(output.fileno())
+    temporary.chmod(stat.S_IMODE(original_stat.st_mode))
+    current_stat = target.stat()
+    if (checked_file(source).read_bytes() != new or checked_file(destination).read_bytes() != old
+        or (current_stat.st_dev, current_stat.st_ino, current_stat.st_mtime_ns, current_stat.st_mode)
+        != (original_stat.st_dev, original_stat.st_ino, original_stat.st_mtime_ns, original_stat.st_mode)):
+        raise SystemExit("Source or destination changed during preparation; stopped before replacement")
+    os.replace(temporary, target)
+    if target.read_bytes() != new:
+        raise SystemExit(f"Replacement verification failed; recovery bytes retained at {backup}")
+    receipt["verified"] = True
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+    print("Selected extension verified. Restart Pi to load it; no automatic restart.")
+finally:
+    if temporary is not None and temporary.exists():
+        temporary.unlink()
+PY
+  exit $?
+fi
 
 mkdir_parent() {
   local dir
