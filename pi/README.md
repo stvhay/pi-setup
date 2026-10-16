@@ -77,6 +77,40 @@ Do not hand-edit deployed runtime copies. Make changes under tracked `pi/`, veri
 
 Both flows require interactive TUI mode and Node 24 on macOS/Linux. Windows, alternate runtimes, missing `process.execve`, and ephemeral `--no-session` sessions fail before shutdown. Relay or terminal termination cannot guarantee automatic resume; diagnostics retain exact session-file recovery guidance.
 
+### Browser permissions
+
+`agent/extensions/browser-permissions.ts` composes BetterWright's public Pi extension. Package autoload is disabled to prevent duplicate tools. **Downloads default to `allow` in every project:** authorized task downloads need no extra dialog, including through ordinary `browser` calls. This does not authorize executing downloaded files. Browser instructions reflect the effective policy.
+
+Optional files live in `.perms/` directly under the Pi session working directory (canonical path, no ancestor search):
+
+| File | Meaning |
+| --- | --- |
+| `.perms/downloads` | One value: `allow`, `ask`, or `deny`. `ask` uses the existing per-step `browser_download` confirmation; `deny` disables downloads. |
+| `.perms/net-allowlist` | Exclusive permitted destinations. Missing file leaves destinations unrestricted; an empty/comment-only file denies all network destinations. |
+| `.perms/net-blocklist` | Denied destinations. Block rules win over allow rules. |
+
+Each network file contains one hostname or IP per line, optionally followed by a port. Blank lines and whole-line `#` comments are ignored. Example:
+
+```text
+# Exact host, not its subdomains
+example.com
+# Subdomains only, not example.org itself
+*.example.org
+localhost:3000
+127.0.0.1:8000
+[::1]:9000
+```
+
+Hosts match case-insensitively with a trailing DNS dot normalized. Ports match the effective port, including default 80/443. IPv6 literals require brackets; mapped IPv4 addresses match their IPv4 form. Use ASCII/punycode DNS names. URLs, paths, regex, CIDR, inline comments, malformed rules, symlinks/special files, invalid UTF-8, and files over 64 KiB are rejected rather than ignored. Both original hostname and resolved address are checked against block rules on guarded local transports; hostname allow rules do not require duplicating DNS addresses.
+
+Use `/browser-permissions` to inspect effective policy. After creating, changing, or deleting policy files, run **`/browser-permissions approve`**. It previews the canonical project, download mode and exact parsed lists, asks once through Pi's trusted UI, saves a fingerprint-bound receipt, and reloads Pi. Reload closes browser tabs but retains persistent logins. Subsequent matching requests need no confirmation unless downloads explicitly use `ask`. Changed policy blocks browser tools/commands and new guarded network requests until approval/reload; queued work is revalidated before dispatch. Invalid policy must be fixed first. Headless runs can reuse approvals but cannot create them. No startup approval dialog is shown.
+
+An explicit host `BETTERWRIGHT_PI_DOWNLOAD_POLICY=allow|ask|deny` overrides `.perms/downloads`; otherwise the project value overrides default `allow`. Launch Pi with the changed environment; the effective mode participates in the approval fingerprint. Ordinary Pi `/trust` and Beads approvals do not substitute for this browser policy receipt. Receipts live under `<agent-dir>/../runtime/browser-permissions/` (normally `~/.pi/runtime/browser-permissions/`) and survive config deployment. They are private runtime state, not repository content. Removing previously approved policy files also requires approval, so deletion cannot silently widen access.
+
+**Boundary:** these rules cover BetterWright's intercepted browser traffic, including redirects/subresources—not shell commands, extensions, devices, host-side provider/vault services, or a machine-wide firewall. Public/private/loopback access remains upstream-default unless restricted here; cloud-metadata protections remain intact. Local guarded transports additionally check resolved IPs. Ordinary remote/CDP providers lack that transport guard and do not provide equivalent DNS-rebinding/egress guarantees. Existing responses/connections cannot be retroactively revoked; close/restart the browser when immediate teardown is needed. Receipts prevent accidental/project-file self-approval, not tampering by arbitrary code with the same OS user's filesystem access.
+
+BetterWright remains unpinned; this adapter was checked against 2.8.9. It uses public `pi-extension`, `policy`, and `prompt` exports and refuses an incompatible download-prompt contract. Review upstream changes before deployment rather than editing installed package files.
+
 ### Beads work in the footer
 
 `agent/extensions/beads-footer.ts` adds one keyed status without replacing the active footer. `agnt work status` includes each Bead's `issueType` and orders in-progress rows from explicit Beads parent metadata: included parents come before their children; roots and siblings sort by priority, then stable `created_at`, then natural ID. Missing creation times fall back to natural ID. It never infers parentage from ID text and ignores `updated_at`, preventing footer reshuffling after edits. Rows remain newline-delimited: `◐ ◆ <id>  P<priority>  <title>` for Epics and `◐   <id>  P<priority>  <title>` otherwise. The fixed type slot keeps ID, priority, and title columns aligned. Warm theme colors mark only `◐`; non-session details stay muted, while the current-session details use bold default text. Pi's built-in footer renders the keyed status natively; the version-locked Archimedes footer patch renders each Bead entry on its own sorted, sanitized, width-bounded row without collapsing column spacing. Archimedes places the exact `caveman` and `ponytail` statuses on its first row whenever they fit—even when stats split onto a second row—otherwise together on one fallback row; other statuses retain dedicated rows. The status refreshes on session startup/reload and after tools that can change Beads; empty, malformed, or failed reads clear it. This data remains presentation-only and is not added to model context.

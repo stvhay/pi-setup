@@ -320,3 +320,14 @@ remain separately gated or prohibited. When
 orchestration is explicitly selected, Beads-backed human decisions, recorded
 worker sessions, one worktree per epic, and run health/closeout checks add
 stricter optional gates.
+
+Browser permissions are a separate public BetterWright composition in
+`pi/agent/extensions/browser-permissions.ts`, with parsing/matching and private
+receipt persistence in `extensions/lib/browser-permissions.ts`. Downloads default
+to allow; project `.perms` rules require a trusted human confirmation once per
+canonical-root/policy fingerprint. The adapter revalidates serialized dispatch
+and network decisions, preserves upstream metadata protection, and aligns browser
+instructions with effective policy. It does not interpret Beads grants or enforce
+shell/device permissions. This is intercepted-browser policy, not an OS sandbox;
+remote/CDP providers lack local transport protection. See
+[browser permissions](../pi/README.md#browser-permissions) for format and lifecycle.

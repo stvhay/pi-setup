@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from conftest import run_node
@@ -1249,7 +1250,7 @@ def test_compatibility_matrix_covers_every_configured_package():
         assert row, f"missing compatibility row for {source}"
         if "@" not in source.split(":", 1)[1].lstrip("@"):
             assert "Intentional rolling" in row
-            assert "2026-08-13" in row
+            assert re.search(r"observed \d{4}-\d{2}-\d{2}:", row)
 
 
 def test_pi_langfuse_quality_port_contract_is_public_bounded_and_non_authoritative():

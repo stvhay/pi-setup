@@ -43,7 +43,10 @@
       "skills": []
     },
     "npm:pi-caveman",
-    "npm:betterwright"
+    {
+      "source": "npm:betterwright",
+      "extensions": []
+    }
   ],
   "observational-memory": {
     "compactAfterTokens": 81000,

@@ -225,11 +225,12 @@ def test_codex_subscription_context_matches_routing_catalog():
         assert catalog[family]["venues"][0]["contextWindow"] == 272_000
 
 
-def test_betterwright_remains_unpinned():
+def test_betterwright_remains_unpinned_with_tracked_permission_adapter():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
 
-    assert "npm:betterwright" in settings["packages"]
-    assert "npm:betterwright@" not in settings["packages"]
+    assert {"source": "npm:betterwright", "extensions": []} in settings["packages"]
+    assert "npm:betterwright" not in settings["packages"], "avoid duplicate tool registration"
+    assert (SETTINGS.parent / "extensions/browser-permissions.ts").is_file()
 
 
 def test_observational_memory_compaction_precedes_native_threshold():
