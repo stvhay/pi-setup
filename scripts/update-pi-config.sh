@@ -141,13 +141,15 @@ PY
 patch_dry_run_is_exact() {
   local direction=$1 package_dir=$2 patch_file=$3 output status=1
   output=$(mktemp)
+  # Apple patch hides offsets unless verbose; --verbose must precede --reverse.
+  # Keep diagnostics in English for the offset/fuzz rejection below.
   if [ "$direction" = reverse ]; then
-    if patch --force --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" \
+    if LC_ALL=C patch --verbose --force --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" \
       < "$patch_file" >"$output" 2>&1 \
       && ! grep -Eiq 'offset|fuzz' "$output"; then
       status=0
     fi
-  elif patch --force --fuzz=0 --dry-run -p1 -d "$package_dir" \
+  elif LC_ALL=C patch --verbose --force --fuzz=0 --dry-run -p1 -d "$package_dir" \
     < "$patch_file" >"$output" 2>&1 \
     && ! grep -Eiq 'offset|fuzz' "$output"; then
     status=0

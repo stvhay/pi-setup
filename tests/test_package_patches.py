@@ -7,6 +7,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "apply-pi-package-patches.sh"
@@ -186,7 +188,7 @@ def _run(package_root: Path, patch_root: Path, *args: str) -> subprocess.Complet
     )
 
 
-def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path):
+def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path, patch_implementation):
     package_root = tmp_path / "node_modules"
     langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.14", "export const nativeSession = true;\n")
     archimedes = _package(
@@ -294,7 +296,8 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
     assert "patch does not match installed source" in rejected.stderr
 
 
-def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
+@pytest.mark.parametrize("applied", [False, True])
+def test_package_patch_helper_rejects_offset_patch_matches(tmp_path, patch_implementation, applied):
     package_root = tmp_path / "node_modules"
     _archimedes_footer(package_root)
     _package(
@@ -309,16 +312,24 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path):
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
         "2.1.0",
-        "unexpected-prefix\nexport const result = {};\n",
+        "export const result = {};\n",
     )
     _archimedes_meta(package_root)
     patch_root = _fixture_patches(tmp_path / "patches")
 
-    rejected = _run(package_root, patch_root, "--check")
+    if applied:
+        result = _run(package_root, patch_root)
+        assert result.returncode == 0, result.stderr
+    archimedes.write_text("unexpected-prefix\n" + archimedes.read_text(encoding="utf-8"), encoding="utf-8")
+    before = {path: path.read_bytes() for path in package_root.rglob("*") if path.is_file()}
 
-    assert rejected.returncode != 0
-    assert "patch does not match installed source" in rejected.stderr
-    assert "maxOutputTokens" not in archimedes.read_text(encoding="utf-8")
+    # Both check and apply must reject drift before modifying any package.
+    for args in [("--check",), ()]:
+        rejected = _run(package_root, patch_root, *args)
+        assert rejected.returncode != 0
+        expected = "partially patched" if applied else "patch does not match installed source"
+        assert expected in rejected.stderr
+        assert {path: path.read_bytes() for path in package_root.rglob("*") if path.is_file()} == before
 
 
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):

@@ -782,6 +782,31 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     assert "pi-langfuse 1.5.14: already installed" in proc.stdout
 
 
+@pytest.mark.parametrize("applied", [False, True])
+@pytest.mark.parametrize("offset", [False, True])
+def test_update_patch_base_preview_requires_exact_match(tmp_path, patch_implementation, applied, offset):
+    dest = tmp_path / ".pi"
+    modules = dest / "agent/npm/node_modules"
+    meta = write_package(modules, "pi-archimedes", "pi-archimedes", "2.1.0")
+    subagent = write_package(modules, "@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.1.0")
+    langfuse = write_package(modules, "pi-langfuse", "pi-langfuse", "1.5.14")
+    write_applied_archimedes(meta, subagent)
+    write_clean_langfuse(langfuse)
+    target = subagent / "src/index.ts"
+    content = ("unexpected-prefix\n" if offset else "") + ("new-subagent\n" if applied else "old-subagent\n")
+    target.write_text(content, encoding="utf-8")
+    before = {path: path.read_bytes() for path in modules.rglob("*") if path.is_file()}
+
+    result = run_update(dest, "--dry-run", env_overrides={
+        "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path)),
+    })
+
+    assert result.returncode == 0, result.stderr
+    assert ("install npm:pi-archimedes@2.1.0" in result.stdout) == offset
+    assert ("@pi-archimedes/subagent 2.1.0: already installed" in result.stdout) == (not offset)
+    assert {path: path.read_bytes() for path in modules.rglob("*") if path.is_file()} == before
+
+
 def test_update_reinstalls_exact_archimedes_when_patch_revision_is_stale(tmp_path):
     dest = tmp_path / ".pi"
     log = tmp_path / "package-sync.log"

@@ -61,9 +61,11 @@ patch_state() {
     echo "$label: required source context is missing from $required_file" >&2
     return 1
   fi
+  # Apple patch hides offsets unless verbose; --verbose must precede --reverse.
+  # Keep diagnostics in English for the offset/fuzz rejection below.
   if grep -Fq "$marker" "$package_dir/$marker_file"; then
     local reverse_output
-    if reverse_output=$(patch --force --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
+    if reverse_output=$(LC_ALL=C patch --verbose --force --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
       && ! grep -Eiq 'offset|fuzz' <<<"$reverse_output"; then
       echo applied
       return
@@ -72,7 +74,7 @@ patch_state() {
     return 1
   fi
   local forward_output
-  if forward_output=$(patch --force --fuzz=0 --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
+  if forward_output=$(LC_ALL=C patch --verbose --force --fuzz=0 --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
     && ! grep -Eiq 'offset|fuzz' <<<"$forward_output"; then
     echo pending
     return

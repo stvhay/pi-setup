@@ -28,6 +28,22 @@ def run_node(script: str, env: dict[str, str] | None = None) -> subprocess.Compl
     )
 
 
+@pytest.fixture(params=["path", "system"])
+def patch_implementation(request, monkeypatch, tmp_path):
+    """Exercise PATH patch and the OS patch (Apple on macOS), without replacing other tools."""
+    discovered = shutil.which("patch")
+    candidate = Path(discovered) if request.param == "path" and discovered else Path("/usr/bin/patch")
+    if not candidate.is_file():
+        pytest.skip(f"patch unavailable: {candidate}")
+    if request.param == "system" and discovered and candidate.resolve() == Path(discovered).resolve():
+        pytest.skip("OS patch is already covered by PATH")
+    bin_dir = tmp_path / "patch-bin"
+    bin_dir.mkdir()
+    (bin_dir / "patch").symlink_to(candidate.resolve())
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    return candidate
+
+
 @pytest.fixture(autouse=True)
 def isolate_provider_circuit_state(monkeypatch, tmp_path):
     monkeypatch.setenv("AGNT_PROVIDER_CIRCUIT_DIR", str(tmp_path / "provider-circuits"))
