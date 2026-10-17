@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "photocraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": ["photocraft"],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    }
+  }
+}

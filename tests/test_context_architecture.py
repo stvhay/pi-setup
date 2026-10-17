@@ -1233,7 +1233,7 @@ def test_task_first_discovery_preserves_catalog_and_boundaries(common):
                 for path in (AGENT / "skills").glob("*/SKILL.md")}
     hidden = {name for name, meta in metadata.items() if meta.get("disable-model-invocation")}
     assert hidden == {"dev-workflow-common", "requirement-simplification-review"}
-    assert len(metadata) - len(hidden) == 48
+    assert len(metadata) - len(hidden) == 49
     for name, boundary in {
         "systematic-debugging": "software bugs",
         "stamp-stpa": "not generic critique",

@@ -68,6 +68,10 @@ check_exists "$PI_DIR/agent/bin/agnt"
 check_exists "$PI_DIR/agent/skills"
 check_exists "$PI_DIR/agent/extensions"
 
+if [ -e "$PI_DIR/agent/craft/source.json" ] || [ -L "$PI_DIR/agent/craft/source.json" ]; then
+  python3 "$ROOT/scripts/check-craft-promotion.py" "$PI_DIR"
+fi
+
 if [ -x "$PI_DIR/agent/bin/agnt" ]; then
   "$PI_DIR/agent/bin/agnt" action validate >/dev/null
   "$PI_DIR/agent/bin/agnt" context-health --strict >/dev/null
@@ -80,6 +84,9 @@ if [ -x "$PI_DIR/agent/bin/agnt" ]; then
 fi
 
 if [ "$SOURCE_CHECK" = 1 ]; then
+  check_exists "$PI_DIR/agent/craft/source.json"
+  check_absent "$PI_DIR/agent/mcp.json"
+  check_absent "$PI_DIR/agent/mcp-auth.json"
   check_absent "$PI_DIR/agent/auth.json"
   check_absent "$PI_DIR/agent/sessions"
   check_absent "$PI_DIR/agent/npm"
@@ -88,7 +95,7 @@ if [ "$SOURCE_CHECK" = 1 ]; then
   check_absent "$PI_DIR/agent/mcp-onboarding.json"
   check_absent "$PI_DIR/agent/trust.json"
 
-  if git -C "$ROOT" ls-files | grep -E '(^|/)auth\.json$|(^|/)sessions/|(^|/)npm/|(^|/)git/|mcp-cache\.json|mcp-onboarding\.json|trust\.json' >/dev/null; then
+  if git -C "$ROOT" ls-files | grep -E '(^|/)auth\.json$|(^|/)sessions/|(^|/)npm/|(^|/)git/|mcp-auth\.json|mcp-cache\.json|mcp-onboarding\.json|trust\.json' >/dev/null; then
     fail "private/generated state is tracked"
   fi
 

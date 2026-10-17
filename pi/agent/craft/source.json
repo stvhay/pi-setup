@@ -1,0 +1,26 @@
+{
+  "repository": "artcraft-setup",
+  "commit": "173b422ab86bb3bab9725ff7fd0accd5c968cad9",
+  "files": {
+    "scripts/start-craft-mcp.sh": {
+      "target": "agent/bin/start-craft-mcp.sh",
+      "mode": "0755",
+      "sha256": "120043dd5f280d1ebbcb442edca9f704d33cf5e88590489175465ab3f2f81161"
+    },
+    "integration/crafting-apps/SKILL.md": {
+      "target": "agent/skills/crafting-apps/SKILL.md",
+      "mode": "0644",
+      "sha256": "f145ae4cbe614c80be54cacb0c1ef45af84a1d72e57cb56e3bb085b608546d4b"
+    },
+    "integration/crafting-apps/vectorcraft.md": {
+      "target": "agent/skills/crafting-apps/vectorcraft.md",
+      "mode": "0644",
+      "sha256": "acaeeb6c89abf44369db23e7f0537643a1fc0d99e16ed7ef5250177dec9bdbb8"
+    },
+    "integration/craft-mcp.json": {
+      "target": "agent/craft/mcp.json",
+      "mode": "0644",
+      "sha256": "058c82df54f0591d200c18eb8202875d45f5946407bd1661daf41588b6cf3e3a"
+    }
+  }
+}

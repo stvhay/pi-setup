@@ -25,6 +25,9 @@ RSYNC_EXCLUDES=(
   --exclude='agent/pi-langfuse/'
   --exclude='agent/npm/'
   --exclude='agent/git/'
+  --exclude='agent/mcp.json'
+  --exclude='agent/mcp-auth.json'
+  --exclude='agent/mcp.log*'
   --exclude='agent/mcp-cache.json'
   --exclude='agent/mcp-onboarding.json'
   --exclude='agent/models-store.json'
@@ -467,6 +470,9 @@ PY
   exit $?
 fi
 
+# Fail before any bulk write on malformed/unowned Craft config; never connect MCP.
+python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST"
+
 mkdir_parent() {
   local dir
   dir=$(dirname "$1")
@@ -608,6 +614,7 @@ fi
 
 # Local deployment never changes remote evaluators, even when credentials exist.
 if [ "$MODE" = apply ]; then
+  python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST" --apply
   (cd "$ROOT" && PI_CONFIG_DIR="$DEST" scripts/check-pi-config.sh) 2>&1 | tee "$DEPLOY_BACKUP/verification.txt"
   touch "$DEST/.managed-by-pi-setup"
   echo "Done. Local config verified; remote Langfuse evaluators unchanged."

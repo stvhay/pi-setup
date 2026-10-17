@@ -30,6 +30,16 @@ pi-setup/ (this repo, source of truth)
   with dry-run-by-default recovery commands. Local deployment never invokes remote
   evaluator sync; `agnt langfuse apply` is a separate approved operation. See
   [deployment recovery](../pi/README.md#deployment-evidence-and-recovery).
+- Craft integration follows artcraft-setup committed source → four hash/mode-pinned
+  files in `pi/` → separately approved deployment. `agent/craft/source.json` records
+  provenance; layout checks verify copies without requiring the source checkout.
+  Binaries are separately installed prerequisites. Native MCP/portable skill suffice;
+  no extension, installer or package framework. Runtime `agent/mcp.json`, OAuth
+  credentials and logs are rsync-excluded. `scripts/reconcile-craft-mcp.py` owns only
+  recognized PhotoCraft launcher fields and new disabled defaults, preserves all
+  other values/enablement, and never adds VectorCraft. Exact private MCP backups
+  are separate from bulk restore; restore matching MCP state before removing its
+  launcher. See [Craft promotion](../pi/README.md#craft-integration-promotion).
 - Edits go in this repo, then deploy. The live `~/.pi` is never the place to
   change config; `rsync --delete` will overwrite it.
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches

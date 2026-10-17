@@ -39,6 +39,27 @@ scripts/update-pi-config.sh --file agent/extensions/zz-output-redaction.ts
 
 Recovery bytes and a verification receipt remain in the printed private `runtime/deployment-backups/file-*/` directory as `before.ts` and `receipt.json`. This is a one-file backup, not a full-deployment backup; no bulk `restore.sh` is generated. After separate rollback approval, verify current bytes against the receipt's `afterSha256`, preview `rsync -a --dry-run --itemize-changes <backup>/before.ts <exact-destination-file>`, then use `rsync -a --chmod=<original-mode> <backup>/before.ts <exact-destination-file>` and verify `beforeSha256`. Use the receipt's `beforeMode` for `<original-mode>`; recovery bytes are deliberately mode 0600. Stop on drift or ambiguous ownership. A failed apply retains the backup; no automatic retry or rollback.
 
+### Craft integration promotion
+
+Artcraft owns launcher/runtime-skill source; this repository owns the tracked deployment copy and deployment behavior. `agent/craft/source.json` records the exact artcraft-setup commit, four source/target paths, SHA256 hashes and modes. Do not hand-edit promoted files: test/review/commit source there, copy the four exact Git blobs into tracked `pi/`, update provenance, run both repositories' consistency checks, then commit here. No package framework or app binary belongs in this promotion.
+
+```bash
+python3 -B scripts/check-craft-promotion.py pi
+.venv/bin/python -B -m pytest tests/test_craft_promotion.py tests/test_update_pi_config.py
+# From artcraft-setup, compare promotion to its recorded Git commit:
+python3 -B scripts/test-craft-promotion.py /path/to/pi-setup
+```
+
+The portable `crafting-apps` skill needs no artcraft checkout. Launcher deploys to `agent/bin/start-craft-mcp.sh`; separately installed macOS binaries remain under `~/.artcraft/photocraft-cli-0.9.0-macos-universal/` and `~/.artcraft/vectorcraft-cli-0.12.0-macos-universal/`. Neither deployment nor checks start them. The launcher creates real session-cwd workspace components only when an authorized app start occurs; it is not a sandbox. VectorCraft's prior normal-exit/human acceptance remains incomplete.
+
+`agent/craft/mcp.json` is a disabled PhotoCraft template, **not** the runtime `agent/mcp.json`. Full deployment excludes runtime MCP config, OAuth credentials and logs from rsync/backup/restore. `scripts/reconcile-craft-mcp.py` previews before bulk writes, then atomically reconciles after config/package deployment. It accepts only the previous `~/.artcraft/start-craft-mcp.sh` or this destination's deployed launcher, with exact `photocraft` args and stdio transport. Only the command changes; existing enablement (including absent/default), cwd, timeout, env, exposure and all unrelated JSON values survive. A missing PhotoCraft entry is created disabled. VectorCraft is never added, removed or changed. There is no auto-enable, binary installation, process start or project-configuration write.
+
+Malformed/duplicate JSON, unsupported template, normalized-name collision, unrecognized PhotoCraft transport/command, unsafe path or preparation-time drift stops reconciliation. Matching JSON is a byte-preserving no-op. Preview prints hashes/modes, not private configuration values. A changing apply saves exact prior bytes as private `runtime/deployment-backups/craft-*/before.json` (0600) and writes `receipt.json` containing before/after hashes, modes and verification status. Missing-before config has a null before hash/mode and no `before.json`. Current PhotoCraft disabled/VectorCraft absent baseline stays so; unrelated pre-existing servers retain their state.
+
+**No HOME deployment is granted by promotion.** Use the existing full-deployment approval contract and inspect its entire preview; `--file` remains extension-only. The old HOME launcher is not removed. Bulk deployment can change unrelated managed config/packages, so do not treat it as a Craft-only deployment. No `pi mcp list`, reload or live acceptance check is needed for config verification.
+
+**Recovery:** MCP is excluded from generated full `restore.sh`. Before a full restore that removes/replaces the new launcher, separately approve and restore the matching MCP state: require current `mcp.json` hash/mode equal receipt's after-state, validate regular non-symlink paths, preview copying `before.json` to that exact target, restore its recorded `beforeMode`, then verify `beforeSha256`. If config was absent, removal of only the matching created file needs explicit approval. Any drift requires scoped human reconciliation, not whole-file overwrite. Then preview/apply the full config restore under its own approval. Keep both backups on partial failure; no automatic rollback/retry. Static checks do not defend against hostile concurrent filesystem writers.
+
 ### Deployment evidence and recovery
 
 Use the script for deployment-only work; do not rebuild its steps or rerun an unchanged verified revision's full development suite. Confirm the approved source revision and compare the script's canonical source, destination, host, and user with the approved target. `--dry-run` validates source layout and runs rsync's itemized preview without changing the destination. Package install/patch steps are planned, not executed. Apply still requires the deployment approval contract. The preview is not an authorization receipt: callers must recheck source, target, and effects before apply; drift requires a new preview/approval.
@@ -213,6 +234,9 @@ Probabilities are advisory, not permission, a security guarantee, or verified ca
 Do not commit credentials, sessions, caches, trust state, onboarding state, API keys, metrics, or ordinary run artifacts. Common excluded paths include:
 
 - `agent/auth.json`
+- `agent/mcp.json` (private runtime config; only scoped Craft reconciliation)
+- `agent/mcp-auth.json`
+- `agent/mcp.log*`
 - `agent/sessions/`
 - `agent/pi-langfuse/`
 - `agent/mcp-cache.json`

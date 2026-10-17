@@ -317,6 +317,122 @@ def test_update_preserves_pi_managed_mutable_state(tmp_path):
     assert (agent / "models-store.json").read_text(encoding="utf-8") == models_store
 
 
+def test_update_preserves_mcp_runtime_without_craft_template(tmp_path):
+    dest = config_source(tmp_path / ".pi")
+    names = ("mcp.json", "mcp-auth.json", "mcp.log", "mcp.log.1")
+    for name in names:
+        (dest / "agent" / name).write_text("private unchanged\n")
+    proc = run_update(dest)
+    assert proc.returncode == 0, proc.stderr
+    assert all((dest / "agent" / name).is_file() for name in names), "MCP runtime deleted"
+    assert all((dest / "agent" / name).read_text() == "private unchanged\n" for name in names)
+    backup = next((dest / "runtime/deployment-backups").glob("*/config"))
+    assert all(not (backup / "agent" / name).exists() for name in names)
+
+
+def craft_source(path):
+    source = config_source(path)
+    (source / "agent/craft").mkdir()
+    (source / "agent/craft/mcp.json").write_text(json.dumps({"mcpServers": {
+        "photocraft-pilot": {"command": "agent/bin/start-craft-mcp.sh", "args": ["photocraft"],
+                            "enabled": False, "cwd": ".", "timeout": 30, "exposure": "codemode"}}}))
+    launcher = source / "agent/bin/start-craft-mcp.sh"
+    launcher.write_text("#!/bin/sh\nexit 99\n")
+    launcher.chmod(0o755)
+    return source
+
+
+@pytest.mark.parametrize("enabled", [True, False, None])
+def test_craft_deploy_preserves_runtime_and_records_private_backup(tmp_path, enabled):
+    source = craft_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    entry = {"command": str(Path.home() / ".artcraft/start-craft-mcp.sh"),
+             "args": ["photocraft"], "cwd": "custom", "env": {"EXAMPLE": "private-value"},
+             "timeout": 45, "toolExposure": {"*": "hidden"}}
+    if enabled is not None:
+        entry["enabled"] = enabled
+    original = {"autoEnableCodemode": False, "other": [1, 2], "mcpServers": {
+        "photocraft-pilot": entry, "unrelated": {"url": "https://example.invalid"},
+        "vectorcraft-pilot": {"enabled": False, "command": "do-not-change"}}}
+    path = dest / "agent/mcp.json"
+    old = json.dumps(original).encode() + b"\n"
+    path.write_bytes(old)
+    path.chmod(0o640)
+    overrides = {"PI_CONFIG_SOURCE": str(source)}
+    preview = run_update(dest, "--dry-run", env_overrides=overrides)
+    assert preview.returncode == 0, preview.stderr
+    assert path.read_bytes() == old
+    assert not (dest / "runtime").exists()
+    assert "private-value" not in preview.stdout + preview.stderr
+    assert "Craft MCP" in preview.stdout
+    applied = run_update(dest, env_overrides=overrides)
+    assert applied.returncode == 0, applied.stderr
+    expected = json.loads(old)
+    expected["mcpServers"]["photocraft-pilot"]["command"] = str(dest / "agent/bin/start-craft-mcp.sh")
+    assert path.is_file(), "MCP config deleted instead of reconciled"
+    assert json.loads(path.read_text()) == expected
+    assert path.stat().st_mode & 0o777 == 0o640
+    backups = list((dest / "runtime/deployment-backups").glob("craft-*/before.json"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == old
+    assert backups[0].stat().st_mode & 0o777 == 0o600
+    receipt = json.loads((backups[0].parent / "receipt.json").read_text())
+    assert receipt["verified"] is True
+    assert receipt["beforeMode"] == "0640"
+    after = path.read_bytes()
+    repeated = run_update(dest, env_overrides=overrides)
+    assert repeated.returncode == 0, repeated.stderr
+    assert path.read_bytes() == after
+    assert list((dest / "runtime/deployment-backups").glob("craft-*/before.json")) == backups
+
+
+def test_craft_deploy_creates_only_disabled_photocraft(tmp_path):
+    source = craft_source(tmp_path / "source")
+    dest = tmp_path / ".pi"
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode == 0, proc.stderr
+    path = dest / "agent/mcp.json"
+    assert path.is_file(), "managed disabled entry missing"
+    data = json.loads(path.read_text())
+    assert set(data["mcpServers"]) == {"photocraft-pilot"}
+    assert data["mcpServers"]["photocraft-pilot"]["enabled"] is False
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("content", [
+    "{bad", "[]", '{"mcpServers":[]}', '{"mcpServers":{},"mcpServers":{}}',
+    '{"mcpServers":{"photocraft-pilot":{"command":"unowned"}}}',
+    '{"mcpServers":{"photocraft_pilot":{"command":"collision"}}}',
+])
+def test_craft_deploy_refuses_invalid_or_unowned_config_before_writes(tmp_path, content):
+    source = craft_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    path = dest / "agent/mcp.json"
+    path.write_text(content)
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    assert path.read_text() == content
+    assert not (dest / "runtime").exists()
+
+
+@pytest.mark.parametrize("name", ["agent", "agent/mcp.json"])
+def test_craft_deploy_refuses_symlinks_before_writes(tmp_path, name):
+    source = craft_source(tmp_path / "source")
+    dest = tmp_path / ".pi"
+    dest.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "mcp.json").write_text('{"mcpServers":{}}')
+    link = dest / name
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside if name == "agent" else outside / "mcp.json")
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    assert link.is_symlink()
+    assert (outside / "mcp.json").read_text() == '{"mcpServers":{}}'
+    assert not (dest / "runtime").exists()
+
+
 def test_update_preserves_machine_local_extensions(tmp_path):
     dest = tmp_path / ".pi"
     extension = dest / "agent" / "extensions" / "ollama.local.ts"
@@ -1075,7 +1191,8 @@ def test_update_backs_up_managed_config_and_retains_restore_command(tmp_path):
     settings = '{"lastChangelogVersion":"previous", "theme":"old"}\n'
     (dest / "agent/settings.json").write_text(settings, encoding="utf-8")
     (dest / "stale.txt").write_text("previous", encoding="utf-8")
-    private_paths = ["agent/auth.json", "agent/npm/private.txt", "runtime/private.txt"]
+    private_paths = ["agent/auth.json", "agent/npm/private.txt", "runtime/private.txt",
+                     "agent/mcp.json", "agent/mcp-auth.json", "agent/mcp.log"]
     for name in private_paths:
         path = dest / name
         path.parent.mkdir(parents=True, exist_ok=True)
