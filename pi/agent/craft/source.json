@@ -1,11 +1,11 @@
 {
   "repository": "artcraft-setup",
-  "commit": "173b422ab86bb3bab9725ff7fd0accd5c968cad9",
+  "commit": "a637307f15163c2398d3a59842a1b0908108fa18",
   "files": {
     "scripts/start-craft-mcp.sh": {
       "target": "agent/bin/start-craft-mcp.sh",
       "mode": "0755",
-      "sha256": "120043dd5f280d1ebbcb442edca9f704d33cf5e88590489175465ab3f2f81161"
+      "sha256": "3fb98731f9e2ccea4611425a0d51a74ca16ca9e87b93c96e248c5a1d1e4a341e"
     },
     "integration/crafting-apps/SKILL.md": {
       "target": "agent/skills/crafting-apps/SKILL.md",

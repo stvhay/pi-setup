@@ -2,12 +2,13 @@
 set -eu
 
 fail() { printf '%s\n' "craft-mcp: $*" >&2; exit 1; }
-usage() { printf '%s\n' 'usage: start-craft-mcp.sh photocraft|vectorcraft' >&2; exit 2; }
+usage() { printf '%s\n' 'usage: start-craft-mcp.sh photocraft|vectorcraft|cadcraft' >&2; exit 2; }
 [ "$#" -eq 1 ] || usage
 app=$1
 case "$app" in
     photocraft) version=0.9.0; root=.artcraft/workspace ;;
     vectorcraft) version=0.12.0; root=.artcraft/vectorcraft-workspace-recovery ;;
+    cadcraft) version=0.7.0; root=.artcraft/cadcraft-workspace ;;
     *) usage ;;
 esac
 case "${HOME:-}" in
@@ -32,6 +33,13 @@ for dir do
         /bin/mkdir -m 700 "$dir" || fail "cannot create directory: $dir"
     fi
 done
+
+if [ "$app" = cadcraft ]; then
+    # Upstream has no allowed-root flags. cwd is a convention, not confinement.
+    # Explicit ./ bypasses inherited CDPATH lookup and its stdout output.
+    cd "./$root" || fail "cannot enter directory: $root"
+    exec "$binary" mcp
+fi
 
 set -- mcp
 if [ "$app" = vectorcraft ]; then
