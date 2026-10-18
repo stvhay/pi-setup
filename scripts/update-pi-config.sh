@@ -50,7 +50,7 @@ RSYNC_EXCLUDES=(
 
 usage() {
   cat <<'EOF'
-Usage: scripts/update-pi-config.sh [--dry-run] [--file agent/extensions/NAME.ts]
+Usage: scripts/update-pi-config.sh [--dry-run] [--file PATH]
 
 Update ~/.pi from this repository's tracked pi/ directory.
 
@@ -60,8 +60,10 @@ mismatched, or stale-patch exact package bases are installed, then tracked patch
 Checks run before and after apply. Managed config backups stay under
 <destination>/runtime/deployment-backups/. --dry-run itemizes actual file changes.
 Remote evaluator changes are separate: agnt langfuse apply (requires approval).
---file replaces one existing top-level TypeScript extension only, with a file backup
-and hash receipt. It skips packages, other config, and deletions; symlinks are refused.
+--file replaces one existing top-level agent/extensions/NAME.ts (not .local.ts)
+or exactly agent/bin/start-craft-mcp.sh, with a file backup and hash receipt.
+It skips packages, other config, and deletions; symlinks are refused.
+The Craft launcher must already be executable at source and destination.
 
 Environment overrides:
   PI_CONFIG_SOURCE          Source config directory. Default: <repo>/pi
@@ -406,8 +408,12 @@ import tempfile
 
 source, destination = map(Path, sys.argv[1:3])
 relative, mode = sys.argv[3:]
-if not re.fullmatch(r"agent/extensions/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ts", relative) or relative.endswith(".local.ts"):
-    raise SystemExit("--file requires one managed top-level TypeScript extension")
+is_extension = bool(re.fullmatch(r"agent/extensions/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ts", relative)) and not relative.endswith(".local.ts")
+is_craft_launcher = relative == "agent/bin/start-craft-mcp.sh"
+if not (is_extension or is_craft_launcher):
+    raise SystemExit("--file requires one managed top-level TypeScript extension or agent/bin/start-craft-mcp.sh")
+kind = "Craft launcher" if is_craft_launcher else "extension"
+backup_name = "before.sh" if is_craft_launcher else "before.ts"
 
 
 def checked_file(root):
@@ -422,6 +428,8 @@ def checked_file(root):
 
 
 src, target = checked_file(source), checked_file(destination)
+if is_craft_launcher and not (os.access(src, os.X_OK) and os.access(target, os.X_OK)):
+    raise SystemExit("Craft launcher must be executable at source and destination")
 new, old = src.read_bytes(), target.read_bytes()
 original_stat = target.stat()
 digest = lambda data: hashlib.sha256(data).hexdigest()
@@ -429,16 +437,16 @@ receipt = {"source": str(src), "destination": str(target), "beforeSha256": diges
            "afterSha256": digest(new), "beforeMode": f"{stat.S_IMODE(original_stat.st_mode):04o}", "verified": False}
 print(json.dumps(receipt, indent=2))
 if new == old:
-    print("Selected extension already matches; no writes.")
+    print(f"Selected {kind} already matches; no writes.")
     raise SystemExit(0)
 if mode == "dry-run":
-    print("Preview only: one extension replacement plus private backup/receipt; no other changes.")
+    print(f"Preview only: one {kind} replacement plus private backup/receipt; no other changes.")
     raise SystemExit(0)
 
 backup_root = destination / "runtime/deployment-backups"
 backup_root.mkdir(mode=0o700, parents=True, exist_ok=True)
 backup = Path(tempfile.mkdtemp(prefix="file-", dir=backup_root))
-with (backup / "before.ts").open("xb") as output:
+with (backup / backup_name).open("xb") as output:
     os.chmod(output.name, 0o600)
     output.write(old)
     output.flush()
@@ -464,7 +472,10 @@ try:
         raise SystemExit(f"Replacement verification failed; recovery bytes retained at {backup}")
     receipt["verified"] = True
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
-    print("Selected extension verified. Restart Pi to load it; no automatic restart.")
+    if is_craft_launcher:
+        print("Selected Craft launcher verified. Used on next authorized app start; no app start or restart performed.")
+    else:
+        print("Selected extension verified. Restart Pi to load it; no automatic restart.")
 finally:
     if temporary is not None and temporary.exists():
         temporary.unlink()

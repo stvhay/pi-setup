@@ -53,13 +53,17 @@ def config_source(source: Path) -> Path:
     return source
 
 
-def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path):
+@pytest.mark.parametrize("relative,backup_name,file_mode,old,new", [
+    ("agent/extensions/fixture.ts", "before.ts", 0o640, "old extension\n", "new extension\n"),
+    ("agent/bin/start-craft-mcp.sh", "before.sh", 0o750, "#!/bin/sh\nexit 98\n", "#!/bin/sh\nexit 99\n"),
+])
+def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path, relative, backup_name, file_mode, old, new):
     source = config_source(tmp_path / "source")
     dest = config_source(tmp_path / ".pi")
-    relative = "agent/extensions/fixture.ts"
-    (source / relative).write_text("new extension\n")
-    (dest / relative).write_text("old extension\n")
-    (dest / relative).chmod(0o640)
+    (source / relative).write_text(new)
+    (source / relative).chmod(0o755 if relative.endswith(".sh") else 0o644)
+    (dest / relative).write_text(old)
+    (dest / relative).chmod(file_mode)
     mcp = dest / "agent/mcp.json"
     mcp.write_text('{"mcpServers":{"preserved":{}}}\n')
     settings = (dest / "agent/settings.json").read_bytes()
@@ -68,31 +72,36 @@ def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path):
 
     preview = run_update(dest, "--dry-run", "--file", relative, env_overrides=overrides)
     assert preview.returncode == 0, preview.stderr
-    assert (dest / relative).read_text() == "old extension\n"
+    assert (dest / relative).read_text() == old
+    assert (dest / relative).stat().st_mode & 0o777 == file_mode
     assert not (dest / "runtime").exists()
     assert relative in preview.stdout
     assert "*deleting" not in preview.stdout
 
     applied = run_update(dest, "--file", relative, env_overrides=overrides)
     assert applied.returncode == 0, applied.stderr
-    assert (dest / relative).read_text() == "new extension\n"
+    assert (dest / relative).read_text() == new
     assert mcp.read_text() == '{"mcpServers":{"preserved":{}}}\n'
     assert (dest / "agent/settings.json").read_bytes() == settings
-    backups = list((dest / "runtime/deployment-backups").glob("*/before.ts"))
+    backups = list((dest / "runtime/deployment-backups").glob(f"*/{backup_name}"))
     assert len(backups) == 1
-    assert backups[0].read_text() == "old extension\n"
+    assert backups[0].read_text() == old
+    assert backups[0].stat().st_mode & 0o777 == 0o600
     receipt = json.loads((backups[0].parent / "receipt.json").read_text())
     assert receipt["destination"] == str(dest / relative)
     assert receipt["verified"] is True
-    assert receipt["beforeMode"] == "0640"
-    assert (dest / relative).stat().st_mode & 0o777 == 0o640
+    assert receipt["beforeMode"] == f"{file_mode:04o}"
+    assert (dest / relative).stat().st_mode & 0o777 == file_mode
     repeated = run_update(dest, "--file", relative, env_overrides=overrides)
     assert repeated.returncode == 0, repeated.stderr
-    assert list((dest / "runtime/deployment-backups").glob("*/before.ts")) == backups
+    assert list((dest / "runtime/deployment-backups").glob(f"*/{backup_name}")) == backups
 
 
 @pytest.mark.parametrize("relative", ["agent/auth.json", "../escape.ts", "/tmp/escape.ts",
-                                     "agent/extensions/../escape.ts", "agent/extensions/missing.ts"])
+                                     "agent/extensions/../escape.ts", "agent/extensions/missing.ts",
+                                     "agent/bin/agnt", "agent/bin/other.sh",
+                                     "agent/bin/./start-craft-mcp.sh", "agent/bin/start-craft-mcp.sh/",
+                                     "agent/extensions/fixture.local.ts"])
 def test_file_update_rejects_unmanaged_or_missing_paths(tmp_path, relative):
     dest = config_source(tmp_path / ".pi")
     proc = run_update(dest, "--file", relative)
@@ -119,6 +128,51 @@ def test_file_update_rejects_symlink_files_and_ancestors(tmp_path, side):
     (root / "agent/extensions").symlink_to(tmp_path, target_is_directory=True)
     assert run_update(dest, "--file", relative, env_overrides=overrides).returncode != 0
     assert target.read_text() == "preserve\n"
+    assert not (dest / "runtime").exists()
+
+
+@pytest.mark.parametrize("side", ["source", "destination"])
+@pytest.mark.parametrize("problem", ["missing", "non-executable", "symlink", "symlink-parent"])
+def test_craft_file_update_refuses_unsafe_or_nonexecutable_paths(tmp_path, side, problem):
+    source = config_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    relative = "agent/bin/start-craft-mcp.sh"
+    for root in (source, dest):
+        (root / relative).write_text("#!/bin/sh\nexit 99\n")
+        (root / relative).chmod(0o755)
+    root = source if side == "source" else dest
+    path = root / relative
+    if problem == "missing":
+        path.unlink()
+    elif problem == "non-executable":
+        path.chmod(0o644)
+    else:
+        path = path.parent if problem == "symlink-parent" else path
+        moved = tmp_path / "preserved"
+        path.rename(moved)
+        path.symlink_to(moved, target_is_directory=moved.is_dir())
+    proc = run_update(dest, "--file", relative, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    if problem == "non-executable":
+        assert "Craft launcher must be executable" in proc.stderr
+    assert not (dest / "runtime").exists()
+
+
+@pytest.mark.parametrize("relative", ["agent/bin/other.sh", "agent/bin/start-craft-mcp.sh.extra",
+                                     "agent/bin/agnt", "agent/extensions/fixture.local.ts"])
+def test_file_update_rejects_other_existing_files(tmp_path, relative):
+    source = config_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    # Keep fixture agnt functional because layout validation invokes it.
+    new = '#!/bin/sh\nprintf "{}\\n"\n# new\n'
+    old = '#!/bin/sh\nprintf "{}\\n"\n# old\n'
+    (source / relative).write_text(new)
+    (dest / relative).write_text(old)
+    (source / relative).chmod(0o755)
+    (dest / relative).chmod(0o755)
+    proc = run_update(dest, "--file", relative, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    assert (dest / relative).read_text() == old
     assert not (dest / "runtime").exists()
 
 

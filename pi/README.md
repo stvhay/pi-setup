@@ -35,9 +35,19 @@ scripts/update-pi-config.sh --dry-run --file agent/extensions/zz-output-redactio
 scripts/update-pi-config.sh --file agent/extensions/zz-output-redaction.ts
 ```
 
-`--file` accepts one existing top-level `agent/extensions/NAME.ts` file (not `.local.ts`). Both paths must be regular files with no symlink components beneath the canonical roots. Preview prints before/after SHA-256 hashes and writes nothing. Apply preserves destination permissions, checks for preparation-time drift, atomically replaces only that file, and verifies its bytes. Identical bytes are a no-op. No package actions, config deletions, settings updates, or automatic restart occur.
+`--file` accepts one existing top-level `agent/extensions/NAME.ts` file (not `.local.ts`) or exactly `agent/bin/start-craft-mcp.sh`. No other shell scripts or arbitrary managed paths are allowed. Both paths must be regular files with no symlink components beneath the canonical roots; the Craft launcher must already be executable at source and destination. Preview prints before/after SHA-256 hashes and writes nothing. Apply preserves destination permissions, checks for preparation-time drift, atomically replaces only that file, and verifies its bytes. Identical bytes are a no-op. No package actions, config deletions, settings/MCP updates, app starts or automatic restart occur.
 
-Recovery bytes and a verification receipt remain in the printed private `runtime/deployment-backups/file-*/` directory as `before.ts` and `receipt.json`. This is a one-file backup, not a full-deployment backup; no bulk `restore.sh` is generated. After separate rollback approval, verify current bytes against the receipt's `afterSha256`, preview `rsync -a --dry-run --itemize-changes <backup>/before.ts <exact-destination-file>`, then use `rsync -a --chmod=<original-mode> <backup>/before.ts <exact-destination-file>` and verify `beforeSha256`. Use the receipt's `beforeMode` for `<original-mode>`; recovery bytes are deliberately mode 0600. Stop on drift or ambiguous ownership. A failed apply retains the backup; no automatic retry or rollback.
+After separately approved, verified source promotion, the Craft-only preview is:
+
+```bash
+scripts/update-pi-config.sh --dry-run --file agent/bin/start-craft-mcp.sh
+# Only after approval of this exact file, hashes, and target:
+scripts/update-pi-config.sh --file agent/bin/start-craft-mcp.sh
+```
+
+This replaces the existing launcher, not the Craft binaries or skill. It does not add/enable servers or authorize document operations. The changed launcher is used only at the next separately authorized app start.
+
+Recovery bytes and a verification receipt remain in the printed private `runtime/deployment-backups/file-*/` directory as `before.ts` for an extension, `before.sh` for the Craft launcher, and `receipt.json`. Existing extension receipt/backup behavior is unchanged. This is a one-file backup, not a full-deployment backup; no bulk `restore.sh` is generated. After separate rollback approval, verify current bytes against the receipt's `afterSha256`, preview `rsync -a --dry-run --itemize-changes <backup>/<before-file> <exact-destination-file>`, then use `rsync -a --chmod=<original-mode> <backup>/<before-file> <exact-destination-file>` and verify `beforeSha256`. Choose the matching `before.ts` or `before.sh`; use the receipt's `beforeMode` for `<original-mode>`. Recovery bytes are deliberately mode 0600. Stop on drift or ambiguous ownership. A failed apply retains the backup; no automatic retry or rollback.
 
 ### Craft integration promotion
 
@@ -56,7 +66,7 @@ The portable `crafting-apps` skill needs no artcraft checkout. Launcher deploys 
 
 Malformed/duplicate JSON, unsupported template, normalized-name collision, unrecognized PhotoCraft transport/command, unsafe path or preparation-time drift stops reconciliation. Matching JSON is a byte-preserving no-op. Preview prints hashes/modes, not private configuration values. A changing apply saves exact prior bytes as private `runtime/deployment-backups/craft-*/before.json` (0600) and writes `receipt.json` containing before/after hashes, modes and verification status. Missing-before config has a null before hash/mode and no `before.json`. Current PhotoCraft disabled/VectorCraft absent baseline stays so; unrelated pre-existing servers retain their state.
 
-**No HOME deployment is granted by promotion.** Use the existing full-deployment approval contract and inspect its entire preview; `--file` remains extension-only. The old HOME launcher is not removed. Bulk deployment can change unrelated managed config/packages, so do not treat it as a Craft-only deployment. No `pi mcp list`, reload or live acceptance check is needed for config verification.
+**No HOME deployment is granted by promotion.** For a launcher-only change, use the exact `--file agent/bin/start-craft-mcp.sh` preview/apply above under separate bounded approval. Skill/template/binary/config changes are not included. Other deployment scopes still require their own full preview and approval; bulk deployment can change unrelated managed config/packages and is not a Craft-only action. No `pi mcp list`, reload or live acceptance check is needed for config verification.
 
 **Recovery:** MCP is excluded from generated full `restore.sh`. Before a full restore that removes/replaces the new launcher, separately approve and restore the matching MCP state: require current `mcp.json` hash/mode equal receipt's after-state, validate regular non-symlink paths, preview copying `before.json` to that exact target, restore its recorded `beforeMode`, then verify `beforeSha256`. If config was absent, removal of only the matching created file needs explicit approval. Any drift requires scoped human reconciliation, not whole-file overwrite. Then preview/apply the full config restore under its own approval. Keep both backups on partial failure; no automatic rollback/retry. Static checks do not defend against hostile concurrent filesystem writers.
 
