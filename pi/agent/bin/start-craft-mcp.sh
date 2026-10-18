@@ -2,13 +2,14 @@
 set -eu
 
 fail() { printf '%s\n' "craft-mcp: $*" >&2; exit 1; }
-usage() { printf '%s\n' 'usage: start-craft-mcp.sh photocraft|vectorcraft|cadcraft' >&2; exit 2; }
+usage() { printf '%s\n' 'usage: start-craft-mcp.sh photocraft|vectorcraft|cadcraft|soundcraft' >&2; exit 2; }
 [ "$#" -eq 1 ] || usage
 app=$1
 case "$app" in
     photocraft) version=0.9.0; root=.artcraft/workspace ;;
     vectorcraft) version=0.12.0; root=.artcraft/vectorcraft-workspace-recovery ;;
     cadcraft) version=0.7.0; root=.artcraft/cadcraft-workspace ;;
+    soundcraft) version=0.7.0; root=.artcraft/soundcraft-workspace ;;
     *) usage ;;
 esac
 case "${HOME:-}" in
