@@ -1,8 +1,6 @@
-# VectorCraft native MCP — provisional
+# VectorCraft native MCP — accepted pinned integration
 
-VectorCraft 0.12.0 native acceptance is incomplete. Prior synthetic document/preview workflows passed, but the last Pi parent exceeded its settled ten-second normal-exit deadline and required identity-checked SIGINT. Child disappearance did not prove normal parent exit. Human saved-file handback remains blocked. No ordinary VectorCraft lifecycle, activation, checker replay, root probes or retry authority follows from this skill. Existing CLI/PhotoCraft approvals do not transfer.
-
-Fresh bounded approval must name saved-file native reopen/inspection/preview, human handback, independent normal-exit observation and any configuration effects. Preserve all prior failures/ledgers/workspaces. The retired custom supervisor/worker is not the acceptance path; offline comparisons cannot waive live gates.
+VectorCraft0.12.0 global native acceptance passed, including saved-file reopens, human handback and independent normal-exit observation. Earlier SIGINT/timeout failures remain historical failures; do not erase or replay them. Ordinary pinned lifecycle is approved, not arbitrary edits or checker reruns. New installation batches do not require repeating this app’s acceptance.
 
 ## Native calls within approval
 
@@ -16,6 +14,6 @@ Preserve `.vectorcraft` originals and hash before read-only reopen. Compare exac
 
 ## Handoff and failure
 
-Save native plus bounded PNG/inventory/hash. Pause edits, observe owned Pi exit normally and child disappearance independently. Timeout/signaled cleanup is not normal-exit acceptance. Never signal without proven owned process identity; changed/missing identity stops cleanup. Do not stop another session's child.
+Save native plus bounded PNG/inventory/hash. Pause edits and use standard Pi completion. Independent child-absence observation is required only when that separate claim is in the approved scope. Timeout/signaled cleanup is not normal-exit acceptance. Never signal without proven owned process identity; changed/missing identity stops cleanup. Do not stop another session's child.
 
 Show saved preview, ask human acceptance and explicit handback, then reopen only within reserved approval. Changed native bytes, unexpected warning/error, schema mismatch, timeout, conflicting state or root escape means stop; retain partial evidence. Client cancellation does not prove server cancellation. No automatic retry, alternate stage names or ledger reset.

@@ -14,6 +14,15 @@ FILES = {
     "integration/craft-mcp.json": ("agent/craft/mcp.json", "0644"),
 }
 
+# pi-setup now owns these maintained assets. The v1 promotion remains readable.
+OWNED = {
+    "agent/bin/start-craft-mcp.sh": "0755",
+    "agent/skills/crafting-apps/SKILL.md": "0644",
+    "agent/skills/crafting-apps/vectorcraft.md": "0644",
+    "agent/craft/mcp.json": "0644",
+    "agent/craft/packages.json": "0644",
+}
+
 
 def checked(root, relative):
     path = root
@@ -28,6 +37,19 @@ def checked(root, relative):
 
 def verify(root):
     manifest = json.loads(checked(root, "agent/craft/source.json").read_bytes())
+    if manifest.get("schemaVersion") == 2:
+        if (manifest.get("repository") != "pi-setup" or set(manifest.get("files", {})) != set(OWNED)
+                or manifest.get("origin", {}).get("repository") != "artcraft-setup"
+                or not re.fullmatch(r"[0-9a-f]{40}", manifest.get("origin", {}).get("commit", ""))):
+            raise ValueError("invalid maintained Craft provenance")
+        for target, mode in OWNED.items():
+            record = manifest["files"][target]
+            path = checked(root, target)
+            if (record.get("mode") != mode or stat.S_IMODE(path.stat().st_mode) != int(mode, 8)
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != record.get("sha256")):
+                raise ValueError("maintained Craft bytes/mode drift")
+        print("PASS: pi-setup-owned Craft hashes and modes match; historical origin retained")
+        return
     if (manifest.get("repository") != "artcraft-setup"
             or not isinstance(manifest.get("commit"), str)
             or not re.fullmatch(r"[0-9a-f]{40}", manifest["commit"])

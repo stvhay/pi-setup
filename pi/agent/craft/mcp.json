@@ -2,7 +2,129 @@
   "mcpServers": {
     "photocraft-pilot": {
       "command": "agent/bin/start-craft-mcp.sh",
-      "args": ["photocraft"],
+      "args": [
+        "photocraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "vectorcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "vectorcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "cadcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "cadcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "soundcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "soundcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "figcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "figcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "designcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "designcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "lightcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "lightcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "filmcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "filmcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "effectcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "effectcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "pdfcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "pdfcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "wordcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "wordcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "deckcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "deckcraft"
+      ],
+      "enabled": false,
+      "cwd": ".",
+      "timeout": 30,
+      "exposure": "codemode"
+    },
+    "gridcraft-pilot": {
+      "command": "agent/bin/start-craft-mcp.sh",
+      "args": [
+        "gridcraft"
+      ],
       "enabled": false,
       "cwd": ".",
       "timeout": 30,

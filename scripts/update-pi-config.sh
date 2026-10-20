@@ -3,6 +3,11 @@ set -euo pipefail
 
 MODE=apply
 FILE=
+CRAFT=0
+CRAFT_APPS=
+CRAFT_LOCAL=
+CRAFT_DOWNLOAD=0
+CRAFT_ENABLE=0
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SOURCE=${PI_CONFIG_SOURCE:-$ROOT/pi}
 DEST=${PI_CONFIG_DEST:-$HOME/.pi}
@@ -65,6 +70,15 @@ or exactly agent/bin/start-craft-mcp.sh, with a file backup and hash receipt.
 It skips packages, other config, and deletions; symlinks are refused.
 The Craft launcher must already be executable at source and destination.
 
+--craft is a separate scoped path: pinned Craft tools, six named assets, MCP merge.
+No bulk rsync, unrelated packages/settings, deletions, or app starts.
+--craft-apps CSV    Named apps to install (default all thirteen).
+--craft-local PATH  Reuse verified install directories under PATH before download.
+--craft-download    Permit missing pinned CLI archives to be downloaded.
+--craft-enable      Explicitly enable selected apps; otherwise preserve existing
+                    enablement and add missing entries disabled.
+Preview with --dry-run first. Installation and enablement require bounded consent.
+
 Environment overrides:
   PI_CONFIG_SOURCE          Source config directory. Default: <repo>/pi
   PI_CONFIG_DEST            Destination. Default: $HOME/.pi
@@ -75,6 +89,13 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) MODE=dry-run ;;
+    --craft) CRAFT=1 ;;
+    --craft-apps|--craft-local)
+      [ $# -ge 2 ] && [ -n "$2" ] || { usage >&2; exit 2; }
+      if [ "$1" = --craft-apps ]; then CRAFT_APPS=$2; else CRAFT_LOCAL=$2; fi
+      shift ;;
+    --craft-download) CRAFT_DOWNLOAD=1 ;;
+    --craft-enable) CRAFT_ENABLE=1 ;;
     --file)
       [ $# -ge 2 ] && [ -z "$FILE" ] && [ -n "$2" ] || { usage >&2; exit 2; }
       FILE=$2
@@ -85,6 +106,13 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+if [ "$CRAFT" -eq 1 ] && [ -n "$FILE" ]; then
+  echo 'cannot combine --craft and --file' >&2; exit 2
+fi
+if [ "$CRAFT" -eq 0 ] && { [ -n "$CRAFT_APPS$CRAFT_LOCAL" ] || [ "$CRAFT_DOWNLOAD$CRAFT_ENABLE" != 00 ]; }; then
+  echo 'Craft options require --craft' >&2; exit 2
+fi
 
 run() {
   if [ "$MODE" = apply ]; then
@@ -394,6 +422,19 @@ validate_dest() {
 validate_dest
 printf 'Source: %s\nDestination: %s\nHost: %s\nUser: %s\n' "$SOURCE" "$DEST" "$(hostname)" "$(id -un)"
 (cd "$ROOT" && PI_CONFIG_DIR="$SOURCE" scripts/check-pi-config.sh)
+
+if [ "$CRAFT" -eq 1 ]; then
+  craft_args=("$SOURCE/agent/craft/packages.json" --source "$SOURCE" --destination "$DEST" --home "$HOME")
+  if [ -n "$CRAFT_APPS" ]; then
+    IFS=, read -r -a selected_apps <<< "$CRAFT_APPS"
+    craft_args+=(--apps "${selected_apps[@]}")
+  fi
+  [ -z "$CRAFT_LOCAL" ] || craft_args+=(--local "$CRAFT_LOCAL")
+  [ "$CRAFT_DOWNLOAD" -eq 0 ] || craft_args+=(--download)
+  [ "$CRAFT_ENABLE" -eq 0 ] || craft_args+=(--enable)
+  [ "$MODE" = dry-run ] || craft_args+=(--apply)
+  exec python3 "$ROOT/scripts/install-craft-tools.py" "${craft_args[@]}"
+fi
 
 if [ -n "$FILE" ]; then
   python3 - "$SOURCE" "$DEST" "$FILE" "$MODE" <<'PY'

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private, scoped PhotoCraft config reconciliation; never starts a server."""
+"""Private, scoped named Craft config reconciliation; never starts a server."""
 import argparse
 import hashlib
 import json
@@ -8,6 +8,10 @@ from pathlib import Path
 import stat
 import tempfile
 
+
+APPS = ("photocraft", "vectorcraft", "cadcraft", "soundcraft", "figcraft",
+        "designcraft", "lightcraft", "filmcraft", "effectcraft", "pdfcraft",
+        "wordcraft", "deckcraft", "gridcraft")
 
 TEMPLATE = {"mcpServers": {"photocraft-pilot": {
     "command": "agent/bin/start-craft-mcp.sh", "args": ["photocraft"],
@@ -48,13 +52,21 @@ def snapshot(path):
     return path.read_bytes(), (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_mode)
 
 
-def reconcile(source, destination, apply=False):
+def reconcile(source, destination, apply=False, enable=()):
     template = checked(source, "agent/craft/mcp.json")
     if not template.exists():
         return
     template_bytes = template.read_bytes()
-    if load(template_bytes) != TEMPLATE:
-        raise ValueError("Craft MCP template differs from supported disabled PhotoCraft contract")
+    templates = load(template_bytes)
+    expected = {app + "-pilot": {**TEMPLATE["mcpServers"]["photocraft-pilot"], "args": [app]}
+                for app in APPS}
+    if (not isinstance(templates, dict) or set(templates) != {"mcpServers"}
+            or not isinstance(templates["mcpServers"], dict) or not templates["mcpServers"]
+            or any(name not in expected or entry != expected[name]
+                   for name, entry in templates["mcpServers"].items())):
+        raise ValueError("Craft MCP template differs from supported disabled named-app contract")
+    if any(app not in APPS or app + "-pilot" not in templates["mcpServers"] for app in enable):
+        raise ValueError("Craft MCP enable selection not in template")
     launcher = checked(source, "agent/bin/start-craft-mcp.sh")
     if not launcher.is_file() or not os.access(launcher, os.X_OK):
         raise ValueError("Craft MCP source launcher missing or not executable")
@@ -64,21 +76,25 @@ def reconcile(source, destination, apply=False):
     if not isinstance(data, dict) or not isinstance(data.get("mcpServers", {}), dict):
         raise ValueError("Craft MCP requires JSON objects for config and mcpServers")
     servers = data.setdefault("mcpServers", {})
-    if "photocraft_pilot" in servers:
-        raise ValueError("Craft MCP normalized server name collision")
     command = str(destination / "agent/bin/start-craft-mcp.sh")
-    if "photocraft-pilot" in servers:
-        entry = servers["photocraft-pilot"]
-        previous = str(Path.home() / ".artcraft/start-craft-mcp.sh")
-        if (not isinstance(entry, dict)
-                or entry.get("command") not in (previous, command)
-                or entry.get("args") != ["photocraft"]
-                or "url" in entry or entry.get("type", "stdio") != "stdio"
-                or ("enabled" in entry and not isinstance(entry["enabled"], bool))):
-            raise ValueError("Craft MCP PhotoCraft entry is not a recognized launcher configuration")
-        entry["command"] = command
-    else:
-        servers["photocraft-pilot"] = {**TEMPLATE["mcpServers"]["photocraft-pilot"], "command": command}
+    for name, defaults in templates["mcpServers"].items():
+        app = defaults["args"][0]
+        if name.replace("-", "_") in servers:
+            raise ValueError("Craft MCP normalized server name collision")
+        if name in servers:
+            entry = servers[name]
+            previous = str(Path.home() / ".artcraft/start-craft-mcp.sh")
+            commands = (previous, command) if app == "photocraft" else (command,)
+            if (not isinstance(entry, dict) or entry.get("command") not in commands
+                    or entry.get("args") != [app] or "url" in entry
+                    or entry.get("type", "stdio") != "stdio"
+                    or ("enabled" in entry and not isinstance(entry["enabled"], bool))):
+                raise ValueError("Craft MCP entry is not a recognized launcher configuration")
+            entry["command"] = command
+        else:
+            servers[name] = {**defaults, "command": command}
+        if app in enable:
+            servers[name]["enabled"] = True
     if old is not None and data == load(old):
         print("Craft MCP already matches; no writes.")
         return
@@ -90,7 +106,7 @@ def reconcile(source, destination, apply=False):
                "verified": False}
     print("Craft MCP: " + json.dumps(receipt))
     if not apply:
-        print("Preview: PhotoCraft command/args only (or new disabled entry); unrelated MCP state preserved.")
+        print("Preview: named Craft entries only; enablement preserved unless explicitly selected; unrelated MCP state preserved.")
         return
     # shortcut: static path checks, use OS isolation for concurrent hostile writers.
     checked(destination, "runtime/deployment-backups/placeholder")
@@ -133,9 +149,10 @@ if __name__ == "__main__":
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--enable", nargs="*", choices=APPS, default=[])
     args = parser.parse_args()
     try:
-        reconcile(args.source.resolve(), args.destination.resolve(), args.apply)
+        reconcile(args.source.resolve(), args.destination.resolve(), args.apply, args.enable)
     except (OSError, ValueError) as error:
         # JSON errors can embed private keys/values; do not echo config or exception text.
         message = str(error) if type(error) is ValueError and str(error).startswith("Craft MCP") else "Craft MCP invalid JSON or filesystem failure"

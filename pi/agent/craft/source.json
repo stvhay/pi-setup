@@ -1,26 +1,52 @@
 {
-  "repository": "artcraft-setup",
-  "commit": "7a11be115d3c8d3d3394fb02aba8e6bbfd6c1b65",
+  "schemaVersion": 2,
+  "repository": "pi-setup",
+  "origin": {
+    "repository": "artcraft-setup",
+    "commit": "7a11be115d3c8d3d3394fb02aba8e6bbfd6c1b65",
+    "files": {
+      "scripts/start-craft-mcp.sh": {
+        "target": "agent/bin/start-craft-mcp.sh",
+        "mode": "0755",
+        "sha256": "6c3458add792ad2aa4fd178d24a88c0a861dbcd147460dd21b7f0119ba0db711"
+      },
+      "integration/crafting-apps/SKILL.md": {
+        "target": "agent/skills/crafting-apps/SKILL.md",
+        "mode": "0644",
+        "sha256": "f145ae4cbe614c80be54cacb0c1ef45af84a1d72e57cb56e3bb085b608546d4b"
+      },
+      "integration/crafting-apps/vectorcraft.md": {
+        "target": "agent/skills/crafting-apps/vectorcraft.md",
+        "mode": "0644",
+        "sha256": "acaeeb6c89abf44369db23e7f0537643a1fc0d99e16ed7ef5250177dec9bdbb8"
+      },
+      "integration/craft-mcp.json": {
+        "target": "agent/craft/mcp.json",
+        "mode": "0644",
+        "sha256": "058c82df54f0591d200c18eb8202875d45f5946407bd1661daf41588b6cf3e3a"
+      }
+    }
+  },
   "files": {
-    "scripts/start-craft-mcp.sh": {
-      "target": "agent/bin/start-craft-mcp.sh",
+    "agent/bin/start-craft-mcp.sh": {
       "mode": "0755",
-      "sha256": "6c3458add792ad2aa4fd178d24a88c0a861dbcd147460dd21b7f0119ba0db711"
+      "sha256": "6b62dbc748f762769deda715eff300215d296788d5f3b1fcc7538a74c7a91262"
     },
-    "integration/crafting-apps/SKILL.md": {
-      "target": "agent/skills/crafting-apps/SKILL.md",
+    "agent/skills/crafting-apps/SKILL.md": {
       "mode": "0644",
-      "sha256": "f145ae4cbe614c80be54cacb0c1ef45af84a1d72e57cb56e3bb085b608546d4b"
+      "sha256": "2a981d890f960d71611be3f592ce6df2ab79320c699094bedc554cd54f83d1f1"
     },
-    "integration/crafting-apps/vectorcraft.md": {
-      "target": "agent/skills/crafting-apps/vectorcraft.md",
+    "agent/skills/crafting-apps/vectorcraft.md": {
       "mode": "0644",
-      "sha256": "acaeeb6c89abf44369db23e7f0537643a1fc0d99e16ed7ef5250177dec9bdbb8"
+      "sha256": "10759605f0e3b33c524bff30d9d95a6144ff0351702e13855df6c6e9f85273dd"
     },
-    "integration/craft-mcp.json": {
-      "target": "agent/craft/mcp.json",
+    "agent/craft/mcp.json": {
       "mode": "0644",
-      "sha256": "058c82df54f0591d200c18eb8202875d45f5946407bd1661daf41588b6cf3e3a"
+      "sha256": "2c233b04f37d06dd46fbaecdabb4f9246d10c60989719cdbb69aa9340985377e"
+    },
+    "agent/craft/packages.json": {
+      "mode": "0644",
+      "sha256": "f59ad58caf1be64e71f91d17fdc7b41b8b2fe1a0a368a8ebcd11a08cb9b2e2d9"
     }
   }
 }

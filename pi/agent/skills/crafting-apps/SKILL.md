@@ -1,42 +1,48 @@
 ---
 name: crafting-apps
-description: Use when running approved PhotoCraft CLI/MCP or VectorCraft native MCP, or handing off their synthetic previews. Not AI ArtCraft cloud generation, other apps' MCP, GUI or model installation.
+description: Use when running approved local Craft CLI or native MCP tools for graphics, media, CAD, documents or spreadsheets, or handing off their files. Not cloud ArtCraft generation, GUI, models or installation authorization.
 ---
 
-# Crafting Apps — portable runtime
+# Crafting Apps — native Pi runtime
 
-This skill grants no installation, enablement or execution authority. PhotoCraft is intentionally **disabled**; VectorCraft remains **absent** from managed MCP configuration. Keep those states unless separately approved. Old pilot budgets are not reusable. No checker replay, `pi mcp list`, broad reload or launcher invocation as an installation check: those can start real apps or unrelated servers.
+This skill grants no installation, enablement or document-edit authority. PhotoCraft, VectorCraft, CADCraft and SoundCraft have accepted global integrations. Remaining apps require recorded installation/native smoke results; source files alone do not prove availability. Inspect current native tool discovery, not stale disabled/absent assumptions. Never replay historical acceptance checkers, root-denial tests or spent budgets. No `pi mcp list` or broad reload as a harmless config check: these start servers.
 
-Integration source is maintained in artcraft-setup and explicitly promoted into pi-setup, which alone deploys it. Runtime needs no source checkout. Launcher is `../../bin/start-craft-mcp.sh` relative to this skill directory (normally `~/.pi/agent/bin/start-craft-mcp.sh`). Promoted source commit/hashes are in `../../craft/source.json`. Presence of this skill or launcher does not prove deployment, installed binaries, active MCP or live acceptance. Do not change HOME files directly; request a separately approved pi-setup deployment if paths/config do not match.
+**pi-setup maintains deployable source.** Launcher: `../../bin/start-craft-mcp.sh`; pinned versions/files: `../../craft/packages.json`; maintained asset hashes and historical origin: `../../craft/source.json`. Runtime needs no artcraft checkout. Installation uses pi-setup's scoped `scripts/update-pi-config.sh --craft` path under bounded approval, not ad-hoc HOME edits. No generic installer, MCP adapter or custom lifecycle supervisor.
 
-## Prerequisites and workspace
+## Paths and limitations
 
-Pinned macOS binaries are separately installed, never bundled or downloaded by this integration:
+Binaries live at `~/.artcraft/<app>-cli-<version>-macos-universal/<app>-cli`. Versions come from package manifest, never `latest`. Launcher accepts one named selector and creates real mode0700 directories under **session cwd**, not automatic Git-root discovery. Existing files/modes survive; symlinks/non-directories refuse. No shared-home fallback. Partial directory creation can remain after failure. Static checks and application roots are **not a sandbox**; all processes inherit user permissions/environment. Avoid concurrent edits to shared files.
 
-| Selector | Executable under `~/.artcraft/` | Root under Pi session cwd |
+| App | Workspace under session cwd | Startup/path boundary |
 |---|---|---|
-| `photocraft` | `photocraft-cli-0.9.0-macos-universal/photocraft-cli` | `.artcraft/workspace` |
-| `vectorcraft` | `vectorcraft-cli-0.12.0-macos-universal/vectorcraft-cli` | `.artcraft/vectorcraft-workspace-recovery` |
+| PhotoCraft | `.artcraft/workspace` | read/write root flags; session cwd retained |
+| VectorCraft | `.artcraft/vectorcraft-workspace-recovery` | root flags, headless, config/Fonts isolation; session cwd retained |
+| CADCraft | `.artcraft/cadcraft-workspace` | cwd only, no root controls |
+| SoundCraft | `.artcraft/soundcraft-workspace` | root flags; session cwd retained |
+| FigCraft | `.artcraft/figcraft-workspace` | cwd only; no system fonts |
+| DesignCraft | `.artcraft/designcraft-workspace` | cwd only |
+| LightCraft | `.artcraft/lightcraft-workspace` | cwd/config isolation only; default in-memory library, not persistent catalog |
+| FilmCraft | `.artcraft/filmcraft-workspace` | cwd/data-dir convention only |
+| EffectCraft | `.artcraft/effectcraft-workspace` | absolute read/write roots and config directory |
+| PdfCraft | `.artcraft/pdfcraft-workspace` | `--root`; relative tool paths resolve inside root |
+| WordCraft | `.artcraft/wordcraft-workspace` | absolute read/write roots; relative paths resolve against cwd |
+| DeckCraft | `.artcraft/deckcraft-workspace` | cwd only |
+| GridCraft | `.artcraft/gridcraft-workspace` | cwd only |
 
-At authorized startup the launcher checks the executable, creates missing real root components mode0700 and execs the app. Existing files/modes stay unchanged; symlinks/non-directories refuse. Roots follow **session cwd**, not skill location or Git discovery; use a trusted real project directory. No shared-home fallback. Partial directory creation can remain after failure. Static checks are not race-proof and **not a sandbox**. MCP inherits user permissions/environment and may start one child per Pi session, even outside trusted projects. Keep binaries and receipts outside document roots; do not concurrently edit the same documents.
+Cwd/config isolation is not filesystem confinement. No network-denial, link-race or full permission-hook guarantee. Do not copy root flags between apps. No implicit OCR/model downloads, plugins, camera/microphone/playback, cloud/paid operations, GUI/attach or real-document access.
 
-VectorCraft adds `--headless`, `VECTORCRAFT_CONFIG_DIR=.artcraft/vectorcraft-workspace-recovery/config` and `VECTORCRAFT_NO_PREFS=1`, preparing `config/Fonts`. Read [VectorCraft restrictions](vectorcraft.md) before any approved native work; ordinary lifecycle acceptance remains blocked.
+## Native operations
 
-## Approved PhotoCraft operations
+Use `<app>-pilot` servers through native Pi. Discover actual schemas with `describeNamespace`, `describeTool` or `searchTools`; never guess parameters or use CLI to bypass denied native calls. Basic source-derived smoke candidates: Fig/Design/Word/Deck/Grid `list_commands {}`; Light/Photo `command_list {}`; Film/Effect `doc_inspect {}`; Pdf `doc_list {}`. Availability must be observed. One successful read-only round-trip establishes installation integration, not editing fidelity, exhaustive security or complete app capability.
 
-PhotoCraft 0.9.0 has bounded synthetic CLI/native MCP and two-project human acceptance evidence, not full-suite certification. Current disabled state still requires explicit enablement approval. Lifecycle permission does not authorize arbitrary document edits, overwrites, real user content, network/paid operations, scripts/plugins, GUI or model installation. No automatic download/reinstall, quarantine removal, ad-hoc signing or cloud fallback.
+Check `{content,isError,structuredContent}`. Some results contain JSON in text blocks; others are plain text. Successful JSON **null** is valid: use optional access, not unconditional `.warnings`. Check per-step results, completed/failed counts and warnings even when outer call succeeds. Batch and undo are not disk transactions. Client cancellation does not prove server cancellation. Never replay ambiguous mutations; inspect state before recovery. `store`/`load` accept JSON data only, never functions/closures. Forward image blocks with `image(block)`, never print base64.
 
-Use native `photocraft-pilot` for MCP work. Discover current schemas through `describeNamespace`, `describeTool` or `searchTools`; inspect command IDs/parameters with `command_list`. Never infer arguments or switch to CLI to bypass a denied native operation. For separately approved CLI tasks, use the pinned executable via bash with quoted paths/argument arrays, timeouts and fresh outputs; inspect `--help` and `commands` only within execution authority. Supported one-shot interfaces are `run`, `info`, `convert`.
+For approved one-shot CLI work use exact pinned executable, quoted argument arrays, bounded outputs/timeouts and fresh paths. Help/version probes are real app starts. Keep editable native files alongside exports; flattened PNG/PDF/audio is not native-state preservation. PhotoCraft's observed two-layer PNG warning is not blanket permission to ignore warnings. Read [VectorCraft details](vectorcraft.md) before its editing/preview workflows.
 
-Check `isError`, warnings and per-step `completed`, `failed` and results. PhotoCraft batches can report outer success despite failed steps; inspect document/history before recovery. Undo only known undoable edits, never assume file saves are undone. Unexpected warning, timeout, partial batch, path collision or conflicting state means stop and preserve evidence, not retry mutations.
+## Handoff and recovery
 
-PNG flattens editable layers. The observed two-layer conversion warning is `warning: 2 layer(s) flattened; layers, masks and blend modes are not kept`; do not generalize it into permission to ignore other warnings. Keep `.pcraft` originals.
+Installation-first acceptance requires ordinary native discovery/round-trip and standard Pi runner completion—not mandatory editing campaigns, listening/visual acceptance or custom process observers. Independent process absence is a separate claim requiring evidence.
 
-## Human handoff
+When user requests editing or takes control: save native plus useful bounded preview/inventory, pause agent edits and show exact paths. Require explicit **handback** before resuming; reopen/check saved state within task authority. Do not assume shared GUI memory, merge conflicting edits or signal another session's process.
 
-1. Save native plus a bounded PNG preview to fresh approved paths. Record native hash/inventory, dimensions and layers. PNG is a preview, not editable-state preservation.
-2. Pause edits and let the owned native session stop within its authority. Show preview through Pi `read`; identify native path and ask for human acceptance or feedback. Never answer for the human.
-3. Require explicit **handback** before resuming. Only within fresh/remaining authority, reopen the saved native file, inspect state and compare preview/hash. Do not assume shared GUI memory.
-4. On drift or shutdown failure, preserve artifacts and stop for reconciliation. Never signal another session's process or silently merge changes.
-
-Report mocked/static checks separately from real application evidence. Offline/network-denial, exhaustive permission hooks, GUI, models and whole-home effects remain unverified. No rollback or cleanup without exact ownership/path/hash review and separate authority; retain failed outputs and historical ledgers.
+Report real calls separately from fake/static tests and skipped features. On errors retain useful diagnostics and completed results. Scoped asset/config backups permit guarded restoration under matching authority; they do not authorize deleting binaries, workspaces or evidence. Unknown ownership/drift, new credentials/network exposure or destructive recovery requires human decision. Historical failures and ledgers stay preserved.
