@@ -34,7 +34,7 @@
     },
     "agent/skills/crafting-apps/SKILL.md": {
       "mode": "0644",
-      "sha256": "2a981d890f960d71611be3f592ce6df2ab79320c699094bedc554cd54f83d1f1"
+      "sha256": "5d27f091ee97e5bd705a7aaaa5002a565304571cbaed9123d8368a15c43fc92a"
     },
     "agent/skills/crafting-apps/vectorcraft.md": {
       "mode": "0644",
@@ -46,7 +46,7 @@
     },
     "agent/craft/packages.json": {
       "mode": "0644",
-      "sha256": "f59ad58caf1be64e71f91d17fdc7b41b8b2fe1a0a368a8ebcd11a08cb9b2e2d9"
+      "sha256": "8a4a0567f5ed512b62fa398e8912cba02789c97d74d24ca565b40dc3627c7b7f"
     }
   }
 }
