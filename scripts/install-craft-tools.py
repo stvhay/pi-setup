@@ -171,7 +171,10 @@ def archive_files(path, package):
 
 
 def trust(binary):
-    subprocess.run(['/usr/bin/lipo', str(binary), '-verify_arch', 'arm64', 'x86_64'], check=True, timeout=30)
+    result = subprocess.run(['/usr/bin/lipo', '-archs', str(binary)], check=True,
+                            capture_output=True, text=True, timeout=30)
+    if set(result.stdout.split()) != {'arm64', 'x86_64'}:
+        raise ValueError('Craft binary is not exact arm64/x86_64 universal')
     subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--all-architectures',
                     '--check-notarization', '-R', REQUIREMENT, str(binary)], check=True, timeout=60)
 

@@ -248,13 +248,22 @@ def test_deliver_rejects_file_ancestors_before_any_write(tmp_path,obstruction):
     assert not (home/'.artcraft/figcraft-cli-0.6.0-macos-universal').exists()
 
 
-def test_trust_argv_uses_input_before_arch_list(monkeypatch):
+@pytest.mark.parametrize('architectures', ['x86_64 arm64', 'arm64', 'arm64 arm64e x86_64'])
+def test_trust_uses_archs_and_requires_exact_universal(monkeypatch, architectures):
+    from types import SimpleNamespace
     m=module('install-craft-tools');calls=[]
-    monkeypatch.setattr(m.subprocess,'run',lambda argv,**kw:calls.append(argv))
-    m.trust(Path('/fake/tool'))
-    assert calls[0]==['/usr/bin/lipo','/fake/tool','-verify_arch','arm64','x86_64']
-    assert '--all-architectures' in calls[1] and '--check-notarization' in calls[1]
-    assert 'and notarized' in calls[1][-2]
+    def run(argv,**kw):
+        calls.append(argv)
+        return SimpleNamespace(stdout=architectures)
+    monkeypatch.setattr(m.subprocess,'run',run)
+    if architectures!='x86_64 arm64':
+        with pytest.raises(ValueError,match='universal'):m.trust(Path('/fake/tool'))
+        assert len(calls)==1
+    else:
+        m.trust(Path('/fake/tool'))
+        assert '--all-architectures' in calls[1] and '--check-notarization' in calls[1]
+        assert 'and notarized' in calls[1][-2]
+    assert calls[0]==['/usr/bin/lipo','-archs','/fake/tool']
 
 
 def test_local_copy_preserves_directory_xattrs(tmp_path, monkeypatch):
