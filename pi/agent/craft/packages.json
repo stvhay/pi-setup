@@ -3,30 +3,15 @@
   "platform": "macos-universal",
   "packages": {
     "photocraft": {
-      "version": "0.9.0",
-      "sourceCommit": "c699e3cda69f4852b43c0b191ab0091aaeff9d6a",
-      "archive": "photocraft-cli-0.9.0-macos-universal.zip",
-      "archiveSize": 67890072,
-      "archiveSha256": "eaa662e0eef8f1aa27fa7c4aebdc242f6e2834f1eef62eb2589ddadede128982",
-      "url": "https://github.com/storytold/photocraft/releases/download/v0.9.0/photocraft-cli-0.9.0-macos-universal.zip",
+      "version": "0.10.0",
+      "sourceCommit": "8407d9ccb125af52944fca9d228383459f94aaef",
+      "archive": "photocraft-cli-0.10.0-macos-universal.zip",
+      "archiveSize": 68974069,
+      "archiveSha256": "57b2bfa6514beb9f85177fbb6832f8aa3aebee08561d78d54a3182c404220927",
+      "url": "https://github.com/storytold/photocraft/releases/download/v0.10.0/photocraft-cli-0.10.0-macos-universal.zip",
       "files": {
-        "LICENSE-APACHE": {
-          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
-          "mode": "0644",
-          "size": 10174
-        },
-        "LICENSE-MIT": {
-          "sha256": "1a8f66d8a86b146f5336fa0d4b1186576c8aa98e60823080c85c7811cfd810af",
-          "mode": "0644",
-          "size": 1102
-        },
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
-          "mode": "0644",
-          "size": 4408
-        },
-        "OFL-biz-ud-pgothic.txt": {
-          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
           "mode": "0644",
           "size": 4408
         },
@@ -35,105 +20,95 @@
           "mode": "0644",
           "size": 4399
         },
-        "README.md": {
-          "sha256": "f9208a0aefc6fb97bc849597ad146cc701312f04b6f6c9eaecd5ff797a501e76",
-          "mode": "0644",
-          "size": 31704
-        },
-        "photocraft-cli": {
-          "sha256": "e827c414651e37957a709f5ac370eb5a8590221916dc3c3fdcaa61f122283931",
-          "mode": "0755",
-          "size": 136336368
-        }
-      }
-    },
-    "vectorcraft": {
-      "version": "0.12.0",
-      "sourceCommit": "8bc65329286dc1b84aa392997bb205613c3e96cb",
-      "archive": "vectorcraft-cli-0.12.0-macos-universal.zip",
-      "archiveSize": 106952909,
-      "archiveSha256": "29d97dd6cbef0457824bc54202620d9589adb65bfe5e13459866531747dec5df",
-      "url": "https://github.com/storytold/vectorcraft/releases/download/v0.12.0/vectorcraft-cli-0.12.0-macos-universal.zip",
-      "files": {
-        "ASSETS.md": {
-          "sha256": "aff82a234214efafae8f7f0037c4901dd23a56535326c589cd390dd4eb62ca40",
-          "mode": "0644",
-          "size": 62104
-        },
         "LICENSE-APACHE": {
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "mode": "0644",
           "size": 10174
         },
-        "LICENSE-MIT": {
-          "sha256": "8b6025dc4b707e0fb08b9c2054096f1be3ae61529399aa2c348dec676562dc71",
+        "README.md": {
+          "sha256": "cd449fa4e70d6ac314ad3e69e6911dc4c0bf60019b82b6f83ab48c1ca92771aa",
           "mode": "0644",
-          "size": 1103
+          "size": 32749
         },
-        "NOTICE": {
-          "sha256": "cda4d86b58c5200204e786092ac634e8b60f9beda54219f334726f49e2065e82",
-          "mode": "0644",
-          "size": 5583
-        },
-        "OFL-biz-ud-mincho.txt": {
-          "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
-          "mode": "0644",
-          "size": 4408
+        "photocraft-cli": {
+          "sha256": "f230e3b143c0202335ce932ac35ba8f54f82b32bfe36085e81b67919bc92b1b4",
+          "mode": "0755",
+          "size": 138885264
         },
         "OFL-biz-ud-pgothic.txt": {
           "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
           "mode": "0644",
           "size": 4408
+        },
+        "LICENSE-MIT": {
+          "sha256": "1a8f66d8a86b146f5336fa0d4b1186576c8aa98e60823080c85c7811cfd810af",
+          "mode": "0644",
+          "size": 1102
+        }
+      }
+    },
+    "vectorcraft": {
+      "version": "0.13.1",
+      "sourceCommit": "904f0fe5227bd987d55319e89a38b4b8f046998c",
+      "archive": "vectorcraft-cli-0.13.1-macos-universal.zip",
+      "archiveSize": 108401763,
+      "archiveSha256": "fc2c1f0163a7de37904556ee1c56d726d9ee738accd3c9dfc2f913d6ae2459fc",
+      "url": "https://github.com/storytold/vectorcraft/releases/download/v0.13.1/vectorcraft-cli-0.13.1-macos-universal.zip",
+      "files": {
+        "OFL-biz-ud-mincho.txt": {
+          "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
+          "mode": "0644",
+          "size": 4408
+        },
+        "ASSETS.md": {
+          "sha256": "aff82a234214efafae8f7f0037c4901dd23a56535326c589cd390dd4eb62ca40",
+          "mode": "0644",
+          "size": 62104
+        },
+        "OFL-shippori-mincho.txt": {
+          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
+          "mode": "0644",
+          "size": 4399
+        },
+        "LICENSE-APACHE": {
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+          "mode": "0644",
+          "size": 10174
         },
         "OFL-noto-sans-arabic.txt": {
           "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
           "mode": "0644",
           "size": 4382
         },
-        "OFL-noto-sans-cjk-sc.txt": {
-          "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+        "licenses/pdf-backend/hayro-jbig2/LICENSE-APACHE": {
+          "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
           "mode": "0644",
-          "size": 4301
+          "size": 10173
         },
-        "OFL-noto-sans-thai.txt": {
-          "sha256": "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
+        "licenses/pdf-backend/hayro-jbig2/LICENSE-MIT": {
+          "sha256": "51b50e6120c344dcc146bbd6375ca1c78e079d97c8bea76e67a53d6ff0efebac",
           "mode": "0644",
-          "size": 4380
-        },
-        "OFL-shippori-mincho.txt": {
-          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
-          "mode": "0644",
-          "size": 4399
-        },
-        "README.md": {
-          "sha256": "c924b54014a60658e6630f2fe863904a88f0b49d59f7cd79440b4335d6c98f21",
-          "mode": "0644",
-          "size": 24420
+          "size": 1063
         },
         "licenses/pdf-backend/hayro-cmap/LICENSE-APACHE": {
           "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
           "mode": "0644",
           "size": 10173
         },
-        "licenses/pdf-backend/hayro-cmap/LICENSE-MIT": {
-          "sha256": "51b50e6120c344dcc146bbd6375ca1c78e079d97c8bea76e67a53d6ff0efebac",
-          "mode": "0644",
-          "size": 1063
-        },
         "licenses/pdf-backend/hayro-cmap/LICENSE.txt": {
           "sha256": "742665db9c8e1bc72603c6d319ca3e90b83bd6d95202f0cd4ef11068a07a9c29",
           "mode": "0644",
           "size": 1453
         },
+        "licenses/pdf-backend/hayro-cmap/LICENSE-MIT": {
+          "sha256": "51b50e6120c344dcc146bbd6375ca1c78e079d97c8bea76e67a53d6ff0efebac",
+          "mode": "0644",
+          "size": 1063
+        },
         "licenses/pdf-backend/hayro-interpret/LICENSE-APACHE": {
           "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
           "mode": "0644",
           "size": 10173
-        },
-        "licenses/pdf-backend/hayro-interpret/LICENSE-MIT": {
-          "sha256": "51b50e6120c344dcc146bbd6375ca1c78e079d97c8bea76e67a53d6ff0efebac",
-          "mode": "0644",
-          "size": 1063
         },
         "licenses/pdf-backend/hayro-interpret/assets/CGATS_LICENSE.txt": {
           "sha256": "469d87b5fa48f8aaf69e25f4fcac3a309c97dbb7d561b917638abdb640e004d9",
@@ -145,12 +120,7 @@
           "mode": "0644",
           "size": 1553
         },
-        "licenses/pdf-backend/hayro-jbig2/LICENSE-APACHE": {
-          "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
-          "mode": "0644",
-          "size": 10173
-        },
-        "licenses/pdf-backend/hayro-jbig2/LICENSE-MIT": {
+        "licenses/pdf-backend/hayro-interpret/LICENSE-MIT": {
           "sha256": "51b50e6120c344dcc146bbd6375ca1c78e079d97c8bea76e67a53d6ff0efebac",
           "mode": "0644",
           "size": 1063
@@ -165,38 +135,53 @@
           "mode": "0644",
           "size": 1063
         },
+        "OFL-noto-sans-cjk-sc.txt": {
+          "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+          "mode": "0644",
+          "size": 4301
+        },
+        "NOTICE": {
+          "sha256": "cda4d86b58c5200204e786092ac634e8b60f9beda54219f334726f49e2065e82",
+          "mode": "0644",
+          "size": 5583
+        },
+        "README.md": {
+          "sha256": "edc3dd77d924e4c66b52636b047aed024a5583f788ad3a359849f14d20c93caa",
+          "mode": "0644",
+          "size": 24658
+        },
+        "OFL-noto-sans-thai.txt": {
+          "sha256": "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
+          "mode": "0644",
+          "size": 4380
+        },
+        "OFL-biz-ud-pgothic.txt": {
+          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
+          "mode": "0644",
+          "size": 4408
+        },
         "vectorcraft-cli": {
-          "sha256": "01b751356422d966941720fbd7d2f29e90c0d7b60774a1e1442115310f0835b0",
+          "sha256": "fdcb845f8c082091be71ba7f4033b5c1ea718a5a01a88654c83682c126adc201",
           "mode": "0755",
-          "size": 200316848
+          "size": 203654464
+        },
+        "LICENSE-MIT": {
+          "sha256": "8b6025dc4b707e0fb08b9c2054096f1be3ae61529399aa2c348dec676562dc71",
+          "mode": "0644",
+          "size": 1103
         }
       }
     },
     "filmcraft": {
-      "version": "0.8.0",
-      "sourceCommit": "f03e21556d8e3a7155b91892d958debd5255d7af",
-      "archive": "filmcraft-cli-0.8.0-macos-universal.zip",
-      "archiveSize": 60756078,
-      "archiveSha256": "54cb2d572c24cd5e32a54bedd8fdd15df86eaa66bf188a75c2de81fbd99ed90d",
-      "url": "https://github.com/storytold/filmcraft/releases/download/v0.8.0/filmcraft-cli-0.8.0-macos-universal.zip",
+      "version": "0.9.0",
+      "sourceCommit": "4a69a038d32761f604b3c7e4845b21fb40b3cbe4",
+      "archive": "filmcraft-cli-0.9.0-macos-universal.zip",
+      "archiveSize": 60831940,
+      "archiveSha256": "793754cf8c9faa2a2272c5462533fac94d71d07a9abfb9fa29d286fd7cd70d0b",
+      "url": "https://github.com/storytold/filmcraft/releases/download/v0.9.0/filmcraft-cli-0.9.0-macos-universal.zip",
       "files": {
-        "LICENSE-APACHE": {
-          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
-          "mode": "0644",
-          "size": 10174
-        },
-        "LICENSE-MIT": {
-          "sha256": "d2d8416f0883694c23b473e26372506e9e11f5f41b55a92b7388dab921d9a207",
-          "mode": "0644",
-          "size": 1101
-        },
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
-          "mode": "0644",
-          "size": 4408
-        },
-        "OFL-biz-ud-pgothic.txt": {
-          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
           "mode": "0644",
           "size": 4408
         },
@@ -205,50 +190,55 @@
           "mode": "0644",
           "size": 4399
         },
-        "README.md": {
-          "sha256": "df07414fdeead15823bdb5f3e52651a357afbfa06ed71898a6f33b7f1ce80341",
-          "mode": "0644",
-          "size": 36663
-        },
-        "filmcraft-cli": {
-          "sha256": "42d938393a1139db205df0222dfa871be5eb46632aff2fddcfd7c6378c884c6b",
-          "mode": "0755",
-          "size": 126797280
-        }
-      }
-    },
-    "lightcraft": {
-      "version": "0.8.0",
-      "sourceCommit": "16dbb90499d3c63a6582fcbba1b2550a6e2da032",
-      "archive": "lightcraft-cli-0.8.0-macos-universal.zip",
-      "archiveSize": 102680861,
-      "archiveSha256": "e6734be20cb0cfc714d872b37a33c9c945c5a09f22f4c441c09facef8fcbbce0",
-      "url": "https://github.com/storytold/lightcraft/releases/download/v0.8.0/lightcraft-cli-0.8.0-macos-universal.zip",
-      "files": {
         "LICENSE-APACHE": {
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "mode": "0644",
           "size": 10174
         },
-        "LICENSE-MIT": {
-          "sha256": "1470a5d44a88a9d385d9530763ea411ca199670d07f561a61d54256323972b92",
-          "mode": "0644",
-          "size": 1102
+        "filmcraft-cli": {
+          "sha256": "51d88dbd377c5967d68b835f9b7aeb9d5b5433fc715f0620fa67a494e3274ef6",
+          "mode": "0755",
+          "size": 126957008
         },
-        "NOTICE": {
-          "sha256": "00a7cfc350859e56cb36d28d6e91e997dc1f67137496a1a4a299dd014ff74a56",
+        "README.md": {
+          "sha256": "df07414fdeead15823bdb5f3e52651a357afbfa06ed71898a6f33b7f1ce80341",
           "mode": "0644",
-          "size": 4229
-        },
-        "OFL-biz-ud-mincho.txt": {
-          "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
-          "mode": "0644",
-          "size": 4408
+          "size": 36663
         },
         "OFL-biz-ud-pgothic.txt": {
           "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
           "mode": "0644",
           "size": 4408
+        },
+        "LICENSE-MIT": {
+          "sha256": "d2d8416f0883694c23b473e26372506e9e11f5f41b55a92b7388dab921d9a207",
+          "mode": "0644",
+          "size": 1101
+        }
+      }
+    },
+    "lightcraft": {
+      "version": "0.9.1",
+      "sourceCommit": "4f0b110bcbd2e350c6d97b47f1d824c2222295c4",
+      "archive": "lightcraft-cli-0.9.1-macos-universal.zip",
+      "archiveSize": 107688777,
+      "archiveSha256": "d2b6e60050f0266193162779676a4194f5ffc4ec5fd9f9e818f8ec66b2e70c8c",
+      "url": "https://github.com/storytold/lightcraft/releases/download/v0.9.1/lightcraft-cli-0.9.1-macos-universal.zip",
+      "files": {
+        "OFL-biz-ud-mincho.txt": {
+          "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
+          "mode": "0644",
+          "size": 4408
+        },
+        "OFL-shippori-mincho.txt": {
+          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
+          "mode": "0644",
+          "size": 4399
+        },
+        "LICENSE-APACHE": {
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+          "mode": "0644",
+          "size": 10174
         },
         "OFL-noto-sans-arabic.txt": {
           "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
@@ -260,30 +250,45 @@
           "mode": "0644",
           "size": 4301
         },
-        "OFL-shippori-mincho.txt": {
-          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
+        "NOTICE": {
+          "sha256": "ba046cb4c82a1373805e0de9b023dbe33f82e9ea63670a1872bed644c4537007",
           "mode": "0644",
-          "size": 4399
+          "size": 4384
         },
         "README.md": {
-          "sha256": "af30a38c03cab65279dbf9fa22ec49420ab56b5092b1722b0ba65698fd79807e",
+          "sha256": "90df309ad89efe848403ac8ec7b98d2d728d4cc406ab8406f9000668267b248b",
           "mode": "0644",
-          "size": 41849
+          "size": 43627
+        },
+        "OFL-noto-sans-thai.txt": {
+          "sha256": "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
+          "mode": "0644",
+          "size": 4380
         },
         "lightcraft-cli": {
-          "sha256": "fcd99f465f16b61e493f0bfc358e2a83d844a945e7465ae692bd8fe5ea15efde",
+          "sha256": "1473865108e319da2e02c8b5792959a3569594f3ed3152f21a5cfcd1d969c371",
           "mode": "0755",
-          "size": 215741248
+          "size": 231499328
+        },
+        "OFL-biz-ud-pgothic.txt": {
+          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
+          "mode": "0644",
+          "size": 4408
+        },
+        "LICENSE-MIT": {
+          "sha256": "1470a5d44a88a9d385d9530763ea411ca199670d07f561a61d54256323972b92",
+          "mode": "0644",
+          "size": 1102
         }
       }
     },
     "pdfcraft": {
-      "version": "0.8.0",
-      "sourceCommit": "9931329b9fae0b05373b4dc3ac7c58541f0891a4",
-      "archive": "pdfcraft-cli-0.8.0-macos-universal.zip",
-      "archiveSize": 60864809,
-      "archiveSha256": "8151d648892589a33ec474ec1eae5fcc57a8932d92b1c9566bc7dd0a5725024b",
-      "url": "https://github.com/storytold/pdfcraft/releases/download/v0.8.0/pdfcraft-cli-0.8.0-macos-universal.zip",
+      "version": "0.9.0",
+      "sourceCommit": "645016addcfb9078c557f0189559ab47cdcee057",
+      "archive": "pdfcraft-cli-0.9.0-macos-universal.zip",
+      "archiveSize": 61512027,
+      "archiveSha256": "c20b8ced630417d47042ee37282fdb8362a29ebbc0b0bec3f4f635d0e28545f0",
+      "url": "https://github.com/storytold/pdfcraft/releases/download/v0.9.0/pdfcraft-cli-0.9.0-macos-universal.zip",
       "files": {
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
@@ -311,9 +316,9 @@
           "size": 4301
         },
         "pdfcraft-cli": {
-          "sha256": "f036efdd2013201e05a8a3ba01b02e90ba6e40d110a023b235ce9acb38fac85d",
+          "sha256": "8d70f8c497274d4d5c9200bd06882b5b124eec3297f96e3558dfba32eb10a44c",
           "mode": "0755",
-          "size": 123752736
+          "size": 125207664
         },
         "NOTICE": {
           "sha256": "496946cff190a3fec32fe0241ea60d40539c73a9da1865073eb0c73ee822c8d5",
@@ -321,9 +326,9 @@
           "size": 4184
         },
         "README.md": {
-          "sha256": "9aba7a6dbe76c7083ba3a5093adf1b726fdf9eab6b178dd79dc2622c7febc300",
+          "sha256": "4e9ab1bb98b41ae5c40105ac76515c9d96c397d6e4470f519f2fdc3d9da39fdd",
           "mode": "0644",
-          "size": 36144
+          "size": 37961
         },
         "OFL-noto-sans-thai.txt": {
           "sha256": "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
@@ -343,22 +348,17 @@
       }
     },
     "effectcraft": {
-      "version": "0.10.0",
-      "sourceCommit": "05955c08b4fd025f1a09882df72e6dbff1a8148a",
-      "archive": "effectcraft-cli-0.10.0-macos-universal.zip",
-      "archiveSize": 59781018,
-      "archiveSha256": "5da3adb581f0cd49edaa9ae2eeeaa50426cb1afbb0794902551db3d7173dd12a",
-      "url": "https://github.com/storytold/effectcraft/releases/download/v0.10.0/effectcraft-cli-0.10.0-macos-universal.zip",
+      "version": "0.11.1",
+      "sourceCommit": "2a01226894c6bc58ae4fadcc24a10198d693acaa",
+      "archive": "effectcraft-cli-0.11.1-macos-universal.zip",
+      "archiveSize": 60422841,
+      "archiveSha256": "8eae2e1e9c13e03d1bc2460501a90d43fc570b37e9b386294c0720eb12aad0f0",
+      "url": "https://github.com/storytold/effectcraft/releases/download/v0.11.1/effectcraft-cli-0.11.1-macos-universal.zip",
       "files": {
         "LICENSE-APACHE": {
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "mode": "0644",
           "size": 10174
-        },
-        "LICENSE-MIT": {
-          "sha256": "7b6db9a363688683feacdf9b528f059637f2e5d2edbacd8720fc9b26781c9abe",
-          "mode": "0644",
-          "size": 1103
         },
         "README.md": {
           "sha256": "8574349c2c0b30d4b9c574c6d53f7362a5c03ef1b11e6a9255bcdf230d5c056a",
@@ -366,37 +366,27 @@
           "size": 23455
         },
         "effectcraft-cli": {
-          "sha256": "5570da407d1511f95e1ffbafb515edaaaee08ad713e6146570493a3d5881c09e",
+          "sha256": "474a08ba7ccf6f11e249cf086fd550fd184c3da6369939b0d7a0a3e8e1aa2e43",
           "mode": "0755",
-          "size": 150413536
+          "size": 151905712
+        },
+        "LICENSE-MIT": {
+          "sha256": "7b6db9a363688683feacdf9b528f059637f2e5d2edbacd8720fc9b26781c9abe",
+          "mode": "0644",
+          "size": 1103
         }
       }
     },
     "designcraft": {
-      "version": "0.8.0",
-      "sourceCommit": "11a51d5b665aec8d6e675bd107a8a01514f10d00",
-      "archive": "designcraft-cli-0.8.0-macos-universal.zip",
-      "archiveSize": 62040890,
-      "archiveSha256": "e663f967d9e1c439e0eb7759147be29121da198cdd71cedd4afb3ae0e0336243",
-      "url": "https://github.com/storytold/designcraft/releases/download/v0.8.0/designcraft-cli-0.8.0-macos-universal.zip",
+      "version": "0.9.0",
+      "sourceCommit": "7cb8b12507def48fb9346e5004340b5e8e4cfcb7",
+      "archive": "designcraft-cli-0.9.0-macos-universal.zip",
+      "archiveSize": 71114625,
+      "archiveSha256": "1c11a863755b9eb38209c8521bd46c42888260179f016a125b3ba5d293c0cb84",
+      "url": "https://github.com/storytold/designcraft/releases/download/v0.9.0/designcraft-cli-0.9.0-macos-universal.zip",
       "files": {
-        "LICENSE-APACHE": {
-          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
-          "mode": "0644",
-          "size": 10174
-        },
-        "LICENSE-MIT": {
-          "sha256": "d543d31e3120c64b70abc77cfadcbdc2249c78de1c8efa2e3d62540bb79de816",
-          "mode": "0644",
-          "size": 1103
-        },
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
-          "mode": "0644",
-          "size": 4408
-        },
-        "OFL-biz-ud-pgothic.txt": {
-          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
           "mode": "0644",
           "size": 4408
         },
@@ -405,165 +395,180 @@
           "mode": "0644",
           "size": 4399
         },
-        "README.md": {
-          "sha256": "171d663c7dfc0f2c2149a662e94d0ff5796187880b0c8270c43870e18925005e",
-          "mode": "0644",
-          "size": 19707
-        },
-        "designcraft-cli": {
-          "sha256": "983b5a6ea07fabae58ebe82161b4aa1a37fcb4bf239e5ba25a27047366038247",
-          "mode": "0755",
-          "size": 130142768
-        }
-      }
-    },
-    "figcraft": {
-      "version": "0.6.0",
-      "sourceCommit": "833f0d2c27f0acbae5394848930ae531fc89c724",
-      "archive": "figcraft-cli-0.6.0-macos-universal.zip",
-      "archiveSize": 77522665,
-      "archiveSha256": "119446cc8f50b719dad7a73e0356de6194aa262b6520b362dfe310ee9f05b3be",
-      "url": "https://github.com/storytold/figcraft/releases/download/v0.6.0/figcraft-cli-0.6.0-macos-universal.zip",
-      "files": {
         "LICENSE-APACHE": {
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "mode": "0644",
           "size": 10174
         },
-        "LICENSE-MIT": {
-          "sha256": "360c12b61568ef50808e731c98ae84110ea6f674dc34ac1ecb05d7abb9a6079a",
-          "mode": "0644",
-          "size": 1100
+        "designcraft-cli": {
+          "sha256": "58648594b47946259649e75d8aa6438a88eeb41343f87f6d2b9bf54015671d3a",
+          "mode": "0755",
+          "size": 150796912
         },
-        "NOTICE": {
-          "sha256": "3de704e57b81ffcb2a699f21fcf912559b28cb1d0f1584a7fbb3a080b4b695d6",
+        "README.md": {
+          "sha256": "dccc1e3afb3855c361d0be0352ddb3dac1048cff4423aca41475e4085bd7c94d",
           "mode": "0644",
-          "size": 1096
-        },
-        "OFL-biz-ud-mincho.txt": {
-          "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
-          "mode": "0644",
-          "size": 4408
+          "size": 26110
         },
         "OFL-biz-ud-pgothic.txt": {
           "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
           "mode": "0644",
           "size": 4408
         },
-        "OFL-caladea.txt": {
-          "sha256": "ccdab61d371d8c8683a128a92cd7d498dbdb1d37689f7cb21f1bf6b16658d213",
+        "LICENSE-MIT": {
+          "sha256": "d543d31e3120c64b70abc77cfadcbdc2249c78de1c8efa2e3d62540bb79de816",
           "mode": "0644",
-          "size": 4393
+          "size": 1103
+        }
+      }
+    },
+    "figcraft": {
+      "version": "0.7.0",
+      "sourceCommit": "47438dd4a2e8b49a7e6bb3dfd480262dadc37f12",
+      "archive": "figcraft-cli-0.7.0-macos-universal.zip",
+      "archiveSize": 78314177,
+      "archiveSha256": "5e7bea01c9f33d13d2ad803dfd10b5f0b1815e124870db09391d1c360a58e893",
+      "url": "https://github.com/storytold/figcraft/releases/download/v0.7.0/figcraft-cli-0.7.0-macos-universal.zip",
+      "files": {
+        "OFL-biz-ud-mincho.txt": {
+          "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
+          "mode": "0644",
+          "size": 4408
         },
-        "OFL-carlito.txt": {
-          "sha256": "58402f82a7c332a700294988fe7554fbb0a63a8d27ccc1ee3bbc640311990a00",
+        "OFL-shippori-mincho.txt": {
+          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
           "mode": "0644",
-          "size": 4424
+          "size": 4399
         },
-        "OFL-inter.txt": {
-          "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+        "LICENSE-APACHE": {
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "mode": "0644",
-          "size": 4380
-        },
-        "OFL-lato.txt": {
-          "sha256": "74ba064d03f1f1c4a952da936c3eb71866c34404916734de3cae73b34357e59e",
-          "mode": "0644",
-          "size": 4407
-        },
-        "OFL-liberation-mono.txt": {
-          "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b",
-          "mode": "0644",
-          "size": 4414
-        },
-        "OFL-liberation-sans.txt": {
-          "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b",
-          "mode": "0644",
-          "size": 4414
-        },
-        "OFL-liberation-serif.txt": {
-          "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b",
-          "mode": "0644",
-          "size": 4414
-        },
-        "OFL-merriweather.txt": {
-          "sha256": "a7ba785ad99b6eae0444ab89910e512d4af9865937fddbcb5c72c4f59f55d6ad",
-          "mode": "0644",
-          "size": 4437
-        },
-        "OFL-montserrat.txt": {
-          "sha256": "8b7141c03fa4f8d44e6345d5d4931709290f0f67875e452e95ac1fd3a027802e",
-          "mode": "0644",
-          "size": 4400
+          "size": 10174
         },
         "OFL-noto-sans-arabic.txt": {
           "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
           "mode": "0644",
           "size": 4382
-        },
-        "OFL-noto-sans-cjk-sc.txt": {
-          "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
-          "mode": "0644",
-          "size": 4301
-        },
-        "OFL-nunito-sans.txt": {
-          "sha256": "efbb0c9e864cef973982d9a17567e6be5c3d1759695574586f3f18c7ecca064b",
-          "mode": "0644",
-          "size": 4393
-        },
-        "OFL-open-sans.txt": {
-          "sha256": "fbbbcfef55318de350562559b671360de6d597112ecc5c73881b05092db89602",
-          "mode": "0644",
-          "size": 4389
-        },
-        "OFL-playfair-display.txt": {
-          "sha256": "566be814f8e96e93dfa16101331557eb6b5467e9e03f627c0910fe93ca12300e",
-          "mode": "0644",
-          "size": 4449
         },
         "OFL-poppins.txt": {
           "sha256": "6be04893d770899a015649c7aa3b582f871b272f8747a92b78b17c3e5c8b2573",
           "mode": "0644",
           "size": 4385
         },
-        "OFL-roboto.txt": {
-          "sha256": "061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41",
+        "OFL-nunito-sans.txt": {
+          "sha256": "efbb0c9e864cef973982d9a17567e6be5c3d1759695574586f3f18c7ecca064b",
           "mode": "0644",
-          "size": 4394
+          "size": 4393
         },
-        "OFL-shippori-mincho.txt": {
-          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
+        "OFL-noto-sans-cjk-sc.txt": {
+          "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
           "mode": "0644",
-          "size": 4399
+          "size": 4301
+        },
+        "OFL-playfair-display.txt": {
+          "sha256": "566be814f8e96e93dfa16101331557eb6b5467e9e03f627c0910fe93ca12300e",
+          "mode": "0644",
+          "size": 4449
         },
         "OFL-source-sans-3.txt": {
           "sha256": "89ad2c4f66dd29127527493e729c31e731f111cf10faf5774c3db9275ed0c22c",
           "mode": "0644",
           "size": 4579
         },
+        "OFL-liberation-serif.txt": {
+          "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b",
+          "mode": "0644",
+          "size": 4414
+        },
+        "OFL-montserrat.txt": {
+          "sha256": "8b7141c03fa4f8d44e6345d5d4931709290f0f67875e452e95ac1fd3a027802e",
+          "mode": "0644",
+          "size": 4400
+        },
+        "OFL-lato.txt": {
+          "sha256": "74ba064d03f1f1c4a952da936c3eb71866c34404916734de3cae73b34357e59e",
+          "mode": "0644",
+          "size": 4407
+        },
+        "figcraft-cli": {
+          "sha256": "9f3f793ad8e9f35c08dcb7adab81f7a8cda6301e306fb1f7a8a9bc46cbe52830",
+          "mode": "0755",
+          "size": 163713616
+        },
+        "NOTICE": {
+          "sha256": "85c1df10470b1a4a783585cc4c39b0c5ee7c907b662d3a0ca6767c9e2339764f",
+          "mode": "0644",
+          "size": 2566
+        },
+        "README.md": {
+          "sha256": "45877e727f294e8d8515339bda1f6f793a447f74432bf85ca42f90c2d2d7c78b",
+          "mode": "0644",
+          "size": 29812
+        },
+        "OFL-roboto.txt": {
+          "sha256": "061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41",
+          "mode": "0644",
+          "size": 4394
+        },
+        "OFL-merriweather.txt": {
+          "sha256": "a7ba785ad99b6eae0444ab89910e512d4af9865937fddbcb5c72c4f59f55d6ad",
+          "mode": "0644",
+          "size": 4437
+        },
+        "OFL-open-sans.txt": {
+          "sha256": "fbbbcfef55318de350562559b671360de6d597112ecc5c73881b05092db89602",
+          "mode": "0644",
+          "size": 4389
+        },
         "OFL-source-serif-4.txt": {
           "sha256": "75784a295293a8992f5a8d99210566e0064a012e6dab6731305e3787f15896c7",
           "mode": "0644",
           "size": 4492
         },
-        "README.md": {
-          "sha256": "d7eff6c4c9ac9efdc119950c79c15e481744db1c42249bd5b08d2fc1528f47a4",
+        "OFL-liberation-mono.txt": {
+          "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b",
           "mode": "0644",
-          "size": 29701
+          "size": 4414
         },
-        "figcraft-cli": {
-          "sha256": "5703d7354129a1783a98aef2389929cb9c89947f70ae079c65539f7998a2a41c",
-          "mode": "0755",
-          "size": 161745744
+        "OFL-biz-ud-pgothic.txt": {
+          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
+          "mode": "0644",
+          "size": 4408
+        },
+        "OFL-inter.txt": {
+          "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+          "mode": "0644",
+          "size": 4380
+        },
+        "OFL-caladea.txt": {
+          "sha256": "ccdab61d371d8c8683a128a92cd7d498dbdb1d37689f7cb21f1bf6b16658d213",
+          "mode": "0644",
+          "size": 4393
+        },
+        "OFL-liberation-sans.txt": {
+          "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b",
+          "mode": "0644",
+          "size": 4414
+        },
+        "LICENSE-MIT": {
+          "sha256": "360c12b61568ef50808e731c98ae84110ea6f674dc34ac1ecb05d7abb9a6079a",
+          "mode": "0644",
+          "size": 1100
+        },
+        "OFL-carlito.txt": {
+          "sha256": "58402f82a7c332a700294988fe7554fbb0a63a8d27ccc1ee3bbc640311990a00",
+          "mode": "0644",
+          "size": 4424
         }
       }
     },
     "wordcraft": {
-      "version": "0.7.0",
-      "sourceCommit": "fc41918814f62645b6746ed68e71e8c2c2e85d6f",
-      "archive": "wordcraft-cli-0.7.0-macos-universal.zip",
-      "archiveSize": 86171216,
-      "archiveSha256": "56bda3406af0aa1c96cece8ad145ab2602d2f7f8919d758d4292c5c75f2dfb50",
-      "url": "https://github.com/storytold/wordcraft/releases/download/v0.7.0/wordcraft-cli-0.7.0-macos-universal.zip",
+      "version": "0.8.0",
+      "sourceCommit": "f2e15cf8f899a79899a2d9595ca4ce7df1e5ea22",
+      "archive": "wordcraft-cli-0.8.0-macos-universal.zip",
+      "archiveSize": 87669261,
+      "archiveSha256": "931f2277a357e7d77266ddceea565450b102ca7bf9e0634821162f7bab616dbe",
+      "url": "https://github.com/storytold/wordcraft/releases/download/v0.8.0/wordcraft-cli-0.8.0-macos-universal.zip",
       "files": {
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
@@ -591,9 +596,9 @@
           "size": 4301
         },
         "README.md": {
-          "sha256": "77656bd3786db1e9378eda9eb8f15ebe8eb0b90a47d674f712702fb3b4819f9c",
+          "sha256": "090e788809ad4249a53e2a7585ee2e202a86916ce0f5733bdb2b567b7fce30d6",
           "mode": "0644",
-          "size": 25687
+          "size": 26313
         },
         "OFL-biz-ud-pgothic.txt": {
           "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
@@ -601,9 +606,9 @@
           "size": 4408
         },
         "wordcraft-cli": {
-          "sha256": "45fa52a260fb400857c6033c3cbfa90f8e9c67d05aeb9417cccbb3d6c51c0960",
+          "sha256": "dbc88c980ac2fe5f01c22051e5632a9e8fdc62cfa0185eb69454d72c4da988ea",
           "mode": "0755",
-          "size": 152874256
+          "size": 156204128
         },
         "LICENSE-MIT": {
           "sha256": "fc257de83c44ae49e4aad1cf777b886794be3ac9c8d00c010ef55935d5bbeba5",
@@ -613,27 +618,22 @@
       }
     },
     "soundcraft": {
-      "version": "0.7.0",
-      "sourceCommit": "3a28a657692c1b98b28c276d8f61df9471074f0f",
-      "archive": "soundcraft-cli-0.7.0-macos-universal.zip",
-      "archiveSize": 6733366,
-      "archiveSha256": "a4272112e9ab6e489cfab1b169741f70a5fc151ce1c1b2300cd92d66fa6f9d3d",
-      "url": "https://github.com/storytold/soundcraft/releases/download/v0.7.0/soundcraft-cli-0.7.0-macos-universal.zip",
+      "version": "0.8.0",
+      "sourceCommit": "2578ea69a388395ddadb6394d7b4ab40f21aa670",
+      "archive": "soundcraft-cli-0.8.0-macos-universal.zip",
+      "archiveSize": 6768874,
+      "archiveSha256": "41852f04159d64d62054a9d89b35fd9177eecdfdb53b5c8b52887d31dc4cef71",
+      "url": "https://github.com/storytold/soundcraft/releases/download/v0.8.0/soundcraft-cli-0.8.0-macos-universal.zip",
       "files": {
-        "ATTRIBUTION.md": {
-          "sha256": "aaf3fa13f18d7bd84d6827b40a5a2added7548ffcef3ecde9aa322ccfaa5698b",
-          "mode": "0644",
-          "size": 3266
-        },
         "LICENSE-APACHE": {
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "mode": "0644",
           "size": 10174
         },
-        "LICENSE-MIT": {
-          "sha256": "6aff3a3f0d8eb4c2d4fca151a00cdf26d8ff3020889402a453381a12dba3381e",
+        "ATTRIBUTION.md": {
+          "sha256": "aaf3fa13f18d7bd84d6827b40a5a2added7548ffcef3ecde9aa322ccfaa5698b",
           "mode": "0644",
-          "size": 1102
+          "size": 3266
         },
         "NOTICE": {
           "sha256": "977949446409bf907b265d765f024d3194c09251c2a65a4ca418cf5cb2dc84c0",
@@ -646,19 +646,24 @@
           "size": 24817
         },
         "soundcraft-cli": {
-          "sha256": "8d96c8a0d31503010c311ddbffd83986b30539f6e7d6b407ea5fdc0a565d8adb",
+          "sha256": "8a2e25f5d24ad60f56546beffa7c33fdf47a17f3987d05bbb0e7f984fc7778f9",
           "mode": "0755",
-          "size": 18136720
+          "size": 18210912
+        },
+        "LICENSE-MIT": {
+          "sha256": "6aff3a3f0d8eb4c2d4fca151a00cdf26d8ff3020889402a453381a12dba3381e",
+          "mode": "0644",
+          "size": 1102
         }
       }
     },
     "deckcraft": {
-      "version": "0.7.0",
-      "sourceCommit": "d78e657e4cb1e490ceb5445785c052d9cf5ad963",
-      "archive": "deckcraft-cli-0.7.0-macos-universal.zip",
-      "archiveSize": 68242322,
-      "archiveSha256": "9039972bc9f583115ef79994f30179540beee1ee32d7d9bcce1054a79c9a8aa3",
-      "url": "https://github.com/storytold/deckcraft/releases/download/v0.7.0/deckcraft-cli-0.7.0-macos-universal.zip",
+      "version": "0.8.0",
+      "sourceCommit": "22db9261f9d1a214c296fd390173130c45d76d66",
+      "archive": "deckcraft-cli-0.8.0-macos-universal.zip",
+      "archiveSize": 72514092,
+      "archiveSha256": "1093646863b659c0a40d919cb898d9d7c7a4710e488b4207540d17887e187ed0",
+      "url": "https://github.com/storytold/deckcraft/releases/download/v0.8.0/deckcraft-cli-0.8.0-macos-universal.zip",
       "files": {
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
@@ -721,9 +726,9 @@
           "size": 4407
         },
         "README.md": {
-          "sha256": "c6c2c577af9ff6109ad10d36425bbef78f56d2af1c55b289da46c576bf52e22b",
+          "sha256": "d4b1570c432c77d254d456c22e5657420ace2cf8f1770d36f844f5ff61ab38c0",
           "mode": "0644",
-          "size": 17255
+          "size": 17853
         },
         "OFL-roboto.txt": {
           "sha256": "061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41",
@@ -771,9 +776,9 @@
           "size": 4414
         },
         "deckcraft-cli": {
-          "sha256": "592fc9c267a62770fa084de0ab68c9a27e137f35be3346fe2929f07fec5ee196",
+          "sha256": "facfd326e82d89772cf3d234fcfefd033c0aa7a0bd1edb48bbbde18b9709067d",
           "mode": "0755",
-          "size": 136809536
+          "size": 148004976
         },
         "LICENSE-MIT": {
           "sha256": "90e96fef569474cd526350e716e4b05dd32f179ca96d39d61e6b928485e35406",
@@ -788,32 +793,32 @@
       }
     },
     "cadcraft": {
-      "version": "0.7.0",
-      "sourceCommit": "fc4e98315a8d771b5ab832f0ade0b5e7b106df7f",
-      "archive": "cadcraft-cli-0.7.0-macos-universal.zip",
-      "archiveSize": 51536484,
-      "archiveSha256": "dc203df9e9225d1abc0981c82fcf30a9322878bd88009ad0457a122b71bb61c6",
-      "url": "https://github.com/storytold/cadcraft/releases/download/v0.7.0/cadcraft-cli-0.7.0-macos-universal.zip",
+      "version": "0.8.0",
+      "sourceCommit": "714111d528acc86dc6b41e03f9a82cabc1066dca",
+      "archive": "cadcraft-cli-0.8.0-macos-universal.zip",
+      "archiveSize": 51537609,
+      "archiveSha256": "0647286d06e2bf5da9fd1303f481966962ad224b57b4fa7adf2087a1e387e30b",
+      "url": "https://github.com/storytold/cadcraft/releases/download/v0.8.0/cadcraft-cli-0.8.0-macos-universal.zip",
       "files": {
-        "LICENSE-APACHE": {
-          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
-          "mode": "0644",
-          "size": 10174
-        },
-        "LICENSE-MIT": {
-          "sha256": "54b0fc87ed7b61b59c20340070dd2b8c7f9d0b53795347819c3bd7c67ea2508a",
-          "mode": "0644",
-          "size": 1100
-        },
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
           "mode": "0644",
           "size": 4408
         },
-        "OFL-biz-ud-pgothic.txt": {
-          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
+        "cadcraft-cli": {
+          "sha256": "d32ea30d8ef888a2b124e35334f69f71cf3056bdbe7bead23245f29cbb5186f7",
+          "mode": "0755",
+          "size": 103572752
+        },
+        "OFL-shippori-mincho.txt": {
+          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
           "mode": "0644",
-          "size": 4408
+          "size": 4399
+        },
+        "LICENSE-APACHE": {
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+          "mode": "0644",
+          "size": 10174
         },
         "OFL-noto-sans-arabic.txt": {
           "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
@@ -825,35 +830,35 @@
           "mode": "0644",
           "size": 4301
         },
-        "OFL-noto-sans-thai.txt": {
-          "sha256": "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
-          "mode": "0644",
-          "size": 4380
-        },
-        "OFL-shippori-mincho.txt": {
-          "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
-          "mode": "0644",
-          "size": 4399
-        },
         "README.md": {
           "sha256": "a9812abdb6c4ec7baff53bdc310c9ad282ebe9e6707fffad09e7760196c25fe9",
           "mode": "0644",
           "size": 28443
         },
-        "cadcraft-cli": {
-          "sha256": "4bb8116592c08d0616ddde959e87d50f828c7a81aec0849942667e6fece630a8",
-          "mode": "0755",
-          "size": 103552704
+        "OFL-noto-sans-thai.txt": {
+          "sha256": "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
+          "mode": "0644",
+          "size": 4380
+        },
+        "OFL-biz-ud-pgothic.txt": {
+          "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",
+          "mode": "0644",
+          "size": 4408
+        },
+        "LICENSE-MIT": {
+          "sha256": "54b0fc87ed7b61b59c20340070dd2b8c7f9d0b53795347819c3bd7c67ea2508a",
+          "mode": "0644",
+          "size": 1100
         }
       }
     },
     "gridcraft": {
-      "version": "0.7.0",
-      "sourceCommit": "d9d09f0baa912e88c5111107903fc8c640214b57",
-      "archive": "gridcraft-cli-0.7.0-macos-universal.zip",
-      "archiveSize": 11094843,
-      "archiveSha256": "be76dda3e81828f8d4a96965eac5df905dc20712bafd3cfe703ffad32cfa0ed9",
-      "url": "https://github.com/storytold/gridcraft/releases/download/v0.7.0/gridcraft-cli-0.7.0-macos-universal.zip",
+      "version": "0.8.0",
+      "sourceCommit": "823c56582d00be91e31b4f7f3680496cf89e84fb",
+      "archive": "gridcraft-cli-0.8.0-macos-universal.zip",
+      "archiveSize": 11098098,
+      "archiveSha256": "564f7d087b880b7f16aa60ae50a1cbe9d37b4ed449eb29b2646ea584479bab07",
+      "url": "https://github.com/storytold/gridcraft/releases/download/v0.8.0/gridcraft-cli-0.8.0-macos-universal.zip",
       "files": {
         "OFL-biz-ud-mincho.txt": {
           "sha256": "ef0ed524b3bd012f37015e986809eed6f67905456ebfc1ebd7fcc2765282ee01",
@@ -876,9 +881,9 @@
           "size": 22970
         },
         "gridcraft-cli": {
-          "sha256": "e90c9abb810108c10e3cf64e298bdf38e40e78e1381d8f9349b8b4c66a87ddb1",
+          "sha256": "112ccbcd1f5a5639aef751b614c03c38e816dc5daa6eaa815164d1f2b93ceee7",
           "mode": "0755",
-          "size": 28639232
+          "size": 28656224
         },
         "OFL-biz-ud-pgothic.txt": {
           "sha256": "e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc",

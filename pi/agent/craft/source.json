@@ -30,7 +30,7 @@
   "files": {
     "agent/bin/start-craft-mcp.sh": {
       "mode": "0755",
-      "sha256": "6b62dbc748f762769deda715eff300215d296788d5f3b1fcc7538a74c7a91262"
+      "sha256": "f746b3ccb767fb18ff25ecbe9e52a8cb638c18945d77b1d56cae02702ad590fc"
     },
     "agent/skills/crafting-apps/SKILL.md": {
       "mode": "0644",
@@ -46,7 +46,7 @@
     },
     "agent/craft/packages.json": {
       "mode": "0644",
-      "sha256": "8a4a0567f5ed512b62fa398e8912cba02789c97d74d24ca565b40dc3627c7b7f"
+      "sha256": "7252b941d34fb3f4892e2e321cd6b790825a11f8eabfaa4cc66fe62849f7629d"
     }
   }
 }

@@ -6,14 +6,15 @@ usage() { printf '%s\n' 'usage: start-craft-mcp.sh photocraft|vectorcraft|cadcra
 [ "$#" -eq 1 ] || usage
 app=$1
 case "$app" in
-    photocraft) version=0.9.0; root=.artcraft/workspace ;;
-    vectorcraft) version=0.12.0; root=.artcraft/vectorcraft-workspace-recovery ;;
-    cadcraft) version=0.7.0; root=.artcraft/cadcraft-workspace ;;
-    soundcraft) version=0.7.0; root=.artcraft/soundcraft-workspace ;;
-    figcraft) version=0.6.0; root=.artcraft/figcraft-workspace ;;
-    designcraft|lightcraft|filmcraft|pdfcraft) version=0.8.0; root=.artcraft/$app-workspace ;;
-    effectcraft) version=0.10.0; root=.artcraft/effectcraft-workspace ;;
-    wordcraft|deckcraft|gridcraft) version=0.7.0; root=.artcraft/$app-workspace ;;
+    photocraft) version=0.10.0; root=.artcraft/workspace ;;
+    vectorcraft) version=0.13.1; root=.artcraft/vectorcraft-workspace-recovery ;;
+    cadcraft) version=0.8.0; root=.artcraft/cadcraft-workspace ;;
+    soundcraft) version=0.8.0; root=.artcraft/soundcraft-workspace ;;
+    figcraft) version=0.7.0; root=.artcraft/figcraft-workspace ;;
+    designcraft|filmcraft|pdfcraft) version=0.9.0; root=.artcraft/$app-workspace ;;
+    lightcraft) version=0.9.1; root=.artcraft/lightcraft-workspace ;;
+    effectcraft) version=0.11.1; root=.artcraft/effectcraft-workspace ;;
+    wordcraft|deckcraft|gridcraft) version=0.8.0; root=.artcraft/$app-workspace ;;
     *) usage ;;
 esac
 case "${HOME:-}" in

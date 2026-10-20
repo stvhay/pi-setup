@@ -8,9 +8,9 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-APPS = dict(photocraft='0.9.0', vectorcraft='0.12.0', cadcraft='0.7.0', soundcraft='0.7.0',
-            figcraft='0.6.0', designcraft='0.8.0', lightcraft='0.8.0', filmcraft='0.8.0',
-            effectcraft='0.10.0', pdfcraft='0.8.0', wordcraft='0.7.0', deckcraft='0.7.0', gridcraft='0.7.0')
+APPS = dict(photocraft='0.10.0', vectorcraft='0.13.1', cadcraft='0.8.0', soundcraft='0.8.0',
+            figcraft='0.7.0', designcraft='0.9.0', lightcraft='0.9.1', filmcraft='0.9.0',
+            effectcraft='0.11.1', pdfcraft='0.9.0', wordcraft='0.8.0', deckcraft='0.8.0', gridcraft='0.8.0')
 NEW = list(APPS)[4:]
 
 
@@ -21,6 +21,27 @@ def module(name):
     result = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(result)
     return result
+
+
+def test_release_manifest_matches_expected_versions():
+    manifest = json.loads((ROOT / 'pi/agent/craft/packages.json').read_text())
+    assert {app: package['version'] for app, package in manifest['packages'].items()} == APPS
+    module('install-craft-tools').validate(manifest, list(APPS))
+
+
+@pytest.mark.parametrize('app', APPS)
+def test_launcher_selects_current_release(tmp_path, app):
+    home, cwd = tmp_path / 'home', tmp_path / 'project'
+    cwd.mkdir()
+    binary = home / f'.artcraft/{app}-cli-{APPS[app]}-macos-universal/{app}-cli'
+    binary.parent.mkdir(parents=True)
+    binary.write_text(f'#!/bin/sh\nprintf "%s\\n" "{app}"\n')
+    binary.chmod(0o755)
+    proc = subprocess.run([str(ROOT / 'pi/agent/bin/start-craft-mcp.sh'), app], cwd=cwd,
+                          env={'HOME': str(home), 'PATH': '/usr/bin:/bin'},
+                          capture_output=True, text=True, timeout=5)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == app
 
 
 @pytest.mark.parametrize('app', NEW)
