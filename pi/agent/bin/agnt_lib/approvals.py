@@ -249,6 +249,17 @@ def _request_fingerprint(approval: Dict[str, Any]) -> str:
         "default": default,
         "preview": _normalize_preview(approval.get("preview")),
     }
+    version = approval.get("requestVersion", 1)
+    if type(version) is not int or version not in {1, 2}:
+        raise ValueError("approval request version is invalid")
+    if version == 2:
+        identity["requestVersion"] = version
+        if kind == "question":
+            mode = approval.get("selectionMode")
+            if not isinstance(mode, str) or mode not in SELECTION_MODES or approval.get("customResponseAllowed") is not True:
+                raise ValueError("question selection contract is invalid")
+            identity["selectionMode"] = mode
+            identity["customResponseAllowed"] = True
     if "grantFingerprint" in approval:
         identity["grantFingerprint"] = _require_nonempty(
             "grant_fingerprint", approval.get("grantFingerprint")
@@ -476,6 +487,7 @@ def approval_request_payload(
 
     approval = {
         "schemaVersion": 1,
+        "requestVersion": 2,
         "kind": kind,
         "targetBead": target,
         "question": prompt,
@@ -880,6 +892,26 @@ def resolve_beads_approval_request(
     run_bundle: Path | None = None,
     beads_runner: BeadsRunner = run_beads_json,
 ) -> Dict[str, Any]:
+    from .decision_rebinding import _locked
+
+    # Serialize supported rebind/resolve writers before reading canonical state.
+    # This lock precedes lifecycle/quality/Beads reads; lifecycle callbacks must
+    # never invoke UI decision mutation while holding their own journal lock.
+    with _locked(decision_bead):
+        return _resolve_beads_approval_request(
+            decision_bead=decision_bead, outcome=outcome, answer=answer,
+            selected_options=selected_options, custom_input=custom_input,
+            structured_answer=structured_answer, resolver=resolver,
+            run_bundle=run_bundle, beads_runner=beads_runner,
+        )
+
+
+def _resolve_beads_approval_request(
+    *, decision_bead: str, outcome: str, answer: str | None,
+    selected_options: List[str] | None, custom_input: str | None,
+    structured_answer: bool, resolver: Dict[str, str] | None,
+    run_bundle: Path | None, beads_runner: BeadsRunner,
+) -> Dict[str, Any]:
     decision = _require_nonempty("decision_bead", decision_bead)
     if outcome not in VALID_OUTCOMES:
         raise ValueError(f"outcome must be one of {sorted(VALID_OUTCOMES)}")
@@ -950,8 +982,11 @@ def resolve_beads_approval_request(
     if outcome in CLOSING_OUTCOMES:
         if not isinstance(resolver, dict):
             raise ValueError("approved or answered outcomes require human-ui resolver provenance")
+        from .decision_rebinding import current_binding, require_current_owner
+
+        rebound_binding = current_binding(decision, approval)
         try:
-            expected_binding = _stored_resolver_binding(
+            expected_binding = rebound_binding or _stored_resolver_binding(
                 approval.get("resolverBinding")
             )
             actual_binding = _resolver_binding(resolver)
@@ -961,6 +996,15 @@ def resolve_beads_approval_request(
             ) from exc
         if actual_binding != expected_binding:
             raise ValueError("human-ui resolver binding does not match approval request")
+        if approval.get("status") != "pending":
+            raise ValueError("decision is no longer pending; preserve the recorded outcome")
+        if approval.get("kind") == "question":
+            if approval.get("requestVersion", 1) == 1 and rebound_binding is None:
+                raise ValueError("legacy question requires trusted UI mode recovery before answering")
+            _require_unchanged_approval_preview(decision, approval, beads_runner)
+        if rebound_binding is not None:
+            _require_unchanged_approval_preview(decision, approval, beads_runner)
+            require_current_owner(approval["targetBead"], resolver["sessionId"])
         resolver_session_fingerprint = actual_binding["sessionFingerprint"]
     approval.pop("requestingRun", None)
     approval.update({
@@ -1067,6 +1111,14 @@ def cmd_approvals(argv: List[str]) -> int:
     request.add_argument("--preview-closeout-path", required=True)
     request.add_argument("--json", action="store_true")
 
+    context = sub.add_parser("recover-context", help="read original pending scope for trusted UI recovery")
+    context.add_argument("decision_bead")
+    context.add_argument("--json", action="store_true")
+    rebind = sub.add_parser("rebind", help="recover a pending decision through the current trusted human UI")
+    rebind.add_argument("decision_bead")
+    rebind.add_argument("--legacy-selection-mode", choices=sorted(SELECTION_MODES))
+    rebind.add_argument("--json", action="store_true")
+
     resolve = sub.add_parser("resolve", help="record a durable answer/rejection/timeout")
     resolve.add_argument("decision_bead")
     resolve.add_argument("--outcome", choices=sorted(VALID_OUTCOMES), required=True)
@@ -1105,6 +1157,17 @@ def cmd_approvals(argv: List[str]) -> int:
                 resolver_binding=_resolver_from_private_fd(),
                 run_bundle=args.run_bundle,
             )
+        elif args.cmd in {"rebind", "recover-context"}:
+            from .decision_rebinding import rebind_pending_decision, recovery_context
+
+            proof = _resolver_from_private_fd()
+            if proof is None:
+                raise ValueError("decision rebinding requires process-bound human-ui provenance")
+            if args.cmd == "rebind":
+                result = rebind_pending_decision(args.decision_bead, resolver=proof, beads_runner=run_beads_json,
+                                                legacy_selection_mode=args.legacy_selection_mode)
+            else:
+                result = recovery_context(args.decision_bead, resolver=proof, beads_runner=run_beads_json)
         else:
             if args.resolver_kind is not None or args.resolver_session is not None:
                 raise ValueError("human-ui resolver CLI flags are not accepted")

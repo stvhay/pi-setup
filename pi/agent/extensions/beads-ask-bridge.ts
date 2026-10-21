@@ -217,6 +217,7 @@ function approvalMessage(params: RequestParams, decisionBead: string): string {
 		"",
 		`Decision bead: ${decisionBead}`,
 		`Target bead: ${params.targetBead}`,
+		`Context: ${params.context}`,
 		"",
 		`Action: ${params.preview.action}`,
 		`Scope: ${params.preview.scope}`,
@@ -237,6 +238,20 @@ function approvalMessage(params: RequestParams, decisionBead: string): string {
 			`Grant expiry: ${params.grant.expiry}`,
 		] : []),
 	].join("\n");
+}
+
+function recoveredRequest(result: Record<string, unknown>, decision: string, kind: "approval" | "question"): RequestParams {
+	const request = result.request as (RequestParams & { kind: string }) | undefined;
+	if (result.status !== "pending" || result.decisionBead !== decision || !request || request.kind !== kind
+		|| typeof request.question !== "string" || typeof request.context !== "string"
+		|| typeof request.targetBead !== "string" || !Array.isArray(request.options) || !request.options.length
+		|| !request.options.every(option => typeof option === "string")
+		|| (kind === "question" && request.selectionMode !== "single" && request.selectionMode !== "multi")
+		|| !request.preview || !["action", "scope", "consequences", "reversibility", "closeoutPath"]
+			.every(key => typeof request.preview[key as keyof RequestParams["preview"]] === "string")) {
+		throw new Error("Pending decision recovery returned an invalid canonical request; no answer recorded");
+	}
+	return request;
 }
 
 export default function beadsAskBridge(pi: ExtensionAPI) {
@@ -417,6 +432,8 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 		async execute(toolCallId, params: ResolveParams, signal, _onUpdate, ctx) {
 			let outcome: ResolveParams["outcome"] = params.outcome;
 			let answer = params.answer;
+			let selectedOptions = params.selectedOptions;
+			let customInput = params.customInput;
 			if (params.customInput !== undefined && !cleanAnswer(params.customInput)) {
 				throw new Error("Custom response cannot be empty.");
 			}
@@ -429,26 +446,63 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 				if (!binding) {
 					throw new Error("decision resolution requires an interactive human UI bound to this Pi session");
 				}
-				const resolver = resolverSecrets.get(params.decisionBead);
-				const responsePreview = [
-					...(answer ? [`Answer: ${answer}`] : []),
-					...(params.selectedOptions?.length ? [`Selected: [${params.selectedOptions.join(", ")}]`] : []),
-					...(params.customInput ? [`Custom response: ${params.customInput}`] : []),
-				];
-				const confirmed = await ctx.ui.confirm(
-					"Human confirmation required",
-					`Resolve ${params.decisionBead} as ${outcome}?${responsePreview.length ? `\n\n${responsePreview.join("\n")}` : ""}`,
-				);
+				let resolver = resolverSecrets.get(params.decisionBead);
+				let original: RequestParams | undefined;
+				if (!resolver || resolver.generation !== binding.generation) {
+					const replacement = newResolver(binding)!;
+					const privateProof = resolverProof(replacement, replacement.secret, toolCallId, "ticket_decision_resolve");
+					const recovered = await runAgntJson(
+						["approvals", "recover-context", params.decisionBead, "--json"], ctx.cwd, signal, "agnt", undefined, privateProof,
+					);
+					const kind = outcome === "approved" ? "approval" : "question";
+					const preview = recoveredRequest(recovered, params.decisionBead, kind);
+					if (!isCurrent(ctx, binding)) throw new Error("decision resolution session changed during recovery; blocker remains pending");
+					let legacyMode: string | undefined;
+					if (recovered.legacySelectionModeRequired === true) {
+						const confirmed = await ctx.ui.confirm("Verify legacy question mode",
+							`${approvalMessage(preview, params.decisionBead)}\n\nThe original record did not fingerprint selection mode. Confirm current mode: ${preview.selectionMode}, with custom answers allowed. This does not answer the question.`);
+						if (!isCurrent(ctx, binding)) throw new Error("decision resolution session changed during mode verification; blocker remains pending");
+						if (!confirmed) return {
+							content: [{ type: "text", text: `Decision ${params.decisionBead} remains pending; legacy selection mode was not confirmed.` }],
+							details: { status: "blocked", decisionBead: params.decisionBead, reason: "legacy-selection-mode-unconfirmed" },
+						};
+						legacyMode = preview.selectionMode;
+					}
+					const rebound = await runAgntJson(
+						["approvals", "rebind", params.decisionBead, "--json", ...(legacyMode ? ["--legacy-selection-mode", legacyMode] : [])],
+						ctx.cwd, signal, "agnt", undefined, privateProof,
+					);
+					const request = recoveredRequest(rebound, params.decisionBead, kind);
+					if (!isCurrent(ctx, binding)) throw new Error("decision resolution session changed during recovery; blocker remains pending");
+					resolver = replacement;
+					resolverSecrets.set(params.decisionBead, resolver);
+					original = request;
+				}
+				if (original && outcome === "answered") {
+					const chosen = await askQuestion(original, ctx.ui, approvalMessage(original, params.decisionBead));
+					outcome = chosen.answered ? "answered" : "cancelled";
+					answer = chosen.answered ? undefined : "Cancelled in Pi UI";
+					selectedOptions = chosen.selectedOptions;
+					customInput = chosen.customInput;
+				} else {
+					const responsePreview = [
+						...(answer ? [`Answer: ${answer}`] : []),
+						...(selectedOptions?.length ? [`Selected: [${selectedOptions.join(", ")}]`] : []),
+						...(customInput ? [`Custom response: ${customInput}`] : []),
+					];
+					const confirmed = await ctx.ui.confirm(
+						"Human confirmation required",
+						`${original ? approvalMessage(original, params.decisionBead) + "\n\n" : ""}Resolve ${params.decisionBead} as ${outcome}?${responsePreview.length ? `\n\n${responsePreview.join("\n")}` : ""}`,
+					);
+					if (!confirmed) {
+						outcome = outcome === "approved" ? "rejected" : "cancelled";
+						answer = "Not confirmed in Pi UI";
+					}
+				}
 				if (!isCurrent(ctx, binding)) {
 					throw new Error("decision resolution session changed during human confirmation; blocker remains pending");
 				}
-				if (!confirmed) {
-					outcome = outcome === "approved" ? "rejected" : "cancelled";
-					answer = "Not confirmed in Pi UI";
-				} else {
-					if (!resolver || resolver.generation !== binding.generation) {
-						throw new Error("positive decision resolution requires a live request binding; create a new approval request");
-					}
+				if (outcome === "approved" || outcome === "answered") {
 					proof = resolverProof(binding, resolver.secret, toolCallId, "ticket_decision_resolve");
 				}
 			}
@@ -456,10 +510,7 @@ export default function beadsAskBridge(pi: ExtensionAPI) {
 				decisionBead: params.decisionBead,
 				outcome,
 				answer,
-				...(outcome === "answered" ? {
-					selectedOptions: params.selectedOptions,
-					customInput: params.customInput,
-				} : {}),
+				...(outcome === "answered" ? { selectedOptions, customInput } : {}),
 				runBundle: params.runBundle,
 			}), ctx.cwd, signal, "agnt", undefined, proof);
 			if (outcome === "approved" || outcome === "answered") resolverSecrets.delete(params.decisionBead);

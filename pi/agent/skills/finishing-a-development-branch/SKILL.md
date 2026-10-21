@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: "Use when finishing implementation: readiness, docs, review, PR, merge, or cleanup."
+description: "Use to finish implementation: verify, docs, review, PR, merge or cleanup."
 ---
 
 # Finishing a Development Branch

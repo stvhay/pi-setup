@@ -162,13 +162,21 @@ def resolve_orchestration_authority(
     metadata: Any,
     *,
     grant_resolver: Callable[[str], Mapping[str, Any]] = _default_grant_resolver,
+    bead_id: str = "",
 ) -> Dict[str, Any]:
-    """Resolve implement authority from one canonical approval Bead."""
+    """Resolve exact authority first, or an explicit private standing assignment."""
     pi_meta = _metadata_pi(metadata)
     if pi_meta is None or pi_meta.get("action") != "implement":
         return {"schemaVersion": 1, "status": "not-required", "allowedEffects": []}
 
     refs = _string_list(pi_meta.get("approvalRefs"))
+    if ("approvalRefs" not in pi_meta or refs == []) and pi_meta.get("standingAssignment"):
+        from .authority import resolve_local_assignment
+
+        return resolve_local_assignment(
+            pi_meta["standingAssignment"], bead_id, pi_meta.get("allowedEffects"),
+            pi_meta.get("decisionRefs"),
+        )
     if refs is None or len(refs) != 1:
         return {
             "schemaVersion": 1,
@@ -183,6 +191,9 @@ def resolve_orchestration_authority(
             raise ValueError("canonical grant result is invalid")
         if resolved.get("decisionBead") != decision_bead:
             raise ValueError("canonical grant decision does not match reference")
+        grant_target = resolved.get("targetBead")
+        if not isinstance(grant_target, str) or not grant_target.strip() or (bead_id and grant_target != bead_id):
+            raise ValueError("canonical grant target does not match work item")
         if resolved.get("status") != "active":
             raise ValueError("canonical capability grant is not active")
         if resolved.get("resolver") != {"kind": "human-ui"}:
@@ -197,6 +208,7 @@ def resolve_orchestration_authority(
         return {
             "schemaVersion": 1,
             "decisionBead": decision_bead,
+            "targetBead": grant_target,
             "status": "active",
             "grant": grant,
             "grantFingerprint": resolved["grantFingerprint"],
@@ -378,6 +390,7 @@ def resolve_orchestration_metadata(
     authority = resolve_orchestration_authority(
         metadata,
         grant_resolver=grant_resolver,
+        bead_id=str(bead.get("id") or "") if bead else "",
     )
     return validate_orchestration_metadata(metadata, bead=bead, authority=authority)
 

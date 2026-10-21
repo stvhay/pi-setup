@@ -42,6 +42,7 @@ RSYNC_EXCLUDES=(
   --exclude='improvement/'
   --exclude='metrics/'
   --exclude='runtime/'
+  --exclude='/authority/'
   --exclude='agent/macbook-ollama-power-*/'
   --filter='-s __pycache__/'
   --filter='-s *.py[cod]'

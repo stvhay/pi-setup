@@ -5,6 +5,17 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 const AGNT_BIN = join(getAgentDir(), "bin", "agnt");
 const MAX_BUFFER = 8 * 1024 * 1024;
 
+export class AgntCommandError extends Error {
+	readonly exitCode: number | null;
+	readonly result?: Record<string, unknown>;
+	constructor(message: string, exitCode: number | null, result?: Record<string, unknown>) {
+		super(message);
+		this.name = "AgntCommandError";
+		this.exitCode = exitCode;
+		this.result = result;
+	}
+}
+
 export function runAgntJson(
 	args: string[],
 	cwd: string,
@@ -12,13 +23,19 @@ export function runAgntJson(
 	parseErrorLabel = "agnt",
 	input?: string,
 	privateInput?: string,
+	session?: { id: string; file?: string },
+	privateInputKind: "human-ui" | "work-launch" = "human-ui",
 ): Promise<Record<string, unknown>> {
 	return new Promise((resolve, reject) => {
 		const proc = spawn(AGNT_BIN, args, {
 			cwd,
-			env: privateInput === undefined
-				? process.env
-				: { ...process.env, AGNT_HUMAN_UI_RESOLVER_FD: "3" },
+			env: {
+				...process.env,
+				...(session ? { PI_SESSION_ID: session.id, PI_SESSION_FILE: session.file ?? "" } : {}),
+				...(privateInput === undefined ? {} : {
+					[privateInputKind === "work-launch" ? "AGNT_WORK_LAUNCH_PROOF_FD" : "AGNT_HUMAN_UI_RESOLVER_FD"]: "3",
+				}),
+			},
 			stdio: ["pipe", "pipe", "pipe", privateInput === undefined ? "ignore" : "pipe"],
 			signal,
 		});
@@ -42,7 +59,12 @@ export function runAgntJson(
 				return;
 			}
 			if (code !== 0) {
-				reject(new Error((stderr || stdout || `${parseErrorLabel} exited ${String(code)}`).trim()));
+				let result: Record<string, unknown> | undefined;
+				try {
+					const parsed = JSON.parse(stdout);
+					if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) result = parsed;
+				} catch { /* Non-JSON failures retain ordinary rejection semantics. */ }
+				reject(new AgntCommandError((stderr || stdout || `${parseErrorLabel} exited ${String(code)}`).trim(), code, result));
 				return;
 			}
 			try {

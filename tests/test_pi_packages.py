@@ -88,7 +88,9 @@ def test_ponytail_discovery_package_filter_disables_skills_only(tmp_path):
       assert.equal(resources.skills.length, 1);
       assert.equal(resources.skills[0].enabled, false);
     """
-    run_node(script)
+    # SDK discovers ~/.agents independently of explicit agentDir. Keep this
+    # package-filter test independent of installed user skills.
+    run_node(script, env={"HOME": str(tmp_path)})
 
 
 def test_ponytail_discovery_preserves_explicit_skills_and_args(tmp_path):

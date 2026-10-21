@@ -94,12 +94,14 @@ Runner sessions correlate from run bundles; interactive work links through
 `agnt work direct-start`. Successful closeout uses
 `agnt work direct-closeout <bead> --outcome success --reason <reason>`; use
 `agnt improve outcome <bead> <partial|failure|unclear>` separately for non-success
-or manual/repair recording. One logical Pi session belongs to one Bead. After
-current Bead successful closeout, agents call `handoff_bead` without a target. A persisted TUI
-session with zero ownership records may hand off directly; linked sessions retain
-successful-outcome and clean-closeout requirements. Tool continues sole ready
-non-epic work automatically or asks once when several choices exist, then revalidates
-selection. It stages one empty parent-linked session, gracefully replaces Pi process,
+or manual/repair recording. One logical Pi session belongs to one Bead. For unfinished
+work, `handoff_bead` saves current curated `progress` and resumes in a new attempt;
+an assigned `targetBead` switches without discarding dirty work or rewriting outcomes.
+A reserved transition recovers its original checkpoint, not replacement progress.
+After successful closeout, targetless handoff continues sole ready non-epic work
+or asks once when several choices exist, then revalidates selection. A persisted
+unassigned TUI session may use that ready-work path directly. Uncertain effects
+require reconciliation, not a new session to bypass ownership. It stages one empty parent-linked session, gracefully replaces Pi process,
 and sends bounded Bead references plus `bd prime`, `bd ready`, and claiming
 `direct-start` instructions. Fresh work retrieves only referenced durable state;
 source transcript is not copied. Existing private metrics storage receives only

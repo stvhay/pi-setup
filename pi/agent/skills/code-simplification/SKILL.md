@@ -1,6 +1,6 @@
 ---
 name: code-simplification
-description: Use for assigned or requested behavior-preserving simplification; not automatic cleanup.
+description: Use for assigned/requested behavior-preserving simplification; not auto cleanup.
 ---
 
 # Code Simplification

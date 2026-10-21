@@ -1,0 +1,105 @@
+# Work lifecycle journal
+
+## Purpose
+
+Preserve unfinished work across session attempts without rewriting outcomes or treating suspension as success. The domain service, CLI, Beads/quality adapters, and Pi continuation adapter are implemented in tracked source. Tests exercise real persistence/Git checkouts and SDK loading with fake process replacement. They do **not** prove a live Pi restart or deployed behavior.
+
+## Public interface
+
+`LifecycleStore(root)` accepts an explicit private root. The runtime adapter selects `~/.pi/runtime/<canonical-repository-hash>/work-lifecycle`; sibling Git worktrees share ownership state, but retain separate checkout identities. Nested directories within one Git worktree normalize to its physical root, not separate execution owners. Git identity and snapshot reads disregard inherited `GIT_*`; mismatched configured roots fail closed.
+
+| Method | Contract |
+|---|---|
+| `claim(bead, session, checkout)` | Reserve execution ownership; reject another session, relabeled session, or shared checkout. |
+| `bind_assignment(...)` | Bind immutable execution scope; checkpoint input cannot substitute broader authority. |
+| `checkpoint(...)` | Persist structured progress and measured workspace; retain previous checkpoint reference. |
+| `prepare(...)` | Validate runtime, target, checkpoint, ownership, isolation, and authority; reserve one deterministic transition and random child ID. |
+| `reserve_child_file(id)` | Reserve exact private child path; never allocate a second child on retry. |
+| `stage(...)` | Verify both workspaces and yield source ownership after the host stages the child. |
+| `request_launch(...)` | Revalidate scope/workspaces; record a single launch request. Repeated calls cannot launch again. |
+| `attach(...)` | Revalidate scope/workspaces, record attaching, claim/link through host callbacks, and settle ownership. |
+| `status` / `recover` / `pending_transition` / `child_transition` | Read exact reservation and recovery action; never launch. |
+| `cancel(...)` | Restore source/prior target before attachment. Launch-requested cancellation requires a known pre-exec host failure, not a timeout. |
+| `release_completed(...)` | Release checkout only after successful verified closeout; never for suspension. |
+
+### CLI and Pi adapters
+
+- `agnt work checkpoint <bead> [--input-file progress.json|-]` preserves unfinished work. JSON is bounded to 64 KiB; `-` uses stdin. Curated progress may omit `assignmentRef`, which is filled from immutable execution ownership; an explicit different scope is rejected. Without supplied progress, it retains prior curated progress; for a first checkpoint it records canonical objective and measured state without inventing completed work or verification.
+- `transition-context --session-id ID` discovers pending source or reserved child identity.
+- `transition-check [bead] --mode resume|switch|next --session-id ID [--checkpoint-ref ID] [--checkout PATH]` returns a read-only readiness/idle manifest.
+- `transition-prepare` accepts the same arguments plus `--runtime-ready`; it reserves only after validated readiness. Missing cross-Bead checkouts produce an `isolating` reservation before any delivery receipt or native write.
+- `transition-bind-child <id> --session-id ID` repairs a crash between reservation and child-path binding. It verifies current source session/file/checkout and rechecks ownership under lock, binds only the existing child's deterministic private path, and creates no file, receipt, child identity, or native effect. Explicit-null prepared/isolating paths are recoverable; missing/invalid fields and post-staging unbound paths fail closed. This bounded metadata repair remains available for cancellation after revocation.
+- `transition-isolate <id> --session-id ID` recovers the same native worktree receipt, observes its current identity, and binds the resulting checkout before staging. Revocation permits reconciliation reads, not advancement.
+- `transition-stage`, `transition-launch`, `transition-attach`, and `transition-cancel` take transition ID and `--session-id`.
+- `transition-status` / `transition-recover` take the exact transition ID. Recovery also returns the referenced checkpoint, so a fresh child can retrieve actual progress rather than an opaque ID.
+- `transition-abort-launch` is a host failure callback with a bounded `--reason`. After launch reservation it requires the same opaque capability supplied over a private pipe at `transition-launch`; a reason/session/transition flag alone cannot cancel an uncertain launch. It is not user approval or a model-facing failure assertion.
+
+`handoff_bead` supports `mode`, `targetBead`, `progress`, `checkpointRef`, `checkout`, and `transitionId`. `progress` is the current concise objective, decisions, completed work, next steps, blockers, verification, owned relative paths and artifact refs; the host sends it over stdin in the same handoff call. It is evidence/context, never authority. New progress cannot accompany a checkpoint selector or pending/exact transition recovery. Headless calls return it in their read-only manifest without checkpointing. Unfinished assigned work defaults to resume, or switch when a different target is supplied. Existing closed/unassigned handoff remains separate. `/handoff-bead resume|switch|next [bead]` and `/handoff-bead recover <transition-id>` use the same adapter. Headless continuation returns a host-required manifest without checkpoint, reservation, cancellation settlement, or shutdown. Existing reservations recover their recorded mode; explicitly changed mode/target/checkpoint/checkout conflicts rather than silently launching old intent. TUI recovery advances native isolation once through its existing receipt, or finishes an already recorded cancellation. Blocked/uncertain effects never stage a child. A known exit-2 blocked response remains a reconciliation result; other command/transport failures remain errors. Responses without fresh transition state label earlier state as last-observed. Slash commands display non-launch outcomes instead of silently discarding them.
+
+Preparation validates the persisted source header and records its canonical path plus `sourceQualityDirectory`. Source outcome checks use that immutable ledger binding, not the child's checkout-dependent default. Global fallback and ignored project-local quality stores both remain supported without migration or rewriting parent rows. Missing legacy bindings require reconciliation, not a guessed child-local ledger. Existing target checkouts also inspect their own local legacy attempt ledger before reservation. The Pi adapter stages a fresh SDK session header with reserved child ID and exact parent linkage, fsyncs it, records launch intent, and requests process replacement. Stage and attach reject mismatched parent linkage. Host checks immutable reservation identity after isolation, staging, and launch responses. Crash recovery permits only validated null-to-bound child-path repair through `transition-bind-child`; every other identity field must remain unchanged. It never copies source messages. Replacement reconstructs run options through Pi's public argument parser: tool exclusions, project/context restrictions, model/provider settings and explicit resource paths survive; old messages, attachments and session selectors do not. Cross-checkout continuation with custom prompt overrides, Node launch options (including NODE_OPTIONS) or unknown extension flags stops before staging/shutdown instead of guessing how relative options rebind. The reservation remains recoverable; normal launches without those options can switch. On child startup, canonical attachment completes before tools are allowed. Failure blocks tools and requests shutdown. Source history/outcomes remain untouched. Claimed-target attachment uses native idempotent Beads claim and immutable quality-session linkage.
+
+## Authority and ownership
+
+Direct starts reserve ownership before external claim/link. Under standing authority, a requested Beads claim requires `beads-write`; continuation requires both `work-transition` and `beads-write`. Initial denial occurs before ownership reservation, claim, or quality link. The captured scope is rechecked inside the quality transaction immediately before native claim, including child attachment, so queued revocation cannot pass through stale preflight. This recheck never reacquires lifecycle ownership. Legacy inactive-policy behavior remains separate; authority denial is not misreported as session ownership conflict. With active standing admission, selected work lazily reuses its private assignment or records a local-only single-Bead scope. First `direct-start` may add repeatable `--scope-bead` for an explicitly approved work set; canonical selected Beads must exist and be unfinished. One immutable assignment covers exactly that set, including local worktree creation for multiple Beads. No authority JSON is needed. Overlapping, narrower or different existing scopes fail rather than merge/widen; an exactly matching existing assignment retains its effects/exclusions. Scope capture is not authentication of arbitrary CLI assertions: the caller must have actual user-assigned intent. It does not infer a delivery objective or scan/enroll other projects. Conflicting assignments require intent resolution. Without admission, legacy direct scope permits only same-Bead continuation. Revocation prevents new continuation attempts; a checkpoint cannot downgrade standing scope to legacy scope.
+
+Direct closeout reuses the execution owner's captured assignment; it never enrolls or widens scope. Active standing admission without a captured assignment fails closed. Before success recording it checks the local `beads-write`, `repo-write`, and `git-commit` ceiling, current execution context, canonical dependencies/decisions, and any existing close reason. Native close, export/replacement, staging, and commit recheck their remaining effects and target identity. A redirected/nonregular portable target or detected parent change stops advancement. Portable export opens a verified no-follow parent descriptor, creates an exclusive temporary file relative to it, sends native exporter stdout to the open file, and uses descriptor-relative replacement/cleanup. Namespace changes cannot redirect those operations to a different directory. An in-flight operation can still affect its originally bound objects if an external actor moves them; subsequent drift prevents staging. Later denial preserves already-recorded outcomes, canonical close, and staged changes; `repair.safeToRetry=false` directs authority reconciliation rather than automatic replay. Legacy inactive-policy direct permission remains separate. These guards do not yet provide receipt-backed reconciliation for ambiguous native close/export/commit outcomes.
+
+Orchestrated controller claim/close checks native bookkeeping authority separately from worker effects. Standing invocation snapshots are revalidated before bundle creation and again around native claim; close revalidates the stored snapshot. Read-only or exact-grant worker actions cannot bypass controller checks: existing captured/unique scope is used without enrollment, with `beads-write` required under standing policy. Inactive-policy ordinary legacy bookkeeping remains a separate compatibility contract, not authority derived from an exact worker grant. Every path rereads canonical constraints. Known owners must match current session, active phase and captured assignment; lifecycle lock spans checks and native callback. Exact worker gates are re-resolved and checked for local revocation before final controller checks; missing expected implementation snapshots fail closed. Canonical exact `targetBead` must match the actual dispatch/invocation Bead at admission, worker dispatch and native revalidation. New envelopes retain this target; legacy envelopes without the field require a fresh matching canonical target and are not rewritten. These checks neither widen worker grants nor renew/consume experiment claims. This does not reserve/transfer orchestration worker sessions, create epic worktrees, or reconcile uncertain native effects.
+
+Canonical Bead status/dependencies and decision constraints are reread at preparation, staging, launch, and attachment. Targets must be open/in-progress and unblocked. Cross-Bead switches use an existing isolated checkout or the native worktree delivery adapter. Readiness reports `needs-isolation` without writes. Preparation reserves execution ownership and immutable action intent before preparing a receipt; a crash between receipt creation and binding reuses that same receipt. Receipt publication and binding share the lifecycle lock with cancellation, so cancellation cannot release ownership while an unpublished receipt is still being created. Existing ambiguous/native-partial state never permits blind creation or adoption. Automatic `next` uses deterministic ordering among eligible assigned ready items. No eligible target returns bounded idle state.
+
+Lock order: lifecycle → quality → authority → Beads. Authorization checks do not retain the authority lock while entering quality. Host callbacks must not reacquire the lifecycle lock. Isolation publication/settlement may enter delivery under lifecycle; native delivery adapters must not acquire lifecycle in the reverse direction. Success recording holds lifecycle before quality. Current canonical and transition-bound source ledgers exclude pending reservations, including explicit source-directory writes from a sibling checkout; unrelated telemetry directories do not finalize execution. Transition authorization rereads source outcome under lifecycle; a successful source must repair closeout rather than start an unfinished continuation. Attachment's nested quality callback rechecks external authority without reacquiring quality: lifecycle already protects the preceding outcome check. Process death releases the OS lock, not semantic ownership. Elapsed lease time never proves execution ownership is available. Existing ambiguous legacy attempts require reconciliation rather than implicit takeover.
+
+## Persistence and recovery
+
+`journal.json` contains `{state, fingerprint}`; state schema 1 contains `owners`, `checkpoints`, and `transitions`. Files are mode 0600 under an owner-private mode-0700 directory, with symlink rejection, bounded payloads, advisory locking, fsync, atomic replacement, and directory fsync. Fingerprints detect accidental inconsistency, not hostile same-user rewriting.
+
+```text
+isolating → prepared → staged → launch-requested → attaching → attached
+isolating/prepared/staged → cancelled after safe settlement
+launch-requested → cancelled only on proven pre-exec failure
+```
+
+Isolation cancellation durably records `cancelRequested` before settling the bound or recoverable unbound receipt. A crash after delivery cancellation but before lifecycle settlement reports `finish-cancellation`; it cannot restart preparation or launch. Advancing workers reread cancellation state after native completion. Prepared/definitely unapplied effects can be cancelled; applied effects require a fresh exact observation. Unknown or busy writers retain the target reservation. Cancellation never deletes created worktrees, branches, or dirty data. Direct closeout and completed-ownership release reject pending transitions. Closeout validates current checkout/session ownership and read-only Git preflight before recording success; inherited Git redirects cannot change the commit repository. Legacy headless callers retain their explicit session/checkout contract.
+
+A trusted headless host may attach an already staged child directly. The TUI adapter always records launch intent first. A source retry discovers the existing pending transition rather than creating another checkpoint/child. Unknown launch outcome returns reconciliation-required. An attaching record requires an independent boolean inspector: linked, definitely unlinked, or unresolved. Only definitely unlinked permits retry of the same idempotent claim/link, with a maximum of three attachment attempts.
+
+Lost launch acknowledgement before shutdown uses `launch-request-failed` compensation with the same private capability, never an unproven public assertion. Synchronous shutdown-request failure removes the replacement listener and compensates source/target reservations. Nonzero shutdown and thrown exec calls use a bounded synchronous compensation callback, because exit handlers cannot await promises. Failed compensation retains uncertainty and recovery references. The Pi host generates a 256-bit per-launch secret, holds it only in its closure, and passes it through private IPC. The journal stores only its scope-bound hash; no tool parameter/result or command-line argument contains the secret. Ordinary CLI callers cannot manufacture an existing host's compensation proof. This protects the supported interface, not arbitrary same-user code or private-state rewriting. Child files remain evidence; cancellation never deletes or overwrites them.
+
+A maximum of three completed transitions with identical source/target, measured workspaces, and recorded progress prevents unchanged-state continuation loops. Changed measured or recorded progress allows further work; this is a loop diagnostic, not verification evidence or an arbitrary task-size limit.
+
+Snapshots record HEAD, branch, logical index/status fingerprints, and changed/untracked path hashes, not bodies. Material tracked files hidden by index flags remain measured; index-only changes cannot evade staging checks. Symlinks are not followed. Limits: 4,000 paths and 64 MiB per changed file. Ignored runtime data is not copied. `ownedPaths` never authorizes deletion or auto-commit. Prior verification strings are historical checkpoint facts, not fresh release-gate evidence.
+
+## Invariants and failure modes
+
+| ID | Contract | Enforcement |
+|---|---|---|
+| INV-1 | Same-Bead continuation preserves outcome/history and one child identity | Immutable quality rows; deterministic reservation and child ID |
+| INV-2 | A→B→A preserves isolated dirty work | Paused ownership and source/target snapshots |
+| INV-3 | Uncertain launch/attachment is not blindly replayed | Single launch request; independent attachment inspector |
+| INV-4 | Known pre-exec failure leaves source resumable | Recorded bounded compensation; no child deletion |
+| FAIL-1 | Foreign session, shared checkout, or ambiguous legacy owner | Reject; never steal by actor or elapsed time |
+| FAIL-2 | Changed snapshot or revoked/invalid scope | Stop before attachment; preserve files/journal |
+| FAIL-3 | Closed/deferred/blocked target | Reject without reopening |
+| FAIL-4 | Unsupported launch runtime | Host-required manifest or refusal before yield |
+| FAIL-5 | Wrong reserved child header, file, session, or checkout | Reject attachment |
+
+## Verification and remaining gates
+
+```bash
+.venv/bin/python -m pytest tests/test_work_lifecycle.py tests/test_work_continuation.py tests/test_work_isolation.py tests/test_continuation_extension.py tests/test_bead_handoff.py -q
+```
+
+Coverage includes partial resume, A→B→A, scope binding, automatic assignment capture, claim competition, revocation, curated progress retention, pending reservation discovery, deterministic child staging, startup attachment, headless manifests, shutdown-failure compensation, and old handoff compatibility.
+
+Pending decisions can now recover through the separate [trusted UI binding service](decision_rebinding.SPEC.md), without new blockers or implied consent. This does not authorize launching through unresolved dependencies.
+
+Remaining pi-pvcg work includes orchestrated worktree consumers, dependency detours, remaining standing-authority consumers/delivery effects, broader concurrent-process/fault-injection journeys, shared workflow guidance, and final full-suite/review gates. Fresh independent host-recovery follow-up passed 130 focused tests and 41 additional probes, refuting crash-before-child-path finding HR-001. The pre-closeout-authority full suite passed 1467 tests with two known discovery/reference failures; final integrated review and green full gates remain required. Real Pi process replacement and live deployment have not been verified. This workflow is not a sandbox against arbitrary shell commands or hostile same-OS-user writes.
+
+## Dependencies
+
+- `authority.py`: policy/assignment checks, canonical repository identity, bounded validators.
+- `quality.py` / `improvement.py`: immutable attempt history and guarded direct linking.
+- `work.py`: canonical Beads access, deterministic ordering, direct closeout.
+- `extensions/lib/work-continuation.ts`: SDK session staging and process-replacement adapter.
+- POSIX file locks, atomic filesystem operations, and read-only Git inspection.

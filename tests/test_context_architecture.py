@@ -2,6 +2,7 @@
 
 import json
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -847,6 +848,22 @@ def test_global_instructions_use_direct_lifecycle_start():
     assert "use `/clone` or `/new`" not in instructions
 
 
+def test_unfinished_continuation_guidance_uses_one_normal_path():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    execution = (AGENT / "skills/executing-plans/SKILL.md").read_text(encoding="utf-8")
+    planning = (AGENT / "skills/writing-plans/SKILL.md").read_text(encoding="utf-8")
+    assert "For unfinished work" in instructions and "`progress`" in instructions
+    assert "Explicit target is allowed only" not in instructions
+    assert "--scope-bead" in instructions and "never infer" in instructions
+    assert "handoff_bead" in execution and "unfinished" in execution
+    assert "Pause for feedback unless" not in execution
+    assert "coherent" in planning and "microtasks" in planning
+    assert "interruptions" in planning
+    for skill, scenario in [("executing-plans", "unfinished-continuation"),
+                            ("writing-plans", "coherent-continuation-scope")]:
+        assert (ROOT / ".pi/skill-evals" / skill / "scenarios" / f"{scenario}.md").is_file()
+
+
 def test_fresh_bead_recovery_docs_prefer_agent_handoff():
     paths = [
         AGENT / "AGENTS.md",
@@ -939,6 +956,19 @@ def test_nested_skill_runtime_references_are_checked(tmp_path):
     assert any("missing references/missing.md" in failure for failure in failures)
 
 
+def test_inline_commands_are_not_filename_references(tmp_path):
+    skill_root = tmp_path / "skills" / "example"
+    skill_root.mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(
+        "Run `scripts/update.sh --mode 'local only'` from its checkout.\n"
+        "Read `references/missing.md` and `scripts/missing.py`.\n", encoding="utf-8")
+    failures = _skill_runtime_reference_failures(tmp_path)
+    assert len(failures) == 2
+    assert any("missing references/missing.md" in item for item in failures)
+    assert any("missing scripts/missing.py" in item for item in failures)
+    assert not any("--mode" in item for item in failures)
+
+
 def _skill_runtime_reference_failures(agent):
     skill_ids = {path.parent.name for path in (agent / "skills").glob("*/SKILL.md")}
     failures = []
@@ -953,6 +983,15 @@ def _skill_runtime_reference_failures(agent):
         )
         for line_no, line in enumerate(text.splitlines(), start=1):
             for raw in re.findall(r"`([^`]+)`", line):
+                # Inline shell commands, like fenced examples, are not file
+                # references. Keep checking bare scripts and all reference paths.
+                if raw.startswith("scripts/"):
+                    try:
+                        words = shlex.split(raw)
+                    except ValueError:
+                        words = [raw]
+                    if len(words) > 1 and any(word.startswith("-") for word in words[1:]):
+                        continue
                 if raw.startswith("~/.pi/agent/skills/"):
                     target = agent / "skills" / raw.removeprefix("~/.pi/agent/skills/")
                     if not target.exists():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
@@ -129,10 +131,157 @@ def worktree_snapshot_for_bead(
     )
 
 
+def _isolation_git(cwd: Path, *args: str, lease_fds: tuple[int, ...] = ()) -> subprocess.CompletedProcess[str]:
+    # Do not set core.worktree/--work-tree here: Git's nested checkout must use
+    # the new worktree, never inherit the source checkout as its write target.
+    return subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+         "-c", "commit.gpgSign=false", "-c", "submodule.recurse=false", "-C", str(cwd), *args],
+        capture_output=True, text=True, check=False, pass_fds=lease_fds,
+        env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+    )
+
+
+def _isolated_worktrees(cwd: Path) -> list[dict[str, str]]:
+    result = _isolation_git(cwd, "worktree", "list", "--porcelain", "-z")
+    if result.returncode:
+        raise ValueError("native worktree inventory is unavailable")
+    records: list[dict[str, str]] = []
+    record: dict[str, str] = {}
+    for field in result.stdout.split("\0"):
+        if not field:
+            if record:
+                records.append(record)
+                record = {}
+            continue
+        key, _, value = field.partition(" ")
+        if key == "worktree":
+            record["path"] = value
+        elif key in {"HEAD", "branch"}:
+            record[key] = value.removeprefix("refs/heads/") if key == "branch" else value
+    if record:
+        records.append(record)
+    return records
+
+
+class WorktreeCreationAdapter:
+    """Create one private task checkout using native Git, without source edits.
+
+    Git binary/system/global configuration are trusted like the existing local
+    integration adapter. Project command-valued configuration is refused; hooks
+    are disabled. No prune, reset, force, cleanup, or branch adoption occurs.
+    """
+    kind = "git-worktree-create"
+
+    def __init__(self, repository: Path | str, bead: str, *, decision_refs: list[str] | None = None):
+        from .authority import _identifier, _strings, fingerprint, repository_identity
+        from .work_lifecycle import checkout_identity
+
+        self.checkout = checkout_identity(str(repository))
+        self.repository = repository_identity(str(self.checkout))
+        self.bead = _identifier(bead)
+        self.decisions = _strings(decision_refs or [], "decision refs", empty=True)
+        self.managed_root = Path.home() / ".pi" / "runtime" / "worktrees"
+        name = f"{slugify(bead)}-{fingerprint([self.repository, bead])[7:19]}"
+        self.target = self.managed_root / fingerprint(self.repository)[7:31] / name
+        self.branch = f"work/{name}"
+
+    def _paths(self) -> None:
+        for path in (self.target, *self.target.parents):
+            if path.is_symlink() or (path.exists() and not path.is_dir()):
+                raise ValueError("managed checkout path is unsafe")
+        for path in (self.managed_root, self.target.parent):
+            if path.exists():
+                info = path.stat()
+                if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+                    raise ValueError("managed worktree directories must be owner-private")
+
+    def _source(self) -> str:
+        from .authority import repository_identity
+        from .integration import _has_command_config
+
+        if repository_identity(str(self.checkout)) != self.repository or _has_command_config(self.checkout) is not False:
+            raise ValueError("source repository or Git command configuration changed")
+        explicit = _isolation_git(self.checkout, "config", "--get", "core.worktree")
+        if explicit.returncode != 1:
+            raise ValueError("explicit core.worktree configuration is unsupported for automatic isolation")
+        head = _isolation_git(self.checkout, "rev-parse", "--verify", "HEAD^{commit}")
+        if head.returncode or not re.fullmatch(r"(?:[a-f0-9]{40}|[a-f0-9]{64})", head.stdout.strip()):
+            raise ValueError("source commit is unavailable")
+        return head.stdout.strip()
+
+    def resolve(self) -> dict[str, Any]:
+        self._paths()
+        head = self._source()
+        existing = _isolated_worktrees(self.checkout)
+        branch = _isolation_git(self.checkout, "show-ref", "--verify", "--quiet", f"refs/heads/{self.branch}")
+        if (self.target.exists() or branch.returncode != 1
+                or any(Path(item["path"]).resolve() == self.target for item in existing)):
+            raise ValueError("worktree path, branch or registration already exists; preserve and reconcile")
+        target = str(self.target)
+        return {
+            "schemaVersion": 1, "adapter": self.kind, "repository": self.repository, "bead": self.bead,
+            "effects": ["worktree-create"], "decisionRefs": self.decisions,
+            "target": {"identity": target, "repository": self.repository, "verified": True,
+                       "resources": [f"git-ref:{self.repository}:refs/heads/{self.branch}", f"path:{target}"]},
+            "source": {"identity": head, "rule": "current-checked-out-commit"},
+            "facts": {"checkout": target, "branch": self.branch, "sourceCheckout": str(self.checkout), "base": head},
+            "preconditions": {key: True for key in ("identity", "platform", "effectClosure", "verification", "recovery")},
+            "verification": [f"git-object:{head}", "native:unoccupied-worktree-path-and-branch", "native:safe-git-config"],
+            "recovery": "Observe exact registered checkout/branch/commit; preserve partial state without cleanup or force",
+        }
+
+    def execute(self, action: dict[str, Any], *, lease_fds: tuple[int, ...]) -> None:
+        from .authority import fingerprint
+
+        if fingerprint(self.resolve()) != fingerprint(action):
+            raise ValueError("native worktree facts changed before creation")
+        self.managed_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.target.parent.mkdir(exist_ok=True, mode=0o700)
+        self._paths()
+        result = _isolation_git(self.checkout, "worktree", "add", "--quiet", "--no-track", "-b", self.branch,
+                                "--", str(self.target), action["source"]["identity"], lease_fds=lease_fds)
+        if result.returncode:
+            raise ValueError("native worktree creation needs observation")
+
+    def observe(self, action: dict[str, Any], *, attempted: bool) -> dict[str, Any]:
+        from .authority import repository_identity
+        from .integration import _has_command_config
+
+        self._paths()
+        self._source()
+        facts = action["facts"]
+        if (facts["checkout"] != str(self.target) or facts["branch"] != self.branch
+                or action["repository"] != self.repository or action["bead"] != self.bead):
+            raise ValueError("worktree observation is bound to different intent")
+        matching = [item for item in _isolated_worktrees(self.checkout)
+                    if Path(item["path"]).resolve() == self.target]
+        presence = _isolation_git(self.checkout, "show-ref", "--verify", "--quiet", f"refs/heads/{self.branch}")
+        branch = (_isolation_git(self.checkout, "rev-parse", "--verify", f"refs/heads/{self.branch}")
+                  if presence.returncode == 0 else presence)
+        status = "uncertain"
+        if not matching and not self.target.exists() and presence.returncode == 1:
+            # Resource FDs survive in the native writer. Holding those leases
+            # again proves no cooperating local writer remains in flight.
+            status = "not-applied"
+        elif (len(matching) == 1 and self.target.is_dir() and matching[0].get("branch") == self.branch
+              and matching[0].get("HEAD") == action["source"]["identity"] and branch.returncode == 0
+              and branch.stdout.strip() == action["source"]["identity"]
+              and repository_identity(str(self.target)) == self.repository
+              and _has_command_config(self.target) is False):
+            clean = _isolation_git(self.target, "status", "--porcelain=v1", "--untracked-files=all")
+            if clean.returncode == 0 and not clean.stdout.strip():
+                status = "applied"
+        return {"status": status, "targetIdentity": action["target"]["identity"],
+                "sourceIdentity": action["source"]["identity"],
+                "evidenceRefs": [f"git-worktree:{self.target}", f"git-ref:{self.branch}", f"git-object:{action['source']['identity']}"]}
+
+
 __all__ = [
     "epic_worktree_spec",
     "resolve_epic_worktree",
     "parse_worktree_porcelain",
     "list_git_worktrees",
     "worktree_snapshot_for_bead",
+    "WorktreeCreationAdapter",
 ]

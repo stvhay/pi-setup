@@ -159,6 +159,7 @@ def _claim_bound_bundle(
     authority = {
         "schemaVersion": 1,
         "decisionBead": "pi-claim.1",
+        "targetBead": work_item,
         "status": "active",
         "grant": grant,
         "grantFingerprint": grant_fingerprint,
@@ -438,6 +439,7 @@ def test_invoke_run_bundle_implementation_uses_worktree_write_tools(agnt, monkey
     }
     authority = {
         "decisionBead": "pi-approval.1",
+        "targetBead": "pi-ready.1",
         "status": "active",
         "grant": grant,
         "grantFingerprint": agnt.capability_grant_fingerprint(grant),
@@ -710,6 +712,7 @@ def test_invoke_run_bundle_revalidates_canonical_grant_before_dispatch(agnt, mon
     authority = {
         "schemaVersion": 1,
         "decisionBead": "pi-approval.1",
+        "targetBead": "pi-ready.1",
         "status": "active",
         "grant": grant,
         "grantFingerprint": agnt.capability_grant_fingerprint(grant),

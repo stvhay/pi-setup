@@ -1,6 +1,6 @@
 ---
 name: executing-plans
-description: Use to execute written plans with checkpoints, evidence, and branch gates.
+description: Use to execute approved plans with evidence and checkpoints.
 ---
 
 # Executing Plans
@@ -83,7 +83,7 @@ An unchanged baseline failure is not a task regression, but it cannot turn a red
 
 ## Execute risk-sized batches
 
-Default to one task when work is risky, ambiguous, or shares files. Group tasks only when they are clear, independent, and separately verifiable. Continuous execution is allowed when the user requested it, but all stop conditions remain active.
+Execute coherent, verifiable batches within approved scope. Shared files call for serialized edits, not automatically smaller user-visible tasks. Continue through routine phase boundaries without reconfirmation; pause for the stop conditions below. Keep all safety and verification gates.
 
 Before each batch:
 
@@ -137,7 +137,7 @@ After each risk-sized batch, report:
 **Issues/deviations:** <none or details>
 ```
 
-Pause for feedback unless the original request approved continuous execution and remaining work stays low-risk and clear.
+Report progress without a routine approval pause while approved work remains clear. If context is exhausted or assigned work must switch, use `handoff_bead` with current concise `progress` and exact artifact references. Leave unfinished Beads open and outcomes unchanged; preserve dirty work. Existing reservations recover their original checkpoint instead of accepting replacement progress. Resolve real blockers or uncertain effects before advancing; `/new` is not an ownership override.
 
 ## Acceptance verification
 

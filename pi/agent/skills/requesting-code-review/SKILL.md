@@ -1,6 +1,6 @@
 ---
 name: requesting-code-review
-description: Use when reviewing a diff or PR, finishing substantial implementation, or preparing to merge.
+description: Use for diff/PR, substantial implementation or pre-merge review.
 ---
 
 # Requesting Code Review

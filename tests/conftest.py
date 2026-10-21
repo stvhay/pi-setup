@@ -49,6 +49,21 @@ def isolate_provider_circuit_state(monkeypatch, tmp_path):
     monkeypatch.setenv("AGNT_PROVIDER_CIRCUIT_DIR", str(tmp_path / "provider-circuits"))
 
 
+@pytest.fixture(autouse=True)
+def isolate_work_lifecycle_state(agnt, monkeypatch, tmp_path):
+    # Lifecycle ownership is owner-private and shared across worktrees in real
+    # use. Tests must never reserve the developer's live execution checkout.
+    from agnt_lib import authority, work_lifecycle
+
+    # Session fixtures choose their own IDs. Never pair them with a real host
+    # transcript inherited from the developer's Pi process.
+    monkeypatch.delenv("PI_SESSION_FILE", raising=False)
+    root = tmp_path.parent / f"{tmp_path.name}-lifecycle"
+    monkeypatch.setattr(work_lifecycle, "runtime_store", lambda *_: work_lifecycle.LifecycleStore(root))
+    private_authority = authority.AuthorityStore(tmp_path.parent / f"{tmp_path.name}-authority")
+    monkeypatch.setattr(work_lifecycle, "authority_store", lambda: private_authority)
+
+
 def load_script(name: str):
     loader = SourceFileLoader(name.replace("-", "_"), str(BIN / name))
     spec = importlib.util.spec_from_loader(loader.name, loader)

@@ -17,6 +17,10 @@ This design therefore replaces per-project and per-environment enrollment prompt
 
 The current deliverable is a design and implementation plan. Existing governing instructions remain in force until changed and activated through an authorized path. This task does not push, deploy, release, modify live `~/.pi`, or claim those permissions are already enforced by runtime code.
 
+## Implementation amendment: historical admission
+
+During pi-pvcg implementation, the owner clarified: “i am not worried about this particular traceability at rollout for historical records”. Historical migration may therefore import recorded owner consent without reconstructing the lost interactive-versus-extension input channel. This supersedes that historical traceability requirement below. Record `historical-consent` with input origin `not-retained`; do not relabel it as authenticated `human-ui` provenance. Import remains an explicit owner-authorized rollout operation bound to the reviewed policy, not automatic activation by project text or an unrestricted future widening path. No repeated owner confirmation is required solely to repair this historical traceability gap. Existing deployment gates and assignment/platform/revocation constraints remain.
+
 ## Diagnosis from current source
 
 - `agnt_lib.work.handoff_check` accepts a linked source only after a successful session outcome, closed Bead, clean tracked checkout, and portable closeout parity. It rejects source equal to target and targets absent from `bd ready`.

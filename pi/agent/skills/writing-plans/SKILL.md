@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: Use when you have an approved design, spec, or requirements for a multi-step task, before touching implementation code.
+description: Use to plan approved multi-step work before implementation.
 ---
 
 # Writing Implementation Plans
@@ -67,7 +67,9 @@ Read only the relevant files. Put paths in the plan so implementers can find con
 
 ## Task sizing
 
-Each task should be independently executable by the current session or by a fresh routed `subagent` prompt. Avoid "see previous task" dependencies except where explicitly declared.
+Choose coherent outcome-sized batches across files. Split for independently verifiable outcomes, risk, ownership or real context limits—not ritual microtasks, per-function commits or routine approval pauses. Reuse existing mechanisms; add infrastructure only when a concrete accepted journey needs it. For workflow changes, measure interruptions, manual commands, repeated approvals and lost context/work.
+
+Each task must be executable in the current session or from referenced durable state in a fresh session. Preserve unfinished progress rather than treating a context boundary as completion. Capture an explicitly approved multi-Bead work set at first direct-start with repeatable `--scope-bead`; never infer permission from ready work or widen existing assignments.
 
 Good tasks:
 

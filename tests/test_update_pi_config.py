@@ -595,6 +595,22 @@ def test_update_preserves_private_runtime_store(tmp_path):
     assert artifact.read_text(encoding="utf-8") == '{"private": true}\n'
 
 
+def test_update_preserves_owner_authority_but_deploys_policy_template(tmp_path):
+    dest = tmp_path / ".pi"
+    state = dest / "authority/state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text('{"private": true}\n')
+    source = config_source(tmp_path / "source")
+    template = source / "agent/authority/full-delivery.json"
+    template.parent.mkdir()
+    template.write_text('{"template": true}\n')
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode == 0, proc.stderr
+    assert state.exists(), "deployment deleted owner authority"
+    assert state.read_text() == '{"private": true}\n'
+    assert (dest / "agent/authority/full-delivery.json").read_text() == template.read_text()
+
+
 def test_update_deletes_unmanaged_nested_git_but_preserves_private_git_store(tmp_path):
     dest = tmp_path / ".pi"
     stale = dest / "eval-runs" / "run" / "repo" / ".git" / "config"

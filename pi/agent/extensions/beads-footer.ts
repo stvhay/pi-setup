@@ -14,7 +14,7 @@ const WORK_MUTATING_TOOLS = new Set([
 ]);
 
 type WorkItem = { id: string; priority: number; title: string; issueType: string };
-type WorkStatus = { activeBeadId?: string; items: WorkItem[] };
+type WorkStatus = { activeBeadId?: string; executionPhase?: string; items: WorkItem[] };
 
 function workStatus(result: Record<string, unknown>): WorkStatus | undefined {
   if (result.schemaVersion !== 1 || result.status !== "ok" || !Array.isArray(result.items)) return undefined;
@@ -39,7 +39,9 @@ function workStatus(result: Record<string, unknown>): WorkStatus | undefined {
     ) return undefined;
     items.push({ id, priority, title, issueType: typeof issueType === "string" ? issueType : "task" });
   }
-  return { activeBeadId: typeof active === "string" ? active : undefined, items };
+  const phase = result.executionPhase;
+  if (phase !== undefined && (typeof phase !== "string" || !["active", "yielding", "paused", "completed", "historical"].includes(phase))) return undefined;
+  return { activeBeadId: typeof active === "string" ? active : undefined, executionPhase: phase as string | undefined, items };
 }
 
 function statusText(state: WorkStatus, ctx: ExtensionContext): string | undefined {
@@ -49,7 +51,8 @@ function statusText(state: WorkStatus, ctx: ExtensionContext): string | undefine
     const current = item.id === state.activeBeadId;
     const marker = ctx.ui.theme.fg(current ? "mdHeading" : "syntaxString", "◐");
     const typeSlot = item.issueType === "epic" ? "◆ " : "  ";
-    const text = `${typeSlot}${item.id.padEnd(idWidth)}  P${item.priority}  ${item.title}`;
+    const phase = current && state.executionPhase && state.executionPhase !== "active" ? ` [${state.executionPhase}]` : "";
+    const text = `${typeSlot}${item.id.padEnd(idWidth)}  P${item.priority}  ${item.title}${phase}`;
     return `${marker} ${current ? ctx.ui.theme.bold(text) : ctx.ui.theme.fg("muted", text)}`;
   }).join("\n");
 }

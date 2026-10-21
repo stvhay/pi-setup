@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "full-delivery-v1",
+  "projects": "all-assigned",
+  "effects": ["read", "external-read", "artifact-write", "beads-write", "repo-write", "git-commit", "worktree-create", "task-cleanup", "git-integrate", "branch-push", "pr-write", "pr-merge", "main-update", "release", "deploy-local", "deploy-staging", "deploy-production", "rollback-nondestructive", "work-transition"],
+  "exclusions": ["force-push", "history-rewrite", "remote-delete", "unrelated-delete", "destructive-migration", "destructive-rollback", "access-write", "secret-write", "new-spend", "platform-bypass"],
+  "requires": ["assignment", "resolved-identity", "effect-closure", "platform-controls", "verification", "recovery"],
+  "expiry": "until-revoked"
+}

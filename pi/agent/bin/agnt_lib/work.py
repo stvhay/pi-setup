@@ -4,10 +4,10 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
@@ -636,6 +636,7 @@ def start_work(
     id_value: str | None,
     grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
     claim_context: Dict[str, Any] | None = None,
+    claim_directory: Path | None = None,
 ) -> Dict[str, Any]:
     dispatch = dispatch_plan(bead, action_id, target)
     if grant_resolver is None:
@@ -651,6 +652,24 @@ def start_work(
             "validation": validation,
             "dispatchError": "implement dispatch requires a current canonical capability grant",
         }
+    resolved_authority = normalized.get("authority") or {}
+    standing = isinstance(resolved_authority, dict) and (resolved_authority.get("source") or {}).get("kind") == "standing-policy"
+    exact_grant = isinstance(resolved_authority.get("grant"), dict) and bool(resolved_authority.get("decisionBead"))
+    native_envelope = resolved_authority if standing else None
+    def check_gate():
+        if not exact_grant:
+            return None
+        from .authority import revalidate_bookkeeping_gate
+        return revalidate_bookkeeping_gate(resolved_authority, str(dispatch["bead"]),
+                                           grant_resolver=grant_resolver, claim_directory=claim_directory)
+    if claim:
+        from .work_lifecycle import guarded_standing_beads_effect
+
+        try:
+            guarded_standing_beads_effect(native_envelope, str(dispatch["bead"]), gate=check_gate)
+        except (OSError, RuntimeError, ValueError):
+            return {"dispatch": dispatch, "validation": validation,
+                    "dispatchError": "standing authority does not permit native claim"}
     policy = selection_policy_from_bead(bead, validation)
     model_selection = select_model(
         str(dispatch["routingTask"]),
@@ -694,7 +713,14 @@ def start_work(
     )
     bead_update: Dict[str, Any] | None = None
     if claim and dispatch.get("bead"):
-        code, data, err = run_beads_json(["update", str(dispatch["bead"]), "--claim"])
+        try:
+            code, data, err = guarded_standing_beads_effect(
+                native_envelope, str(dispatch["bead"]),
+                lambda: run_beads_json(["update", str(dispatch["bead"]), "--claim"]), gate=check_gate,
+            )
+        except (OSError, RuntimeError, ValueError):
+            return {"bundle": str(bundle), "dispatch": dispatch, "modelSelection": model_selection,
+                    "beadUpdateError": "controller authority does not permit native claim", "beadUpdateCode": 2}
         if code != 0:
             return {"bundle": str(bundle), "dispatch": dispatch, "modelSelection": model_selection, "beadUpdateError": err, "beadUpdateCode": code}
         bead_update = {"code": code, "result": data}
@@ -730,6 +756,7 @@ def run_work(
         id_value=id_value,
         grant_resolver=grant_resolver,
         claim_context=claim_context,
+        claim_directory=claim_directory,
     )
     if started.get("beadUpdateError") or started.get("dispatchError") or started.get("modelSelectionError"):
         return {"started": started, **({"dispatchError": started["dispatchError"]} if started.get("dispatchError") else {})}
@@ -756,6 +783,8 @@ def run_work(
             follow_ups=[],
             metrics_ref=str(invoked.get("metricsRef")) if invoked.get("metricsRef") else None,
             close_bead=True,
+            grant_resolver=grant_resolver,
+            claim_directory=claim_directory,
         )
     return {"started": started, "invoked": invoked, "closed": closed}
 
@@ -826,7 +855,9 @@ def close_readiness_failures(
     return failures
 
 
-def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str], artifacts: List[str], follow_ups: List[str], metrics_ref: str | None, close_bead: bool) -> Dict[str, Any]:
+def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str], artifacts: List[str], follow_ups: List[str], metrics_ref: str | None, close_bead: bool,
+                grant_resolver: Callable[[str], Dict[str, Any]] | None = None,
+                claim_directory: Path | None = None) -> Dict[str, Any]:
     result = update_run_result(
         bundle,
         status=status,
@@ -848,7 +879,35 @@ def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str],
         if not bead_id:
             return {"result": result, "closeError": "invocation has no bead"}
         reason = summary or f"Run {invocation.get('id')} succeeded"
-        code, data, err = run_beads_json(["close", str(bead_id), "--reason", reason])
+        envelope = (invocation.get("provenance") or {}).get("effectiveEnvelope")
+        if isinstance(envelope, dict) and "source" in envelope:
+            source = envelope.get("source")
+            if not isinstance(source, dict) or source.get("kind") != "standing-policy":
+                return {"result": result, "closeError": "invocation authority source is invalid"}
+            native_envelope = envelope
+        else:
+            native_envelope = None
+        exact_grant = native_envelope is None and (
+            invocation.get("action") == "implement"
+            or (invocation.get("provenance") or {}).get("claimContext") is not None
+            or (isinstance(envelope, dict) and bool(envelope.get("decisionBead")))
+        )
+        from .work_lifecycle import guarded_standing_beads_effect
+
+        def check_gate():
+            if not exact_grant:
+                return None
+            from .authority import revalidate_bookkeeping_gate
+            return revalidate_bookkeeping_gate(envelope if isinstance(envelope, dict) else {}, str(bead_id),
+                                               grant_resolver=grant_resolver, claim_directory=claim_directory)
+        try:
+            code, data, err = guarded_standing_beads_effect(
+                native_envelope, str(bead_id),
+                lambda: run_beads_json(["close", str(bead_id), "--reason", reason]),
+                close_reason=reason, gate=check_gate,
+            )
+        except (OSError, RuntimeError, ValueError):
+            return {"result": result, "closeError": "controller authority does not permit native close"}
         close_result = {"code": code, "result": data, "error": err if code else None}
     return {"result": result, "beadClose": close_result}
 
@@ -1068,18 +1127,28 @@ def work_status(session_id: str) -> Dict[str, Any]:
         })
 
     items = order_work_items(items)
+    active = session_work_item(session_id)
+    from .work_lifecycle import runtime_store
+
+    owner = runtime_store().owner(active) if active else None
+    phase = owner["phase"] if owner and owner["session"] == session_id else "historical" if owner else None
     return {
         "schemaVersion": 1,
         "status": "ok",
-        "activeBeadId": session_work_item(session_id),
+        "activeBeadId": active,
         "items": items,
+        **({"executionPhase": phase} if phase else {}),
     }
 
 
-def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
+def direct_start(bead_id: str, *, claim: bool, scope_beads: list[str] | None = None) -> Dict[str, Any]:
+    from .work_lifecycle import WorkAuthorityUnavailable
+
     bead: Dict[str, Any] = {"id": bead_id}
     stages: Dict[str, Any] = {}
-    if not BEAD_ID.fullmatch(bead_id):
+    if not BEAD_ID.fullmatch(bead_id) or (scope_beads is not None and (
+            not isinstance(scope_beads, list) or not scope_beads or
+            any(not isinstance(item, str) or not BEAD_ID.fullmatch(item) for item in scope_beads))):
         stages.update({
             "show": {"status": "failed", "error": "bead ID is malformed"},
             "claim": {"status": "skipped", "reason": "show-failed"},
@@ -1087,7 +1156,8 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
         })
         return {"schemaVersion": 1, "status": "error", "bead": bead, "stages": stages, "repair": None}
 
-    retry_command = f"agnt work direct-start {bead_id}" + (" --claim" if claim else "")
+    retry_command = (f"agnt work direct-start {bead_id}" + (" --claim" if claim else "")
+                     + "".join(f" --scope-bead {item}" for item in scope_beads or []))
     code, data, _error = run_beads_json(["show", bead_id])
     shown = normalize_bead(data)
     if code != 0 or not shown:
@@ -1121,7 +1191,15 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
         stages["claim"] = {"status": "succeeded"}
 
     try:
-        link_result = link_current_session(bead_id, before_link=claim_bead)
+        link_result = link_current_session(bead_id, before_link=claim_bead,
+                                           required_effects=("beads-write",) if claim else (),
+                                           **({"scope_beads": scope_beads} if scope_beads is not None else {}))
+    except WorkAuthorityUnavailable:
+        stages["claim"] = {"status": "skipped", "reason": "authority-denied"}
+        stages["link"] = {"status": "skipped", "reason": "authority-denied"}
+        return {"schemaVersion": 1, "status": "error", "bead": bead, "stages": stages,
+                "repair": {"failedStage": "authority", "requiredAction": "inspect-current-authority",
+                           "retryCommand": retry_command, "safeToRetry": False}}
     except SessionWorkItemConflict:
         stages["claim"] = {"status": "skipped", "reason": "session-conflict"}
         stages["link"] = {"status": "failed", "error": "session belongs to another work item or has a final outcome"}
@@ -1132,10 +1210,11 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
             "stages": stages,
             "repair": {
                 "failedStage": "link",
-                "requiredAction": "start-fresh-session",
+                "requiredAction": "checkpoint-or-reconcile-ownership",
                 "retryCommand": retry_command,
                 "safeToRetry": False,
-                "humanFallback": {"command": "/new", "retryCommand": retry_command},
+                "handoffTool": {"name": "handoff_bead", "arguments": {"targetBead": bead_id}},
+                "humanFallback": {"onlyWhen": "continuation runtime unavailable", "command": "/new", "retryCommand": retry_command},
             },
         }
     except (OSError, RuntimeError, ValueError):
@@ -1164,18 +1243,30 @@ def direct_start(bead_id: str, *, claim: bool) -> Dict[str, Any]:
     return {"schemaVersion": 1, "status": "started", "bead": bead, "stages": stages, "repair": None}
 
 
+def _git_environment() -> Dict[str, str]:
+    # Bind repository/index/config selection to the named checkout. Keep normal
+    # repository hooks: sanitizing inherited redirects must not bypass controls.
+    return {**{key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+            "GIT_OPTIONAL_LOCKS": "0"}
+
+
 def _git(root: Path, args: List[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(root), *args],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=_git_environment(),
     )
 
 
 def _portable_issue_rows(path: Path) -> Dict[str, Dict[str, Any]]:
+    return _portable_issue_rows_text(path.read_text(encoding="utf-8"))
+
+
+def _portable_issue_rows_text(content: str) -> Dict[str, Dict[str, Any]]:
     rows: Dict[str, Dict[str, Any]] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in content.splitlines():
         if not line.strip():
             continue
         row = json.loads(line)
@@ -1199,7 +1290,7 @@ def _closeout_audit_paths(root: Path, bead_id: str, reason: str) -> List[str]:
     blobs = []
     for ref in (f"HEAD:{name}", f":{name}"):
         result = subprocess.run(
-            ["git", "-C", str(root), "show", ref], capture_output=True,
+            ["git", "-C", str(root), "show", ref], capture_output=True, env=_git_environment(),
         )
         if result.returncode != 0:
             raise ValueError("audit history is unavailable")
@@ -1235,7 +1326,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     stages: Dict[str, Any] = {}
     closed = False
 
-    def failed(stage: str, error: str) -> Dict[str, Any]:
+    def failed(stage: str, error: str, *, safe_to_retry: bool = True) -> Dict[str, Any]:
         stages[stage] = {"status": "failed", "error": error}
         return {
             "schemaVersion": 1,
@@ -1243,7 +1334,8 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
             "bead": {"id": bead_id},
             "stages": stages,
             "commit": None,
-            "repair": {"failedStage": stage, "safeToRetry": True},
+            "repair": {"failedStage": stage, "safeToRetry": safe_to_retry,
+                       **({"action": "inspect-current-authority"} if not safe_to_retry else {})},
         }
 
     if not BEAD_ID.fullmatch(bead_id):
@@ -1252,6 +1344,90 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         return failed("preflight", "close reason is required")
     if outcome != "success":
         return failed("outcome", "direct closeout outcome must be success")
+
+    # Missing legacy context keeps its existing outcome diagnostic. A known
+    # pending transition must not become final success before reconciliation.
+    try:
+        session_id = current_session_id()
+    except (OSError, RuntimeError, ValueError):
+        session_id = None
+    if session_id is not None:
+        from .work_lifecycle import runtime_store, validate_closeout_context
+        try:
+            if runtime_store().pending_transition(session_id) is not None:
+                return failed("ownership", "pending transition must be settled before closeout")
+            validate_closeout_context(session_id, bead_id)
+        except (OSError, RuntimeError, ValueError):
+            return failed("ownership", "execution ownership could not be verified before closeout")
+
+    root_result = _git(Path.cwd(), ["rev-parse", "--show-toplevel"])
+    if root_result.returncode != 0 or not root_result.stdout.strip():
+        return failed("preflight", "Git repository is unavailable")
+    root = Path(root_result.stdout.strip())
+    from .work_lifecycle import checkout_identity
+    if root.resolve() != checkout_identity(str(Path.cwd())):
+        return failed("preflight", "Git checkout identity differs from execution context")
+    portable_path = root / ".beads" / "issues.jsonl"
+    try:
+        parent_stat = portable_path.parent.stat()
+        parent_identity = (parent_stat.st_dev, parent_stat.st_ino)
+    except OSError:
+        return failed("preflight", "portable Beads directory is unavailable")
+
+    def portable_target_is_current() -> bool:
+        try:
+            current_parent = portable_path.parent.stat()
+            return (checkout_identity(str(Path.cwd())) == root.resolve()
+                    and not portable_path.parent.is_symlink()
+                    and portable_path.parent.resolve() == root.resolve() / ".beads"
+                    and (current_parent.st_dev, current_parent.st_ino) == parent_identity
+                    and not portable_path.is_symlink() and portable_path.is_file())
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    if not portable_target_is_current():
+        return failed("preflight", "portable Beads target must be a regular file inside this checkout")
+    tracked = _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"])
+    if tracked.returncode != 0:
+        return failed("preflight", "portable Beads export is not tracked")
+    try:
+        audit_paths = _closeout_audit_paths(root, bead_id, reason)
+    except (OSError, ValueError):
+        return failed("preflight", "tracked audit changes are not owned closure appends")
+    dirty = _git(
+        root,
+        [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=no",
+            "--",
+            ".",
+            ":(exclude).beads/issues.jsonl",
+            *[f":(exclude){path}" for path in audit_paths],
+        ],
+    )
+    if dirty.returncode != 0:
+        return failed("preflight", "could not inspect Git state")
+    if dirty.stdout:
+        return failed("preflight", "tracked non-Beads changes must be committed first")
+    stages["preflight"] = {"status": "succeeded"}
+
+    from .work_lifecycle import closeout_effect_guard
+    try:
+        check_effects = closeout_effect_guard(session_id, bead_id, reason=reason)
+        check_effects(("beads-write", "repo-write", "git-commit"))
+    except (OSError, RuntimeError, ValueError):
+        return failed("authority", "closeout effects are outside captured authority", safe_to_retry=False)
+
+    def authority_failure(effects: tuple[str, ...]) -> Dict[str, Any] | None:
+        if not portable_target_is_current():
+            return failed("authority", "closeout target changed; preserve partial state", safe_to_retry=False)
+        try:
+            check_effects(effects)
+        except (OSError, RuntimeError, ValueError):
+            return failed("authority", "closeout authority or ownership changed; preserve partial state", safe_to_retry=False)
+        return None
 
     try:
         outcome_result = record_current_session_outcome(bead_id, outcome)
@@ -1284,37 +1460,11 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         return failed("ownership", "session closeout outcome is not successful")
     stages["ownership"] = {"status": "succeeded", "outcome": source["outcome"]}
 
-    root_result = _git(Path.cwd(), ["rev-parse", "--show-toplevel"])
-    if root_result.returncode != 0 or not root_result.stdout.strip():
-        return failed("preflight", "Git repository is unavailable")
-    root = Path(root_result.stdout.strip())
-    portable_path = root / ".beads" / "issues.jsonl"
-    tracked = _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"])
-    if tracked.returncode != 0:
-        return failed("preflight", "portable Beads export is not tracked")
-    try:
-        audit_paths = _closeout_audit_paths(root, bead_id, reason)
-    except (OSError, ValueError):
-        return failed("preflight", "tracked audit changes are not owned closure appends")
-    dirty = _git(
-        root,
-        [
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=no",
-            "--",
-            ".",
-            ":(exclude).beads/issues.jsonl",
-            *[f":(exclude){path}" for path in audit_paths],
-        ],
-    )
-    if dirty.returncode != 0:
-        return failed("preflight", "could not inspect Git state")
-    if dirty.stdout:
-        return failed("preflight", "tracked non-Beads changes must be committed first")
-    stages["preflight"] = {"status": "succeeded"}
-
+    # Beads may update portable bookkeeping during close; retain the complete
+    # local closeout ceiling before starting that native write.
+    denied = authority_failure(("beads-write", "repo-write", "git-commit"))
+    if denied:
+        return denied
     code, _data, _error = run_beads_json(["close", bead_id, "--reason", reason])
     if code != 0:
         return failed("close", "bead close failed")
@@ -1324,43 +1474,65 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     exe = beads_bin()
     if not exe:
         return failed("export", "beads/bd executable not found")
-    temp_path: Path | None = None
+    parent_fd: int | None = None
+    temp_name: str | None = None
+    denied = authority_failure(("repo-write", "git-commit"))
+    if denied:
+        return denied
     try:
-        with tempfile.NamedTemporaryFile(
-            prefix="issues-", suffix=".jsonl", dir=portable_path.parent, delete=False
-        ) as temp:
-            temp_path = Path(temp.name)
-        exported = subprocess.run(
-            [exe, "export", "--readonly", "-o", str(temp_path)],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if exported.returncode != 0:
-            return failed("export", "portable Beads export failed")
-        rows = _portable_issue_rows(temp_path)
-        stages["export"] = {"status": "succeeded", "rowCount": len(rows)}
+        parent_fd = os.open(portable_path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        pinned = os.fstat(parent_fd)
+        if (pinned.st_dev, pinned.st_ino) != parent_identity or not portable_target_is_current():
+            return failed("authority", "closeout target changed; preserve partial state", safe_to_retry=False)
+        portable_mode = os.stat("issues.jsonl", dir_fd=parent_fd, follow_symlinks=False).st_mode & 0o777
+        candidate = f"issues-{secrets.token_hex(16)}.jsonl"
+        temp_fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=parent_fd)
+        temp_name = candidate
+        with os.fdopen(temp_fd, "w+b") as temp:
+            # Stdout binds the exporter to an already-open file, including
+            # across wrapper processes; never give it a mutable output path.
+            exported = subprocess.run(
+                [exe, "export", "--readonly"], text=True, stdout=temp, stderr=subprocess.PIPE,
+            )
+            if exported.returncode != 0:
+                return failed("export", "portable Beads export failed")
+            temp.seek(0)
+            rows = _portable_issue_rows_text(temp.read().decode("utf-8"))
+            stages["export"] = {"status": "succeeded", "rowCount": len(rows)}
 
-        code, data, _error = run_beads_json(["show", bead_id])
-        canonical = normalize_bead(data)
-        portable = rows.get(bead_id)
-        if code != 0 or not canonical or not portable:
-            return failed("parity", "target bead is missing from canonical or portable state")
-        fields = ("status", "closed_at", "close_reason")
-        if not is_closed_status(canonical.get("status")) or any(
-            canonical.get(field) != portable.get(field) for field in fields
-        ):
-            return failed("parity", "target bead canonical and portable closeout state differ")
-        stages["parity"] = {"status": "succeeded", "fields": list(fields)}
+            code, data, _error = run_beads_json(["show", bead_id])
+            canonical = normalize_bead(data)
+            portable = rows.get(bead_id)
+            if code != 0 or not canonical or not portable:
+                return failed("parity", "target bead is missing from canonical or portable state")
+            fields = ("status", "closed_at", "close_reason")
+            if not is_closed_status(canonical.get("status")) or any(
+                canonical.get(field) != portable.get(field) for field in fields
+            ):
+                return failed("parity", "target bead canonical and portable closeout state differ")
+            stages["parity"] = {"status": "succeeded", "fields": list(fields)}
 
-        os.chmod(temp_path, portable_path.stat().st_mode & 0o777)
-        os.replace(temp_path, portable_path)
-        temp_path = None
+            denied = authority_failure(("repo-write",))
+            if denied:
+                return denied
+            os.fchmod(temp.fileno(), portable_mode)
+            temp.flush()
+            os.fsync(temp.fileno())
+            os.replace(temp_name, "issues.jsonl", src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+            temp_name = None
+            os.fsync(parent_fd)
     except (OSError, json.JSONDecodeError, ValueError):
         return failed("export", "portable Beads export is invalid")
     finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+        if parent_fd is not None:
+            try:
+                if temp_name is not None:
+                    try:
+                        os.unlink(temp_name, dir_fd=parent_fd)
+                    except FileNotFoundError:
+                        pass
+            finally:
+                os.close(parent_fd)
 
     try:
         if _closeout_audit_paths(root, bead_id, reason) != audit_paths:
@@ -1368,6 +1540,9 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     except (OSError, ValueError):
         return failed("stage", "tracked audit changes are not owned closure appends")
     owned_paths = [".beads/issues.jsonl", *audit_paths]
+    denied = authority_failure(("repo-write", "git-commit"))
+    if denied:
+        return denied
     added = _git(root, ["add", "--", *owned_paths])
     if added.returncode != 0:
         return failed("stage", "portable Beads export could not be staged")
@@ -1379,6 +1554,9 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         return failed("stage", "unrelated tracked paths are staged")
     if staged_paths:
         stages["stage"] = {"status": "succeeded"}
+        denied = authority_failure(("git-commit",))
+        if denied:
+            return denied
         committed = _git(
             root,
             [
@@ -1404,6 +1582,12 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     if not handoff_closeout_is_clean(canonical):
         return failed("clean", "committed closeout is not ready for handoff")
     stages["clean"] = {"status": "succeeded"}
+    try:
+        from .work_lifecycle import runtime_store
+
+        runtime_store().release_completed(bead_id, current_session_id())
+    except (OSError, ValueError):
+        return failed("ownership-release", "closeout committed; reconcile execution ownership before handoff")
     return {
         "schemaVersion": 1,
         "status": "closed",
@@ -1417,9 +1601,14 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
 def cmd_work(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agnt work", description="Inspect beads-backed ready work and construct gated dispatch/run artifacts.")
     sub = parser.add_subparsers(dest="command")
+    from .work_lifecycle import add_cli_parsers, dispatch_cli
+
+    add_cli_parsers(sub)
     direct_start_cmd = sub.add_parser("direct-start", help="validate a bead, optionally claim it, and link this Pi session")
     direct_start_cmd.add_argument("bead_id")
     direct_start_cmd.add_argument("--claim", action="store_true", help="atomically claim the bead; idempotent for the current actor")
+    direct_start_cmd.add_argument("--scope-bead", action="append", dest="scope_beads",
+                                  help="additional explicitly approved Bead in this work set; repeat before first start, never inferred from ready work")
     status_cmd = sub.add_parser("status", help="show in-progress Beads and current session work-item correlation")
     status_cmd.add_argument("--session-id", required=True)
     direct_closeout_cmd = sub.add_parser("direct-closeout", help="close a directly worked bead and commit its portable state")
@@ -1488,8 +1677,16 @@ def cmd_work(argv: List[str]) -> int:
         parser.print_help()
         return 0
     args = parser.parse_args(argv)
+    if args.command == "checkpoint" or (args.command and args.command.startswith("transition-")):
+        try:
+            result = dispatch_cli(args)
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+            result = {"schemaVersion": 1, "status": "blocked", "reason": str(exc)[:500],
+                      "recovery": "Preserve current checkout and reconcile the existing checkpoint/transition; do not replay an uncertain attachment."}
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 2 if result["status"] == "blocked" else 0
     if args.command == "direct-start":
-        result = direct_start(args.bead_id, claim=args.claim)
+        result = direct_start(args.bead_id, claim=args.claim, scope_beads=args.scope_beads)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
     if args.command == "status":

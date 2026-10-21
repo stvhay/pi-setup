@@ -17,6 +17,7 @@ AGNT = Path(__file__).resolve().parents[1] / "pi" / "agent" / "bin" / "agnt"
 def init_test_git(path):
     subprocess.run(["git", "init", "-q", str(path)], check=True)
     subprocess.run(["git", "-C", str(path), "config", "user.name", "Pi Test"], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "commit.gpgsign", "false"], check=True)
     subprocess.run(
         ["git", "-C", str(path), "config", "user.email", "pi@example.test"],
         check=True,
@@ -1366,7 +1367,8 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
         bead_calls.append(args)
         return 0, [bead], ""
 
-    def fake_link(bead_id, *, before_link):
+    def fake_link(bead_id, *, before_link, required_effects):
+        assert required_effects == ()
         before_link()
         link_calls.append(bead_id)
         return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
@@ -1438,6 +1440,23 @@ def test_direct_start_and_status_use_local_authority_without_langfuse(
     assert status["activeBeadId"] == bead["id"]
 
 
+def _closeout_read_only_beads(args):
+    assert args == ["show", "pi-test.close"], "failed closeout must block Beads writes"
+    return 0, [{"id": "pi-test.close", "status": "in_progress"}], ""
+
+
+def _closeout_read_only_git(_root, args):
+    if args == ["rev-parse", "--show-toplevel"]:
+        return subprocess.CompletedProcess(args, 0, str(Path.cwd()) + "\n", "")
+    if args == ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"]:
+        return subprocess.CompletedProcess(args, 0, ".beads/issues.jsonl\n", "")
+    if args == ["ls-files", "--error-unmatch", "--", ".beads/interactions.jsonl"]:
+        return subprocess.CompletedProcess(args, 1, "", "")
+    if args[0] == "status" and "--untracked-files=no" in args:
+        return subprocess.CompletedProcess(args, 0, "", "")
+    pytest.fail(f"unexpected Git operation after read-only preflight: {args}")
+
+
 def test_direct_closeout_reads_local_success_without_langfuse(
     agnt, monkeypatch, tmp_path
 ):
@@ -1453,6 +1472,8 @@ def test_direct_closeout_reads_local_success_without_langfuse(
     def fake_beads(args):
         if args == ["show", bead["id"]]:
             return 0, [bead], ""
+        if args[0] == "close":
+            return 1, None, "fixture close unavailable"
         pytest.fail(f"unexpected Beads call: {args}")
 
     monkeypatch.setattr(
@@ -1463,7 +1484,7 @@ def test_direct_closeout_reads_local_success_without_langfuse(
     with patch.dict(direct_start.__globals__, {"run_beads_json": fake_beads}):
         assert direct_start(bead["id"], claim=False)["status"] == "started"
         with patch.dict(direct_closeout.__globals__, {
-            "_git": lambda _root, args: subprocess.CompletedProcess(args, 1, "", "unavailable"),
+            "_git": _closeout_read_only_git,
         }):
             result = direct_closeout(bead["id"], outcome="success", reason="Done.")
 
@@ -1474,7 +1495,8 @@ def test_direct_closeout_reads_local_success_without_langfuse(
         "evidenceGaps": ["langfuse-projection-unavailable"],
     }
     assert result["stages"]["ownership"] == {"status": "succeeded", "outcome": "success"}
-    assert result["stages"]["preflight"]["error"] == "Git repository is unavailable"
+    assert result["stages"]["preflight"]["status"] == "succeeded"
+    assert result["stages"]["close"]["error"] == "bead close failed"
 
 
 def test_direct_closeout_rejects_missing_local_session_link(agnt, monkeypatch, tmp_path):
@@ -1498,9 +1520,7 @@ def test_direct_closeout_rejects_missing_local_session_link(agnt, monkeypatch, t
             "run_beads_json": lambda args: (0, [bead], "")
             if args == ["show", bead["id"]]
             else pytest.fail(f"unexpected Beads call: {args}"),
-            "_git": lambda *_args: pytest.fail(
-                "missing local authority must block Git inspection"
-            ),
+            "_git": _closeout_read_only_git,
         },
     ):
         result = direct_closeout(bead["id"], outcome="success", reason="Done.")
@@ -1719,7 +1739,7 @@ def test_direct_closeout_domain_rejects_non_success_before_mutation(agnt, outcom
     }
 
 
-def test_direct_closeout_records_success_before_readback_and_preflight(agnt):
+def test_direct_closeout_failed_preflight_blocks_success_and_readback(agnt):
     direct_closeout = agnt.direct_closeout
     events = []
 
@@ -1751,11 +1771,8 @@ def test_direct_closeout_records_success_before_readback_and_preflight(agnt):
         )
 
     assert result["status"] == "error"
-    assert events == [
-        ("record", "pi-test.close", "success"),
-        ("readback", "session-closeout"),
-        ("git", "rev-parse"),
-    ]
+    assert events == [("git", "rev-parse")]
+    assert "outcome" not in result["stages"]
 
 
 def test_direct_closeout_outcome_write_failure_stops_before_readback(agnt):
@@ -1771,12 +1788,8 @@ def test_direct_closeout_outcome_write_failure_stops_before_readback(agnt):
             "session_handoff_source": lambda *_args: pytest.fail(
                 "failed outcome write must block ownership readback"
             ),
-            "_git": lambda *_args: pytest.fail(
-                "failed outcome write must block Git inspection"
-            ),
-            "run_beads_json": lambda *_args: pytest.fail(
-                "failed outcome write must block Beads mutation"
-            ),
+            "_git": _closeout_read_only_git,
+            "run_beads_json": _closeout_read_only_beads,
         },
     ):
         result = direct_closeout(
@@ -1808,12 +1821,8 @@ def test_direct_closeout_requires_matching_success_readback(
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "session_handoff_source": lambda _session_id: source,
-            "_git": lambda *_args: pytest.fail(
-                "mismatched readback must block Git inspection"
-            ),
-            "run_beads_json": lambda *_args: pytest.fail(
-                "mismatched readback must block Beads mutation"
-            ),
+            "_git": _closeout_read_only_git,
+            "run_beads_json": _closeout_read_only_beads,
         },
     ):
         result = direct_closeout(
@@ -1866,7 +1875,7 @@ import os
 import sys
 from pathlib import Path
 
-Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"], encoding=\"utf-8\")
+sys.stdout.write(os.environ[\"FAKE_EXPORT\"])
 """,
         encoding="utf-8",
     )
@@ -1952,15 +1961,12 @@ Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(os.environ[\"FAKE_EXPORT\"
     rows = {row["id"]: row for row in map(json.loads, portable.read_text().splitlines())}
     assert rows[target["id"]]["status"] == "closed"
     assert rows[shared["id"]]["notes"] == "new legitimate shared state"
-    assert calls == [
-        ["show", target["id"]],
-        ["show", target["id"]],
+    assert [call for call in calls if call[0] != "show"] == [
         ["close", target["id"], "--reason", "Verified and complete."],
-        ["show", target["id"]],
-        ["show", target["id"]],
         ["close", target["id"], "--reason", "Verified and complete."],
-        ["show", target["id"]],
     ]
+    assert all(call == ["show", target["id"]] for call in calls if call[0] == "show")
+    assert calls[0] == calls[-1] == ["show", target["id"]]
     assert subprocess.run(
         ["git", "show", "--pretty=", "--name-only", "HEAD"],
         check=True,
@@ -2053,9 +2059,8 @@ def test_direct_closeout_reports_exhausted_visibility_wait(agnt):
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "session_handoff_source": unavailable,
-            "_git": lambda *_args: pytest.fail(
-                "unavailable outcome must block before Git inspection"
-            ),
+            "_git": _closeout_read_only_git,
+            "run_beads_json": _closeout_read_only_beads,
         },
     ):
         result = direct_closeout(
@@ -2103,9 +2108,8 @@ def test_direct_closeout_blocks_non_visibility_ownership_failures(
             "record_current_session_outcome": lambda _bead_id, _outcome: None,
             "current_session_id": lambda: "session-closeout",
             "session_handoff_source": fail,
-            "_git": lambda *_args: pytest.fail(
-                "ownership failure must block before Git inspection"
-            ),
+            "_git": _closeout_read_only_git,
+            "run_beads_json": _closeout_read_only_beads,
         },
     ):
         result = direct_closeout(
@@ -2213,9 +2217,8 @@ def test_direct_closeout_parity_failure_leaves_previous_export_for_retry(
 import sys
 from pathlib import Path
 
-Path(sys.argv[sys.argv.index(\"-o\") + 1]).write_text(
-    '{\"_type\":\"issue\",\"id\":\"pi-test.parity\",\"status\":\"closed\",\"closed_at\":\"2026-08-11T12:00:00Z\",\"close_reason\":\"wrong\"}\\n',
-    encoding=\"utf-8\",
+sys.stdout.write(
+    '{\"_type\":\"issue\",\"id\":\"pi-test.parity\",\"status\":\"closed\",\"closed_at\":\"2026-08-11T12:00:00Z\",\"close_reason\":\"wrong\"}\\n'
 )
 """,
         encoding="utf-8",
@@ -2284,7 +2287,8 @@ def test_direct_start_claim_is_explicit_and_idempotent(agnt):
             return 0, [bead], ""
         return 0, [bead.copy()], ""
 
-    def fake_link(bead_id, *, before_link):
+    def fake_link(bead_id, *, before_link, required_effects):
+        assert required_effects == ("beads-write",)
         before_link()
         link_calls.append(bead_id)
         return {"schemaVersion": 1, "status": "linked", "beadId": bead_id}
@@ -2316,7 +2320,8 @@ def test_direct_start_reports_retryable_partial_link_failure(agnt, capsys):
     def fake_beads(args):
         return 0, [bead], ""
 
-    def fail_link(_bead_id, *, before_link):
+    def fail_link(_bead_id, *, before_link, required_effects):
+        assert required_effects == ("beads-write",)
         before_link()
         raise RuntimeError("private failure detail")
 
@@ -2342,14 +2347,15 @@ def test_direct_start_reports_retryable_partial_link_failure(agnt, capsys):
     assert "private failure detail" not in json.dumps(result)
 
 
-def test_direct_start_requires_fresh_session_after_work_item_conflict(agnt, capsys):
+def test_direct_start_offers_checkpointed_continuation_after_conflict(agnt, capsys):
     cmd_work = getattr(agnt, "cmd_work", None)
     assert cmd_work is not None, "agnt work command is missing"
     bead = {"id": "pi-test.second", "title": "Second task", "status": "in_progress"}
 
     conflict = agnt.cmd_improve.__globals__["SessionWorkItemConflict"]
 
-    def fail_link(_bead_id, *, before_link):
+    def fail_link(_bead_id, *, before_link, required_effects):
+        assert required_effects == ("beads-write",)
         raise conflict("current Pi session belongs to another work item; prior pi-private.1")
 
     with patch.dict(cmd_work.__globals__, {
@@ -2366,10 +2372,12 @@ def test_direct_start_requires_fresh_session_after_work_item_conflict(agnt, caps
     }
     assert result["repair"] == {
         "failedStage": "link",
-        "requiredAction": "start-fresh-session",
+        "requiredAction": "checkpoint-or-reconcile-ownership",
         "retryCommand": "agnt work direct-start pi-test.second --claim",
         "safeToRetry": False,
+        "handoffTool": {"name": "handoff_bead", "arguments": {"targetBead": "pi-test.second"}},
         "humanFallback": {
+            "onlyWhen": "continuation runtime unavailable",
             "command": "/new",
             "retryCommand": "agnt work direct-start pi-test.second --claim",
         },
@@ -2695,7 +2703,7 @@ def test_direct_start_reports_retryable_partial_claim_failure(agnt):
 
     with patch.dict(direct_start.__globals__, {
         "run_beads_json": fake_beads,
-        "link_current_session": lambda _bead_id, before_link: before_link(),
+        "link_current_session": lambda _bead_id, before_link, required_effects: before_link(),
     }):
         result = direct_start("pi-test.claim-failure", claim=True)
 
@@ -2936,6 +2944,7 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
     authority = {
         "schemaVersion": 1,
         "decisionBead": "pi-declared-approval.1",
+        "targetBead": "pi-test.provenance",
         "status": "active",
         "grant": grant,
         "grantFingerprint": agnt.capability_grant_fingerprint(grant),
@@ -2963,6 +2972,7 @@ def test_start_work_preserves_immutable_orchestration_provenance(agnt, tmp_path)
     assert provenance["decisionRefs"] == ["pi-decision.1"]
     assert provenance["effectiveEnvelope"] == {
         "decisionBead": "pi-declared-approval.1",
+        "targetBead": "pi-test.provenance",
         "grantFingerprint": authority["grantFingerprint"],
         "grant": grant,
         "allowedEffects": ["edit_files"],
@@ -3118,6 +3128,7 @@ def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
     }
     authority = {
         "decisionBead": "pi-approval.3",
+        "targetBead": "pi-test.3",
         "status": "active",
         "grant": grant,
         "grantFingerprint": agnt.capability_grant_fingerprint(grant),
@@ -3128,6 +3139,8 @@ def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
 
     def fake_beads(args):
         calls.append(args)
+        if args[0] == "show":
+            return 0, bead, ""
         return 0, {"ok": True}, ""
 
     with patch.dict(agnt.start_work.__globals__, {"run_beads_json": fake_beads}):
@@ -3143,7 +3156,7 @@ def test_start_work_creates_bundle_and_can_claim_bead(agnt, tmp_path):
 
     assert Path(result["bundle"]).name == "work-start"
     assert (tmp_path / "work-start" / "invocation.yaml").is_file()
-    assert calls == [["update", "pi-test.3", "--claim"]]
+    assert [args for args in calls if args[0] != "show"] == [["update", "pi-test.3", "--claim"]]
 
 
 def test_start_work_copies_bead_acceptance_criteria_to_invocation(agnt, tmp_path):
@@ -3287,6 +3300,8 @@ def test_run_work_starts_invokes_and_optionally_closes(agnt, tmp_path):
 
     def fake_beads(args):
         bead_calls.append(args)
+        if args[0] == "show":
+            return 0, bead, ""
         return 0, {"ok": True}, ""
 
     def fake_invoke(bundle, **kwargs):
@@ -3313,7 +3328,7 @@ def test_run_work_starts_invokes_and_optionally_closes(agnt, tmp_path):
 
     assert Path(result["started"]["bundle"]).name == "work-run"
     assert result["invoked"]["exitCode"] == 0
-    assert bead_calls == [
+    assert [args for args in bead_calls if args[0] != "show"] == [
         ["update", "pi-test.7", "--claim"],
         ["close", "pi-test.7", "--reason", "Invoked successfully."],
     ]
@@ -3325,6 +3340,8 @@ def test_run_work_does_not_close_semantic_error(agnt, tmp_path):
 
     def fake_beads(args):
         bead_calls.append(args)
+        if args[0] == "show":
+            return 0, bead, ""
         return 0, {"ok": True}, ""
 
     def fake_invoke(bundle, **kwargs):
@@ -3354,7 +3371,7 @@ def test_run_work_does_not_close_semantic_error(agnt, tmp_path):
 
     assert result["invoked"]["semanticOutcome"] == "error"
     assert "closed" not in result or result["closed"] is None
-    assert bead_calls == [["update", "pi-test.semantic-error", "--claim"]]
+    assert [args for args in bead_calls if args[0] != "show"] == [["update", "pi-test.semantic-error", "--claim"]]
 
 
 def test_run_work_rejects_direct_model_override(agnt, tmp_path):
@@ -3396,6 +3413,8 @@ def test_finish_work_updates_result_and_closes_bead(agnt, tmp_path):
 
     def fake_beads(args):
         calls.append(args)
+        if args[0] == "show":
+            return 0, {"id": "pi-test.4", "status": "open"}, ""
         return 0, {"closed": True}, ""
 
     with patch.dict(agnt.finish_work.__globals__, {"run_beads_json": fake_beads}):
@@ -3412,7 +3431,7 @@ def test_finish_work_updates_result_and_closes_bead(agnt, tmp_path):
 
     assert result["result"]["status"] == "succeeded"
     assert result["beadClose"]["code"] == 0
-    assert calls == [["close", "pi-test.4", "--reason", "Verified and complete."]]
+    assert [args for args in calls if args[0] != "show"] == [["close", "pi-test.4", "--reason", "Verified and complete."]]
 
 
 def test_cmd_work_next_is_not_registered(agnt):
@@ -3890,7 +3909,11 @@ def test_direct_start_open_conflict_does_not_claim(agnt, direct_start_state):
     assert not any(call[0] == "update" for call in calls)
     assert result["status"] == "error"
     assert result["repair"]["safeToRetry"] is False
-    assert "handoffTool" not in result["repair"]
+    # Success-only guidance is superseded; the conflicted direct-start still
+    # must not claim or relabel work before the continuation checks succeed.
+    assert result["repair"]["handoffTool"] == {
+        "name": "handoff_bead", "arguments": {"targetBead": bead["id"]},
+    }
 
 
 @pytest.mark.parametrize("bad_state", ["missing-session", "malformed-ledger"])

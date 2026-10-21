@@ -148,13 +148,20 @@ def create_run_bundle(
     )
     normalized_decision_refs = _deduplicated_refs(decision_refs)
     effective_envelope = None
-    if isinstance(authority, dict):
+    if isinstance(authority, dict) and authority.get("source", {}).get("kind") == "standing-policy":
+        if normalized_claim_context is not None:
+            raise ValueError("standing authority cannot authorize a quality experiment claim")
+        effective_envelope = {"source": copy.deepcopy(authority["source"]),
+                              "action": copy.deepcopy(authority["action"])}
+    elif isinstance(authority, dict):
         effective_envelope = {
             "decisionBead": authority.get("decisionBead"),
             "grantFingerprint": authority.get("grantFingerprint"),
             "grant": copy.deepcopy(authority.get("grant")),
             "allowedEffects": list(authority.get("allowedEffects") or []),
         }
+        if "targetBead" in authority:
+            effective_envelope["targetBead"] = authority["targetBead"]
     provenance = {
         "schemaVersion": 2,
         "invocationId": invocation_id,
@@ -531,6 +538,17 @@ def _revalidate_invocation_authority(
     envelope = provenance.get("effectiveEnvelope") if isinstance(provenance, dict) else None
     if not isinstance(envelope, dict):
         return "canonical capability grant is missing from invocation provenance"
+    if isinstance(envelope.get("source"), dict) and envelope["source"].get("kind") == "standing-policy":
+        if claim_context is not None or provenance.get("approvalRefs"):
+            return "standing authority cannot replace an explicit grant or experiment claim"
+        from .authority import revalidate_standing_envelope
+
+        worktree = invocation.get("worktree")
+        return revalidate_standing_envelope(
+            envelope, str(invocation.get("bead") or ""),
+            workspace=worktree.get("path") if isinstance(worktree, dict) else "",
+            effects=invocation.get("allowedEffects"),
+        )
     decision = envelope.get("decisionBead")
     refs = provenance.get("approvalRefs") if isinstance(provenance, dict) else None
     if not isinstance(decision, str) or not decision.strip() or refs != [decision]:
@@ -545,6 +563,11 @@ def _revalidate_invocation_authority(
             raise ValueError("grant is not active")
         if resolved.get("decisionBead") != decision:
             raise ValueError("grant decision does not match provenance")
+        bead_id = invocation.get("bead")
+        if not isinstance(bead_id, str) or not bead_id or resolved.get("targetBead") != bead_id:
+            raise ValueError("grant target does not match invocation")
+        if "targetBead" in envelope and envelope["targetBead"] != bead_id:
+            raise ValueError("stored grant target does not match invocation")
         if resolved.get("grantFingerprint") != envelope.get("grantFingerprint"):
             raise ValueError("grant fingerprint changed")
         if resolved.get("allowedEffects") != envelope.get("allowedEffects"):

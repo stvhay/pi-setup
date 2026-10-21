@@ -5038,7 +5038,7 @@ def test_local_session_owner_conflict_blocks_projection(monkeypatch):
         improvement.link_current_session("pi-second.1")
 
 
-def test_improve_cli_requires_fresh_session_after_local_work_item_conflict(monkeypatch, capsys):
+def test_improve_cli_offers_continuation_after_local_work_item_conflict(monkeypatch, capsys):
     quality.capture_session_link(
         "session-local",
         "pi-first.1",
@@ -5060,12 +5060,12 @@ def test_improve_cli_requires_fresh_session_after_local_work_item_conflict(monke
         "status": "error",
         "error": "session belongs to another work item",
         "recovery": {
-            "action": "start-fresh-session",
+            "action": "checkpoint-or-reconcile-ownership",
             "handoffTool": {
                 "name": "handoff_bead",
                 "arguments": {"targetBead": "pi-second.1"},
             },
-            "humanFallback": {"command": "/new"},
+            "humanFallback": {"command": "/new", "onlyWhen": "continuation runtime unavailable"},
         },
     }
     assert "pi-first.1" not in output

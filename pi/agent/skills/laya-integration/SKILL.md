@@ -1,6 +1,6 @@
 ---
 name: laya-integration
-description: Use when integrating Laya/Jev/System 1 or typed decisions; classify/route/triage text, spam/phishing/toxicity/intent or rubric scores. Not generation or multi-step reasoning.
+description: Use for Laya/Jev/System 1 typed classification, routing, triage or scoring; not generation or multi-step reasoning.
 metadata:
   author: brain function collapse
   source: https://brainfunctioncollapse.com/laya

@@ -27,6 +27,7 @@ def _fixture(tmp_path: Path, *, unpublished: bool) -> tuple[Path, str]:
     _git(vendor, "init", "-b", BRANCH)
     _git(vendor, "config", "user.name", "Test")
     _git(vendor, "config", "user.email", "test@example.com")
+    _git(vendor, "config", "commit.gpgsign", "false")
     (vendor / "vendor.txt").write_text("published\n", encoding="utf-8")
     _git(vendor, "add", "vendor.txt")
     _git(vendor, "commit", "-m", "published")
@@ -45,6 +46,7 @@ def _fixture(tmp_path: Path, *, unpublished: bool) -> tuple[Path, str]:
     _git(superproject, "init", "-b", "main")
     _git(superproject, "config", "user.name", "Test")
     _git(superproject, "config", "user.email", "test@example.com")
+    _git(superproject, "config", "commit.gpgsign", "false")
     (superproject / ".gitmodules").write_text(
         f'[submodule "forks/vendor"]\n'
         "\tpath = forks/vendor\n"

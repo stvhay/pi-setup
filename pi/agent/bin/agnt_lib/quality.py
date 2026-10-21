@@ -579,7 +579,7 @@ def capture_session_link(
         owner, _outcome = _session_state(rows, session_id)
         if owner is not None and owner != bead_id:
             raise SessionWorkItemConflict(
-                "current Pi session belongs to another work item; use handoff_bead or the /new human fallback and retry"
+                "current Pi session belongs to another work item; use handoff_bead for checkpointed continuation or reconcile ownership"
             )
         # Keep claim preflight and linking serialized with every ledger writer.
         if before_link is not None:
@@ -603,6 +603,23 @@ def capture_session_outcome(
 ) -> dict[str, Any]:
     session_id = _session_id(session_id)
     bead_id = _bead_id(bead_id)
+    def record() -> dict[str, Any]:
+        return _capture_session_outcome(session_id, bead_id, outcome, beads_runner=beads_runner,
+                                        directory=directory, evidence_refs=evidence_refs, require_link=require_link)
+    if outcome == "success":
+        from .work_lifecycle import guard_success_recording
+        selected = Path(directory).expanduser().resolve() if directory is not None else None
+        return guard_success_recording(session_id, bead_id, record, directory=selected)
+    return record()
+
+
+def _capture_session_outcome(
+    session_id: str, bead_id: str, outcome: str, *, beads_runner: Any,
+    directory: str | os.PathLike[str] | None = None,
+    evidence_refs: list[str] | None = None, require_link: bool = True,
+) -> dict[str, Any]:
+    session_id = _session_id(session_id)
+    bead_id = _bead_id(bead_id)
     if outcome not in TASK_OUTCOMES:
         raise ValueError("task outcome is unsupported")
     refs = _evidence_refs(evidence_refs or [])
@@ -613,7 +630,7 @@ def capture_session_outcome(
         owner, recorded = _session_state(rows, session_id)
         if owner is not None and owner != bead_id:
             raise SessionWorkItemConflict(
-                "current Pi session belongs to another work item; use handoff_bead or the /new human fallback and retry"
+                "current Pi session belongs to another work item; use handoff_bead for checkpointed continuation or reconcile ownership"
             )
         if recorded is not None and recorded != outcome:
             raise SessionWorkItemConflict("current Pi session already has another final outcome")
@@ -650,6 +667,27 @@ def session_work_item(
     with _locked_ledger(directory, exclusive=False) as (fd, _root):
         owner, _outcome = _session_state(_read_rows(fd) if fd is not None else [], session_id)
     return owner
+
+
+def session_attempt_state(
+    session_id: str, *, directory: str | os.PathLike[str] | None = None,
+) -> dict[str, str | None]:
+    """Read attempt ownership and optional final outcome without requiring closeout."""
+    session_id = _session_id(session_id)
+    with _locked_ledger(directory, exclusive=False) as (fd, _root):
+        owner, outcome = _session_state(_read_rows(fd) if fd is not None else [], session_id)
+    return {"beadId": owner, "outcome": outcome}
+
+
+def work_item_attempts(
+    bead_id: str, *, directory: str | os.PathLike[str] | None = None,
+) -> dict[str, str | None]:
+    """Read legacy attempts for conservative first ownership registration."""
+    bead_id = _bead_id(bead_id)
+    with _locked_ledger(directory, exclusive=False) as (fd, _root):
+        rows = _read_rows(fd) if fd is not None else []
+    sessions = {row["sessionId"] for row in rows if row["beadId"] == bead_id}
+    return {session: _session_state(rows, session)[1] for session in sessions}
 
 
 def session_handoff_source(

@@ -209,8 +209,14 @@ def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_pat
     # A known foreign claim must not become a local session link.
     monkeypatch.setenv("BD_ACTOR", "foreign-actor")
     monkeypatch.setenv("PI_SESSION_ID", "foreign-session")
-    assert agnt.direct_start(first, claim=True)["stages"]["claim"]["status"] == "failed"
+    # New lifecycle ownership guard rejects before invoking native claim.
+    assert agnt.direct_start(first, claim=True)["stages"]["claim"] == {
+        "status": "skipped", "reason": "session-conflict",
+    }
     assert quality.session_work_item("foreign-session") is None
+    # Preserve coverage that native CAS independently rejects a foreign actor.
+    foreign_claim = subprocess.run(["bd", "update", first, "--claim", "--json"], capture_output=True, text=True)
+    assert foreign_claim.returncode != 0
     monkeypatch.setenv("BD_ACTOR", "lifecycle-tester")
     monkeypatch.setenv("PI_SESSION_ID", "fresh-first")
     assert agnt.direct_closeout(first, outcome="success", reason="Verified.")["status"] == "closed"

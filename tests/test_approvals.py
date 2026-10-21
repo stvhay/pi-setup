@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -20,6 +21,11 @@ def _request_fingerprint(approval: dict) -> str:
         key: approval[key]
         for key in ("kind", "targetBead", "question", "context", "options", "default", "preview")
     }
+    if approval.get("requestVersion") == 2:
+        identity["requestVersion"] = 2
+        if approval["kind"] == "question":
+            identity["selectionMode"] = approval["selectionMode"]
+            identity["customResponseAllowed"] = approval["customResponseAllowed"]
     if "grantFingerprint" in approval:
         identity["grantFingerprint"] = approval["grantFingerprint"]
     if "resolverBinding" in approval:
@@ -970,14 +976,11 @@ def test_custom_response_resolution_persists_structured_question_answer(
 ):
     fake = FakeBeads(show_metadata={
         "pi": {
-            "approval": {
-                "kind": "question",
-                "targetBead": "pi-work.2",
-                "status": "pending",
-                "selectionMode": selection_mode,
-                "options": ["CLI core", "Pi extension"],
-                "resolverBinding": resolver_binding(),
-            }
+            "approval": approval_record(
+                kind="question", targetBead="pi-work.2", selectionMode=selection_mode,
+                options=["CLI core", "Pi extension"], default="CLI core", requestVersion=2,
+                customResponseAllowed=True,
+            )
         }
     })
 
@@ -1060,7 +1063,7 @@ def test_empty_custom_response_and_approval_custom_text_are_rejected(agnt):
         )
 
 
-def test_legacy_question_resolution_defaults_to_single_selection_mode(agnt):
+def test_legacy_question_default_is_readable_but_answer_requires_mode_recovery(agnt):
     fake = FakeBeads(show_metadata={
         "pi": {
             "approval": {
@@ -1072,18 +1075,16 @@ def test_legacy_question_resolution_defaults_to_single_selection_mode(agnt):
         }
     })
 
-    result = agnt.resolve_beads_approval_request(
-        decision_bead="pi-decision.1",
-        outcome="answered",
-        answer="CLI core",
-        resolver=human_ui_resolver(),
-        beads_runner=fake,
-    )
+    from agnt_lib.approvals import _approval_from_metadata
 
-    assert result["metadata"]["pi"]["approval"]["selectionMode"] == "single"
-    update_call = next(call for call in fake.calls if call[0] == "update")
-    updated_metadata = json.loads(update_call[update_call.index("--metadata") + 1])
-    assert updated_metadata["pi"]["approval"]["selectionMode"] == "single"
+    parsed = _approval_from_metadata(copy.deepcopy(fake.show_metadata))
+    assert parsed["selectionMode"] == "single"
+    with pytest.raises(ValueError, match="legacy question.*recovery"):
+        agnt.resolve_beads_approval_request(
+            decision_bead="pi-decision.1", outcome="answered", answer="CLI core",
+            resolver=human_ui_resolver(), beads_runner=fake,
+        )
+    assert not any(call[0] in {"update", "close"} for call in fake.calls)
 
 
 def test_question_cannot_approve_and_approval_cannot_answer(agnt):
@@ -1178,6 +1179,9 @@ printf '%s\\n' "$*" >> "$FAKE_AGNT_CALLS"
 if [ "$2" = request ]; then
   if [ "${AGNT_HUMAN_UI_RESOLVER_FD:-}" = 3 ]; then cat <&3 >/dev/null; fi
   printf '%s\\n' '{"decisionBead":"pi-decision.1"}'
+elif [ "$2" = rebind ] || [ "$2" = recover-context ]; then
+  cat <&3 >/dev/null
+  printf '%s\\n' '{"status":"pending","decisionBead":"pi-decision.declined","request":{"kind":"question","targetBead":"pi-work.2","question":"Choose components","context":"Need durable selection.","options":["A","B"],"default":"A","selectionMode":"single","preview":{"action":"Choose components","scope":"Selection only","consequences":"Records answer","reversibility":"Can ask again","closeoutPath":"Resolve decision"}}}'
 else
   if [ "${AGNT_HUMAN_UI_RESOLVER_FD:-}" = 3 ]; then cat <&3 >/dev/null; fi
   printf '%s\\n' '{"blockerVisible":false}'
@@ -1303,7 +1307,7 @@ fi
         cwd: {str(tmp_path)!r},
         mode: "tui",
         hasUI: true,
-        ui: {{ confirm: async () => false }},
+        ui: {{ select: async () => undefined }},
         sessionManager: {{
           getSessionId: () => "session-1",
           getSessionFile: () => "/tmp/session-1.jsonl",
@@ -1350,6 +1354,8 @@ fi
         empty_resolve,
         single_request,
         single_resolve,
+        declined_context,
+        declined_rebind,
         declined_resolve,
         collision_request,
         collision_resolve,
@@ -1371,6 +1377,8 @@ fi
     assert "--structured-answer" in single_resolve
     assert "--custom-input typed alternative" in single_resolve
     assert "--selected-option" not in single_resolve
+    assert "approvals recover-context pi-decision.declined" in declined_context
+    assert "approvals rebind pi-decision.declined" in declined_rebind
     assert "--outcome cancelled" in declined_resolve
     assert "--selected-option" not in declined_resolve and "--custom-input" not in declined_resolve
     assert "--selection-mode single" in collision_request

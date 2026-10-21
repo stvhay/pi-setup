@@ -88,6 +88,7 @@ def _active_orchestration_grant(agnt):
     return {
         "schemaVersion": 1,
         "decisionBead": "pi-approval.1",
+        "targetBead": "pi-a",
         "status": "active",
         "grant": grant,
         "grantFingerprint": agnt.capability_grant_fingerprint(grant),

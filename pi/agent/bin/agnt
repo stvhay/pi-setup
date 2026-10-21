@@ -27,6 +27,7 @@ from agnt_lib.runs import *  # noqa: E402,F401,F403
 from agnt_lib.work import *  # noqa: E402,F401,F403
 from agnt_lib.orchestration import *  # noqa: E402,F401,F403
 from agnt_lib.approvals import *  # noqa: E402,F401,F403
+from agnt_lib.authority import cmd_authority  # noqa: E402
 from agnt_lib.gateway import *  # noqa: E402,F401,F403
 from agnt_lib.worktree_policy import *  # noqa: E402,F401,F403
 from agnt_lib.health import *  # noqa: E402,F401,F403
@@ -67,6 +68,7 @@ def main(argv: List[str]) -> int:
         "runs": ("create and validate invocation/result run artifacts", cmd_runs),
         "work": ("inspect beads-backed ready work and dispatch/run artifacts", cmd_work),
         "approvals": ("create and resolve Beads-backed questions/approval gates", cmd_approvals),
+        "authority": ("inspect standing delivery authority and explicit owner migration", cmd_authority),
         "gateway": ("execute strict ticket gateway operations", cmd_gateway),
         "context-health": ("check active context for stale terms and entropy signals", cmd_context_health),
         "doctor": ("check local Pi/agnt operational readiness", cmd_doctor),

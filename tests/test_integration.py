@@ -29,11 +29,41 @@ def init_repo(path: Path) -> str:
     git(path, "init", "-q", "-b", "main")
     git(path, "config", "user.name", "Pi Test")
     git(path, "config", "user.email", "pi-test@example.invalid")
+    git(path, "config", "commit.gpgsign", "false")
     (path / "shared.txt").write_text("base\n", encoding="utf-8")
     (path / "preserved.txt").write_text("preserved\n", encoding="utf-8")
     git(path, "add", "shared.txt", "preserved.txt")
     git(path, "commit", "-q", "-m", "base")
     return git(path, "rev-parse", "HEAD").stdout.strip()
+
+
+@pytest.mark.parametrize("factory", ["integration", "agnt", "runtime", "vendor"])
+def test_fixture_commits_do_not_request_owner_signatures(tmp_path, monkeypatch, factory):
+    # Simulate an unavailable owner signer without contacting a real key agent.
+    signer = tmp_path / "reject-signature"
+    signer.write_text("#!/bin/sh\nexit 97\n")
+    signer.chmod(0o755)
+    config = tmp_path / "owner.gitconfig"
+    config.write_text(f'[commit]\n\tgpgsign = true\n[gpg]\n\tformat = openpgp\n\tprogram = "{signer}"\n')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    repo = tmp_path / "fixture"
+    if factory == "integration":
+        init_repo(repo)
+    elif factory == "agnt":
+        from test_agnt import init_test_git
+        init_test_git(repo)
+        (repo / "file").write_text("fixture")
+        git(repo, "add", "file")
+        git(repo, "commit", "-qm", "fixture")
+    elif factory == "runtime":
+        from test_runtime_artifacts import init_repo as init_runtime_repo
+        init_runtime_repo(repo, ".pi/\n")
+        git(repo, "add", ".gitignore")
+        git(repo, "commit", "-qm", "fixture")
+    else:
+        from test_vendor_pins import _fixture
+        repo, _ = _fixture(tmp_path, unpublished=True)
+    assert git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
 def add_worktree(repo: Path, path: Path, branch: str, base: str) -> None:

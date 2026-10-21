@@ -3449,14 +3449,21 @@ def _beads(args: list[str]) -> tuple[int, Any, str]:
 
 def link_current_session(
     bead_id: str, *, before_link: Callable[[], None] | None = None,
+    required_effects: tuple[str, ...] = (), scope_beads: list[str] | None = None,
 ) -> dict[str, Any]:
     session_id = current_session_id()
-    summary = capture_session_link(
-        session_id,
-        bead_id,
-        beads_runner=_beads,
-        before_link=before_link,
-    )
+    from .work_lifecycle import guard_session_link
+
+    def link(validate_effects: Callable[[], None]) -> dict[str, Any]:
+        def validated_before_link() -> None:
+            validate_effects()
+            if before_link is not None:
+                before_link()
+        return capture_session_link(
+            session_id, bead_id, beads_runner=_beads,
+            before_link=validated_before_link if before_link is not None or required_effects else None,
+        )
+    summary = guard_session_link(session_id, bead_id, link, required_effects=required_effects, scope_beads=scope_beads)
     return _best_effort_projection(
         summary,
         lambda client: _project_session_link(client, session_id=session_id, bead_id=bead_id),
@@ -3536,19 +3543,20 @@ def _report_session_work_item_conflict(*, target_bead: str, json_output: bool) -
             "status": "error",
             "error": "session belongs to another work item",
             "recovery": {
-                "action": "start-fresh-session",
+                "action": "checkpoint-or-reconcile-ownership",
                 "handoffTool": {
                     "name": "handoff_bead",
                     "arguments": {"targetBead": target_bead},
                 },
-                "humanFallback": {"command": "/new"},
+                "humanFallback": {"command": "/new", "onlyWhen": "continuation runtime unavailable"},
             },
         }))
     else:
         print(
             "Current Pi session belongs to another work item. "
             f"Call handoff_bead with targetBead={target_bead}; "
-            "if the tool is unavailable, run /new, then retry.",
+            "checkpoint/switch or reconcile ownership without relabeling history. "
+            "Use /new only when the continuation runtime is unavailable.",
             file=sys.stderr,
         )
     return 2

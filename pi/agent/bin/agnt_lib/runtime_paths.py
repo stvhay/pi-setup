@@ -22,10 +22,11 @@ def _kind_parts(kind: str) -> tuple[str, ...]:
 
 def _git(git: str, cwd: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [git, "-C", str(cwd), *args],
+        [git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", str(cwd), *args],
         capture_output=True,
         text=True,
         check=False,
+        env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
     )
 
 
@@ -37,11 +38,21 @@ def _git_context(cwd: Path) -> tuple[str, Path, str] | None:
     if root_result.returncode != 0 or not root_result.stdout.strip():
         return None
     root = Path(root_result.stdout.strip()).resolve()
-    common_result = _git(git, root, ["rev-parse", "--git-common-dir"])
-    common = Path(common_result.stdout.strip()) if common_result.returncode == 0 and common_result.stdout.strip() else root
-    if not common.is_absolute():
-        common = root / common
-    return git, root, f"git:{common.resolve()}"
+    if not cwd.resolve().is_relative_to(root):
+        raise ValueError("Git checkout identity conflicts with requested directory")
+    # Resolve from the requested directory, not an unchecked core.worktree root.
+    # Otherwise a foreign repository can point its runtime/authority at another.
+    common_args = ["rev-parse", "--path-format=absolute", "--git-common-dir"]
+    common_result = _git(git, cwd, common_args)
+    if common_result.returncode != 0 or not common_result.stdout.strip():
+        raise ValueError("Git repository identity is unavailable")
+    common = Path(common_result.stdout.strip()).resolve()
+    if root != cwd.resolve():
+        root_common = _git(git, root, common_args)
+        if (root_common.returncode != 0 or not root_common.stdout.strip()
+                or Path(root_common.stdout.strip()).resolve() != common):
+            raise ValueError("Git checkout root belongs to a different repository")
+    return git, root, f"git:{common}"
 
 
 def _has_symlink(root: Path, parts: Sequence[str]) -> bool:

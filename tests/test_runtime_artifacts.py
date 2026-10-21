@@ -21,6 +21,7 @@ def init_repo(path: Path, ignore: str | None = None) -> Path:
     path.mkdir()
     git(path, "init", "-q")
     git(path, "config", "user.email", "test@example.invalid")
+    git(path, "config", "commit.gpgsign", "false")
     git(path, "config", "user.name", "Test User")
     if ignore is not None:
         (path / ".gitignore").write_text(ignore, encoding="utf-8")

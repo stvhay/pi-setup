@@ -82,6 +82,17 @@ def status(items: list[dict], active: str | None = None) -> dict:
     }
 
 
+def test_footer_labels_yielding_without_claiming_active_execution(tmp_path):
+    payload = status([{"id": "pi-a", "priority": 1, "title": "Work"}], "pi-a")
+    payload["executionPhase"] = "yielding"
+    agent_dir, response, exit_path, args_path = fake_agent_dir(tmp_path, payload)
+    script = extension_prelude(tmp_path) + """
+      await handlers.get("session_start")({ reason: "startup" }, ctx);
+      assert.match(statuses[0][1], /Work \\[yielding\\]/);
+    """
+    run_node(script, extension_env(agent_dir, response, exit_path, args_path))
+
+
 def test_session_start_lists_multiple_issues_and_highlights_active(tmp_path):
     items = [
         {"id": "pi-a.1", "priority": 1, "title": "First"},

@@ -38,6 +38,10 @@ if [ "$1" = runtime-path ]; then
   printf '{"path":"%s"}\\n' "${FAKE_METRICS_DIR:-}"
   exit 0
 fi
+if [ "$2" = transition-context ]; then
+  printf '%s\\n' '{"schemaVersion":1,"status":"legacy"}'
+  exit 0
+fi
 printf '%s\\n' "$@" > "$FAKE_AGNT_ARGS"
 if [ "${FAKE_AGNT_FAIL:-0}" = 1 ]; then
   printf '%s\\n' '{"schemaVersion":1,"status":"error","error":"current work item is not closed"}'
@@ -75,7 +79,7 @@ def test_handoff_command_and_agent_tool_register():
     assert EXTENSION.exists(), "tracked Bead handoff extension is required"
     script = loader_prelude() + """
       const command = extension.commands.get("handoff-bead");
-      assert.equal(command.description, "Start a ready Bead in a fresh Pi session");
+      assert.equal(command.description, "Continue assigned work or start a ready Bead in a fresh Pi session");
       const tool = extension.tools.get("handoff_bead").definition;
       assert.equal(tool.label, "Handoff Bead");
       await assert.rejects(
