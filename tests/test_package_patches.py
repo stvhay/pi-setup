@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import re
+import shlex
 import stat
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -25,10 +29,12 @@ ARCHIMEDES_ONE_SHOT_HEAD = "f277470d64d014b496efe7e4ae4d57275d8e1907"
 ARCHIMEDES_REPEATED_ERRORS_HEAD = "3576ddfd154fb274813a16e07607a15520ce73b7"
 ARCHIMEDES_RESULT_PORTS_HEAD = "a9efbf159ee8b2717aae1df8742bd7382e97c1a3"
 ARCHIMEDES_PRE_IDLE_HEAD = "1c4750ddb844cd8579f3076922603915098e9f96"
-ARCHIMEDES_VENDOR_HEAD = "8590ec0e1063811f86d1417ded9c2aeb48fd73b6"
+ARCHIMEDES_PREVIOUS_HEAD = "8590ec0e1063811f86d1417ded9c2aeb48fd73b6"
+ARCHIMEDES_UPSTREAM_2111 = "a44f94267239db0ef5d36d18d93391bf9d51c182"
+ARCHIMEDES_VENDOR_HEAD = "59c57a18976f0d470bae8ae6d5704c6715f06ee6"
 LANGFUSE_VENDOR = ROOT / "forks" / "pi-langfuse"
-LANGFUSE_VENDOR_HEAD = "e5596e8df6136b07db143025ef400d325454b958"
-LANGFUSE_UPSTREAM_1514 = "04d55a12556bdf4c4b8b208038198dc2fd8e571b"
+LANGFUSE_VENDOR_HEAD = "0ba150f5bd38c1e282feec5a488a918e6076063b"
+LANGFUSE_UPSTREAM_170 = "1c4dd956597af272d1869ce897e922d7702845fe"
 LANGFUSE_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--gooyoung--pi-langfuse.md"
 LANGFUSE_QUALITY_PORT = ROOT / ".pi" / "plans" / "2026-08-15-pi-langfuse-quality-port-contract.md"
 ARCHIMEDES_PROFILE = ROOT / ".pi" / "upstream-profiles" / "github.com--danielcherubini--pi-archimedes.md"
@@ -70,19 +76,19 @@ def _archimedes_meta(root: Path) -> Path:
     target = package / "src/settings.ts"
     target.parent.mkdir(parents=True)
     (package / "package.json").write_text(
-        json.dumps({"name": "pi-archimedes", "version": "2.1.0"}),
+        json.dumps({"name": "pi-archimedes", "version": "2.11.1"}),
         encoding="utf-8",
     )
     target.write_text("export const settings = {};\n", encoding="utf-8")
 
     for relative, name, source, content in (
-        ("@pi-archimedes/ask", "@pi-archimedes/ask", "src/index.ts", "export const ask = {};\n"),
-        ("@pi-archimedes/core", "@pi-archimedes/core", "src/bus.ts", "export const bus = {};\n"),
+        ("@pi-archimedes/ask", "@pi-archimedes/ask", "src/ipc-relay.ts", "export const ask = {};\n"),
+        ("@pi-archimedes/core", "@pi-archimedes/core", "src/events.ts", "export const events = {};\n"),
     ):
         support = root / relative
         (support / "src").mkdir(parents=True)
         (support / "package.json").write_text(
-            json.dumps({"name": name, "version": "2.1.0"}),
+            json.dumps({"name": name, "version": "2.11.1"}),
             encoding="utf-8",
         )
         (support / source).write_text(content, encoding="utf-8")
@@ -94,7 +100,7 @@ def _archimedes_footer(root: Path) -> Path:
     target = package / "src/index.ts"
     target.parent.mkdir(parents=True)
     (package / "package.json").write_text(
-        json.dumps({"name": "@pi-archimedes/footer", "version": "2.1.0"}),
+        json.dumps({"name": "@pi-archimedes/footer", "version": "2.11.1"}),
         encoding="utf-8",
     )
     target.write_text("ctx.ui.setFooter;\nexport const footer = {};\n", encoding="utf-8")
@@ -103,7 +109,7 @@ def _archimedes_footer(root: Path) -> Path:
 
 def _fixture_patches(root: Path) -> Path:
     root.mkdir()
-    (root / "pi-langfuse-1.5.14.patch").write_text(
+    (root / "pi-langfuse-1.7.0.patch").write_text(
         """diff --git a/src/langfuse.ts b/src/langfuse.ts
 --- a/src/langfuse.ts
 +++ b/src/langfuse.ts
@@ -120,7 +126,7 @@ diff --git a/src/redaction.ts b/src/redaction.ts
 """,
         encoding="utf-8",
     )
-    (root / "pi-archimedes-subagent-2.1.0.patch").write_text(
+    (root / "pi-archimedes-subagent-2.11.1.patch").write_text(
         """diff --git a/src/types.ts b/src/types.ts
 --- a/src/types.ts
 +++ b/src/types.ts
@@ -130,7 +136,7 @@ diff --git a/src/redaction.ts b/src/redaction.ts
 """,
         encoding="utf-8",
     )
-    (root / "pi-archimedes-meta-2.1.0.patch").write_text(
+    (root / "pi-archimedes-meta-2.11.1.patch").write_text(
         """diff --git a/src/settings.ts b/src/settings.ts
 --- a/src/settings.ts
 +++ b/src/settings.ts
@@ -140,34 +146,34 @@ diff --git a/src/redaction.ts b/src/redaction.ts
 """,
         encoding="utf-8",
     )
-    (root / "pi-archimedes-footer-2.1.0.patch").write_text(
+    (root / "pi-archimedes-footer-2.11.1.patch").write_text(
         """diff --git a/src/index.ts b/src/index.ts
 --- a/src/index.ts
 +++ b/src/index.ts
 @@ -1,2 +1,2 @@
  ctx.ui.setFooter;
 -export const footer = {};
-+export const footer = { getExtensionStatuses: true };
++export const footer = { INLINE_STATUS_KEYS: true };
 """,
         encoding="utf-8",
     )
-    (root / "pi-archimedes-ask-2.1.0.patch").write_text(
-        """diff --git a/src/index.ts b/src/index.ts
---- a/src/index.ts
-+++ b/src/index.ts
+    (root / "pi-archimedes-ask-2.11.1.patch").write_text(
+        """diff --git a/src/ipc-relay.ts b/src/ipc-relay.ts
+--- a/src/ipc-relay.ts
++++ b/src/ipc-relay.ts
 @@ -1 +1 @@
 -export const ask = {};
 +export const ask = { hasCustomInput: customInput !== undefined ? { customInput } : {} };
 """,
         encoding="utf-8",
     )
-    (root / "pi-archimedes-core-2.1.0.patch").write_text(
-        """diff --git a/src/bus.ts b/src/bus.ts
---- a/src/bus.ts
-+++ b/src/bus.ts
+    (root / "pi-archimedes-core-2.11.1.patch").write_text(
+        """diff --git a/src/events.ts b/src/events.ts
+--- a/src/events.ts
++++ b/src/events.ts
 @@ -1 +1 @@
--export const bus = {};
-+export const bus = { ArchimedesEventPayloadMap: true, ArchimedesBus: true };
+-export const events = {};
++export const events = { patched: true };
 """,
         encoding="utf-8",
     )
@@ -190,12 +196,12 @@ def _run(package_root: Path, patch_root: Path, *args: str) -> subprocess.Complet
 
 def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path, patch_implementation):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.14", "export const nativeSession = true;\n")
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.7.0", "export const nativeSession = true;\n")
     archimedes = _package(
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "2.1.0",
+        "2.11.1",
         "export const result = {};\n",
     )
     meta = _archimedes_meta(package_root)
@@ -215,7 +221,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path,
     assert "maxOutputTokens" in archimedes.read_text(encoding="utf-8")
     assert "maxProviderRequests" in archimedes.read_text(encoding="utf-8")
     assert "subagentMaxProviderRequests" in meta.read_text(encoding="utf-8")
-    assert "getExtensionStatuses" in footer.read_text(encoding="utf-8")
+    assert "INLINE_STATUS_KEYS" in footer.read_text(encoding="utf-8")
 
     repeated = _run(package_root, patch_root)
     assert repeated.returncode == 0, repeated.stderr
@@ -225,7 +231,7 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path,
     package_json.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.8"}), encoding="utf-8")
     rejected = _run(package_root, patch_root, "--check")
     assert rejected.returncode != 0
-    assert "expected pi-langfuse 1.5.14" in rejected.stderr
+    assert "expected pi-langfuse 1.7.0" in rejected.stderr
 
 
 def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
@@ -235,7 +241,7 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.14",
+        "1.7.0",
         "export const session = ctx?.sessionManager?.getSessionId?.();\n",
     )
     score_source = langfuse.parent / "src/langfuse.ts"
@@ -249,7 +255,7 @@ def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "2.1.0",
+        "2.11.1",
         "export const result = {};\n",
     )
     _archimedes_meta(package_root)
@@ -269,7 +275,7 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.14",
+        "1.7.0",
         'export const session = "file";\n',
     )
     score_source = langfuse.parent / "src/langfuse.ts"
@@ -284,7 +290,7 @@ def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "2.1.0",
+        "2.11.1",
         "export const result = {};\n",
     )
     _archimedes_meta(package_root)
@@ -304,14 +310,14 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path, patch_imple
         package_root,
         "pi-langfuse",
         "pi-langfuse",
-        "1.5.14",
+        "1.7.0",
         'export const session = "file";\n',
     )
     archimedes = _package(
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "2.1.0",
+        "2.11.1",
         "export const result = {};\n",
     )
     _archimedes_meta(package_root)
@@ -335,7 +341,7 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path, patch_imple
 def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
     package_root = tmp_path / "node_modules"
     _archimedes_footer(package_root)
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.14", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.7.0", 'export const session = "file";\n')
     score_source = langfuse.parent / "src/langfuse.ts"
     score_source.write_text(
         score_source.read_text(encoding="utf-8").replace(
@@ -348,7 +354,7 @@ def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
         package_root,
         "@pi-archimedes/subagent",
         "@pi-archimedes/subagent",
-        "2.1.0",
+        "2.11.1",
         "export const result = {};\n",
     )
     _archimedes_meta(package_root)
@@ -362,7 +368,7 @@ def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
 
 def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path):
     package_root = tmp_path / "node_modules"
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.5.14", 'export const session = "file";\n')
+    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.7.0", 'export const session = "file";\n')
     _package(
         package_root,
         "@pi-archimedes/subagent",
@@ -377,12 +383,12 @@ def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path)
     rejected = _run(package_root, patch_root)
 
     assert rejected.returncode != 0
-    assert "expected @pi-archimedes/subagent 2.1.0" in rejected.stderr
+    assert "expected @pi-archimedes/subagent 2.11.1" in rejected.stderr
     assert 'session = "file"' in langfuse.read_text(encoding="utf-8")
     assert "subagentMaxProviderRequests" not in meta.read_text(encoding="utf-8")
 
 
-def test_archimedes_vendor_submodule_pins_clean_210_stack():
+def test_archimedes_vendor_submodule_pins_clean_2111_port_and_preserves_old_stack():
     head = subprocess.run(
         ["git", "-C", str(ARCHIMEDES_VENDOR), "rev-parse", "HEAD"],
         text=True,
@@ -391,7 +397,7 @@ def test_archimedes_vendor_submodule_pins_clean_210_stack():
 
     assert head.returncode == 0, head.stderr
     assert head.stdout.strip() == ARCHIMEDES_VENDOR_HEAD
-    assert "branch = vendor/pi-setup-210" in GITMODULES.read_text(encoding="utf-8")
+    assert "branch = vendor/pi-setup-2111" in GITMODULES.read_text(encoding="utf-8")
     base = subprocess.run(
         ["git", "-C", str(ARCHIMEDES_VENDOR), "cat-file", "-e", f"{ARCHIMEDES_UPSTREAM_210}^{{commit}}"],
         text=True,
@@ -405,7 +411,8 @@ def test_archimedes_vendor_submodule_pins_clean_210_stack():
         (ARCHIMEDES_REPEATED_ERRORS_HEAD, ARCHIMEDES_ONE_SHOT_HEAD),
         (ARCHIMEDES_RESULT_PORTS_HEAD, ARCHIMEDES_REPEATED_ERRORS_HEAD),
         (ARCHIMEDES_PRE_IDLE_HEAD, ARCHIMEDES_RESULT_PORTS_HEAD),
-        (ARCHIMEDES_VENDOR_HEAD, ARCHIMEDES_PRE_IDLE_HEAD),
+        (ARCHIMEDES_PREVIOUS_HEAD, ARCHIMEDES_PRE_IDLE_HEAD),
+        (ARCHIMEDES_VENDOR_HEAD, ARCHIMEDES_UPSTREAM_2111),
     )
     for expected_head, predecessor in stack:
         actual = subprocess.run(
@@ -432,28 +439,28 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
 
     assert head.returncode == 0, head.stderr
     assert head.stdout.strip() == LANGFUSE_VENDOR_HEAD
-    assert "branch = vendor/pi-setup-1514" in GITMODULES.read_text(encoding="utf-8")
+    assert "branch = vendor/pi-setup-170" in GITMODULES.read_text(encoding="utf-8")
     assert subprocess.run(
-        ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", LANGFUSE_UPSTREAM_1514, "HEAD"],
+        ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", LANGFUSE_UPSTREAM_170, "HEAD"],
     ).returncode == 0
     count = subprocess.run(
-        ["git", "-C", str(LANGFUSE_VENDOR), "rev-list", "--count", f"{LANGFUSE_UPSTREAM_1514}..HEAD"],
+        ["git", "-C", str(LANGFUSE_VENDOR), "rev-list", "--count", f"{LANGFUSE_UPSTREAM_170}..HEAD"],
         text=True,
         capture_output=True,
     )
     assert count.returncode == 0, count.stderr
-    assert count.stdout.strip() == "3"
+    assert count.stdout.strip() == "1"
 
 
 
 def test_active_patch_inventory_matches_maintained_fork_projections():
     expected = {
-        "pi-archimedes-ask-2.1.0.patch",
-        "pi-archimedes-core-2.1.0.patch",
-        "pi-archimedes-footer-2.1.0.patch",
-        "pi-archimedes-meta-2.1.0.patch",
-        "pi-archimedes-subagent-2.1.0.patch",
-        "pi-langfuse-1.5.14.patch",
+        "pi-archimedes-ask-2.11.1.patch",
+        "pi-archimedes-core-2.11.1.patch",
+        "pi-archimedes-footer-2.11.1.patch",
+        "pi-archimedes-meta-2.11.1.patch",
+        "pi-archimedes-subagent-2.11.1.patch",
+        "pi-langfuse-1.7.0.patch",
     }
     helper = SCRIPT.read_text(encoding="utf-8")
     deploy = UPDATE_SCRIPT.read_text(encoding="utf-8")
@@ -464,8 +471,8 @@ def test_active_patch_inventory_matches_maintained_fork_projections():
     assert {path.name for path in PATCHES.glob("*.patch")} == expected
     assert configured == expected
     assert deployed == expected
-    assert {"source": "npm:pi-archimedes@2.1.0", "extensions": []} in settings["packages"]
-    assert {"source": "npm:pi-langfuse@1.5.14", "extensions": []} in settings["packages"]
+    assert {"source": "npm:pi-archimedes@2.11.1", "extensions": []} in settings["packages"]
+    assert {"source": "npm:pi-langfuse@1.7.0", "extensions": []} in settings["packages"]
 
 
 def test_package_projection_docs_match_adopted_public_ports():
@@ -473,18 +480,18 @@ def test_package_projection_docs_match_adopted_public_ports():
     pi_readme = PI_README.read_text(encoding="utf-8")
 
     assert "Archimedes 2.0.1" not in architecture
-    assert "Archimedes 2.1.0" in architecture
+    assert "Archimedes 2.11.1" in architecture
     assert "`pi-langfuse/quality` is active" in pi_readme
     assert "remains unused until `pi-rxo3.25` adopts" not in pi_readme
 
 
 def test_runtime_patchset_contains_only_minimum_vendor_contract():
-    langfuse = (PATCHES / "pi-langfuse-1.5.14.patch").read_text(encoding="utf-8")
-    archimedes = (PATCHES / "pi-archimedes-subagent-2.1.0.patch").read_text(encoding="utf-8")
-    ask = (PATCHES / "pi-archimedes-ask-2.1.0.patch").read_text(encoding="utf-8")
-    core = (PATCHES / "pi-archimedes-core-2.1.0.patch").read_text(encoding="utf-8")
-    footer = (PATCHES / "pi-archimedes-footer-2.1.0.patch").read_text(encoding="utf-8")
-    meta = (PATCHES / "pi-archimedes-meta-2.1.0.patch").read_text(encoding="utf-8")
+    langfuse = (PATCHES / "pi-langfuse-1.7.0.patch").read_text(encoding="utf-8")
+    archimedes = (PATCHES / "pi-archimedes-subagent-2.11.1.patch").read_text(encoding="utf-8")
+    ask = (PATCHES / "pi-archimedes-ask-2.11.1.patch").read_text(encoding="utf-8")
+    core = (PATCHES / "pi-archimedes-core-2.11.1.patch").read_text(encoding="utf-8")
+    footer = (PATCHES / "pi-archimedes-footer-2.11.1.patch").read_text(encoding="utf-8")
+    meta = (PATCHES / "pi-archimedes-meta-2.11.1.patch").read_text(encoding="utf-8")
     archimedes_patches = archimedes + ask + core + footer + meta
     added = "\n".join(
         line[1:] for line in (langfuse + archimedes_patches).splitlines()
@@ -513,7 +520,8 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "scoreEventIds" in langfuse
     assert "AbortSignal.any" in langfuse
     assert "getLegacyTraceApiCapability" not in langfuse
-    assert "runShutdownStep" not in langfuse
+    langfuse_added = "\n".join(line[1:] for line in langfuse.splitlines() if line.startswith("+") and not line.startswith("+++"))
+    assert "runShutdownStep" not in langfuse_added
     assert "MALFORMED_MEDIA_DATA_URI" in langfuse
     assert "OMITTED_MEDIA_DATA_URI" in langfuse
     assert "isLangfuseMediaDataUri" in langfuse
@@ -552,10 +560,11 @@ def test_runtime_patchset_contains_only_minimum_vendor_contract():
     assert "childTrace" in archimedes
     assert "outputContract" in archimedes
     assert "customInput" in ask
-    assert "ArchimedesEventPayloadMap" in core
-    assert "ArchimedesBus" in core
+    assert "ArchimedesEventPayloadMap" not in core
+    assert "src/bus.ts" not in core
+    assert '"@earendil-works/pi-coding-agent": "1.3.0"' in core
     assert "getExtensionStatuses" in footer
-    assert "truncateToWidth" in footer
+    assert "wrapStatusToChunks" in footer
     assert "subagentMaxProviderRequests" in meta
     assert "subagentMaxIdleMs" in meta
     assert "defaultLimits.maxIdleMs" in meta
@@ -571,49 +580,51 @@ def test_archimedes_package_proof_is_executable_and_integrity_pinned():
     assert ARCHIMEDES_PACKAGE_PROOF.stat().st_mode & stat.S_IXUSR
     proof = ARCHIMEDES_PACKAGE_PROOF.read_text(encoding="utf-8")
     for package, integrity in (
-        ("pi-archimedes@2.1.0", "sha512-TitGWAXRE6W+3bXwg7pIhnoKR7w3PzXW417RGpGyUwHgFIqHi20eRDAs0TipBoDO/HAsQVcdpXjB//W9D/1zRQ=="),
-        ("@pi-archimedes/ask@2.1.0", "sha512-QMA0zdARYOQHVEZrZf5/310L3qWFLoBiKtQtFcgRXLfO5HAoYcye/gTfQLdjOth71DyPHJ5Bvhza/BVMjdjduA=="),
-        ("@pi-archimedes/core@2.1.0", "sha512-TiZBNrhyk8trUw3J66J78HNUEVsgIWkzvDJUqGq2hxvwCDS32FcJWn0K2wX+0Og8lWawmsot2n7lsYUn0ysocw=="),
-        ("@pi-archimedes/footer@2.1.0", "sha512-Xs+5DCkRUmXabagwsR+J6UxhxK70VuEJcwq9wR72TRml0ZhZ3Ouc7cnjhxBZErAZx4Sgk8HY3QhPzKiSFZ24Og=="),
-        ("@pi-archimedes/subagent@2.1.0", "sha512-Num0675GR2hWcp21r4epe7mqQDIgpMomUv55C9G1a96zv1mL9Gkv5eaSPe9iudI43j1lhdPEtcK3ObJs7tK9VA=="),
+        ("pi-archimedes@2.11.1", "sha512-mtG8nkfEPDusDJgHuf72bT1CePc4TzPQchT9DCEIpbIiYQRqLE5lYMQPwYn3jq5L7OZUPQS4UzRmeYJoxYl+NQ=="),
+        ("@pi-archimedes/ask@2.11.1", "sha512-Su2ck665KjXP0BxI3FmCDFHqF8quj70veXPq4XWOLm4R4YItWpUkhaa72Ff2ZzMpzbiu9X4pyKurf6BFpoGtvQ=="),
+        ("@pi-archimedes/core@2.11.1", "sha512-zeiBPDLj6cb9VaFye+1YNGVf/GYH61uTp+tHD2Pwl1+IUz7TXlC7EDGpzNT+GqlkPnDr7gQOmS40HyoYzw3T0A=="),
+        ("@pi-archimedes/footer@2.11.1", "sha512-K1Ic+qs7G6HmBkY4vOy4Fg9nHifboFGRKAQUXDxrJvt/NuxsXjGivRaiN0iS9aZgSzgutkoU3IpH1tzgnhrQJQ=="),
+        ("@pi-archimedes/subagent@2.11.1", "sha512-5GK78g89o2FCuelZjgRulww+5M0uq0F7RkD9/iGCyvhaTT2zTwmqthVdk8ya9Wc4fA6Jpl8k3ibqr+YbMlZdcg=="),
     ):
-        assert package in proof
+        assert f"|{package.rsplit('@', 1)[0]}|{integrity}" in proof
         assert integrity in proof
     assert "apply-pi-package-patches.sh\" --check" in proof
-    assert "FORK_HEAD=\"8590ec0e1063811f86d1417ded9c2aeb48fd73b6\"" in proof
+    assert "FORK_HEAD=\"59c57a18976f0d470bae8ae6d5704c6715f06ee6\"" in proof
     assert "git ls-remote --heads" in proof
-    assert "patch --force --fuzz=0 --reverse --dry-run" in proof
+    assert '"$patch_bin" --verbose --force --fuzz=0 --reverse --dry-run' in proof
     assert "cmp \"$package_dir/$path\" \"$fork_dir/$path\"" in proof
     assert "production_paths" in proof
     assert "! -name '*.test.ts'" in proof
     assert "diff -qr" in proof
-    assert "public-ports.test.ts" in proof
-    assert "index-execute.test.ts" in proof
-    assert "stream.test.ts" in proof
-    assert "limits.test.ts" in proof
-    assert "bus.test.ts" in proof
+    assert 'cp "$FORK/packages/$package/src/"*.test.ts' in proof
+    assert 'for package in subagent footer ask' in proof
+    assert 'src/events.test.ts src/events-host-bus.test.ts' in proof
+    assert 'PI_ARCHIMEDES_TEST_SCHEMA=' in proof
+    assert 'test_subagent_reports.py' in proof
+    assert '[ "$LOCAL_CANDIDATE" -eq 0 ]' in proof
     assert "node_modules/.bin/tsc" in proof
     assert "const resolveModel: (name: string, cwd: string) => string | undefined" in proof
     assert "const result: SubagentResult" in proof
     assert "maxIdleMs: 7" in proof
     assert 'SubagentTerminationReason = "idle-limit"' in proof
-    assert "const payloads: ArchimedesEventPayloadMap" in proof
+    assert "const events = createEventBus()" in proof
     assert 'from "@pi-archimedes/subagent/agents"' in proof
     assert 'from "@pi-archimedes/subagent/types"' in proof
-    assert 'from "@pi-archimedes/core/bus"' in proof
+    assert 'from "@pi-archimedes/core/events"' in proof
 
 
 def test_langfuse_package_proof_is_executable_and_integrity_pinned():
     assert LANGFUSE_PACKAGE_PROOF.stat().st_mode & stat.S_IXUSR
     proof = LANGFUSE_PACKAGE_PROOF.read_text(encoding="utf-8")
-    assert "pi-langfuse@1.5.14" in proof
-    assert "sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg==" in proof
+    assert "pi-langfuse@1.7.0" in proof
+    assert "sha512-dXMv4NLySMzOfIBmaSNUsu83HQNh3N4qxjgD9l5hvmWARSJ75W2YnD1dfIoRi9QUb2LnJsmSVHqJV9ENDL5K8w==" in proof
     assert "patch --force --fuzz=0 --forward" in proof
-    assert "patch --force --fuzz=0 --reverse --dry-run" in proof
+    assert '"$patch_bin" --verbose --force --fuzz=0 --reverse --dry-run' in proof
     assert "test/quality.test.ts" in proof
-    assert 'FORK_HEAD="e5596e8df6136b07db143025ef400d325454b958"' in proof
-    assert 'FORK_PREVIOUS="1d705405901c704196154698fade3e9a6a5b5f93"' in proof
-    assert 'FORK_QUALITY="94fa7f0c4410ce10da1f98c8fe4b798374c8df2e"' in proof
+    assert 'FORK_HEAD="0ba150f5bd38c1e282feec5a488a918e6076063b"' in proof
+    assert 'BASE_HEAD="1c4dd956597af272d1869ce897e922d7702845fe"' in proof
+    for contract in ("tool", "generation", "redaction", "cache-contract", "langfuse", "managed-wrapper"):
+        assert f"test/{contract}.test.ts" in proof
     assert "cmp " in proof
     assert "diff -qr" in proof
 
@@ -621,22 +632,22 @@ def test_langfuse_package_proof_is_executable_and_integrity_pinned():
 def test_langfuse_quality_port_maintained_fork_gate_requires_exact_evidence():
     profile = LANGFUSE_PROFILE.read_text(encoding="utf-8")
     contract = LANGFUSE_QUALITY_PORT.read_text(encoding="utf-8")
-    patch = (PATCHES / "pi-langfuse-1.5.14.patch").read_text(encoding="utf-8")
+    patch = (PATCHES / "pi-langfuse-1.7.0.patch").read_text(encoding="utf-8")
 
     assert '"./quality": "./src/quality.ts"' in patch
     assert "createObservationCapturePort" in patch
     assert "createServiceEvidencePort" in patch
-    assert "quality_port_status: maintained-fork-verified" in profile
+    assert "quality_port_status: maintained-fork-local-verified" in profile
     assert "Q18V verifies the quality-port ancestor `94fa7f0c`" in profile
     for evidence in (
-        "npm_published_utc: 2026-08-13T02:02:51.103Z",
-        "npm_integrity: sha512-zzQ40IMj7NrGrluzGAqB6zJ645MaqHfAMTdlsOK/fPlQywlTlgPb8Y/PyQc8asSkqWT55KMMDV+qNSKAG1zyTg==",
-        "maintained_fork_base: 04d55a12556bdf4c4b8b208038198dc2fd8e571b",
-        "maintained_fork_head: e5596e8df6136b07db143025ef400d325454b958",
-        "maintained_fork_branch: vendor/pi-setup-1514",
-        "superproject_gitlink: e5596e8df6136b07db143025ef400d325454b958",
-        "derived_patch: patches/pi-packages/pi-langfuse-1.5.14.patch",
-        "derived_patch_sha256: 0fa6010e0bbc010d7f9c27e15b88203ea1ce55a4b41259723afc76a5f65186ec",
+        "npm_published_utc: '2026-10-08T02:13:34.481Z'",
+        "npm_integrity: sha512-dXMv4NLySMzOfIBmaSNUsu83HQNh3N4qxjgD9l5hvmWARSJ75W2YnD1dfIoRi9QUb2LnJsmSVHqJV9ENDL5K8w==",
+        "maintained_fork_base: 1c4dd956597af272d1869ce897e922d7702845fe",
+        "maintained_fork_head: 0ba150f5bd38c1e282feec5a488a918e6076063b",
+        "maintained_fork_branch: vendor/pi-setup-170",
+        "superproject_gitlink: 0ba150f5bd38c1e282feec5a488a918e6076063b",
+        "derived_patch: patches/pi-packages/pi-langfuse-1.7.0.patch",
+        "publication_status: published",
         "package_proof: scripts/verify-pi-langfuse-package-patch.sh",
     ):
         assert evidence in profile
@@ -663,25 +674,26 @@ def test_archimedes_result_port_maintained_fork_gate_requires_exact_evidence():
     assert ARCHIMEDES_RESULT_PORT.exists(), "tracked pi-archimedes result port contract is required"
     contract = ARCHIMEDES_RESULT_PORT.read_text(encoding="utf-8")
 
-    assert "result_port_status: maintained-fork-verified" in profile
+    assert "result_port_status: maintained-fork-local-verified" in profile
     assert "Q19V verifies the exact `stvhay/pi-archimedes` stack" in profile
     for evidence in (
-        "npm_pi_archimedes_published_utc: 2026-08-15T10:25:15.706Z",
-        "npm_pi_archimedes_integrity: sha512-TitGWAXRE6W+3bXwg7pIhnoKR7w3PzXW417RGpGyUwHgFIqHi20eRDAs0TipBoDO/HAsQVcdpXjB//W9D/1zRQ==",
-        "npm_subagent_published_utc: 2026-08-15T10:25:13.730Z",
-        "npm_subagent_integrity: sha512-Num0675GR2hWcp21r4epe7mqQDIgpMomUv55C9G1a96zv1mL9Gkv5eaSPe9iudI43j1lhdPEtcK3ObJs7tK9VA==",
-        "npm_core_published_utc: 2026-08-15T10:24:55.193Z",
-        "npm_core_integrity: sha512-TiZBNrhyk8trUw3J66J78HNUEVsgIWkzvDJUqGq2hxvwCDS32FcJWn0K2wX+0Og8lWawmsot2n7lsYUn0ysocw==",
-        "maintained_fork_base: 2ed26aa1d3301cc01a927d9409778bbd13df4798",
-        "maintained_fork_result_ports: a9efbf159ee8b2717aae1df8742bd7382e97c1a3",
-        "maintained_fork_head: 8590ec0e1063811f86d1417ded9c2aeb48fd73b6",
-        "maintained_fork_branch: vendor/pi-setup-210",
-        "superproject_gitlink: 8590ec0e1063811f86d1417ded9c2aeb48fd73b6",
-        "derived_patch_meta_sha256: ec78cae488833af588bbdca7c203f3e13255d0b8333c793cb4cbc94a7e8f5215",
-        "derived_patch_ask_sha256: eaa4c814f481ef95c1a95866170ec59d9553a257ed96634a37422f065fa062cc",
-        "derived_patch_core_sha256: 520ff1888ffe785f6648a2de5823023a6c146017ba21d8c7c6c1f12d2b81d73f",
-        "derived_patch_footer_sha256: 0e680ca78ed7422abf0241d8dfba982497b93b14064ef375aa4a3f7c0e437e34",
-        "derived_patch_subagent_sha256: 2b6b051a88fbd310ee05bd804c0f17d52316d6114eb01748ba26423749bdd787",
+        "publication_status: published",
+        "maintained_fork_base: a44f94267239db0ef5d36d18d93391bf9d51c182",
+        "maintained_fork_head: 59c57a18976f0d470bae8ae6d5704c6715f06ee6",
+        "maintained_fork_branch: vendor/pi-setup-2111",
+        "superproject_gitlink: 59c57a18976f0d470bae8ae6d5704c6715f06ee6",
+        "historical_vendor_head: 8590ec0e1063811f86d1417ded9c2aeb48fd73b6",
+        "npm_meta_published_utc: '2026-10-16T15:19:01.021Z'",
+        "npm_meta_integrity: sha512-mtG8nkfEPDusDJgHuf72bT1CePc4TzPQchT9DCEIpbIiYQRqLE5lYMQPwYn3jq5L7OZUPQS4UzRmeYJoxYl+NQ==",
+        "npm_subagent_published_utc: '2026-10-16T15:21:23.629Z'",
+        "npm_subagent_integrity: sha512-5GK78g89o2FCuelZjgRulww+5M0uq0F7RkD9/iGCyvhaTT2zTwmqthVdk8ya9Wc4fA6Jpl8k3ibqr+YbMlZdcg==",
+        "npm_core_published_utc: '2026-10-16T15:19:30.406Z'",
+        "npm_core_integrity: sha512-zeiBPDLj6cb9VaFye+1YNGVf/GYH61uTp+tHD2Pwl1+IUz7TXlC7EDGpzNT+GqlkPnDr7gQOmS40HyoYzw3T0A==",
+        "derived_patch_meta_sha256: 44c46ab575f598effc2ca6f00d1b56e60106ab1b387e2c6ba9648c9f2ff9280c",
+        "derived_patch_ask_sha256: 1e7ab9454a3fabf403654e4c377ec0f0579d14802c155a1da93c49a2b1fe9eb3",
+        "derived_patch_core_sha256: cf5e116a07abbe388ceb783dcaa5269d19334c828486120b02118b83612357e6",
+        "derived_patch_footer_sha256: 4508468a3eb7823c51e849002a4a637e92ef5575b748e0171482c8daccab42eb",
+        "derived_patch_subagent_sha256: 9447255b8af98424151fbe1e6e4a3d7684ff9d0e7642bc25e313734b144278c2",
         "package_proof: scripts/verify-pi-archimedes-package-patches.sh",
     ):
         assert evidence in profile
@@ -706,19 +718,74 @@ def test_archimedes_result_port_maintained_fork_gate_requires_exact_evidence():
     assert "do not gate Q21" in contract
 
 
-def test_langfuse_runtime_patch_uses_zero_context_without_losing_source_removals():
-    patch = (PATCHES / "pi-langfuse-1.5.14.patch").read_text(encoding="utf-8")
-    hunks: list[list[str]] = []
-    current: list[str] | None = None
-    for line in patch.splitlines():
-        if line.startswith("@@"):
-            current = []
-            hunks.append(current)
-        elif line.startswith("diff --git"):
-            current = None
-        elif current is not None:
-            current.append(line)
+def test_projection_context_and_added_source_whitespace():
+    # Unified context markers are syntax, not added source indentation.
+    for path in PATCHES.glob("*.patch"):
+        lines = path.read_text().splitlines()
+        assert any(line.startswith(" ") for line in lines), path.name
+        assert any(line.startswith("-") and not line.startswith("---") for line in lines), path.name
+        for line in lines:
+            if not line.startswith("+") or line.startswith("+++"):
+                continue
+            source = line[1:]
+            assert source == source.rstrip(" \t"), (path.name, line)
+            indentation = source[:len(source) - len(source.lstrip(" \t"))]
+            assert " \t" not in indentation, (path.name, line)
 
-    assert hunks
-    assert all(not any(line.startswith(" ") for line in hunk) for hunk in hunks)
-    assert any(any(line.startswith("-") for line in hunk) for hunk in hunks)
+
+@pytest.mark.parametrize("package", ["meta", "ask", "footer", "subagent", "langfuse"])
+def test_actual_projection_source_round_trip(tmp_path, patch_implementation, package):
+    """Exercise real production hunks, not simplified applicator fixtures."""
+    langfuse = package == "langfuse"
+    fork = LANGFUSE_VENDOR if langfuse else ARCHIMEDES_VENDOR
+    base = LANGFUSE_UPSTREAM_170 if langfuse else ARCHIMEDES_UPSTREAM_2111
+    prefix = "" if langfuse else ("meta" if package == "meta" else f"packages/{package}")
+    patch_name = "pi-langfuse-1.7.0.patch" if langfuse else f"pi-archimedes-{package}-2.11.1.patch"
+    sections = (PATCHES / patch_name).read_text().split("diff --git ")[1:]
+    source_sections = [part for part in sections if shlex.split(part.splitlines()[0])[0].startswith("a/src/")]
+    assert source_sections
+    patch = "".join("diff --git " + part for part in source_sections)
+    fixture = tmp_path / "package"
+    fixture.mkdir()
+    archive = subprocess.run(
+        ["git", "-C", str(fork), "archive", base, "--", f"{prefix}/src".lstrip("/")],
+        check=True, capture_output=True,
+    ).stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as entries:
+        for entry in entries.getmembers():
+            if not entry.isfile():
+                continue
+            relative = Path(entry.name).relative_to(prefix or ".")
+            assert relative.parts[0] == "src" and ".." not in relative.parts
+            destination = fixture / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(entries.extractfile(entry).read())
+
+    def snapshot():
+        return {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in fixture.rglob("*") if path.is_file()}
+
+    original = snapshot()
+    for direction in ("--forward", "--reverse"):
+        result = subprocess.run(
+            [str(patch_implementation), "--verbose", "--force", "--fuzz=0", direction, "-p1", "-d", str(fixture)],
+            input=patch, text=True, capture_output=True, check=True,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+        assert not re.search(r"offset|fuzz", result.stdout + result.stderr, re.I)
+        if direction == "--forward":
+            for section in source_sections:
+                relative = shlex.split(section.splitlines()[0])[1].removeprefix("b/")
+                assert (fixture / relative).read_bytes() == (fork / prefix / relative).read_bytes(), relative
+    restored = snapshot()
+    changed = sorted(path for path in original.keys() | restored.keys() if original.get(path) != restored.get(path))
+    assert not changed, f"{patch_implementation}: reverse changed {changed}"
+
+
+def test_package_proofs_cover_path_and_system_patch_engines():
+    for proof in (LANGFUSE_PACKAGE_PROOF, ARCHIMEDES_PACKAGE_PROOF):
+        source = proof.read_text()
+        assert '/usr/bin/patch' in source
+        assert '"${PATCH_ENGINES[@]}"' in source
+        assert '--verbose' in source
+        assert 'diff -qr' in source

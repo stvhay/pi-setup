@@ -13,6 +13,7 @@ import type {
   SubagentThinkingLevel,
 } from "@pi-archimedes/subagent/types";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
+import { boundedSubagentText, managedSubagentReport, resultExecutionOutcome, startupTimeoutMs } from "./lib/subagent-report.ts";
 import { persistDelegatedResult as persistRuntimeDelegatedResult } from "./lib/runtime-artifacts.ts";
 
 const agentDir = getAgentDir();
@@ -170,11 +171,6 @@ function callerLimit(input: SubagentInput, index: number, key: SubagentLimitKey)
   return values.length ? Math.min(...values) : undefined;
 }
 
-function startupTimeoutMs(error: string | undefined): number | undefined {
-  const match = error?.match(/no output within ([0-9]+(?:\.[0-9]+)?) minutes? of startup/i);
-  return match ? Number(match[1]) * 60_000 : undefined;
-}
-
 function terminationEvidence(
   input: SubagentInput,
   result: SubagentResult,
@@ -256,14 +252,6 @@ function terminationEvidence(
     ...(observed !== undefined ? { observed } : {}),
     usageState,
   };
-}
-
-function resultExecutionOutcome(result: SubagentResult): "succeeded" | "failed" | "unavailable" {
-  if ((result.exitCode ?? 1) === 0) return "succeeded";
-  const reason = result.termination?.reason;
-  return result.exitCode === 124 || reason === "time-limit" || reason === "idle-limit" || reason === "user-abort" || startupTimeoutMs(result.error)
-    ? "unavailable"
-    : "failed";
 }
 
 function trustedRouteReceipt(
@@ -985,7 +973,16 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
       input.outputContract !== undefined
       || (Array.isArray(input.tasks) && input.tasks.some((task) => task.outputContract !== undefined))
     );
-    const baseContent = normalizeParallelOutputs ? event.content.slice(0, 1) : event.content;
+    const omitSingleOutput = details.mode === "single"
+      && input.outputContract !== undefined
+      && input.outputContract !== "inline"
+      && outputContracts.has(input.outputContract);
+    const singleResult = details.results[0];
+    const baseContent = omitSingleOutput && singleResult
+      ? [{ type: "text" as const, text: `Subagent ${resultExecutionOutcome(singleResult)} (${input.outputContract}).${singleResult.error ? `\n${boundedSubagentText(singleResult.error, 4000)}` : ""}` }]
+      : (normalizeParallelOutputs ? event.content.slice(0, 1) : event.content).map((part) =>
+        part.type === "text" ? { ...part, text: boundedSubagentText(part.text) } : part
+      );
     const inlineOutputMessages = normalizeParallelOutputs
       ? parallelInlineOutputMessages(input, details, outputContracts)
       : [];
@@ -1006,6 +1003,10 @@ export default function subagentErrorWorkaround(pi: ExtensionAPI, dependencies: 
         ...artifactMessages,
       ],
       details,
+      structuredContent: managedSubagentReport(
+        event.structuredContent, details, input, outputContracts,
+        (result, index) => terminationEvidence(input, result, index),
+      ),
     };
     if (synthesized || details.results.some((result) => result.exitCode !== 0)) return { ...patch, isError: true };
     return patch;

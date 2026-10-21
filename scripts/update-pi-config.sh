@@ -267,7 +267,7 @@ reinstall_langfuse_patch_base() {
   local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
   if [ "$MODE" = dry-run ]; then
     run rm -rf "$package_dir"
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.14
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.7.0
     return
   fi
 
@@ -275,8 +275,8 @@ reinstall_langfuse_patch_base() {
   backup=$(mktemp -d "$DEST/agent/npm/.langfuse-reinstall.XXXXXX")
   LANGFUSE_REINSTALL_BACKUP=$backup
   mv "$package_dir" "$backup/pi-langfuse"
-  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.14 \
-    && package_is_exact "$package_dir/package.json" pi-langfuse 1.5.14; then
+  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.7.0 \
+    && package_is_exact "$package_dir/package.json" pi-langfuse 1.7.0; then
     return
   fi
 
@@ -288,15 +288,15 @@ reinstall_langfuse_patch_base() {
 install_langfuse_patch_base() {
   local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
   local package_json="$package_dir/package.json"
-  local patch_file="$PACKAGE_PATCH_DIR/pi-langfuse-1.5.14.patch"
-  if package_is_exact "$package_json" pi-langfuse 1.5.14; then
+  local patch_file="$PACKAGE_PATCH_DIR/pi-langfuse-1.7.0.patch"
+  if package_is_exact "$package_json" pi-langfuse 1.7.0; then
     if package_patch_is_clean_or_applied "$package_dir" "$patch_file"; then
-      echo "pi-langfuse 1.5.14: already installed"
+      echo "pi-langfuse 1.7.0: already installed"
     else
       reinstall_langfuse_patch_base
     fi
   else
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.5.14
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.7.0
   fi
 }
 
@@ -307,7 +307,7 @@ reinstall_archimedes_patch_base() {
   local subagent_dir="$modules/@pi-archimedes/subagent"
   if [ "$MODE" = dry-run ]; then
     run rm -rf "$meta_dir" "$ask_dir" "$core_dir" "$footer_dir" "$subagent_dir"
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.1.0
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.11.1
     return
   fi
 
@@ -320,12 +320,12 @@ reinstall_archimedes_patch_base() {
     mv "$modules/@pi-archimedes/$package" "$backup/@pi-archimedes/$package" \
       || { restore_archimedes_reinstall_backup; return 1; }
   done
-  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.1.0 \
-    && package_is_exact "$meta_dir/package.json" pi-archimedes 2.1.0 \
-    && package_is_exact "$ask_dir/package.json" @pi-archimedes/ask 2.1.0 \
-    && package_is_exact "$core_dir/package.json" @pi-archimedes/core 2.1.0 \
-    && package_is_exact "$footer_dir/package.json" @pi-archimedes/footer 2.1.0 \
-    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 2.1.0; then
+  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.11.1 \
+    && package_is_exact "$meta_dir/package.json" pi-archimedes 2.11.1 \
+    && package_is_exact "$ask_dir/package.json" @pi-archimedes/ask 2.11.1 \
+    && package_is_exact "$core_dir/package.json" @pi-archimedes/core 2.11.1 \
+    && package_is_exact "$footer_dir/package.json" @pi-archimedes/footer 2.11.1 \
+    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 2.11.1; then
     return
   fi
 
@@ -339,31 +339,31 @@ install_archimedes_patch_base() {
   local meta_dir="$modules/pi-archimedes" ask_dir="$modules/@pi-archimedes/ask"
   local core_dir="$modules/@pi-archimedes/core" footer_dir="$modules/@pi-archimedes/footer"
   local subagent_dir="$modules/@pi-archimedes/subagent"
-  local meta_patch="$PACKAGE_PATCH_DIR/pi-archimedes-meta-2.1.0.patch"
-  local ask_patch="$PACKAGE_PATCH_DIR/pi-archimedes-ask-2.1.0.patch"
-  local core_patch="$PACKAGE_PATCH_DIR/pi-archimedes-core-2.1.0.patch"
-  local footer_patch="$PACKAGE_PATCH_DIR/pi-archimedes-footer-2.1.0.patch"
-  local subagent_patch="$PACKAGE_PATCH_DIR/pi-archimedes-subagent-2.1.0.patch"
-  if package_is_exact "$meta_dir/package.json" pi-archimedes 2.1.0 \
-    && package_is_exact "$ask_dir/package.json" @pi-archimedes/ask 2.1.0 \
-    && package_is_exact "$core_dir/package.json" @pi-archimedes/core 2.1.0 \
-    && package_is_exact "$footer_dir/package.json" @pi-archimedes/footer 2.1.0 \
-    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 2.1.0; then
+  local meta_patch="$PACKAGE_PATCH_DIR/pi-archimedes-meta-2.11.1.patch"
+  local ask_patch="$PACKAGE_PATCH_DIR/pi-archimedes-ask-2.11.1.patch"
+  local core_patch="$PACKAGE_PATCH_DIR/pi-archimedes-core-2.11.1.patch"
+  local footer_patch="$PACKAGE_PATCH_DIR/pi-archimedes-footer-2.11.1.patch"
+  local subagent_patch="$PACKAGE_PATCH_DIR/pi-archimedes-subagent-2.11.1.patch"
+  if package_is_exact "$meta_dir/package.json" pi-archimedes 2.11.1 \
+    && package_is_exact "$ask_dir/package.json" @pi-archimedes/ask 2.11.1 \
+    && package_is_exact "$core_dir/package.json" @pi-archimedes/core 2.11.1 \
+    && package_is_exact "$footer_dir/package.json" @pi-archimedes/footer 2.11.1 \
+    && package_is_exact "$subagent_dir/package.json" @pi-archimedes/subagent 2.11.1; then
     if package_patch_is_clean_or_applied "$meta_dir" "$meta_patch" \
       && package_patch_is_clean_or_applied "$ask_dir" "$ask_patch" \
       && package_patch_is_clean_or_applied "$core_dir" "$core_patch" \
       && package_patch_is_clean_or_applied "$footer_dir" "$footer_patch" \
       && package_patch_is_clean_or_applied "$subagent_dir" "$subagent_patch"; then
-      echo "pi-archimedes 2.1.0: already installed"
-      echo "@pi-archimedes/ask 2.1.0: already installed"
-      echo "@pi-archimedes/core 2.1.0: already installed"
-      echo "@pi-archimedes/footer 2.1.0: already installed"
-      echo "@pi-archimedes/subagent 2.1.0: already installed"
+      echo "pi-archimedes 2.11.1: already installed"
+      echo "@pi-archimedes/ask 2.11.1: already installed"
+      echo "@pi-archimedes/core 2.11.1: already installed"
+      echo "@pi-archimedes/footer 2.11.1: already installed"
+      echo "@pi-archimedes/subagent 2.11.1: already installed"
     else
       reinstall_archimedes_patch_base
     fi
   else
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.1.0
+    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.11.1
   fi
 }
 
@@ -652,12 +652,12 @@ fi
 # Reconcile only missing, mismatched, or stale version-locked patch bases.
 # Keep their npm manifest entries exact before and after each install so npm cannot
 # reify a newly released version of one patch base while installing the other.
-pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.1.0"
-pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.5.14"
+pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.11.1"
+pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.7.0"
 install_archimedes_patch_base
-pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.1.0"
+pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.11.1"
 install_langfuse_patch_base
-pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.5.14"
+pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.7.0"
 if [ "$MODE" = dry-run ]; then
   run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
 elif env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"; then

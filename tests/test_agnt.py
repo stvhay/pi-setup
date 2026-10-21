@@ -1402,6 +1402,8 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
 def test_direct_start_and_status_use_local_authority_without_langfuse(
     agnt, monkeypatch, tmp_path
 ):
+    # Link snapshots must inspect test-owned state, not the developer's dirty gitlinks.
+    monkeypatch.chdir(tmp_path)
     direct_start = agnt.direct_start
     improvement = sys.modules["agnt_lib.improvement"]
     quality = sys.modules["agnt_lib.quality"]
@@ -1460,11 +1462,14 @@ def _closeout_read_only_git(_root, args):
 def test_direct_closeout_reads_local_success_without_langfuse(
     agnt, monkeypatch, tmp_path
 ):
+    monkeypatch.chdir(tmp_path)
     direct_start = agnt.direct_start
     direct_closeout = agnt.direct_closeout
     improvement = sys.modules["agnt_lib.improvement"]
     quality = sys.modules["agnt_lib.quality"]
     bead = {"id": "pi-test.close-local", "status": "in_progress"}
+    (tmp_path / ".beads").mkdir()
+    (tmp_path / ".beads" / "issues.jsonl").write_text(json.dumps(bead) + "\n")
 
     def unavailable():
         raise improvement.LangfuseError("service unavailable")
@@ -3883,6 +3888,7 @@ def test_route_reports_no_candidate_when_constraints_eliminate_all_models():
 
 @pytest.fixture
 def direct_start_state(agnt, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     quality = sys.modules["agnt_lib.quality"]
     improvement = sys.modules["agnt_lib.improvement"]
     monkeypatch.setattr(quality, "resolve_runtime_directory", lambda _kind: tmp_path / "quality")

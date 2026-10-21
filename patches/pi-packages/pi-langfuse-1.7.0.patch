@@ -1,87 +1,224 @@
 diff --git a/package.json b/package.json
-index e75afe9..d9f19cf 100644
+index 348c9da..4669033 100644
 --- a/package.json
 +++ b/package.json
-@@ -15,0 +16,4 @@
+@@ -13,6 +13,10 @@
+ 	"type": "module",
+ 	"packageManager": "npm@11.12.1",
+ 	"main": "index.ts",
 +	"exports": {
 +		".": "./index.ts",
 +		"./quality": "./src/quality.ts"
 +	},
+ 	"files": [
+ 		"index.ts",
+ 		"src/",
+@@ -62,7 +66,7 @@
+ 		"node": ">=22"
+ 	},
+ 	"devDependencies": {
+-		"@earendil-works/pi-coding-agent": "^1.0.0",
++		"@earendil-works/pi-coding-agent": "1.3.0",
+ 		"tsx": "^4.19.0",
+ 		"typescript": "^6.0.3"
+ 	}
 diff --git a/src/capture-policy.ts b/src/capture-policy.ts
-index 1cd2899..27fb7da 100644
+index e4b38cc..31ae17e 100644
 --- a/src/capture-policy.ts
 +++ b/src/capture-policy.ts
-@@ -6,0 +7 @@ export interface CapturePolicy {
+@@ -4,6 +4,7 @@ export interface CapturePolicy {
+   readonly captureInputs: boolean;
+   readonly captureOutputs: boolean;
+   readonly captureToolIo: boolean;
 +  readonly captureToolIoBytes: boolean;
-@@ -37,0 +39 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+   readonly captureSystemPrompt: boolean;
+   readonly captureCwd: boolean;
+   readonly captureSourceMetadata: boolean;
+@@ -46,6 +47,7 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+     captureInputs: false,
+     captureOutputs: false,
+     captureToolIo: false,
 +    captureToolIoBytes: false,
-@@ -45,0 +48 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+     captureSystemPrompt: false,
+     captureCwd: false,
+     captureSourceMetadata: false,
+@@ -55,6 +57,7 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+     captureInputs: true,
+     captureOutputs: false,
+     captureToolIo: false,
 +    captureToolIoBytes: false,
-@@ -53,0 +57 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+     captureSystemPrompt: false,
+     captureCwd: false,
+     captureSourceMetadata: false,
+@@ -64,6 +67,7 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+     captureInputs: true,
+     captureOutputs: true,
+     captureToolIo: false,
 +    captureToolIoBytes: false,
-@@ -61,0 +66 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+     captureSystemPrompt: false,
+     captureCwd: false,
+     captureSourceMetadata: false,
+@@ -73,6 +77,7 @@ const PRESETS: Record<PrivacyPreset, CapturePolicy> = {
+     captureInputs: true,
+     captureOutputs: true,
+     captureToolIo: true,
 +    captureToolIoBytes: true,
-@@ -71,0 +77 @@ const FLAG_TO_FIELD = {
+     captureSystemPrompt: true,
+     captureCwd: true,
+     captureSourceMetadata: false,
+@@ -84,6 +89,7 @@ const FLAG_TO_FIELD = {
+   LANGFUSE_CAPTURE_INPUTS: "captureInputs",
+   LANGFUSE_CAPTURE_OUTPUTS: "captureOutputs",
+   LANGFUSE_CAPTURE_TOOL_IO: "captureToolIo",
 +  LANGFUSE_CAPTURE_TOOL_IO_BYTES: "captureToolIoBytes",
-@@ -130,0 +137 @@ export function applyCapturePolicy(
+   LANGFUSE_CAPTURE_SYSTEM_PROMPT: "captureSystemPrompt",
+   LANGFUSE_CAPTURE_CWD: "captureCwd",
+   LANGFUSE_CAPTURE_SOURCE_METADATA: "captureSourceMetadata",
+@@ -151,6 +157,7 @@ function redactMetadata(metadata: Record<string, unknown> | undefined, policy: C
+ export function applyCapturePolicy(
+   payload: RawTelemetryPayload,
+   policy: CapturePolicy = createCapturePolicy(),
 +  options: { preserveInputMedia?: boolean } = {},
-@@ -137 +144 @@ export function applyCapturePolicy(
--    captured.input = redactValue(payload.input);
-+    captured.input = redactValue(payload.input, { preserveMedia: options.preserveInputMedia });
+ ): CapturedTelemetryPayload {
+   const redactOptions = redactOptionsFor(policy);
+   const captured: CapturedTelemetryPayload = {
+@@ -158,7 +165,7 @@ export function applyCapturePolicy(
+   };
+ 
+   if (policy.captureInputs && "input" in payload) {
+-    captured.input = redactValue(payload.input, redactOptions);
++    captured.input = redactValue(payload.input, { ...redactOptions, preserveMedia: options.preserveInputMedia });
+   }
+   if (policy.captureOutputs && "output" in payload) {
+     captured.output = redactValue(payload.output, redactOptions);
 diff --git a/src/commands.ts b/src/commands.ts
-index eca299a..e9a2436 100644
+index 1ce6eef..5ca39e4 100644
 --- a/src/commands.ts
 +++ b/src/commands.ts
-@@ -84,0 +85 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+@@ -82,6 +82,7 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureInputs: false,
+         captureOutputs: false,
+         captureToolIo: false,
 +        captureToolIoBytes: false,
-@@ -94,0 +96 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureSystemPrompt: false,
+         captureCwd: false,
+       },
+@@ -92,6 +93,7 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureInputs: true,
+         captureOutputs: false,
+         captureToolIo: false,
 +        captureToolIoBytes: false,
-@@ -104,0 +107 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureSystemPrompt: false,
+         captureCwd: false,
+       },
+@@ -102,6 +104,7 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureInputs: true,
+         captureOutputs: true,
+         captureToolIo: false,
 +        captureToolIoBytes: false,
-@@ -114,0 +118 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureSystemPrompt: false,
+         captureCwd: false,
+       },
+@@ -112,6 +115,7 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureInputs: true,
+         captureOutputs: true,
+         captureToolIo: true,
 +        captureToolIoBytes: true,
-@@ -125,0 +130 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+         captureSystemPrompt: true,
+         captureCwd: true,
+       },
+@@ -123,6 +127,7 @@ function inferPreset(policy: CapturePolicy): PrivacyPreset | "custom" {
+       policy.captureInputs === presetPolicy.captureInputs &&
+       policy.captureOutputs === presetPolicy.captureOutputs &&
+       policy.captureToolIo === presetPolicy.captureToolIo &&
 +      policy.captureToolIoBytes === presetPolicy.captureToolIoBytes &&
-@@ -139,0 +145 @@ function describePolicy(policy: CapturePolicy) {
+       policy.captureSystemPrompt === presetPolicy.captureSystemPrompt &&
+       policy.captureCwd === presetPolicy.captureCwd
+     ) {
+@@ -137,6 +142,7 @@ function describePolicy(policy: CapturePolicy) {
+     `captureInputs: ${policy.captureInputs}`,
+     `captureOutputs: ${policy.captureOutputs}`,
+     `captureToolIo: ${policy.captureToolIo}`,
 +    `captureToolIoBytes: ${policy.captureToolIoBytes}`,
-@@ -218,0 +225 @@ function formatStatus(configPath: string, env: Record<string, string | undefined
+     `captureSystemPrompt: ${policy.captureSystemPrompt}`,
+     `captureCwd: ${policy.captureCwd}`,
+     `captureSourceMetadata: ${policy.captureSourceMetadata}`,
+@@ -218,6 +224,7 @@ function formatStatus(configPath: string, env: Record<string, string | undefined
+     `  inputs: ${flag(policy.captureInputs)}`,
+     `  outputs: ${flag(policy.captureOutputs)}`,
+     `  tool IO: ${flag(policy.captureToolIo)}`,
 +    `  tool IO bytes: ${flag(policy.captureToolIoBytes)}`,
+     `  system prompt: ${flag(policy.captureSystemPrompt)}`,
+     `  cwd: ${flag(policy.captureCwd)}`,
+     `  absolute paths: ${flag(policy.capturePaths)}`,
 diff --git a/src/handlers/generation.ts b/src/handlers/generation.ts
-index 5f2b464..dd6615b 100644
+index 502e738..c9b0e92 100644
 --- a/src/handlers/generation.ts
 +++ b/src/handlers/generation.ts
-@@ -17,0 +18 @@ import { applyCapturePolicy } from "../capture-policy.js";
+@@ -18,6 +18,7 @@ import {
+ } from "../utils.js";
+ import type { GenerationState, ObservationUpdate } from "../types.js";
+ import { applyCapturePolicy } from "../capture-policy.js";
 +import { redactString } from "../redaction.js";
-@@ -51,0 +53,2 @@ export async function startGeneration(event: Record<string, unknown>) {
+ 
+ export function getOpenGeneration(): GenerationState | undefined {
+   if (state.isTracingDisabled || !state.agentState) {
+@@ -72,12 +73,15 @@ export async function startGeneration(event: Record<string, unknown>, selectedMo
+             ? false
+             : undefined,
+     }) as Record<string, unknown>;
 +    const capturePolicy = getCapturePolicy();
 +    const preserveInputMedia = capturePolicy.captureInputs;
-@@ -54 +57 @@ export async function startGeneration(event: Record<string, unknown>) {
+     const captured = applyCapturePolicy(
+       {
 -        input: shapePayload(payload),
 +        input: shapePayload(payload, { preserveMedia: preserveInputMedia }),
-@@ -57 +60,2 @@ export async function startGeneration(event: Record<string, unknown>) {
+         metadata,
+       },
 -      getCapturePolicy(),
 +      capturePolicy,
 +      { preserveInputMedia },
-@@ -108 +112 @@ export function updateGenerationMetadata(event: Record<string, unknown>) {
+     );
+ 
+     const parent = state.agentState.activeTurn ?? state.agentState.activeAttempt ?? state.agentState.root;
+@@ -128,7 +132,7 @@ export function updateGenerationMetadata(event: Record<string, unknown>) {
+         generation.observation.update({ 
+           metadata: generation.metadata,
+           level: "ERROR",
 -          statusMessage: String(event.error ?? metadata.statusMessage ?? "Provider request failed")
 +          statusMessage: redactString(String(event.error ?? metadata.statusMessage ?? "Provider request failed"))
-@@ -131 +135 @@ export function updateGenerationMetadata(event: Record<string, unknown>) {
+         }).end();
+         generation.ended = true;
+       } else {
+@@ -151,7 +155,7 @@ export function updateGenerationMetadata(event: Record<string, unknown>) {
+       generation.observation.update({ 
+         metadata: generation.metadata,
+         level: "ERROR",
 -        statusMessage: String(event.error ?? metadata.statusMessage ?? "Provider request failed")
 +        statusMessage: redactString(String(event.error ?? metadata.statusMessage ?? "Provider request failed"))
+       }).end();
+       generation.ended = true;
+     } else {
 diff --git a/src/handlers/tool.ts b/src/handlers/tool.ts
-index 9730f7c..2f3a4e5 100644
+index 953b3f4..c4c89f9 100644
 --- a/src/handlers/tool.ts
 +++ b/src/handlers/tool.ts
-@@ -8 +7,0 @@ import {
--  shapePayload,
-@@ -11 +10,2 @@ import {
+@@ -7,15 +7,46 @@ import {
+   getToolInput,
+   shapePayload,
+   extractTextContent,
+-  truncate,
 -  estimatePayloadBytes,
 +  prepareToolPayload,
 +  type PreparedToolPayload,
-@@ -15 +15 @@ import {
--import { applyCapturePolicy } from "../capture-policy.js";
-+import { applyCapturePolicy, type CapturePolicy } from "../capture-policy.js";
-@@ -17,0 +18,31 @@ import { redactString } from "../redaction.js";
+   getCapturePolicy,
+   getLimits,
+   extractToolUsage,
+ } from "../utils.js";
+-import { applyCapturePolicy, redactOptionsFor } from "../capture-policy.js";
++import { applyCapturePolicy, redactOptionsFor, type CapturePolicy } from "../capture-policy.js";
+ import { redactString } from "../redaction.js";
+ 
 +const TOOL_PAYLOAD_BYTES_VERSION = 1;
 +
 +function payloadByteMetadata(
@@ -113,161 +250,247 @@ index 9730f7c..2f3a4e5 100644
 +  };
 +}
 +
-@@ -30,2 +61,3 @@ export async function startToolObservation(event: Record<string, unknown>) {
+ export async function startToolObservation(event: Record<string, unknown>) {
+   if (state.isTracingDisabled || !state.agentState?.root) {
+     return;
+@@ -29,16 +60,16 @@ export async function startToolObservation(event: Record<string, unknown>) {
+   try {
+     const toolName = getToolName(event);
+     const parentToolCallId = typeof event.parentToolCallId === "string" ? event.parentToolCallId : undefined;
 -    const toolInput = getToolInput(event);
 -    const shapedInput = shapePayload(toolInput, { maxString: getLimits().maxToolPayload });
 +    const policy = getCapturePolicy();
 +    const preparedInput = prepareToolPayload(getToolInput(event), getLimits().maxToolPayload);
 +    const inputByteMetadata = payloadByteMetadata("input", preparedInput, policy);
-@@ -34 +66 @@ export async function startToolObservation(event: Record<string, unknown>) {
+     const captured = applyCapturePolicy(
+       {
 -        toolInput: shapedInput,
 +        toolInput: preparedInput.value,
-@@ -37 +69 @@ export async function startToolObservation(event: Record<string, unknown>) {
+         metadata: shapePayload({ toolName, toolCallId, parentToolCallId }) as Record<string, unknown>,
+       },
 -      getCapturePolicy(),
 +      policy,
-@@ -39 +70,0 @@ export async function startToolObservation(event: Record<string, unknown>) {
+     );
 -    const inputBytes = estimatePayloadBytes(captured.toolInput, getLimits().maxToolPayload);
-@@ -47 +78 @@ export async function startToolObservation(event: Record<string, unknown>) {
+     const parentTool = parentToolCallId ? state.agentState.activeTools.get(parentToolCallId) : undefined;
+     const parent = parentTool?.observation ?? state.agentState.activeTurn ?? state.agentState.activeAttempt ?? state.agentState.root;
+     const tool = await startChildObservation({
+@@ -47,7 +78,7 @@ export async function startToolObservation(event: Record<string, unknown>) {
+       name: toolName,
+       body: {
+         input: captured.toolInput,
 -        metadata: { ...(captured.metadata ?? {}), inputBytes },
 +        metadata: { ...(captured.metadata ?? {}), ...inputByteMetadata },
-@@ -58 +89 @@ export async function startToolObservation(event: Record<string, unknown>) {
+       },
+       asType: "tool",
+     });
+@@ -58,7 +89,7 @@ export async function startToolObservation(event: Record<string, unknown>) {
+       toolName,
+       ended: false,
+       startedAt: Date.now(),
 -      inputBytes,
 +      inputByteMetadata,
-@@ -86,2 +117 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+       parentToolCallId,
+     });
+   } catch (e) {
+@@ -89,15 +120,15 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+     event.output ??
+     event.result ??
+     event.error ??
 -    event.content ??
 -    event;
 +    event.content;
-@@ -90 +120,3 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+ 
+   try {
+     const policy = getCapturePolicy();
 -    const shapedOutput = shapePayload(output, { maxString: getLimits().maxToolPayload });
-+    const policy = getCapturePolicy();
 +    const preparedOutput = prepareToolPayload(output, getLimits().maxToolPayload);
 +    const outputByteMetadata = payloadByteMetadata("output", preparedOutput, policy);
-@@ -93 +125 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+     const captured = applyCapturePolicy(
+       {
 -        toolOutput: shapedOutput,
 +        toolOutput: preparedOutput.value,
-@@ -100 +132 @@ export async function finishToolObservation(event: Record<string, unknown>) {
--      getCapturePolicy(),
-+      policy,
-@@ -102 +133,0 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+         metadata: shapePayload({
+           toolName: activeTool.toolName,
+           toolCallId,
+@@ -107,7 +138,6 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+       },
+       policy,
+     );
 -    const outputBytes = estimatePayloadBytes(captured.toolOutput, getLimits().maxToolPayload);
-@@ -109 +140,5 @@ export async function finishToolObservation(event: Record<string, unknown>) {
--        statusMessage: isError ? redactString(truncate(String(event.error ?? output), 1_000)) : undefined,
-+        statusMessage: isError
+     const durationMs = Math.max(0, Date.now() - activeTool.startedAt);
+ 
+     // Pi's tool_result and tool_execution_end carry only this tool's own usage.
+@@ -144,13 +174,15 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+         output: captured.toolOutput,
+         level: isError ? "ERROR" : "DEFAULT",
+         statusMessage: isError
+-          ? redactString(truncate(String(event.error ?? output), 1_000), redactOptionsFor(policy))
 +          ? policy.captureToolIo
-+            ? redactString(truncate(String(event.error ?? output), 1_000))
++            ? redactString(String(event.error ?? output), { ...redactOptionsFor(policy), maxStringLength: 1_000 })
 +            : "Tool execution failed"
-+          : undefined,
-@@ -113,2 +148,2 @@ export async function finishToolObservation(event: Record<string, unknown>) {
+           : undefined,
+         metadata: {
+           ...(captured.metadata ?? {}),
+           durationMs,
 -          inputBytes: activeTool.inputBytes,
 -          outputBytes,
 +          ...activeTool.inputByteMetadata,
 +          ...outputByteMetadata,
+         },
+       })
+       .end();
 diff --git a/src/langfuse.ts b/src/langfuse.ts
-index 2bc9eb4..26a75be 100644
+index 009dbb3..a6502e6 100644
 --- a/src/langfuse.ts
 +++ b/src/langfuse.ts
-@@ -3,0 +4 @@ import { randomUUID } from "node:crypto";
+@@ -1,6 +1,7 @@
+ import type { LangfuseRuntime, LangfuseScoreClient, PendingScore } from "./types.js";
+ import { state } from "./state.js";
+ import { randomUUID } from "node:crypto";
 +import { redactValue } from "./redaction.js";
-@@ -71,0 +73,3 @@ const MAX_SCORE_BATCH_SIZE = 100;
-+// Legacy POST /api/public/ingestion batches are limited to 3.5 MB.
+ 
+ let runtime: LangfuseRuntime | null = null;
+ let registeredContextManager: OtelContextManager | null = null;
+@@ -70,13 +71,13 @@ const DEFAULT_SCORE_FLUSH_AT = 10;
+ const DEFAULT_SCORE_FLUSH_INTERVAL_MS = 1_000;
+ const MAX_SCORE_QUEUE_SIZE = 100_000;
+ const MAX_SCORE_BATCH_SIZE = 100;
+-// Langfuse gateways (incl. langfuse-dx.wair.ac.cn) reject ingestion bodies above
+-// ~4.5MB with HTTP 413. Keep the default chunk budget safely below that limit.
+-const DEFAULT_MAX_INGESTION_BATCH_BYTES = 4 * 1024 * 1024;
+-// Hard ceiling for the whole REST fallback payload. Above this the fallback is
+-// pointless (it would need dozens of requests during a bounded shutdown) and is
+-// skipped with a warning.
+-const DEFAULT_MAX_FALLBACK_TOTAL_BYTES = 32 * 1024 * 1024;
++// Shared hard bound for scores and REST fallback, including the JSON envelope.
 +const MAX_INGESTION_REQUEST_BYTES = 3_000_000;
-+const EMPTY_INGESTION_BODY_BYTES = Buffer.byteLength('{"batch":[]}');
-@@ -73,0 +78 @@ let shutdownStepTimeoutMs = DEFAULT_SHUTDOWN_STEP_TIMEOUT_MS;
++const DEFAULT_MAX_INGESTION_BATCH_BYTES = MAX_INGESTION_REQUEST_BYTES;
++// Preserve delivery by default; an operator can opt into a total-size skip.
++// Shutdown remains deadline-bounded regardless of total payload size.
++const DEFAULT_MAX_FALLBACK_TOTAL_BYTES = Number.POSITIVE_INFINITY;
 +const scoreEventIds = new WeakMap<PendingScore, string>();
-@@ -228,9 +233,19 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+ 
+ let shutdownStepTimeoutMs = DEFAULT_SHUTDOWN_STEP_TIMEOUT_MS;
+ 
+@@ -100,11 +101,11 @@ function getScoreShutdownTimeoutMs(): number {
+ }
+ 
+ function getMaxIngestionBatchBytes(): number {
+-  return resolvePositiveEnvNumber(
++  return Math.min(MAX_INGESTION_REQUEST_BYTES, resolvePositiveEnvNumber(
+     "PI_LANGFUSE_MAX_INGESTION_BATCH_BYTES",
+     DEFAULT_MAX_INGESTION_BATCH_BYTES,
+     true,
+-  );
++  ));
+ }
+ 
+ function getMaxFallbackTotalBytes(): number {
+@@ -243,29 +244,58 @@ function ingestionHeaders(rt: LangfuseRuntime): Record<string, string> {
+   };
+ }
+ 
+-async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortSignal): Promise<unknown[]> {
++async function ingestBatch(
++  rt: LangfuseRuntime,
++  batch: unknown[],
++  signal: AbortSignal,
++  continueAfterFailure = false,
++): Promise<unknown[]> {
+   const config = getRuntimeConfig(rt);
+-  if (!config) {
+-    throw new Error("Langfuse runtime config is unavailable");
+-  }
+-
 -  const response = await fetch(`${config.host.replace(/\/$/, "")}/api/public/ingestion`, {
 -    method: "POST",
 -    headers: ingestionHeaders(rt),
 -    body: JSON.stringify({ batch }),
 -    signal,
--  });
++  if (!config) throw new Error("Langfuse runtime config is unavailable");
++  const maxBytes = getMaxIngestionBatchBytes();
++  const errors: unknown[] = [];
++  const accepted = batch.filter((event, index) => {
++    const bytes = serializedBytes({ batch: [event] });
++    if (bytes <= maxBytes) return true;
++    const id = event && typeof event === "object" && typeof (event as { id?: unknown }).id === "string"
++      ? (event as { id: string }).id : `batch[${index}]`;
++    errors.push({
++      id, status: 413,
++      message: `Langfuse ingestion event at batch index ${index} exceeds the ${maxBytes.toLocaleString("en-US")} byte request ceiling (${bytes.toLocaleString("en-US")} request bytes)`,
++    });
++    return false;
+   });
 -  if (!response.ok) {
 -    throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
 -  }
-+  const url = `${config.host.replace(/\/$/, "")}/api/public/ingestion`;
-+  const errors: unknown[] = [];
-+  let serializedEvents: string[] = [];
-+  let bodyBytes = EMPTY_INGESTION_BODY_BYTES;
-+
-+  async function flush() {
-+    if (serializedEvents.length === 0) {
-+      return;
-+    }
-+
-+    const response = await fetch(url, {
-+      method: "POST",
-+      headers: ingestionHeaders(rt),
-+      body: `{"batch":[${serializedEvents.join(",")}]}`,
-+      signal,
-+    });
-+    if (!response.ok) {
-+      throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
-+    }
-@@ -238,3 +253,32 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
+ 
 -  const text = await response.text();
 -  if (!text) {
 -    return [];
-+    const text = await response.text();
-+    if (text) {
-+      const responseBody = JSON.parse(text) as { errors?: unknown[] };
-+      if (Array.isArray(responseBody.errors)) {
-+        errors.push(...responseBody.errors);
-+      }
-+    }
-+    serializedEvents = [];
-+    bodyBytes = EMPTY_INGESTION_BODY_BYTES;
-+  }
-+
-+  for (const [index, event] of batch.entries()) {
-+    const serialized = JSON.stringify(event) ?? "null";
-+    const eventBytes = Buffer.byteLength(serialized);
-+    if (EMPTY_INGESTION_BODY_BYTES + eventBytes > MAX_INGESTION_REQUEST_BYTES) {
-+      const eventId = event && typeof event === "object" && typeof (event as { id?: unknown }).id === "string"
-+        ? (event as { id: string }).id
-+        : `batch[${index}]`;
-+      errors.push({
-+        id: eventId,
-+        status: 413,
-+        message: `Langfuse ingestion event at batch index ${index} exceeds the ${MAX_INGESTION_REQUEST_BYTES.toLocaleString("en-US")} byte request ceiling (${eventBytes.toLocaleString("en-US")} event bytes)`,
++  // Use the upstream splitter for every ingestion path, including scores.
++  for (const chunk of splitIngestionBatch(accepted, maxBytes)) {
++    signal.throwIfAborted();
++    try {
++      const response = await fetch(`${config.host.replace(/\/$/, "")}/api/public/ingestion`, {
++        method: "POST",
++        headers: ingestionHeaders(rt),
++        body: JSON.stringify({ batch: chunk }),
++        signal,
 +      });
-+      continue;
++      if (!response.ok) throw new Error(`Langfuse ingestion failed with HTTP ${response.status}`);
++      const text = await response.text();
++      if (text) {
++        const body = JSON.parse(text) as { errors?: unknown[] };
++        if (Array.isArray(body.errors)) errors.push(...body.errors);
++      }
++    } catch (error) {
++      if (!continueAfterFailure || signal.aborted) throw error;
++      errors.push(error instanceof Error ? error.message : String(error));
 +    }
-+
-+    const separatorBytes = serializedEvents.length > 0 ? 1 : 0;
-+    if (bodyBytes + separatorBytes + eventBytes > MAX_INGESTION_REQUEST_BYTES) {
-+      await flush();
-+    }
-+    bodyBytes += (serializedEvents.length > 0 ? 1 : 0) + eventBytes;
-+    serializedEvents.push(serialized);
-@@ -243,2 +287,12 @@ async function ingestBatch(rt: LangfuseRuntime, batch: unknown[], signal: AbortS
--  const responseBody = JSON.parse(text) as { errors?: unknown[] };
--  return Array.isArray(responseBody.errors) ? responseBody.errors : [];
-+  await flush();
+   }
 +  return errors;
 +}
-+
+ 
+-  const responseBody = JSON.parse(text) as { errors?: unknown[] };
+-  return Array.isArray(responseBody.errors) ? responseBody.errors : [];
 +function scoreEventId(score: PendingScore): string {
 +  const existing = scoreEventIds.get(score);
-+  if (existing) {
-+    return existing;
-+  }
++  if (existing) return existing;
 +  const id = randomUUID();
 +  scoreEventIds.set(score, id);
 +  return id;
-@@ -263 +317 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
+ }
+ 
+ function serializedBytes(value: unknown): number {
+@@ -319,7 +349,7 @@ async function flushPendingScores(rt: LangfuseRuntime, signal: AbortSignal): Pro
+         rt,
+         scores.map((score) => ({
+           type: "score-create",
 -          id: randomUUID(),
 +          id: scoreEventId(score),
-@@ -360,0 +415,4 @@ function mergeMetadata(current: Record<string, unknown> | undefined, next: Recor
+           timestamp: nowIso(),
+           body: score,
+         })),
+@@ -417,19 +447,28 @@ function mergeMetadata(current: Record<string, unknown> | undefined, next: Recor
+   return next ? { ...(current ?? {}), ...next } : current;
+ }
+ 
 +function prepareRestFallbackValue(value: unknown): unknown {
 +  return redactValue(value);
 +}
 +
-@@ -366,2 +424,2 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+ function applyObservationUpdate(record: RestFallbackObservation, body: Record<string, unknown> | undefined) {
+   if (!body) {
+     return;
+   }
+ 
 -  if ("input" in body) record.input = body.input;
 -  if ("output" in body) record.output = body.output;
 +  if ("input" in body) record.input = prepareRestFallbackValue(body.input);
 +  if ("output" in body) record.output = prepareRestFallbackValue(body.output);
-@@ -369 +427,7 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+   if ("metadata" in body && body.metadata && typeof body.metadata === "object") {
 -    record.metadata = mergeMetadata(record.metadata, body.metadata as Record<string, unknown>);
 +    record.metadata = mergeMetadata(
 +      record.metadata,
@@ -276,47 +499,85 @@ index 2bc9eb4..26a75be 100644
 +  }
 +  if (typeof body.model === "string") {
 +    record.model = prepareRestFallbackValue(body.model) as string;
-@@ -371 +434,0 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+   }
 -  if (typeof body.model === "string") record.model = body.model;
-@@ -373 +436 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+   if (body.modelParameters && typeof body.modelParameters === "object") {
 -    record.modelParameters = body.modelParameters as Record<string, string | number>;
 +    record.modelParameters = prepareRestFallbackValue(body.modelParameters) as Record<string, string | number>;
-@@ -382 +445,3 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+   }
+   if (body.usageDetails && typeof body.usageDetails === "object") {
+     record.usageDetails = body.usageDetails as Record<string, number>;
+@@ -438,7 +477,9 @@ function applyObservationUpdate(record: RestFallbackObservation, body: Record<st
+     record.costDetails = body.costDetails as Record<string, number>;
+   }
+   if (typeof body.level === "string") record.level = body.level as RestFallbackObservation["level"];
 -  if (typeof body.statusMessage === "string") record.statusMessage = body.statusMessage;
 +  if (typeof body.statusMessage === "string") {
 +    record.statusMessage = prepareRestFallbackValue(body.statusMessage) as string;
 +  }
-@@ -392,2 +457,2 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
+   const completionStartTime = toIso(body.completionStartTime);
+   if (completionStartTime) record.completionStartTime = completionStartTime;
+ }
+@@ -448,10 +489,13 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
+     return;
+   }
+ 
 -  if ("input" in body) store.trace.input = body.input;
 -  if ("output" in body) store.trace.output = body.output;
 +  if ("input" in body) store.trace.input = prepareRestFallbackValue(body.input);
 +  if ("output" in body) store.trace.output = prepareRestFallbackValue(body.output);
-@@ -395 +460,4 @@ function applyTraceUpdate(store: RestFallbackStore, body: Record<string, unknown
+   if ("metadata" in body && body.metadata && typeof body.metadata === "object") {
 -    store.trace.metadata = mergeMetadata(store.trace.metadata, body.metadata as Record<string, unknown>);
 +    store.trace.metadata = mergeMetadata(
 +      store.trace.metadata,
 +      prepareRestFallbackValue(body.metadata) as Record<string, unknown>,
 +    );
-@@ -413,0 +482 @@ function wrapObservation(
+   }
+ }
+ 
+@@ -544,6 +588,7 @@ function wrapObservation(
+   const id = observation.id || randomUUID();
+   const traceId = observation.traceId || store.trace?.id || randomUUID();
+   const metadata = body?.metadata && typeof body.metadata === "object" ? body.metadata as Record<string, unknown> : undefined;
 +  const fallbackMetadata = prepareRestFallbackValue(metadata) as Record<string, unknown> | undefined;
-@@ -421 +490 @@ function wrapObservation(
+   const record: RestFallbackObservation = {
+     id,
+     traceId,
+@@ -551,7 +596,7 @@ function wrapObservation(
+     type: observationType(asType),
+     startTime: nowIso(),
+     parentObservationId,
 -    metadata: mergeMetadata(metadata, asType && asType !== "generation" && asType !== "span" ? { langfuseObservationType: asType } : undefined),
 +    metadata: mergeMetadata(fallbackMetadata, asType && asType !== "generation" && asType !== "span" ? { langfuseObservationType: asType } : undefined),
-@@ -433,3 +502,3 @@ function wrapObservation(
+   };
+   applyObservationUpdate(record, body);
+ 
+@@ -564,11 +609,11 @@ function wrapObservation(
+       id: traceId,
+       timestamp: record.startTime,
+       name,
 -      input: body?.input,
--      sessionId: typeof metadata?.sessionId === "string" ? metadata.sessionId : state.currentSessionId || undefined,
--      metadata,
 +      input: prepareRestFallbackValue(body?.input),
-+      sessionId: typeof fallbackMetadata?.sessionId === "string" ? fallbackMetadata.sessionId : state.currentSessionId || undefined,
+       sessionId: propagated.sessionId
+-        ?? (typeof metadata?.sessionId === "string" ? metadata.sessionId : state.currentSessionId || undefined),
++        ?? (typeof fallbackMetadata?.sessionId === "string" ? fallbackMetadata.sessionId : state.currentSessionId || undefined),
+       userId: propagated.userId ?? state.config?.userId,
+-      metadata,
 +      metadata: fallbackMetadata,
-@@ -550,0 +620 @@ async function waitForTraceVisibility(
+     };
+   }
+ 
+@@ -696,21 +741,33 @@ async function waitForTraceVisibility(
+   store: RestFallbackStore,
+   traceId: string,
+   signal: AbortSignal,
 +  timeoutMs = OTEL_VISIBILITY_TIMEOUT_MS,
-@@ -552 +622,3 @@ async function waitForTraceVisibility(
+ ): Promise<TraceVisibility> {
 -  const deadline = Date.now() + OTEL_VISIBILITY_TIMEOUT_MS;
 +  if (timeoutMs <= 0) {
 +    return "missing";
 +  }
-@@ -554,5 +626,8 @@ async function waitForTraceVisibility(
+ 
 -  while (true) {
 -    const visibility = await getTraceVisibility(rt, store, traceId, signal);
 -    if (visibility !== "missing") {
@@ -330,7 +591,7 @@ index 2bc9eb4..26a75be 100644
 +      if (visibility !== "missing") {
 +        return visibility;
 +      }
-@@ -560,4 +635,4 @@ async function waitForTraceVisibility(
+ 
 -    const remainingMs = deadline - Date.now();
 -    if (remainingMs <= 0) {
 -      return "missing";
@@ -339,7 +600,7 @@ index 2bc9eb4..26a75be 100644
 +      if (remainingMs <= 0) {
 +        return "missing";
 +      }
-@@ -565 +640,7 @@ async function waitForTraceVisibility(
+ 
 -    await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), signal);
 +      await delay(Math.min(OTEL_VISIBILITY_POLL_INTERVAL_MS, remainingMs), visibilitySignal);
 +    }
@@ -348,10 +609,21 @@ index 2bc9eb4..26a75be 100644
 +      throw error;
 +    }
 +    return "missing";
-@@ -573 +654 @@ function eventTimestamp(record: { endTime?: string; startTime?: string; timestam
+   }
+ }
+ 
+@@ -718,14 +775,29 @@ function eventTimestamp(record: { endTime?: string; startTime?: string; timestam
+   return record.endTime ?? record.startTime ?? record.timestamp ?? nowIso();
+ }
+ 
 -async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal) {
 +async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal, deadline: number) {
-@@ -580 +661,16 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+   const store = rt.restFallback as RestFallbackStore | undefined;
+   if (!store?.trace || store.attempted) {
+     return;
+   }
+   store.attempted = true;
+ 
 -  const visibility = await waitForTraceVisibility(rt, store, store.trace.id, signal);
 +  const trace = store.trace;
 +  trace.input = prepareRestFallbackValue(trace.input);
@@ -369,18 +641,71 @@ index 2bc9eb4..26a75be 100644
 +  const remainingMs = Math.max(0, deadline - Date.now());
 +  const visibilityTimeoutMs = Math.min(OTEL_VISIBILITY_TIMEOUT_MS, Math.floor(remainingMs / 2));
 +  const visibility = await waitForTraceVisibility(rt, store, trace.id, signal, visibilityTimeoutMs);
-@@ -589 +684,0 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+   if (visibility === "visible") {
+     return;
+   }
+@@ -734,7 +806,6 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+     return;
+   }
+ 
 -  const trace = store.trace;
-@@ -778 +873 @@ function doShutdownRuntime(): Promise<void> {
+   const entries: any[] = [
+     {
+       type: "trace-create",
+@@ -793,29 +864,13 @@ async function fallbackToRestIngestion(rt: LangfuseRuntime, signal: AbortSignal)
+     return;
+   }
+ 
+-  const chunks = splitIngestionBatch(entries, getMaxIngestionBatchBytes());
+-  const errors: unknown[] = [];
+-  for (const chunk of chunks) {
+-    if (signal.aborted) {
+-      break;
+-    }
+-    try {
+-      errors.push(...(await ingestBatch(rt, chunk, signal)));
+-    } catch (error) {
+-      if (signal.aborted && isAbortError(error)) {
+-        break;
+-      }
+-      rememberRuntimeError("REST fallback ingestion", error);
+-      console.warn("📊 Langfuse: REST fallback ingestion chunk failed", error);
+-      errors.push(error instanceof Error ? error.message : String(error));
+-    }
+-  }
++  const errors = await ingestBatch(rt, entries, signal, true);
+   if (errors.length > 0) {
+     rememberRuntimeError("REST fallback ingestion", new Error(JSON.stringify(errors)));
+     console.warn("📊 Langfuse: REST fallback ingestion reported errors", errors);
+   } else {
+     debugLog(
+-      `📊 Langfuse: OTel trace ${trace.id} was not visible; wrote fallback trace via REST ingestion (${chunks.length} chunk(s))`,
++      `📊 Langfuse: OTel trace ${trace.id} was not visible; wrote fallback trace via bounded REST ingestion`,
+     );
+   }
+ }
+@@ -952,7 +1007,7 @@ function doShutdownRuntime(): Promise<void> {
+       await runShutdownStep("OTel tracer shutdown", () => rt.tracerProvider?.shutdown?.(), deadline);
+       await runShutdownStep(
+         "REST fallback ingestion",
 -        () => fallbackToRestIngestion(rt, controller.signal),
 +        () => fallbackToRestIngestion(rt, controller.signal, deadline),
+         deadline,
+         controller.signal,
+       );
 diff --git a/src/limits.ts b/src/limits.ts
 index 8c3bf0b..db9cddf 100644
 --- a/src/limits.ts
 +++ b/src/limits.ts
-@@ -19 +19 @@ export interface PayloadLimits {
+@@ -16,7 +16,7 @@ import { state } from "./state.js";
+  * read the resolved values via `getLimits()` rather than the raw constants.
+  */
+ export interface PayloadLimits {
 -  /** Max characters kept per captured string (generation/agent inputs, outputs, system prompt). */
 +  /** Max characters kept per ordinary captured string; complete captured generation-input media is extracted separately. */
+   readonly maxString: number;
+   /** Max characters kept for tool inputs/outputs (their payloads run larger than chat strings). */
+   readonly maxToolPayload: number;
 diff --git a/src/quality.ts b/src/quality.ts
 new file mode 100644
 index 0000000..2fc1413
@@ -1101,14 +1426,26 @@ index 0000000..2fc1413
 +  };
 +}
 diff --git a/src/redaction.ts b/src/redaction.ts
-index 60bf009..ef7892b 100644
+index e01b06b..48b59e9 100644
 --- a/src/redaction.ts
 +++ b/src/redaction.ts
-@@ -10,0 +11 @@ export interface RedactOptions {
+@@ -9,6 +9,7 @@ export interface RedactOptions {
+   maxArrayItems: number;
+   maxObjectKeys: number;
+   maxStringLength: number;
 +  preserveMedia: boolean;
-@@ -19,0 +21 @@ function defaultOptions(): RedactOptions {
+   /** When false, absolute filesystem paths are emitted verbatim instead of `[PATH_HASH:...]`. */
+   redactPaths: boolean;
+ }
+@@ -26,10 +27,19 @@ function defaultOptions(): RedactOptions {
+     maxArrayItems: limits.maxArrayItems,
+     maxObjectKeys: limits.maxObjectKeys,
+     maxStringLength: limits.maxString,
 +    preserveMedia: false,
-@@ -22,0 +25,8 @@ function defaultOptions(): RedactOptions {
+     redactPaths: !(state.config?.capturePolicy?.capturePaths ?? false),
+   };
+ }
+ 
 +const MEDIA_DATA_URI_CANDIDATE_RE = /(?<![A-Za-z0-9])data:[^,\s"\\)}\]]*(?:,[^\s"'\\)}\]]*)?/gi;
 +const MIME_TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
 +const SAFE_MEDIA_TYPE_RE = new RegExp(`^${MIME_TOKEN}/${MIME_TOKEN}$`);
@@ -1117,18 +1454,36 @@ index 60bf009..ef7892b 100644
 +export const MALFORMED_MEDIA_DATA_URI = "[malformed media data URI]";
 +export const OMITTED_MEDIA_DATA_URI = "[media data URI omitted]";
 +
-@@ -38,8 +48,2 @@ export function hashPath(path: string): string {
+ const SECRET_ASSIGNMENT_RE =
+   /\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASS|API[_-]?KEY|PRIVATE[_-]?KEY|AUTH|COOKIE)[A-Z0-9_]*)\s*=\s*([^\s"'`]+)/gi;
+ const PRIVATE_KEY_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
+@@ -45,19 +55,14 @@ export function hashPath(path: string): string {
+   return `[PATH_HASH:${createHash("sha256").update(path).digest("hex").slice(0, 12)}]`;
+ }
+ 
 -function truncate(value: string, maxStringLength: number): string {
 -  return value.length > maxStringLength ? `${value.slice(0, maxStringLength)}... [truncated]` : value;
 -}
 -
 -export function redactString(value: string, options: Partial<RedactOptions> = {}): string {
 -  const merged = { ...defaultOptions(), ...options };
--  const truncated = truncate(value, merged.maxStringLength);
--  return truncated
-+function redactSensitiveText(value: string): string {
-+  return value
-@@ -55,0 +60,66 @@ export function redactString(value: string, options: Partial<RedactOptions> = {}
+-  const secretsRedacted = truncate(value, merged.maxStringLength)
++function redactSensitiveText(value: string, redactPaths = true): string {
++  const secretsRedacted = value
+     .replace(PRIVATE_KEY_RE, REDACTED)
+     .replace(BEARER_RE, REDACTED)
+     .replace(KNOWN_TOKEN_RE, REDACTED)
+     .replace(SECRET_ASSIGNMENT_RE, (_match, key: string) => `${key}=${REDACTED}`);
+ 
+-  if (!merged.redactPaths) {
++  if (!redactPaths) {
+     return secretsRedacted;
+   }
+ 
+@@ -67,6 +72,72 @@ export function redactString(value: string, options: Partial<RedactOptions> = {}
+   });
+ }
+ 
 +function hasValidBase64Encoding(value: string): boolean {
 +  if (!value || !BASE64_VALUE_RE.test(value)) {
 +    return false;
@@ -1186,7 +1541,7 @@ index 60bf009..ef7892b 100644
 +    return value;
 +  }
 +  const merged = { ...defaultOptions(), ...options };
-+  const redactText = (text: string) => truncate(redactSensitiveText(text), merged.maxStringLength);
++  const redactText = (text: string) => truncate(redactSensitiveText(text, merged.redactPaths), merged.maxStringLength);
 +
 +  return mapMediaDataUriSegments(
 +    value,
@@ -1195,29 +1550,61 @@ index 60bf009..ef7892b 100644
 +  );
 +}
 +
+ function visit(value: unknown, options: RedactOptions, depth: number, seen: WeakSet<object>): unknown {
+   if (value === null || value === undefined || typeof value === "number" || typeof value === "boolean") {
+     return value;
 diff --git a/src/types.ts b/src/types.ts
-index 23f266e..61f5969 100644
+index 96588fa..f0ccfa4 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -124 +124 @@ export interface ToolState {
+@@ -132,7 +132,7 @@ export interface ToolState {
+   toolName: string;
+   ended: boolean;
+   startedAt: number;
 -  inputBytes: number;
 +  inputByteMetadata: Record<string, unknown>;
+   parentToolCallId?: string;
+ }
+ 
 diff --git a/src/utils.ts b/src/utils.ts
-index 1f70387..5fba3a5 100644
+index 68cc4fe..470f90a 100644
 --- a/src/utils.ts
 +++ b/src/utils.ts
-@@ -3 +3 @@ import { createCapturePolicy, type CapturePolicy } from "./capture-policy.js";
+@@ -1,7 +1,7 @@
+ import { getLimits } from "./limits.js";
+ import { getUsageOptions, type UsageOptions } from "./usage-options.js";
+ import { createCapturePolicy, redactOptionsFor, type CapturePolicy } from "./capture-policy.js";
 -import { redactValue } from "./redaction.js";
 +import { mapMediaDataUriSegments, redactString, redactValue } from "./redaction.js";
-@@ -41 +41,2 @@ export function shapePayload(
--  } = {},
+ import { state } from "./state.js";
+ 
+ export function getCapturePolicy(): CapturePolicy {
+@@ -39,6 +39,8 @@ export function shapePayload(
+     maxObjectKeys?: number;
+     redact?: boolean;
+     parseJson?: boolean;
 +    preserveMedia?: boolean;
-+    onTruncate?: () => void;  } = {},
-@@ -49,0 +51 @@ export function shapePayload(
++    onTruncate?: () => void;
+   } = {},
+ ): unknown {
+   const limits = getLimits();
+@@ -48,6 +50,7 @@ export function shapePayload(
+   const maxArrayItems = options.maxArrayItems ?? limits.maxArrayItems;
+   const maxObjectKeys = options.maxObjectKeys ?? limits.maxObjectKeys;
+   const budget = { exhausted: false, nodeCount: 0 };
 +  const markTruncated = () => options.onTruncate?.();
-@@ -58,0 +61 @@ export function shapePayload(
+ 
+   function visit(item: unknown, remainingDepth: number, seen: WeakSet<object>): unknown {
+     if (budget.exhausted) {
+@@ -57,17 +60,36 @@ export function shapePayload(
+     budget.nodeCount++;
+     if (budget.nodeCount > maxNodes) {
+       budget.exhausted = true;
 +      markTruncated();
-@@ -63 +66,18 @@ export function shapePayload(
+       return PAYLOAD_TOO_LARGE;
+     }
+ 
+     if (typeof item === "string") {
 -      const truncated = truncate(item, maxString);
 +      if (item.length > maxString) {
 +        markTruncated();
@@ -1234,32 +1621,60 @@ index 1f70387..5fba3a5 100644
 +          ? mapMediaDataUriSegments(item, (media) => media, (text) => truncate(text, maxString))
 +          : truncate(item, maxString)
 +        : redactString(item, {
++            ...redactOptionsFor(getCapturePolicy()),
 +            maxStringLength: maxString,
 +            preserveMedia: options.preserveMedia,
 +          });
-@@ -65 +85 @@ export function shapePayload(
+       if (options.parseJson === false) {
 -        return truncated;
 +        return shaped;
-@@ -67,3 +87,3 @@ export function shapePayload(
+       }
 -      const parsed = tryParseJson(truncated);
 -      if (parsed === truncated) {
 -        return truncated;
 +      const parsed = tryParseJson(shaped);
 +      if (parsed === shaped) {
 +        return shaped;
-@@ -91,0 +112 @@ export function shapePayload(
+       }
+       return visit(parsed, remainingDepth - 1, seen);
+     }
+@@ -90,12 +112,16 @@ export function shapePayload(
+     }
+ 
+     if (remainingDepth <= 0) {
 +      markTruncated();
-@@ -97,0 +119,3 @@ export function shapePayload(
+       return `[max depth ${depth} reached]`;
+     }
+ 
+     if (Array.isArray(item)) {
+       const output: unknown[] = [];
+       const limit = Math.min(item.length, maxArrayItems);
 +      if (item.length > limit) {
 +        markTruncated();
 +      }
-@@ -107,0 +132,3 @@ export function shapePayload(
+       for (let index = 0; index < limit; index++) {
+         output.push(visit(item[index], remainingDepth - 1, seen));
+         if (budget.exhausted) {
+@@ -106,6 +132,9 @@ export function shapePayload(
+     }
+ 
+     if (item instanceof Error) {
 +      if (item.stack && item.stack.length > maxString) {
 +        markTruncated();
 +      }
-@@ -116,0 +144 @@ export function shapePayload(
+       return {
+         name: item.name,
+         message: item.message,
+@@ -115,19 +144,21 @@ export function shapePayload(
+ 
+     if (typeof item === "object") {
+       if (seen.has(item)) {
 +        markTruncated();
-@@ -122,8 +150,9 @@ export function shapePayload(
+         return "[circular]";
+       }
+       seen.add(item);
+ 
+       const output: Record<string, unknown> = {};
 -      let keyCount = 0;
 -      for (const key in item as Record<string, unknown>) {
 -        if (!Object.hasOwn(item, key)) {
@@ -1277,9 +1692,17 @@ index 1f70387..5fba3a5 100644
 +      for (const key of keys.slice(0, limit)) {
 +        output[key] = visit(record[key], remainingDepth - 1, seen);
 +        if (budget.exhausted) {
-@@ -146,0 +176 @@ export function shapePayload(
+           break;
+         }
+       }
+@@ -146,21 +177,49 @@ export function shapePayload(
+         maxStringLength: maxString,
+         maxArrayItems,
+         maxObjectKeys,
 +        preserveMedia: options.preserveMedia,
-@@ -150 +180,17 @@ export function shapePayload(
+       });
+ }
+ 
 -export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPayload): string {
 +export type PayloadBytesState = "available" | "truncated" | "unknown" | "absent";
 +
@@ -1298,7 +1721,7 @@ index 1f70387..5fba3a5 100644
 +  }
 +
 +  let wasTruncated = false;
-@@ -152 +198,16 @@ export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPay
+   try {
 -    return truncate(JSON.stringify(shapePayload(value, { maxString: maxLength }), null, 2), maxLength);
 +    const shaped = shapePayload(value, {
 +      maxString: maxLength,
@@ -1316,26 +1739,45 @@ index 1f70387..5fba3a5 100644
 +      bytes: new TextEncoder().encode(bounded).length,
 +      bytesState: wasTruncated || bounded !== serialized ? "truncated" : "available",
 +    };
-@@ -154 +215 @@ export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPay
+   } catch {
 -    return `[unserializable ${typeof value}]`;
 +    return { value: `[unserializable ${typeof value}]`, bytesState: "unknown" };
-@@ -158,4 +218,0 @@ export function safeSerialize(value: unknown, maxLength = getLimits().maxToolPay
+   }
+ }
+ 
 -export function estimatePayloadBytes(value: unknown, maxLength = getLimits().maxToolPayload): number {
 -  return new TextEncoder().encode(safeSerialize(value, maxLength)).length;
 -}
 -
-@@ -326,2 +383 @@ export function getToolInput(event: Record<string, unknown>): unknown {
+ export function extractTextContent(content: unknown, maxLength?: number): string | undefined {
+   if (typeof content === "string") {
+     return maxLength ? truncate(content, maxLength) : content;
+@@ -325,8 +384,7 @@ export function getToolInput(event: Record<string, unknown>): unknown {
+     event.args ??
+     event.arguments ??
+     event.params ??
 -    (event.call && typeof event.call === "object" ? (event.call as Record<string, unknown>).input : undefined) ??
 -    event
 +    (event.call && typeof event.call === "object" ? (event.call as Record<string, unknown>).input : undefined)
-@@ -355 +411 @@ export function extractModelParameters(payload: unknown): Record<string, string
+   );
+ }
+ 
+@@ -403,7 +461,7 @@ export function extractModelParameters(payload: unknown): Record<string, string
+   ]) {
+     const value = record[key];
+     if (typeof value === "string" || typeof value === "number") {
 -      params[key] = value;
 +      params[key] = typeof value === "string" ? redactString(value) : value;
-@@ -371,0 +428,14 @@ export function getMessageFromEvent(event: Record<string, unknown>): Record<stri
-+function extractUsageCount(
-+  usage: Record<string, unknown>,
-+  keys: readonly string[],
-+): number | undefined {
+     }
+   }
+ 
+@@ -455,8 +513,19 @@ const CACHE_WRITE_1H_KEY = "input_cache_creation_1h";
+  * breakdown; everything else stays on the TTL-agnostic key so dashboards and
+  * custom model prices keyed on it keep working.
+  */
+-function splitCacheWrite(cacheWrite: number, cacheWrite1h: number): Record<string, number> {
+-  if (!cacheWrite) {
++function extractUsageCount(usage: Record<string, unknown>, keys: readonly string[]): number | undefined {
 +  for (const key of keys) {
 +    if (!Object.hasOwn(usage, key)) continue;
 +    const value = usage[key];
@@ -1346,13 +1788,47 @@ index 1f70387..5fba3a5 100644
 +  return undefined;
 +}
 +
-@@ -384,2 +454,2 @@ export function extractUsage(messageOrEvent: Record<string, unknown>): Record<st
++function splitCacheWrite(cacheWrite: number | undefined, cacheWrite1h: number): Record<string, number> {
++  if (cacheWrite === undefined) {
+     return {};
+   }
+ 
+@@ -520,9 +589,9 @@ export function extractUsage(
+   const input = Number(usage.input ?? usage.inputTokens ?? usage.prompt_tokens ?? usage.promptTokens ?? 0);
+   const output = Number(usage.output ?? usage.outputTokens ?? usage.completion_tokens ?? usage.completionTokens ?? 0);
+   const total = Number(usage.total ?? usage.totalTokens ?? usage.total_tokens ?? input + output);
 -  const cacheRead = Number(usage.cacheRead ?? usage.cache_read ?? usage.cachedTokens ?? 0);
 -  const cacheWrite = Number(usage.cacheWrite ?? usage.cache_write ?? 0);
+-  const cacheWrite1h = Number(usage.cacheWrite1h ?? usage.cache_write_1h ?? 0);
 +  const cacheRead = extractUsageCount(usage, ["cacheRead", "cache_read", "cachedTokens"]);
 +  const cacheWrite = extractUsageCount(usage, ["cacheWrite", "cache_write"]);
-@@ -391,2 +461,2 @@ export function extractUsage(messageOrEvent: Record<string, unknown>): Record<st
--    ...(cacheRead ? { cacheRead } : {}),
--    ...(cacheWrite ? { cacheWrite } : {}),
-+    ...(cacheRead !== undefined ? { cacheRead } : {}),
-+    ...(cacheWrite !== undefined ? { cacheWrite } : {}),
++  const cacheWrite1h = extractUsageCount(usage, ["cacheWrite1h", "cache_write_1h"]) ?? 0;
+   const reasoning = Number(
+     usage.reasoning ?? usage.reasoningTokens ?? usage.reasoning_tokens ?? usage.thoughtsTokenCount ?? 0,
+   );
+@@ -531,7 +600,7 @@ export function extractUsage(
+     input,
+     ...splitReasoning(output, reasoning, options.splitReasoningTokens),
+     total,
+-    ...(cacheRead ? { [CACHE_READ_KEY]: cacheRead } : {}),
++    ...(cacheRead !== undefined ? { [CACHE_READ_KEY]: cacheRead } : {}),
+     ...splitCacheWrite(cacheWrite, cacheWrite1h),
+   };
+ }
+@@ -548,11 +617,11 @@ export function extractCacheMetrics(messageOrEvent: Record<string, unknown>): {
+       : undefined)) as Record<string, unknown> | undefined;
+   if (!usage || typeof usage !== "object") return undefined;
+ 
+-  const uncachedInputTokens = Number(
+-    usage.input ?? usage.inputTokens ?? usage.prompt_tokens ?? usage.promptTokens ?? 0,
+-  );
+-  const cacheReadTokens = Number(usage.cacheRead ?? usage.cache_read ?? usage.cachedTokens ?? 0);
+-  const cacheWriteTokens = Number(usage.cacheWrite ?? usage.cache_write ?? 0);
++  const uncachedInputTokens = extractUsageCount(
++    usage, ["input", "inputTokens", "prompt_tokens", "promptTokens"],
++  ) ?? 0;
++  const cacheReadTokens = extractUsageCount(usage, ["cacheRead", "cache_read", "cachedTokens"]) ?? 0;
++  const cacheWriteTokens = extractUsageCount(usage, ["cacheWrite", "cache_write"]) ?? 0;
+   const denominator = uncachedInputTokens + cacheReadTokens;
+   return {
+     cacheReadTokens,

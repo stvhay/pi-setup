@@ -6,8 +6,9 @@ import { pathToFileURL } from "node:url";
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
+import { managedSubagentReport, managedSubagentSchema } from "./lib/subagent-report.ts";
 
-type ArchimedesBusModule = typeof import("@pi-archimedes/core/bus");
+type ArchimedesEventsModule = typeof import("@pi-archimedes/core/events");
 type ArchimedesAgentsModule = typeof import("@pi-archimedes/subagent/agents");
 type ArchimedesTypesModule = typeof import("@pi-archimedes/subagent/types");
 
@@ -354,7 +355,6 @@ function subagentParameters(parameters: any, outputContracts: OutputContracts): 
 
 function upstreamSubagentArguments(params: any): any {
   const {
-    outputContract: _outputContract,
     route: _route,
     routingTask: _routingTask,
     sourceAccess: _sourceAccess,
@@ -368,7 +368,6 @@ function upstreamSubagentArguments(params: any): any {
     ...upstream,
     tasks: upstream.tasks.map((value: any) => {
       const {
-        outputContract: _taskOutputContract,
         route: _taskRoute,
         routingTask: _taskRoutingTask,
         sourceAccess: _taskSourceAccess,
@@ -832,6 +831,7 @@ function registerContractAwareSubagent(
   pi.registerTool({
     ...upstreamSubagent,
     parameters: subagentParameters(upstreamSubagent.parameters, outputContracts),
+    outputSchema: managedSubagentSchema(upstreamSubagent.outputSchema),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const conflict = routeConflict(params);
       if (conflict) return routeFailure(params, conflict);
@@ -865,7 +865,11 @@ function registerContractAwareSubagent(
         onUpdate,
         ctx,
       );
-      return withRouteReceipts(result, finalizedReceipts(bounded, routed.receipts));
+      const wrapped = withRouteReceipts(result, finalizedReceipts(bounded, routed.receipts));
+      return {
+        ...wrapped,
+        structuredContent: managedSubagentReport(wrapped.structuredContent, wrapped.details, bounded, new Set(outputContracts)),
+      };
     },
   } as any);
 }
@@ -926,12 +930,12 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
   const require = createRequire(join(getAgentDir(), "npm", "package.json"));
   const archimedesEntry = require.resolve("pi-archimedes");
   const packageRequire = createRequire(archimedesEntry);
-  const busEntry = packageRequire.resolve("@pi-archimedes/core/bus");
+  const eventsEntry = packageRequire.resolve("@pi-archimedes/core/events");
   const agentsEntry = packageRequire.resolve("@pi-archimedes/subagent/agents");
   const typesEntry = packageRequire.resolve("@pi-archimedes/subagent/types");
-  const [{ default: registerArchimedes }, busModule, agentsModule, typesModule] = await Promise.all([
+  const [{ default: registerArchimedes }, eventsModule, agentsModule, typesModule] = await Promise.all([
     import(pathToFileURL(archimedesEntry).href) as Promise<{ default: ArchimedesFactory }>,
-    import(pathToFileURL(busEntry).href) as Promise<ArchimedesBusModule>,
+    import(pathToFileURL(eventsEntry).href) as Promise<ArchimedesEventsModule>,
     import(pathToFileURL(agentsEntry).href) as Promise<ArchimedesAgentsModule>,
     import(pathToFileURL(typesEntry).href) as Promise<ArchimedesTypesModule>,
   ]);
@@ -963,7 +967,7 @@ export default async function archimedes(pi: ExtensionAPI): Promise<void> {
   });
 
   await registerArchimedes(components);
-  registerPortableAsk(pi, upstreamAsk, (questions) => busModule.getBus().emit(busModule.Events.ASK_REQUEST, {
+  registerPortableAsk(pi, upstreamAsk, (questions) => eventsModule.emitOn(pi.events, eventsModule.Events.ASK_REQUEST, {
     source: "main",
     requestId: randomUUID(),
     questions: questions.map(({ selectionMode, ...question }) => ({

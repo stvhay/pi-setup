@@ -135,7 +135,16 @@ export default async function browserPermissions(pi: ExtensionAPI) {
             reloadRequired = true;
             throw new Error("BetterWright browser prompt contract changed; browser tools blocked");
           }
-          return { ...result, systemPrompt: prefix + suffix.replace(UPSTREAM_DOWNLOAD_GUIDANCE, guidance) };
+          const adapted = suffix.replace(UPSTREAM_DOWNLOAD_GUIDANCE, guidance);
+          const options = event.systemPromptOptions;
+          if (options?.sections && options.forceSystemPrompt === undefined) {
+            // A whole-prompt override would hide sections added by later plugins.
+            options.sections.browser_permissions = adapted;
+            const remaining = { ...result };
+            delete remaining.systemPrompt;
+            return remaining;
+          }
+          return { ...result, systemPrompt: prefix + adapted };
         });
       };
       return Reflect.get(target, property);

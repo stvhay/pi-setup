@@ -16,13 +16,13 @@
   ],
   "packages": [
     {
-      "source": "npm:pi-archimedes@2.1.0",
+      "source": "npm:pi-archimedes@2.11.1",
       "extensions": []
     },
     "npm:@mariozechner/clipboard@0.3.9",
-    "npm:pi-observational-memory@3.0.3",
+    "npm:pi-observational-memory@3.1.4",
     {
-      "source": "npm:pi-langfuse@1.5.14",
+      "source": "npm:pi-langfuse@1.7.0",
       "extensions": []
     },
     "git:github.com/langfuse/skills",
@@ -57,5 +57,11 @@
       "id": "gpt-6.1-sol",
       "thinking": "low"
     }
+  },
+  "archimedes.sudo": {
+    "enabled": false
+  },
+  "archimedes.web": {
+    "enabled": false
   }
 }

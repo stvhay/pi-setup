@@ -199,10 +199,10 @@ def test_archimedes_custom_input_wrapper_preserves_public_components_and_one_por
     assert ARCHIMEDES_WRAPPER.exists(), "tracked Archimedes wrapper is required"
     agent_dir = tmp_path / "agent"
     package_dir = agent_dir / "npm" / "node_modules" / "pi-archimedes"
-    bus_dir = agent_dir / "npm" / "node_modules" / "@pi-archimedes" / "core"
+    events_dir = agent_dir / "npm" / "node_modules" / "@pi-archimedes" / "core"
     subagent_dir = agent_dir / "npm" / "node_modules" / "@pi-archimedes" / "subagent"
     package_dir.mkdir(parents=True)
-    bus_dir.mkdir(parents=True)
+    events_dir.mkdir(parents=True)
     subagent_dir.mkdir(parents=True)
     (agent_dir / "bin").mkdir()
     real_agnt = ROOT / "pi" / "agent" / "bin" / "agnt"
@@ -381,7 +381,7 @@ os.execv(real, [real, *sys.argv[1:]])
     fake_agnt.chmod(0o755)
     (agent_dir / "npm" / "package.json").write_text('{"private":true}', encoding="utf-8")
     (package_dir / "package.json").write_text(
-        json.dumps({"name": "pi-archimedes", "version": "2.1.0", "type": "module", "main": "./index.js"}),
+        json.dumps({"name": "pi-archimedes", "version": "2.11.1", "type": "module", "main": "./index.js"}),
         encoding="utf-8",
     )
     (agent_dir / "catalog.json").write_text(
@@ -409,6 +409,7 @@ export default function registerArchimedes(pi) {
     name: "subagent",
     label: "Upstream Subagent",
     description: "Delegate through upstream execution",
+    outputSchema: { type: "object", properties: { mode: { type: "string" }, results: { type: "array", items: { type: "object", properties: { finalOutput: { type: "string" }, outputContract: { type: "string" } } } } } },
     promptSnippet: "Delegate work",
     promptGuidelines: ["Use subagent for delegation."],
     parameters: {
@@ -437,6 +438,7 @@ export default function registerArchimedes(pi) {
       const tasks = params.tasks ?? [params];
       return {
         content: [{ type: "text", text: "delegated" }],
+        structuredContent: { mode: params.tasks ? "parallel" : "single", results: tasks.map((task) => ({ agent: "subagent", task: task.task, exitCode: 0, finalOutput: task.task })) },
         details: {
           upstream: true,
           params,
@@ -486,22 +488,22 @@ export default function registerArchimedes(pi) {
 """,
         encoding="utf-8",
     )
-    (bus_dir / "package.json").write_text(
+    (events_dir / "package.json").write_text(
         json.dumps({
             "name": "@pi-archimedes/core",
             "type": "module",
-            "exports": {"./bus": "./bus.js"},
+            "exports": {"./events": "./events.js"},
         }),
         encoding="utf-8",
     )
-    (bus_dir / "bus.js").write_text(
-        'export const Events = { ASK_REQUEST: "ask" }; export const getBus = () => ({ emit() {} });',
+    (events_dir / "events.js").write_text(
+        'export const Events = { ASK_REQUEST: "ask" }; export const emitOn = (events, channel, payload) => events.emit(channel, payload);',
         encoding="utf-8",
     )
     (subagent_dir / "package.json").write_text(
         json.dumps({
             "name": "@pi-archimedes/subagent",
-            "version": "2.1.0",
+            "version": "2.11.1",
             "type": "module",
             "main": "./index.js",
             "exports": {
@@ -532,6 +534,7 @@ export function resolveAgentModel(name) {
       import assert from "node:assert/strict";
       import archimedes from {ARCHIMEDES_WRAPPER.as_uri()!r};
 
+      globalThis.__archimedesEmits = [];
       globalThis.__upstreamAskCalls = [];
       globalThis.__upstreamSubagentCalls = [];
       for (const [mode, configuredCap] of [["tui", undefined], ["rpc", "12000"]]) {{
@@ -542,6 +545,7 @@ export function resolveAgentModel(name) {
         const commands = [];
         const events = [];
         await archimedes({{
+          events: {{ emit(channel, payload) {{ globalThis.__archimedesEmits.push({{ channel, payload }}); }} }},
           on(name, handler) {{ events.push({{ name, handler }}); }},
           registerTool(tool) {{ tools.push(tool); }},
           registerCommand(name) {{ commands.push(name); }},
@@ -556,6 +560,8 @@ export function resolveAgentModel(name) {
         assert.equal(tools.some((tool) => tool.upstream), false);
 
         const subagent = tools.find((tool) => tool.name === "subagent");
+        assert.equal(subagent.outputSchema.properties.results.items.properties.artifact.properties.status.enum[0], "persisted");
+        assert(subagent.outputSchema.properties.results.items.required.includes("executionOutcome"));
         assert.equal(subagent.label, "Upstream Subagent");
         assert.equal(subagent.description, "Delegate through upstream execution");
         assert.equal(subagent.promptSnippet, "Delegate work");
@@ -587,7 +593,10 @@ export function resolveAgentModel(name) {
           outputContract: "status-only",
         }}, undefined, undefined, {{ mode }});
         assert.equal(singleDelegation.details.upstream, true);
-        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{ task: "Review auth" }});
+        assert.equal(singleDelegation.structuredContent.results[0].outputContract, "status-only");
+        assert.equal(singleDelegation.structuredContent.results[0].outputStatus, "omitted");
+        assert.equal(singleDelegation.structuredContent.results[0].finalOutput, undefined);
+        assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{ task: "Review auth", outputContract: "status-only" }});
 
         const parallelDelegation = await subagent.execute("parallel-contract", {{
           tasks: [
@@ -597,7 +606,7 @@ export function resolveAgentModel(name) {
         }}, undefined, undefined, {{ mode }});
         assert.equal(parallelDelegation.details.upstream, true);
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
-          tasks: [{{ task: "Review auth" }}, {{ task: "Check tests" }}],
+          tasks: [{{ task: "Review auth", outputContract: "inline" }}, {{ task: "Check tests", outputContract: "artifact" }}],
         }});
 
         const routedSingle = await subagent.execute("routed-single", {{
@@ -609,6 +618,7 @@ export function resolveAgentModel(name) {
         assert.equal(routedSingle.details.upstream, true);
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           task: "Review routed auth",
+          outputContract: "status-only",
           model: "openai-codex/gpt-5.6-terra",
           mode: "agentic",
           thinking: "medium",
@@ -745,6 +755,7 @@ export function resolveAgentModel(name) {
         assert.equal(allowedMeteredRepository.details.upstream, true);
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           task: "Inspect auth callers",
+          outputContract: "inline",
           model: "openrouter/anthropic/claude-opus-5.5",
           mode: "agentic",
           limits: {{ maxProviderRequests: 6, maxTotalTokens: 60000, maxCostUsd: 0.05, maxDurationMs: 300000 }},
@@ -805,6 +816,7 @@ export function resolveAgentModel(name) {
         }}, undefined, undefined, {{ mode }});
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           task: "Map auth callers",
+          outputContract: "inline",
           mode: "one-shot",
           model: "openrouter/anthropic/claude-opus-5.5",
           limits: {{ maxOutputTokens: expectedCap }},
@@ -881,8 +893,8 @@ export function resolveAgentModel(name) {
         assert.deepEqual(globalThis.__upstreamSubagentCalls.at(-1), {{
           mode: "one-shot",
           tasks: [
-            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5.5", limits: {{ maxOutputTokens: expectedCap }} }},
-            {{ task: "Subscription", model: "openai-codex/gpt-5.6-terra" }},
+            {{ task: "Metered", model: "openrouter/anthropic/claude-opus-5.5", outputContract: "inline", limits: {{ maxOutputTokens: expectedCap }} }},
+            {{ task: "Subscription", model: "openai-codex/gpt-5.6-terra", outputContract: "artifact" }},
             {{ task: "Agentic metered", mode: "agentic", model: "openrouter/anthropic/claude-opus-5.5" }},
             {{ task: "Named metered", agent: "metered-agent", limits: {{ maxOutputTokens: expectedCap }} }},
           ],
@@ -993,6 +1005,9 @@ export function resolveAgentModel(name) {
           assert.equal(result.details.qualityResults[0].authority.status, "none");
           assert.equal(result.content[0].text.includes("features: [Two] + Other: “custom value”"), true);
           assert.deepEqual(warnings, [["Custom response cannot be empty.", "warning"]]);
+          assert.equal(globalThis.__archimedesEmits.at(-1).channel, "ask");
+          assert.equal(globalThis.__archimedesEmits.at(-1).payload.source, "main");
+          assert.equal(globalThis.__archimedesEmits.at(-1).payload.questions[0].multi, true);
 
           const singleInputs = ["", "typed alternative"];
           const singleWarnings = [];

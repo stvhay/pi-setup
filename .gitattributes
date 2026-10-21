@@ -1,0 +1,3 @@
+# Unified-diff context markers can precede blank lines or tab-indented source.
+# tests/test_package_patches.py checks added source whitespace independently.
+patches/pi-packages/*.patch whitespace=-blank-at-eol,-space-before-tab

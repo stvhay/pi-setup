@@ -1,0 +1,162 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -34,8 +34,8 @@
+     "@earendil-works/pi-tui": ">=1.2.0"
+   },
+   "devDependencies": {
+-    "@earendil-works/pi-coding-agent": "1.2.0",
+-    "@earendil-works/pi-tui": "1.2.0",
++    "@earendil-works/pi-coding-agent": "1.3.0",
++    "@earendil-works/pi-tui": "1.3.0",
+     "typescript": "^6.0.0"
+   },
+   "pi": {
+@@ -44,4 +44,4 @@
+     ],
+     "image": "https://raw.githubusercontent.com/danielcherubini/pi-archimedes/main/docs/images/splash-screen.png"
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/config.ts b/src/config.ts
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -79,6 +79,9 @@
+   type NotifyConfig,
+ } from "@pi-archimedes/notify";
+ 
++import { loadSubagentConfigOrDefault, type SubagentConfig } from "@pi-archimedes/subagent/config";
++export { loadSubagentConfig, saveSubagentConfig, DEFAULT_SUBAGENT_CONFIG, type SubagentConfig } from "@pi-archimedes/subagent/config";
++
+ // ── Composed config loader ─────────────────────────────────────────────
+ 
+ export function loadAllConfig(): {
+@@ -87,6 +90,7 @@
+   footer: FooterConfig;
+   diff: DiffConfig;
+   notify: NotifyConfig;
++  subagent: SubagentConfig;
+   sessionName: SessionNameSettings;
+ } {
+   return {
+@@ -95,6 +99,7 @@
+     footer: loadFooterConfig(),
+     diff: loadDiffConfig(),
+     notify: loadNotifyConfig(),
++    subagent: loadSubagentConfigOrDefault(),
+     sessionName: loadSessionNameConfigWrapper(),
+   };
+ }
+diff --git a/src/settings-manager.ts b/src/settings-manager.ts
+--- a/src/settings-manager.ts
++++ b/src/settings-manager.ts
+@@ -102,6 +102,7 @@
+   kind: "text" | "number";
+   label: string;
+   min?: number;
++  allowDecimal?: boolean;
+ }
+ 
+ export interface SettingsManagerOptions {
+@@ -305,8 +306,8 @@
+     const commit = (): void => {
+       const typed = field.getValue();
+       if (descriptor.kind === "number") {
+-        const n = parseInt(typed, 10);
+-        if (!Number.isFinite(n) || n < (descriptor.min ?? 0)) {
++        const n = descriptor.allowDecimal ? Number(typed) : parseInt(typed, 10);
++        if (!typed.trim() || !Number.isFinite(n) || n < (descriptor.min ?? 0)) {
+           error = `must be >= ${descriptor.min ?? 0}`;
+           return; // stay in the field, exactly as before
+         }
+@@ -341,7 +342,9 @@
+           // Digits only, as the field has always been: a keystroke that would
+           // insert something else is swallowed before it reaches the field.
+           const kitty = decodeKittyPrintable(data);
+-          if (kitty !== undefined ? !/^\d$/.test(kitty) : isInsertChar(data) && !/\d/.test(data)) return;
++          const printable = kitty ?? data;
++          const decimalPoint = descriptor.allowDecimal && printable === "." && !field.getValue().includes(".");
++          if (!decimalPoint && (kitty !== undefined ? !/^\d$/.test(kitty) : isInsertChar(data) && !/\d/.test(data))) return;
+           // …and no paste.
+           if (data.includes("\x1b[200~")) return;
+         }
+diff --git a/src/settings.ts b/src/settings.ts
+--- a/src/settings.ts
++++ b/src/settings.ts
+@@ -5,12 +5,14 @@
+ import { getFooterSettingsItems } from "@pi-archimedes/footer/config";
+ import { getNotifySettingsItems } from "@pi-archimedes/notify";
+ import { getSessionNameSettingsItems } from "@pi-archimedes/session-name";
++import { getSubagentSettingsItems } from "@pi-archimedes/subagent/config";
+ import {
+   loadAllConfig,
+   saveFooterConfig,
+   saveDiffConfig,
+   saveNotifyConfig,
+   saveSessionNameConfig,
++  saveSubagentConfig,
+   type NotifyConfig,
+ } from "./config.js";
+ import { isPluginEnabled } from "./plugins.js";
+@@ -22,6 +24,14 @@
+ // Exported for the panel-wiring test: every item must be reachable through PROMPTS or values.
+ export const PROMPTS: Record<string, PromptDescriptor> = {
+   labelText: { kind: "text", label: "Label text" },
++  subagentMaxParallel: { kind: "number", label: "Subagent Max Parallel (0 = unlimited)", min: 0 },
++  subagentMaxProviderRequests: { kind: "number", label: "Subagent Max Provider Requests (0 = unlimited)", min: 0 },
++  subagentMaxToolCalls: { kind: "number", label: "Subagent Max Tool Calls (0 = unlimited)", min: 0 },
++  subagentMaxTotalTokens: { kind: "number", label: "Subagent Max Total Tokens (0 = unlimited)", min: 0 },
++  subagentMaxCostUsd: { kind: "number", label: "Subagent Max Cost USD (0 = unlimited)", min: 0, allowDecimal: true },
++  subagentMaxDurationMs: { kind: "number", label: "Subagent Max Duration (0 = unlimited)", min: 0 },
++  subagentMaxIdleMs: { kind: "number", label: "Subagent Max Idle (0 = unlimited)", min: 0 },
++
+   editorSpinLabel: { kind: "text", label: "Spinner label" },
+   labelColor: { kind: "text", label: "RGB color (e.g. 255,215,0)" },
+   diffTheme: { kind: "text", label: "Shiki theme" },
+@@ -76,6 +86,10 @@
+     items.push(...getSessionNameSettingsItems({ ...allConfig.sessionName }));
+   }
+ 
++  if (isPluginEnabled("subagent")) {
++    items.push(...getSubagentSettingsItems(allConfig.subagent));
++  }
++
+   return items;
+ }
+ 
+@@ -87,6 +101,10 @@
+   const footerConfig = { ...allConfig.footer };
+   const diffConfig = { ...allConfig.diff };
+   const sessionNameConfig = { ...allConfig.sessionName };
++  const subagentConfig = {
++    ...allConfig.subagent,
++    defaultLimits: { ...allConfig.subagent.defaultLimits },
++  };
+ 
+   const items = await buildSettingsItems(allConfig);
+ 
+@@ -161,6 +179,15 @@
+             break;
+           }
+ 
++          // Managed subagent ceilings; validated again by saveSubagentConfig.
++          case "subagentMaxParallel": subagentConfig.maxParallel = Number(newValue); break;
++          case "subagentMaxProviderRequests": subagentConfig.defaultLimits.maxProviderRequests = Number(newValue); break;
++          case "subagentMaxToolCalls": subagentConfig.defaultLimits.maxToolCalls = Number(newValue); break;
++          case "subagentMaxTotalTokens": subagentConfig.defaultLimits.maxTotalTokens = Number(newValue); break;
++          case "subagentMaxCostUsd": subagentConfig.defaultLimits.maxCostUsd = Number(newValue); break;
++          case "subagentMaxDurationMs": subagentConfig.defaultLimits.maxDurationMs = Number(newValue); break;
++          case "subagentMaxIdleMs": subagentConfig.defaultLimits.maxIdleMs = Number(newValue); break;
++
+           // ── Session name settings ──
+           // Blank and the displayed placeholder both mean "use the current
+           // model", and are stored as unset rather than "" so the key disappears.
+@@ -172,6 +199,7 @@
+         }
+       },
+       onSave: () => {
++        saveSubagentConfig(subagentConfig);
+         saveUIConfig(uiConfig);
+         saveFooterConfig(footerConfig);
+         saveDiffConfig(diffConfig);

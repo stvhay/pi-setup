@@ -43,12 +43,12 @@ expected = {
     'submodule "forks/pi-langfuse"': {
         "path": "forks/pi-langfuse",
         "url": "https://github.com/stvhay/pi-langfuse.git",
-        "branch": "vendor/pi-setup-1514",
+        "branch": "vendor/pi-setup-170",
     },
     'submodule "forks/pi-archimedes"': {
         "path": "forks/pi-archimedes",
         "url": "https://github.com/stvhay/pi-archimedes.git",
-        "branch": "vendor/pi-setup-210",
+        "branch": "vendor/pi-setup-2111",
     },
 }
 actual = {section: dict(config[section]) for section in config.sections()}

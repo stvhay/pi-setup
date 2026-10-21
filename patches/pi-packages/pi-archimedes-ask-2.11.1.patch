@@ -1,0 +1,44 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -23,8 +23,8 @@
+     "typebox": ">=1.1.0"
+   },
+   "devDependencies": {
+-    "@earendil-works/pi-coding-agent": "1.2.0",
+-    "@earendil-works/pi-tui": "1.2.0",
++    "@earendil-works/pi-coding-agent": "1.3.0",
++    "@earendil-works/pi-tui": "1.3.0",
+     "typebox": "^1.1.38",
+     "typescript": "^6.0.0"
+   },
+@@ -34,4 +34,4 @@
+     ],
+     "image": "https://raw.githubusercontent.com/danielcherubini/pi-archimedes/main/docs/images/ask-subagent.png"
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/ipc-relay.ts b/src/ipc-relay.ts
+--- a/src/ipc-relay.ts
++++ b/src/ipc-relay.ts
+@@ -91,11 +91,14 @@
+ 	}
+ 
+ 	// Build results matching the request's questions
+-	const results = questions.map((q, i) => ({
+-		id: q.id,
+-		selectedOptions: selections[i]?.selectedOptions ?? [],
+-		customInput: selections[i]?.customInput,
+-	}));
++	const results = questions.map((q, i) => {
++		const customInput = selections[i]?.customInput;
++		return {
++			id: q.id,
++			selectedOptions: selections[i]?.selectedOptions ?? [],
++			...(customInput !== undefined ? { customInput } : {}),
++		};
++	});
+ 
+ 	// Emit on the handle — the parent's streamEvents writes it to the child socket
+ 	emitOn(events, Events.ASK_RESPONSE, {

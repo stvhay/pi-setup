@@ -44,6 +44,29 @@ Use `tasks` for parallel peers and put route intent on each routed child. Existi
 
 `maxOutputTokens` bounds one provider response, not visible final-answer length; reasoning may consume that allowance before the visible final answer. Do not derive a low token cap from requested characters. Subscription-backed one-shot calls normally omit it, while the tracked wrapper keeps the 16,384-token metered one-shot backstop. An explicit lower cap remains appropriate for a bounded experiment or known spend/risk ceiling. One-shot rejects cumulative `maxTotalTokens` and `maxCostUsd`; they cannot constrain a provider request already in flight. One-shot already has one provider turn, so omit `maxProviderRequests`. Subscription-backed agentic work also omits request/token/cost caps unless an explicit bounded experiment or runaway risk requires one.
 
+### Managed JSON result migration
+
+Archimedes 2.11.1 script calls return `{ mode, results }` when a native report exists, rather than the old text string. Check each result's `executionOutcome`; a fulfilled call can contain failed/unavailable runs. Managed batches retain any-failed-child `isError` behavior, but available JSON evidence still reaches script callers. Output contracts now pass through the native executor as well as the managed artifact/report boundary. Pre-dispatch errors and single failures without a native report still reject through the text-error path.
+
+`outputStatus` is `included`, `truncated`, `omitted`, or `unavailable`. Inline/unspecified answers share one 12,000-character budget in request order; later answers can be empty with `truncated` status. Non-inline contracts omit answer bodies for both single and parallel JSON. `artifact.status` and opaque `artifact.refs` report persistence; `terminationEvidence` carries normalized reason/source/limit/observed/usage state. Full bodies remain in private artifacts and internal details. Missing artifacts require evidence recovery, not blind replay. Neither `succeeded` nor `pass-no-findings` proves review quality.
+
+```javascript
+const report = await tools.subagent({
+  task: "Review changed authorization checks; cite concrete defects.",
+  route: { task: "review", sourceAccess: "repository" },
+  outputContract: "artifact",
+});
+for (const run of report.results) {
+  if (run.executionOutcome !== "succeeded") {
+    throw new Error(run.error ?? run.terminationEvidence?.reason ?? "Child failed");
+  }
+  if (run.artifact?.status !== "persisted") throw new Error("Result artifact unavailable");
+  text({ refs: run.artifact.refs, outputStatus: run.outputStatus });
+}
+```
+
+Resolve opaque refs with the existing `agnt runtime-path delegated-results` flow. Do not parse them as filesystem paths or treat execution status as an acceptance decision.
+
 | `outputContract` | Use | Low-failure prompt pattern |
 |---|---|---|
 | `inline` | Required result must be visible to parent. | Request schema-valid JSON or concise prose, with both finding/item count and character target. Keep provider allowance above visible target plus reasoning; do not add a low ad hoc cap. |

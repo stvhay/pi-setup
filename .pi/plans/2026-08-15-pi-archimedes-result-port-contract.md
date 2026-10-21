@@ -378,3 +378,16 @@ internal layout and release process upstream-owned. PR submission lives in
 deferred epic `pi-vzqq`; this contract authorizes no issue, plan, branch,
 commit, PR, tag, publication, or other upstream mutation. Future reviewed
 releases may replace maintained projections but do not gate Q21.
+
+
+## 2026-10-21 managed JSON amendment (pi-7zn8)
+
+The historical Q19V verification above remains unchanged. Current 2.11.1 source and projection evidence is recorded in `.pi/upstream-profiles/github.com--danielcherubini--pi-archimedes.md`; its new vendor branch remains unpublished until separate approval.
+
+The owner explicitly selected native event/accounting adoption and managed JSON script results. `@pi-archimedes/core/events` replaces the retired singleton `./bus`; the host owns subscription delivery without replay. Todo payloads use `content` and `in_progress`. Native tool-result usage replaces the custom accumulator: progress cost remains live, footer total updates after persistence. Subagent `./agents`, `./types`, and `./config` remain public.
+
+`tool_result` remains the sole result transport. Native `structuredContent` carries request-ordered run reports without live scrollback or internal accounting flags. pi-setup extends the native schema, then normalizes both wrapper and observer output through `pi/agent/extensions/lib/subagent-report.ts`. Script callers receive `{ mode, results }`, inspect per-run `executionOutcome` (`succeeded`, `failed`, `unavailable`), and use `artifact.status`/opaque `artifact.refs` for complete output. Fulfillment is not proof of success; failures without a native report still reject as text errors.
+
+Inline/unspecified JSON answers share 12,000 characters across the call in request order; non-inline contracts omit answer bodies. `outputStatus` distinguishes included, truncated, omitted and unavailable output. `terminationEvidence` adds normalized source/reason/limit/observed/usage state. Complete result details and private artifacts are unchanged. Artifact write/resolution failure is explicit. Output contracts never assert quality or grant authority.
+
+Coverage: `tests/test_subagent_reports.py` validates the extended native schema, shared budget and real Pi 1.3.0 event composition; `tests/test_subagent_workaround.py` covers output/termination/artifact alignment; package proof repeats schema/composition checks against integrity-verified installed projections. Old Q19V publication is not evidence that the new branch has been published or deployed.

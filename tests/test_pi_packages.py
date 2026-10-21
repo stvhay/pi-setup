@@ -12,9 +12,9 @@ MODELS = ROOT / "pi" / "agent" / "models.json"
 CATALOG = ROOT / "pi" / "agent" / "catalog.json"
 PI_README = ROOT / "pi" / "README.md"
 KEYBINDINGS = ROOT / "pi" / "agent" / "keybindings.json"
-ARCHIMEDES_PACKAGE = {"source": "npm:pi-archimedes@2.1.0", "extensions": []}
+ARCHIMEDES_PACKAGE = {"source": "npm:pi-archimedes@2.11.1", "extensions": []}
 ARCHIMEDES_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "archimedes.ts"
-LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.5.14", "extensions": []}
+LANGFUSE_PACKAGE = {"source": "npm:pi-langfuse@1.7.0", "extensions": []}
 LANGFUSE_WRAPPER = ROOT / "pi" / "agent" / "extensions" / "langfuse-config-env.ts"
 ARCHITECTURE_SKILL_PACKAGE = {
     "source": "git:github.com/mattpocock/skills",
@@ -169,11 +169,11 @@ def test_archimedes_package_entrypoint_is_disabled_for_tracked_public_wrapper():
     assert ARCHIMEDES_PACKAGE in settings["packages"]
     assert "npm:pi-archimedes" not in settings["packages"]
     assert "npm:pi-archimedes@1.8.3" not in settings["packages"]
-    assert "npm:pi-archimedes@2.1.0" not in settings["packages"]
+    assert "npm:pi-archimedes@2.11.1" not in settings["packages"]
     assert ARCHIMEDES_WRAPPER.is_file()
     wrapper = ARCHIMEDES_WRAPPER.read_text(encoding="utf-8")
     assert 'require.resolve("pi-archimedes")' in wrapper
-    assert '.resolve("@pi-archimedes/core/bus")' in wrapper
+    assert '.resolve("@pi-archimedes/core/events")' in wrapper
     assert '.resolve("@pi-archimedes/subagent/agents")' in wrapper
     assert '.resolve("@pi-archimedes/subagent/types")' in wrapper
     assert "dirname(subagentEntry)" not in wrapper
@@ -241,7 +241,7 @@ def test_observational_memory_compaction_precedes_native_threshold():
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
     sol_context = catalog["gpt-6.1-sol"]["venues"][0]["contextWindow"]
 
-    assert "npm:pi-observational-memory@3.0.3" in settings["packages"]
+    assert "npm:pi-observational-memory@3.1.4" in settings["packages"]
     assert config["compactAfterTokens"] == 81_000
     assert config["compactAfterTokensMode"] == "ratio"
     assert config["compactAfterTokensRatio"] == 0.75
@@ -260,7 +260,7 @@ def test_observational_memory_compaction_precedes_native_threshold():
     assert all(threshold_for(context) == 81_000 for context in (None, 0, -1))
 
     docs = PI_README.read_text(encoding="utf-8")
-    assert "27a5195eaf90e4e2ca1302e3a31d4bb14df982a5" in docs
+    assert "pi-observational-memory/releases/tag/3.1.4" in docs
     assert "272,000 × 0.75 = 204,000" in docs
     assert "51,616" in docs
     assert "different token counters" in docs
@@ -290,3 +290,10 @@ def test_observational_memory_workers_use_low_thinking_sol():
     docs = PI_README.read_text(encoding="utf-8")
     assert "observer, reflector, and dropper" in docs
     assert "Compaction itself does not call a model" in docs
+
+
+def test_new_archimedes_capabilities_remain_operator_opt_in():
+    settings = json.loads((ROOT / "pi" / "agent" / "settings.json").read_text())
+    assert settings["archimedes.sudo"]["enabled"] is False
+    assert settings["archimedes.web"]["enabled"] is False
+    assert "archimedes.meta" not in settings, "runtime onboarding state must not be tracked"

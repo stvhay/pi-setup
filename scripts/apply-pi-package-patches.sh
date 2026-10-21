@@ -63,15 +63,18 @@ patch_state() {
   fi
   # Apple patch hides offsets unless verbose; --verbose must precede --reverse.
   # Keep diagnostics in English for the offset/fuzz rejection below.
-  if grep -Fq "$marker" "$package_dir/$marker_file"; then
+  # Manifest-only projections have no unique runtime marker; require exact reversal or forward match.
+  if [ -z "$marker_file" ] || grep -Fq "$marker" "$package_dir/$marker_file"; then
     local reverse_output
     if reverse_output=$(LC_ALL=C patch --verbose --force --fuzz=0 --reverse --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
       && ! grep -Eiq 'offset|fuzz' <<<"$reverse_output"; then
       echo applied
       return
     fi
-    echo "$label: installed source is only partially patched" >&2
-    return 1
+    if [ -n "$marker_file" ]; then
+      echo "$label: installed source is only partially patched" >&2
+      return 1
+    fi
   fi
   local forward_output
   if forward_output=$(LC_ALL=C patch --verbose --force --fuzz=0 --dry-run -p1 -d "$package_dir" < "$patch_file" 2>&1) \
@@ -93,39 +96,39 @@ apply_preflighted_patch() {
   echo "$label: applied"
 }
 
-LANGFUSE_LABEL="pi-langfuse 1.5.14"
+LANGFUSE_LABEL="pi-langfuse 1.7.0"
 LANGFUSE_DIR="$PACKAGE_ROOT/pi-langfuse"
-LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.5.14.patch"
-ARCHIMEDES_META_LABEL="pi-archimedes 2.1.0"
+LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.7.0.patch"
+ARCHIMEDES_META_LABEL="pi-archimedes 2.11.1"
 ARCHIMEDES_META_DIR="$PACKAGE_ROOT/pi-archimedes"
-ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-2.1.0.patch"
-ARCHIMEDES_ASK_LABEL="@pi-archimedes/ask 2.1.0"
+ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-2.11.1.patch"
+ARCHIMEDES_ASK_LABEL="@pi-archimedes/ask 2.11.1"
 ARCHIMEDES_ASK_DIR="$PACKAGE_ROOT/@pi-archimedes/ask"
-ARCHIMEDES_ASK_PATCH="$PATCH_ROOT/pi-archimedes-ask-2.1.0.patch"
-ARCHIMEDES_CORE_LABEL="@pi-archimedes/core 2.1.0"
+ARCHIMEDES_ASK_PATCH="$PATCH_ROOT/pi-archimedes-ask-2.11.1.patch"
+ARCHIMEDES_CORE_LABEL="@pi-archimedes/core 2.11.1"
 ARCHIMEDES_CORE_DIR="$PACKAGE_ROOT/@pi-archimedes/core"
-ARCHIMEDES_CORE_PATCH="$PATCH_ROOT/pi-archimedes-core-2.1.0.patch"
-ARCHIMEDES_FOOTER_LABEL="@pi-archimedes/footer 2.1.0"
+ARCHIMEDES_CORE_PATCH="$PATCH_ROOT/pi-archimedes-core-2.11.1.patch"
+ARCHIMEDES_FOOTER_LABEL="@pi-archimedes/footer 2.11.1"
 ARCHIMEDES_FOOTER_DIR="$PACKAGE_ROOT/@pi-archimedes/footer"
-ARCHIMEDES_FOOTER_PATCH="$PATCH_ROOT/pi-archimedes-footer-2.1.0.patch"
-ARCHIMEDES_SUBAGENT_LABEL="@pi-archimedes/subagent 2.1.0"
+ARCHIMEDES_FOOTER_PATCH="$PATCH_ROOT/pi-archimedes-footer-2.11.1.patch"
+ARCHIMEDES_SUBAGENT_LABEL="@pi-archimedes/subagent 2.11.1"
 ARCHIMEDES_SUBAGENT_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
-ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-2.1.0.patch"
+ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-2.11.1.patch"
 
 # Validate every package and patch before mutating any installed source tree.
-LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.5.14" "$LANGFUSE_PATCH" \
+LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.7.0" "$LANGFUSE_PATCH" \
   "src/redaction.ts" "MALFORMED_MEDIA_DATA_URI" "src/langfuse.ts" "score.id ??= randomUUID()")
-ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "2.1.0" \
+ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "2.11.1" \
   "$ARCHIMEDES_META_PATCH" "src/settings.ts" "subagentMaxProviderRequests")
 ARCHIMEDES_ASK_STATE=$(patch_state "$ARCHIMEDES_ASK_LABEL" "$ARCHIMEDES_ASK_DIR" \
-  "@pi-archimedes/ask" "2.1.0" "$ARCHIMEDES_ASK_PATCH" "src/index.ts" "customInput !== undefined ? { customInput }")
+  "@pi-archimedes/ask" "2.11.1" "$ARCHIMEDES_ASK_PATCH" "src/ipc-relay.ts" "customInput !== undefined ? { customInput }")
 ARCHIMEDES_CORE_STATE=$(patch_state "$ARCHIMEDES_CORE_LABEL" "$ARCHIMEDES_CORE_DIR" \
-  "@pi-archimedes/core" "2.1.0" "$ARCHIMEDES_CORE_PATCH" "src/bus.ts" "ArchimedesEventPayloadMap")
+  "@pi-archimedes/core" "2.11.1" "$ARCHIMEDES_CORE_PATCH" "" "")
 ARCHIMEDES_FOOTER_STATE=$(patch_state "$ARCHIMEDES_FOOTER_LABEL" "$ARCHIMEDES_FOOTER_DIR" \
-  "@pi-archimedes/footer" "2.1.0" "$ARCHIMEDES_FOOTER_PATCH" "src/index.ts" "getExtensionStatuses" \
+  "@pi-archimedes/footer" "2.11.1" "$ARCHIMEDES_FOOTER_PATCH" "src/index.ts" "INLINE_STATUS_KEYS" \
   "src/index.ts" "ctx.ui.setFooter")
 ARCHIMEDES_SUBAGENT_STATE=$(patch_state "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDES_SUBAGENT_DIR" \
-  "@pi-archimedes/subagent" "2.1.0" "$ARCHIMEDES_SUBAGENT_PATCH" "src/types.ts" "maxOutputTokens")
+  "@pi-archimedes/subagent" "2.11.1" "$ARCHIMEDES_SUBAGENT_PATCH" "src/types.ts" "maxOutputTokens")
 
 if [ "$MODE" = check ]; then
   echo "$LANGFUSE_LABEL: $LANGFUSE_STATE"

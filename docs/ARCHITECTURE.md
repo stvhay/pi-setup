@@ -45,14 +45,19 @@ pi-setup/ (this repo, source of truth)
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches
   from `patches/pi-packages/`. Normal deployment invokes it automatically after
   exact base reconciliation. It is idempotent and fails closed on version or
-  source-context mismatch. The Langfuse 1.5.14 projection keeps ordinary strings
+  source-context mismatch. The Langfuse 1.7.0 projection keeps ordinary strings
   finite, permits valid media only on the transient OTel extraction path, stores
   bounded omission markers in REST fallback, emits privacy-controlled versioned
   tool-payload byte states, and exposes bounded local quality ports without making
-  them released-package evidence. The Archimedes 2.1.0
-  projection adds bounded agentic/one-shot execution, dual legacy/Pi 0.84 child-stream
+  them released-package evidence. The Archimedes 2.11.1
+  projection adds bounded agentic/one-shot execution, legacy and Pi 1.3 child-stream
   parsing, bounded parent-visible outputs, adaptive token progress, and repeated-error
-  termination while preserving native v2 child session/model behavior.
+  termination while preserving native child session/model behavior. Host `pi.events`
+  replaces the singleton bus; native tool-result usage replaces duplicate cost
+  accumulation. Managed JSON reports add bounded/omitted output, private artifact
+  references and termination-source evidence without changing raw result details.
+  New sudo/web plugins remain disabled in tracked settings. Publication and live
+  deployment are separately gated.
 - Two instruction levels share one filename: the repo root `AGENTS.md` is
   *project* instructions for working on pi-setup itself; `pi/agent/AGENTS.md`
   is the *global* instruction file every Pi session loads after deploy.

@@ -363,3 +363,47 @@ def test_adapter_rejects_upstream_prompt_contract_change(tmp_path):
       assert.equal(loaded.extensions.length, 0);
     ''')
     run_node(script, env={"PI_CODING_AGENT_DIR": str(agent_dir)})
+
+
+def test_adapter_sdk_sections_preserve_later_plugin_prompts(tmp_path):
+    script, env = adapter_script(tmp_path)
+    run_node(script + r'''      const { ExtensionRunner, SessionManager } = await import("@earendil-works/pi-coding-agent");
+      const { buildSystemPrompt } = await import(pathToFileURL(resolve(dirname(piEntry), "core/system-prompt.js")).href);
+      const cave = await loader.loadExtensionFromFactory(pi => pi.on("before_agent_start", event => {
+        event.systemPromptOptions.sections.caveman = "CAVEMAN_SECTION";
+      }), project, undefined, runtime);
+      const late = await loader.loadExtensionFromFactory(pi => pi.on("before_agent_start", event => {
+        event.systemPromptOptions.sections.late = "LATE_SECTION";
+      }), project, undefined, runtime);
+      for (const extensions of [[extension, cave, late], [cave, extension, late]]) {
+        const runner = new ExtensionRunner(extensions, runtime, project, SessionManager.inMemory(project), {});
+        const errors = [];
+        runner.onError(error => errors.push(error));
+        await runner.emit({type: "session_start", reason: "startup"});
+        const result = await runner.emitBeforeAgentStart({messageType: "user", prompt: "fixture"}, {
+          cwd: project, sections: {fixture: "ORIGINAL_SECTION"},
+        });
+        const prompt = buildSystemPrompt(result.systemPromptOptions);
+        for (const section of ["ORIGINAL_SECTION", "CAVEMAN_SECTION", "LATE_SECTION"]) assert(prompt.includes(section), section);
+        assert.match(prompt, /Browser downloads policy: allow/);
+        assert.doesNotMatch(prompt, /Remote files require explicit user approval/);
+        assert.equal(result.systemPromptOptions.forceSystemPrompt, undefined);
+        assert.deepEqual(errors, []);
+        await runner.emit({type: "session_shutdown"});
+      }
+    ''', env=env)
+
+
+def test_adapter_sdk_explicit_forced_prompt_stays_authoritative(tmp_path):
+    script, env = adapter_script(tmp_path)
+    run_node(script + r'''      const { ExtensionRunner, SessionManager } = await import("@earendil-works/pi-coding-agent");
+      const runner = new ExtensionRunner([extension], runtime, project, SessionManager.inMemory(project), {});
+      await runner.emit({type: "session_start", reason: "startup"});
+      const result = await runner.emitBeforeAgentStart({messageType: "user", prompt: "fixture"}, {
+        cwd: project, forceSystemPrompt: "EXPLICIT OVERRIDE", sections: {fixture: "NOT_SELECTED"},
+      });
+      assert(result.systemPromptOptions.forceSystemPrompt.startsWith("EXPLICIT OVERRIDE"));
+      assert.match(result.systemPromptOptions.forceSystemPrompt, /Browser downloads policy: allow/);
+      assert.doesNotMatch(result.systemPromptOptions.forceSystemPrompt, /NOT_SELECTED/);
+      await runner.emit({type: "session_shutdown"});
+    ''', env=env)

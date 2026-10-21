@@ -28,6 +28,12 @@ def isolate_quality_state(monkeypatch, tmp_path):
     )
 
 
+@pytest.fixture
+def isolated_link_checkout(monkeypatch, tmp_path):
+    # Session linking snapshots its checkout; use test-owned state, not live gitlinks.
+    monkeypatch.chdir(tmp_path)
+
+
 class FakeTelemetryClient(LangfuseClient):
     def __init__(self, responses: list[dict[str, Any]]):
         self.responses = list(responses)
@@ -1825,6 +1831,35 @@ def test_usage_validation_preserves_present_zero_and_nulls_only_missing_dimensio
     assert "missing-usage" not in present_zero["captureGaps"]
     assert missing_cache["tokens"] == {"freshInput": 7, "cacheRead": None, "output": 3}
     assert "missing-usage" in missing_cache["captureGaps"]
+
+
+@pytest.mark.parametrize(
+    ("cache", "expected"),
+    [
+        ({"cache_read_input_tokens": 80}, 80),
+        ({"cacheRead": 80}, 80),
+        ({"cache_read_input_tokens": 0, "cacheRead": 80}, 0),
+        ({"cache_read_input_tokens": 80, "cacheRead": 80}, 80),
+        ({"cache_read_input_tokens": "invalid", "cacheRead": 80}, 80),
+        ({"cache_read_input_tokens": -1, "cacheRead": 0}, 0),
+        ({"cache_read_input_tokens": True}, None),
+    ],
+)
+def test_usage_validation_accepts_canonical_cache_without_double_counting(cache, expected):
+    generation = {
+        "type": "GENERATION",
+        "usageDetails": {"input": 20, "output": 10, **cache},
+    }
+    features = improvement._features([], [generation], [])
+    assert features["tokens"] == {"freshInput": 20, "cacheRead": expected, "output": 10}
+    assert ("missing-usage" in features["captureGaps"]) == (expected is None)
+
+
+def test_canonical_zero_cache_is_known_zero_priced_usage():
+    assert improvement._generation_price_known({
+        "calculatedTotalCost": 0,
+        "usageDetails": {"input": 0, "output": 0, "cache_read_input_tokens": 0},
+    }, "metered")
 
 
 @pytest.mark.parametrize("invalid_primary", [None, []])
@@ -4945,6 +4980,7 @@ class FakeSessionProjectionClient:
         return {"id": kwargs["score_id"]}
 
 
+@pytest.mark.usefixtures("isolated_link_checkout")
 def test_current_session_link_is_local_first_when_projection_is_unavailable(monkeypatch):
     monkeypatch.setenv("PI_SESSION_ID", "session-local")
     monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
@@ -4965,6 +5001,7 @@ def test_current_session_link_is_local_first_when_projection_is_unavailable(monk
     assert quality.session_work_item("session-local") == "pi-work.1"
 
 
+@pytest.mark.usefixtures("isolated_link_checkout")
 def test_current_session_link_bounds_malformed_projection_adapter(monkeypatch):
     monkeypatch.setenv("PI_SESSION_ID", "session-local")
     monkeypatch.setattr(improvement, "_beads", lambda args: (0, {"id": args[1]}, ""))
@@ -5005,6 +5042,7 @@ def test_current_session_outcome_is_local_first_when_projection_is_unavailable(m
     }
 
 
+@pytest.mark.usefixtures("isolated_link_checkout")
 def test_current_session_link_projects_after_local_capture(monkeypatch):
     client = FakeSessionProjectionClient()
     monkeypatch.setenv("PI_SESSION_ID", "session-local")
@@ -5071,6 +5109,7 @@ def test_improve_cli_offers_continuation_after_local_work_item_conflict(monkeypa
     assert "pi-first.1" not in output
 
 
+@pytest.mark.usefixtures("isolated_link_checkout")
 def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, tmp_path, capsys):
     client = FakeReviewClient()
     monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
@@ -5092,6 +5131,7 @@ def test_improve_link_cli_writes_idempotent_private_session_score(monkeypatch, t
     assert client.calls[0]["metadata"] == {"schemaVersion": 1, "beadId": "pi-work.1"}
 
 
+@pytest.mark.usefixtures("isolated_link_checkout")
 def test_improve_link_cli_prefers_canonical_pi_session_id(monkeypatch, tmp_path, capsys):
     client = FakeReviewClient()
     monkeypatch.setattr(improvement, "_client_from_env", lambda: client)
@@ -5105,6 +5145,7 @@ def test_improve_link_cli_prefers_canonical_pi_session_id(monkeypatch, tmp_path,
     assert client.calls[0]["session_id"] == "018cc251-f400-7000-8000-000000000000"
 
 
+@pytest.mark.usefixtures("isolated_link_checkout")
 def test_improve_link_cli_uses_pi_session_id_fallback_idempotently(monkeypatch, capsys):
     client = FakeReviewClient()
     monkeypatch.setattr(improvement, "_client_from_env", lambda: client)

@@ -128,6 +128,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
             LANGFUSE_CAPTURE_TOOL_IO_BYTES: "captureToolIoBytes",
             LANGFUSE_CAPTURE_SYSTEM_PROMPT: "captureSystemPrompt",
             LANGFUSE_CAPTURE_CWD: "captureCwd",
+            LANGFUSE_CAPTURE_PATHS: "capturePaths",
           }).map(([name, field]) => [field, /^(1|true|yes|on)$/i.test(String(source[name]))]));
           globalThis.__piLangfuseRegistration = {
             env: {
@@ -138,6 +139,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
               toolIoBytes: process.env.LANGFUSE_CAPTURE_TOOL_IO_BYTES,
               systemPrompt: process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT,
               cwd: process.env.LANGFUSE_CAPTURE_CWD,
+              paths: process.env.LANGFUSE_CAPTURE_PATHS,
             },
             policy,
           };
@@ -164,6 +166,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
                     "LANGFUSE_CAPTURE_TOOL_IO_BYTES": "true",
                     "LANGFUSE_CAPTURE_SYSTEM_PROMPT": "true",
                     "LANGFUSE_CAPTURE_CWD": "true",
+                    "LANGFUSE_CAPTURE_PATHS": "true",
                 },
             }
         ),
@@ -187,6 +190,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
       process.env.LANGFUSE_CAPTURE_TOOL_IO_BYTES = "true";
       process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT = "true";
       process.env.LANGFUSE_CAPTURE_CWD = "true";
+      process.env.LANGFUSE_CAPTURE_PATHS = "true";
 
       const {{ default: install }} = await import({EXTENSION.as_uri()!r});
       const commands = new Map();
@@ -204,6 +208,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
         toolIoBytes: "false",
         systemPrompt: "false",
         cwd: "false",
+        paths: "false",
       }});
       assert.deepEqual(globalThis.__piLangfuseRegistration.policy, {{
         captureInputs: false,
@@ -212,6 +217,7 @@ def test_managed_privacy_ceiling_precedes_registration_and_status(tmp_path):
         captureToolIoBytes: false,
         captureSystemPrompt: false,
         captureCwd: false,
+        capturePaths: false,
       }});
       let status;
       await commands.get("langfuse-status").handler("", {{ ui: {{ notify(value) {{ status = JSON.parse(value); }} }} }});

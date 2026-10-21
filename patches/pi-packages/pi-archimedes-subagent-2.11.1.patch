@@ -1,34 +1,50 @@
 diff --git a/package.json b/package.json
-index 1136426..a17f476 100644
 --- a/package.json
 +++ b/package.json
-@@ -12,0 +13,6 @@
+@@ -25,9 +25,9 @@
+     "typebox": ">=1.1.0"
+   },
+   "devDependencies": {
+-    "@earendil-works/pi-ai": "1.2.0",
+-    "@earendil-works/pi-coding-agent": "1.2.0",
+-    "@earendil-works/pi-tui": "1.2.0",
++    "@earendil-works/pi-ai": "1.3.0",
++    "@earendil-works/pi-coding-agent": "1.3.0",
++    "@earendil-works/pi-tui": "1.3.0",
+     "@types/node": "22.19.19",
+     "typebox": "^1.1.38",
+     "typescript": "^6.0.3"
+@@ -37,5 +37,11 @@
+       "./src/index.ts"
+     ],
+     "image": "https://raw.githubusercontent.com/danielcherubini/pi-archimedes/main/docs/images/subagents-main-view.png"
++  },
 +  "exports": {
 +    ".": "./src/index.ts",
 +    "./agents": "./src/agents.ts",
 +    "./config": "./src/config.ts",
 +    "./types": "./src/types.ts"
-+  },
-@@ -18 +24 @@
--    "@earendil-works/pi-coding-agent": ">=0.1.0",
-+    "@earendil-works/pi-coding-agent": ">=0.74.0",
-@@ -33 +39 @@
+   }
 -}
 \ No newline at end of file
 +}
 diff --git a/src/agents.ts b/src/agents.ts
-index 203e1a9..b201182 100644
 --- a/src/agents.ts
 +++ b/src/agents.ts
-@@ -215,0 +216,5 @@ export function findAgent(agents: AgentConfig[], name: string): AgentConfig | un
-+/** Resolve one named agent's configured model through normal discovery and local overrides. */
+@@ -274,6 +274,11 @@
+   return agents.find((a) => a.name === name);
+ }
+ 
++/** Resolve one named agent's model through discovery and local overrides. */
 +export function resolveAgentModel(name: string, cwd: string): string | undefined {
 +  return findAgent(discoverAgents(cwd), name)?.model;
 +}
 +
+ /**
+  * Format discovered agents as a compact, readable listing for the `list_agents`
+  * tool. Standard detail: name, source, description, and model/tools overrides
 diff --git a/src/child-guard.ts b/src/child-guard.ts
 new file mode 100644
-index 0000000..2e71a2d
 --- /dev/null
 +++ b/src/child-guard.ts
 @@ -0,0 +1,12 @@
@@ -45,37 +61,48 @@ index 0000000..2e71a2d
 +  registerChildLimitGuard(pi, decodeLimitsEnvironment(encodedLimits));
 +}
 diff --git a/src/compact.ts b/src/compact.ts
-index 47a5ca5..0ecf027 100644
 --- a/src/compact.ts
 +++ b/src/compact.ts
-@@ -124,0 +125 @@ export function renderCompactSingle(
-+    turnTokens: progress?.turnTokens,
-@@ -187,0 +189 @@ export function renderCompactParallel(
-+      turnTokens: progress?.turnTokens,
-@@ -191,0 +194,2 @@ export function renderCompactParallel(
-+    const modelName = progress?.model ?? result.model;
-+    const modelPart = modelName ? `  ${theme.fg("accent", modelName)}` : "";
-@@ -206 +210 @@ export function renderCompactParallel(
--    let line = `${glyphColored} ${buildAgentLabel(agentName, result.task, theme)}${statsPart}`;
-+    let line = `${glyphColored} ${buildAgentLabel(agentName, result.task, theme)}${modelPart}${statsPart}`;
-@@ -247 +251 @@ export function renderCompactProgress(
--    turns: 0,
-+    turns: progress.turnCount ?? 0,
-@@ -248,0 +253 @@ export function renderCompactProgress(
-+    turnTokens: progress.turnTokens,
-@@ -300 +305 @@ export function renderCompactParallelProgress(
--      turns: 0,
-+      turns: progress.turnCount ?? 0,
-@@ -301,0 +307 @@ export function renderCompactParallelProgress(
-+      turnTokens: progress.turnTokens,
-@@ -305,0 +312 @@ export function renderCompactParallelProgress(
-+    const modelPart = progress.model ? `  ${theme.fg("accent", progress.model)}` : "";
-@@ -320 +327 @@ export function renderCompactParallelProgress(
--    let line = `${glyphColored} ${buildAgentLabel(agentName, progress.task, theme)}${statsPart}`;
-+    let line = `${glyphColored} ${buildAgentLabel(agentName, progress.task, theme)}${modelPart}${statsPart}`;
+@@ -160,6 +160,7 @@
+       statsData: {
+         turns: result.usage.turns ?? 0,
+         toolCount: summary.toolCount,
++        turnTokens: progress?.turnTokens,
+         tokens: summary.tokens,
+         durationMs: liveDuration,
+         cost: result.usage.cost ?? 0,
+@@ -211,6 +212,7 @@
+         statsData: {
+           turns: result.usage.turns ?? 0,
+           toolCount: summary.toolCount,
++          turnTokens: progress?.turnTokens,
+           tokens: summary.tokens,
+           durationMs: summary.durationMs,
+           cost: result.usage.cost ?? 0,
+@@ -262,8 +264,9 @@
+       task: progress.task,
+       model: progress.model,
+       statsData: {
+-        turns: 0,
++        turns: progress.turnCount ?? 0,
+         toolCount: progress.toolCount,
++        turnTokens: progress.turnTokens,
+         tokens: progress.tokens,
+         durationMs: liveDuration,
+         cost: progress.cost,
+@@ -304,8 +307,9 @@
+         task: progress.task,
+         model: progress.model,
+         statsData: {
+-          turns: 0,
++          turns: progress.turnCount ?? 0,
+           toolCount: progress.toolCount,
++          turnTokens: progress.turnTokens,
+           tokens: progress.tokens,
+           durationMs: progress.durationMs,
+           cost: progress.cost,
 diff --git a/src/config.ts b/src/config.ts
 new file mode 100644
-index 0000000..1307f75
 --- /dev/null
 +++ b/src/config.ts
 @@ -0,0 +1,81 @@
@@ -162,7 +189,6 @@ index 0000000..1307f75
 +}
 diff --git a/src/dispatch-policy.ts b/src/dispatch-policy.ts
 new file mode 100644
-index 0000000..8e1ce98
 --- /dev/null
 +++ b/src/dispatch-policy.ts
 @@ -0,0 +1,24 @@
@@ -191,26 +217,26 @@ index 0000000..8e1ce98
 +  }
 +}
 diff --git a/src/execute.ts b/src/execute.ts
-index f41835a..fa48b3d 100644
 --- a/src/execute.ts
 +++ b/src/execute.ts
-@@ -1 +1 @@
--import { spawnSubagent } from "./spawn.js";
-+import { resolveEffectiveModel, spawnSubagent } from "./spawn.js";
-@@ -3,0 +4,2 @@ import { emitCostUpdate } from "./cost.js";
-+import { addUsage, fromSubagentUsage } from "./usage.js";
+@@ -4,7 +4,9 @@
+ import { dispatchViaBridge, buildFailedResult } from "./dispatch.js";
+ import { streamEvents } from "./stream.js";
+ import type { AgentConfig } from "./agents.js";
+-import type { SubagentProgress, SubagentResult } from "./types.js";
++import type { ResolvedChildExecution, SubagentLimits, SubagentOutputContract, SubagentProgress, SubagentResult, SubagentTermination } from "./types.js";
++import { readUsage, sumNativeUsage } from "./usage.js";
 +import type { Usage } from "@earendil-works/pi-ai";
-@@ -5 +7,111 @@ import type { AgentConfig } from "./agents.js";
--import type { SubagentProgress, SubagentResult, SubagentUsage } from "./types.js";
-+import type {
-+  ResolvedChildExecution,
-+  SubagentLimits,
-+  SubagentOutputContract,
-+  SubagentProgress,
-+  SubagentResult,
-+  SubagentTermination,
-+  SubagentUsage,
-+} from "./types.js";
+ 
+ export interface ExecuteOptions {
+   agent: string | undefined;
+@@ -23,6 +25,193 @@
+    *  for Client correlation; `undefined` → the frame's `toolCallId` is absent.
+    *  In `executeParallel` all N tasks share the single subagent tool-call's id. */
+   toolCallId?: string;
++  execution?: ResolvedChildExecution;
++  outputContract?: SubagentOutputContract;
++}
 +
 +export type ExecutionStopCause =
 +  | { reason: "time-limit" | "idle-limit"; limit: number; observed: number }
@@ -310,14 +336,6 @@ index f41835a..fa48b3d 100644
 +  };
 +}
 +
-+export function aggregateUsage(results: SubagentResult[]): Usage {
-+  return addUsage(...results.map((result) => fromSubagentUsage(result.usage)));
-+}
-@@ -15,0 +128,76 @@ export interface ExecuteOptions {
-+  execution: ResolvedChildExecution;
-+  outputContract?: SubagentOutputContract | undefined;
-+}
-+
 +function executionEvidence(
 +  execution: ResolvedChildExecution,
 +  outputLimit?: ResolvedChildExecution["outputLimit"],
@@ -329,9 +347,10 @@ index f41835a..fa48b3d 100644
 +  };
 +}
 +
-+export type ParallelTask = Omit<ExecuteOptions, "signal" | "onUpdate">;
++export type ParallelTask = Omit<ExecuteOptions, "signal" | "onUpdate" | "events">;
 +
 +export interface ParallelExecuteOptions {
++  events: EventBus;
 +  tasks: ParallelTask[];
 +  signal: AbortSignal | undefined;
 +  onUpdate: ((progress: SubagentProgress[]) => void) | undefined;
@@ -350,8 +369,16 @@ index f41835a..fa48b3d 100644
 +  durationMs: number,
 +): SubagentResult {
 +  const cause = control.stopCause();
-+  if (cause?.reason === "worker") {
-+    if (result.termination === cause.termination) return result;
++  if (!cause) return result;
++  if (cause.reason === "worker" && result.termination === cause.termination &&
++      result.outcome === undefined && result.progress?.outcome === undefined) return result;
++  result = { ...result };
++  delete result.outcome;
++  if (result.progress) {
++    result.progress = { ...result.progress };
++    delete result.progress.outcome;
++  }
++  if (cause.reason === "worker") {
 +    const error = `Subagent stopped: ${cause.termination.reason}`;
 +    return {
 +      ...result,
@@ -390,89 +417,135 @@ index f41835a..fa48b3d 100644
 +    };
 +  }
 +  return result;
-@@ -23,0 +212 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+  const control = createExecutionControl(options.signal, options.execution.limits);
-@@ -27,0 +217,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+  let lastEmittedCacheRead = 0;
-+  let lastEmittedCacheWrite = 0;
-@@ -36 +227 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++}
++
++export function aggregateUsage(results: SubagentResult[]): Usage {
++  return sumNativeUsage(results) ?? readUsage(undefined);
+ }
+ 
+ /**
+@@ -36,7 +225,9 @@
+   // pi process. An UNREACHABLE bridge (no response frame — e.g. macOS, where
+   // the desktop's listener is not started, or Windows, where it is a no-op
+   // stub) falls back to the fork path so subagents keep working everywhere.
+-  if (getBridge().active) {
++  // Bridge wire has no managed profile/limit/result contract. Never delegate
++  // contract-bearing work to it until equivalent enforcement exists there.
++  if (getBridge().active && !options.execution && !options.outputContract) {
+     const model = resolveModel({ model: options.model, activeModel: options.activeModel, agent: options.agentConfig });
+ 
+     // A signal that is ALREADY aborted before dispatch: short-circuit to a
+@@ -102,6 +293,8 @@
+     // { fallback: true } — unreachable bridge: fall through to the fork path.
+   }
+ 
++  const control = createExecutionControl(options.signal, options.execution?.limits);
++
+   // Progress is passed straight through: cost is reported once, on the tool
+   // result's native `usage`, so there is no delta bookkeeping left to do here.
+   try {
+@@ -110,26 +303,35 @@
+       model: options.model,
+       activeModel: options.activeModel,
+       cwd: options.cwd,
 -      signal: options.signal,
 +      signal: control.signal,
-@@ -37,0 +229,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+      execution: options.execution,
+       agent: options.agentConfig,
+       events: options.events,
++      ...(options.execution ? { execution: options.execution } : {}),
 +      idleWait: { pauseIdle: control.pauseIdle, resumeIdle: control.resumeIdle },
-@@ -42,0 +236,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+      execution: options.execution,
+     });
+ 
+     const result = await streamEvents(child, {
+       agent: agentName,
+       task: options.task,
+       events: options.events,
++      ...(options.execution ? { execution: options.execution } : {}),
 +      onActivity: control.noteActivity,
 +      onTermination: control.recordWorkerStop,
 +      onSettled: control.settle,
-@@ -46,0 +244,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+        const cacheReadTokens = progress.cacheReadTokens ?? 0;
-+        const cacheWriteTokens = progress.cacheWriteTokens ?? 0;
-+        const deltaCacheRead = cacheReadTokens - lastEmittedCacheRead;
-+        const deltaCacheWrite = cacheWriteTokens - lastEmittedCacheWrite;
-@@ -48 +249 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
--        if (deltaInput > 0 || deltaOutput > 0 || deltaCost > 0) {
-+        if (deltaInput > 0 || deltaOutput > 0 || deltaCacheRead > 0 || deltaCacheWrite > 0 || deltaCost > 0) {
-@@ -51,0 +253,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+            cacheReadTokens: deltaCacheRead,
-+            cacheWriteTokens: deltaCacheWrite,
-@@ -55,0 +259,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+          lastEmittedCacheRead = cacheReadTokens;
-+          lastEmittedCacheWrite = cacheWriteTokens;
-@@ -62,0 +268 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+       onProgress: (progress: SubagentProgress) => {
+         options.onUpdate?.(progress);
+       },
+     });
+ 
 +    control.settle();
-@@ -64 +270 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+     // Enrich result with agent name and duration
+     const durationMs = Date.now() - startTime;
 -    return {
-+    return applyControlTermination({
-@@ -67,0 +274,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+      execution: executionEvidence(options.execution, result.execution?.outputLimit),
++    const enriched: SubagentResult = {
+       ...result,
+       agent: agentName,
+       task: options.task,
++      ...(options.execution ? { execution: executionEvidence(options.execution, result.execution?.outputLimit) } : {}),
 +      ...(options.outputContract ? { outputContract: options.outputContract } : {}),
-@@ -81,0 +290,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+            cacheReadTokens: 0,
-+            cacheWriteTokens: 0,
-@@ -94 +304 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
--    };
-+    }, options, control, durationMs);
-@@ -95,0 +306 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
+       progress: result.progress
+         ? { ...result.progress, agent: agentName, durationMs }
+         : // Defensive: streamEvents should always return a progress, but if not,
+@@ -158,7 +360,9 @@
+         ? { ...result.progressSummary, durationMs }
+         : { toolCount: 0, tokens: 0, durationMs },
+     };
++    return options.execution ? applyControlTermination(enriched, options, control, durationMs) : enriched;
+   } catch (err) {
 +    control.settle();
-@@ -110,0 +322,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+      execution: executionEvidence(options.execution),
+     const errorMessage = err instanceof Error ? err.message : String(err);
+     const durationMs = Date.now() - startTime;
+     // The shared failed-result synthesis (the same one the bridge error path
+@@ -167,23 +371,28 @@
+     // renderer's `details.progress[i]` stays aligned with `details.results[i]`
+     // (returning undefined would be filtered out and cause index misalignment
+     // between results and progress in the parallel view).
+-    const result = buildFailedResult(agentName, options.task, errorMessage, undefined, durationMs);
++    const result: SubagentResult = {
++      ...buildFailedResult(agentName, options.task, errorMessage, undefined, durationMs),
++      ...(options.execution ? {
++        execution: executionEvidence(options.execution),
++        termination: { reason: "process-error" as const, usageState: "unknown" as const },
++      } : {}),
 +      ...(options.outputContract ? { outputContract: options.outputContract } : {}),
-@@ -112,0 +326 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+      termination: { reason: "process-error", usageState: "unknown" },
-@@ -126,0 +341,2 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
-+        cacheReadTokens: 0,
-+        cacheWriteTokens: 0,
-@@ -141 +357 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++    };
+     // Emit final failure progress so executeParallel's progress slot updates
+     // from the pending placeholder to "failed" (prevents stale "Starting..." display).
+     options.onUpdate?.(result.progress!);
 -    return result;
-+    return applyControlTermination(result, options, control, durationMs);
-@@ -148,5 +364,4 @@ export async function executeSubagent(options: ExecuteOptions): Promise<Subagent
++    return options.execution ? applyControlTermination(result, options, control, durationMs) : result;
+   }
+ }
+ 
+ /**
+  * Execute multiple subagents in parallel.
+  */
 -export async function executeParallel(options: {
--  tasks: Array<{ agent: string | undefined; agentConfig: AgentConfig | undefined; task: string; model: string | undefined; activeModel: string | undefined; cwd: string | undefined }>;
+-  tasks: Array<{ agent: string | undefined; agentConfig: AgentConfig | undefined; task: string; model: string | undefined; activeModel: string | undefined; cwd: string | undefined; toolCallId?: string }>;
 -  signal: AbortSignal | undefined;
 -  onUpdate: ((progress: SubagentProgress[]) => void) | undefined;
+-  events: EventBus;
 -}): Promise<SubagentResult[]> {
 +export async function executeParallel(
 +  options: ParallelExecuteOptions,
 +  runner: (options: ExecuteOptions) => Promise<SubagentResult> = executeSubagent,
 +): Promise<SubagentResult[]> {
-@@ -165,0 +381,2 @@ export async function executeParallel(options: {
-+    cacheReadTokens: 0,
-+    cacheWriteTokens: 0,
-@@ -175 +392,5 @@ export async function executeParallel(options: {
+   // Pre-fill one pending slot per task, keyed by task index (NOT agent name).
+   // This keeps all N lines stacked from t=0 in stable task order, with no
+   // collisions when multiple subagents share an agent name (e.g. 8 x "general").
+@@ -206,12 +415,12 @@
+     toolCalls: undefined,
+     // Match the model executeSubagent will report for this task, so the
+     // pending placeholder's model label matches the streaming label exactly.
 -    model: taskDef.model,
-+    model: resolveEffectiveModel({
-+      agent: taskDef.agentConfig,
-+      model: taskDef.model,
-+      activeModel: taskDef.activeModel,
-+    }),
-@@ -180 +401 @@ export async function executeParallel(options: {
++    model: resolveModel({ agent: taskDef.agentConfig, model: taskDef.model, activeModel: taskDef.activeModel }),
+   }));
+ 
+   const results = await Promise.all(
+     options.tasks.map((taskDef, index) =>
 -      executeSubagent({
 +      runner({
+         ...taskDef,
+         signal: options.signal,
+         events: options.events,
 diff --git a/src/execution-profile.ts b/src/execution-profile.ts
 new file mode 100644
-index 0000000..74bac9e
 --- /dev/null
 +++ b/src/execution-profile.ts
 @@ -0,0 +1,57 @@
@@ -534,41 +607,68 @@ index 0000000..74bac9e
 +  return { profile, limits: requested };
 +}
 diff --git a/src/expanded.ts b/src/expanded.ts
-index 6c30ce7..d851c66 100644
 --- a/src/expanded.ts
 +++ b/src/expanded.ts
-@@ -40,0 +41 @@ export function buildExpandedText(
+@@ -121,6 +121,7 @@
+   const statsLine = buildStatsLine({
+     turns: result.usage.turns,
+     toolCount: result.progressSummary?.toolCount,
 +    turnTokens: progress?.turnTokens,
-@@ -113 +114 @@ export function renderProgressExpanded(
+     tokens: result.progressSummary?.tokens,
+     durationMs: result.progressSummary?.durationMs,
+     cost: result.usage.cost,
+@@ -214,8 +215,9 @@
+   // Stats line (same as compact view) — a block: see buildExpandedText.
+   const modelLabel = progress.model ? theme.fg("accent", progress.model) : "";
+   const statsLine = buildStatsLine({
 -    turns: undefined,
 +    turns: progress.turnCount,
-@@ -114,0 +116 @@ export function renderProgressExpanded(
+     toolCount: progress.toolCount,
 +    turnTokens: progress.turnTokens,
-@@ -189 +191 @@ export function buildProgressExpandedText(
+     tokens: progress.tokens,
+     durationMs: progress.durationMs,
+     cost: progress.cost,
+@@ -289,8 +291,9 @@
+   // Stats line (same as compact view) — a block: see buildExpandedText.
+   const modelLabel = progress.model ? theme.fg("accent", progress.model) : "";
+   const statsLine = buildStatsLine({
 -    turns: undefined,
 +    turns: progress.turnCount,
-@@ -190,0 +193 @@ export function buildProgressExpandedText(
+     toolCount: progress.toolCount,
 +    turnTokens: progress.turnTokens,
+     tokens: progress.tokens,
+     durationMs: progress.durationMs,
+     cost: progress.cost,
 diff --git a/src/format.ts b/src/format.ts
-index 0f9dfed..7828cff 100644
 --- a/src/format.ts
 +++ b/src/format.ts
-@@ -46,0 +47 @@ export interface StatsData {
+@@ -110,6 +110,7 @@
+ export interface StatsData {
+   turns: number | undefined;
+   toolCount: number | undefined;
 +  turnTokens?: number | undefined;
-@@ -69 +70,5 @@ export function buildStatsLine(
+   tokens: number | undefined;
+   durationMs: number | undefined;
+   cost: number | undefined;
+@@ -132,7 +133,11 @@
+ 
+   if (turns > 0) parts.push("⟳ " + turns);
+   if (tools > 0) parts.push(tools + " tool" + (tools !== 1 ? "s" : ""));
 -  if (tokens > 0) parts.push(formatTokens(tokens) + " tok");
 +  if (tokens > 0) {
 +    parts.push(turns > 1 && data.turnTokens !== undefined
 +      ? `${formatTokens(data.turnTokens)} turn / ${formatTokens(tokens)} total tok`
 +      : formatTokens(tokens) + " tok");
 +  }
+   if (duration > 0) parts.push(formatDuration(duration));
+   if (cost > 0) parts.push(formatCost(cost));
+ 
 diff --git a/src/handlers.ts b/src/handlers.ts
-index 07868e1..bc32112 100644
 --- a/src/handlers.ts
 +++ b/src/handlers.ts
-@@ -0,0 +1 @@
+@@ -1,26 +1,48 @@
 +import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
-@@ -1,0 +3,34 @@ import type { StreamState } from "./types.js";
+ import type { StreamState } from "./types.js";
 +import { addUsage, isUsage, readUsage } from "./usage.js";
 +
 +export type MessageUpdateEvent = {
@@ -603,7 +703,24 @@ index 07868e1..bc32112 100644
 +type MessageEndEvent = Extract<ExtensionEvent, { type: "message_end" }>;
 +type AgentEndEvent = Extract<ExtensionEvent, { type: "agent_end" }>;
 +type AssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
-@@ -7,5 +42,2 @@ const RECENT_OUTPUT_MAX = 50;
+ 
+ // Truncation limits for previews
+-//
+-// The args preview is drawn on a transcript row, and the row is what decides how
+-// much of it fits: `RowBlock` cuts at the width pi hands `render()` (see
+-// `row-block.ts`). A cap here is therefore a second, invisible character limit —
+-// the very defect #108 removed — because a preview shorter than the frame ends
+-// mid-word with no cut marker. pi's own bash row keeps the command whole for the
+-// same reason (`formatShellCall`). So this bound sits above anything a terminal
+-// can draw, and exists only to keep the preview from growing the streamed
+-// progress object without limit (it is carried for the life of the run).
++// Native row layout accepts longer command previews; output rows remain bounded.
+ const ARGS_PREVIEW_MAX = 512;
+-// `recentOutput` is carried in the progress object but drawn by no row, so it
+-// keeps the old, tighter bound: widening it would only grow what is streamed.
+ const OUTPUT_LINE_MAX = 120;
+ const TOOL_CALLS_MAX = 50;
+ const RECENT_OUTPUT_MAX = 50;
 -
 -export interface JsonEvent {
 -  type: string;
@@ -611,20 +728,44 @@ index 07868e1..bc32112 100644
 -}
 +const STREAMING_PARTS_MAX = 50;
 +const STREAMING_OUTPUT_MAX_CHARS = 12_000;
-@@ -50 +82 @@ export function extractArgsPreview(args: unknown): string {
+ 
+ /**
+  * Extract a short args preview from tool arguments.
+@@ -59,10 +81,9 @@
+ /**
+  * Handle a tool_execution_start event.
+  */
 -export function handleToolStart(state: StreamState, event: JsonEvent): void {
 +export function handleToolStart(state: StreamState, event: ToolStartEvent): void {
-@@ -52,2 +84 @@ export function handleToolStart(state: StreamState, event: JsonEvent): void {
+   state.toolCount++;
 -  state.currentTool = event.toolName as string;
 -  // Use extractArgsPreview instead of JSON.stringify for readable display
 +  state.currentTool = event.toolName;
-@@ -81 +112 @@ export function handleToolEnd(state: StreamState): void {
+   const argsPreview = extractArgsPreview(event.args);
+   state.currentToolArgs = argsPreview;
+   state.currentToolStartedAt = Date.now();
+@@ -90,7 +111,7 @@
+  * Handle a tool_execution_end event — capture tool result output for live display.
+  * The result is in event.result (the tool's return value).
+  */
 -export function handleToolResult(state: StreamState, event: JsonEvent): void {
 +export function handleToolResult(state: StreamState, event: ToolEndEvent): void {
-@@ -93 +124 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+   const result = event.result as Record<string, unknown> | undefined;
+ 
+   // Mark the last tool call as errored if the result indicates an error
+@@ -102,7 +123,7 @@
+ 
+   if (!result) return;
+ 
 -  const toolName = (event.toolName as string) ?? "tool";
 +  const toolName = event.toolName;
-@@ -116,0 +148,127 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+ 
+   // Extract text content from tool result
+   const content = result.content as Array<Record<string, unknown>> | string | undefined;
+@@ -126,44 +147,168 @@
+   }
+ }
+ 
 +function objectItems<T>(value: unknown): T[] {
 +  if (!Array.isArray(value)) return [];
 +  return value.filter((item) => item !== null && typeof item === "object") as T[];
@@ -752,7 +893,9 @@ index 07868e1..bc32112 100644
 +  return false;
 +}
 +
-@@ -120,7 +278,7 @@ export function handleToolResult(state: StreamState, event: JsonEvent): void {
+ /**
+  * Handle a message_end event — extract usage and text from assistant messages.
+  */
 -export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
 -  const message = event.message as Record<string, unknown> | undefined;
 -  if (!message || message.role !== "assistant") return;
@@ -760,14 +903,23 @@ index 07868e1..bc32112 100644
 -  // Capture model name
 -  if (!state.model && message.model) {
 -    state.model = message.model as string;
+-  }
+-
+-  // How this response ended. The LAST assistant message's stopReason is what
+-  // decides the run's outcome (`length` ⇒ truncated, `aborted` ⇒ cancelled,
+-  // `error` ⇒ failed) — the exit code cannot tell them apart.
+-  if (typeof message.stopReason === "string") {
+-    state.lastStopReason = message.stopReason;
+-  }
 +export function handleMessageEnd(state: StreamState, event: MessageEndEvent): void {
 +  const message = event.message;
 +  if (!message || typeof message !== "object" || message.role !== "assistant") return;
++  if (typeof message.stopReason === "string") state.lastStopReason = message.stopReason;
 +  if (message.stopReason === "error") {
 +    state.error = typeof message.errorMessage === "string" && message.errorMessage.trim()
 +      ? message.errorMessage.trim().slice(0, 4_000)
 +      : "Provider request failed";
-@@ -127,0 +286,8 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
++  }
 +  if (!hasAssistantStreamData(message)) return;
 +
 +  // Finalized data replaces the latest partial message.
@@ -776,7 +928,8 @@ index 07868e1..bc32112 100644
 +
 +  if (!state.provider && message.provider) state.provider = message.provider;
 +  if (!state.model && message.model) state.model = message.model;
-@@ -130,18 +296,13 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+ 
+   // Collect text + thinking output
 -  const content = message.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
 -    state.accumulatedOutput.push(content);
@@ -808,7 +961,13 @@ index 07868e1..bc32112 100644
 +      state.accumulatedOutput.push(`[thinking] ${part.thinking.trim()}`);
 +      const lines = part.thinking.split("\n").filter((line: string) => line.trim());
 +      state.recentOutput.push(...lines.slice(-5).map((line: string) => `[thinking] ${line}`));
-@@ -157,9 +318,2 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+     }
+   }
+ 
+@@ -173,40 +318,21 @@
+   }
+ 
+   // Extract usage (turnCount tracked via turn_start in stream.ts)
 -  if (message.usage) {
 -    const usage = message.usage as Record<string, unknown>;
 -    state.totalInput += (usage.input as number) || 0;
@@ -820,18 +979,24 @@ index 07868e1..bc32112 100644
 -  }
 +  state.turnUsage = readUsage(message.usage);
 +  state.usage = addUsage(state.usage, state.turnUsage);
-@@ -171,3 +325,3 @@ export function handleMessageEnd(state: StreamState, event: JsonEvent): void {
+ }
+ 
+ /**
+  * Handle an agent_end event — extract final output from the last assistant message.
+  */
 -export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
 -  const messages = event.messages as Array<Record<string, unknown>> | undefined;
 -  if (!messages || messages.length === 0) return;
 +export function handleAgentEnd(state: StreamState, event: AgentEndEvent): void {
 +  const messages = objectItems<AgentEndEvent["messages"][number]>(event.messages);
 +  if (messages.length === 0) return;
-@@ -176 +330,2 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+ 
+   // Use only the last assistant message for final output
 -  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 +  const lastAssistant = [...messages].reverse().find((message): message is AssistantMessage =>
 +    message.role === "assistant");
-@@ -179,14 +334 @@ export function handleAgentEnd(state: StreamState, event: JsonEvent): void {
+   if (!lastAssistant) return;
+ 
 -  const allText: string[] = [];
 -  const content = lastAssistant.content as Array<Record<string, unknown>> | string | undefined;
 -  if (typeof content === "string" && content.trim()) {
@@ -846,87 +1011,69 @@ index 07868e1..bc32112 100644
 -    }
 -  }
 -  state.finalOutput = allText.length > 0 ? allText.join("\n\n") : undefined;
+-}
 +  state.finalOutput = assistantText(lastAssistant);
++}
 diff --git a/src/index.ts b/src/index.ts
-index 964ea7f..fc14391 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -1 +1 @@
+@@ -1,9 +1,12 @@
 -import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 +import { SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
-@@ -3,3 +3,6 @@ import { Text, TUI } from "@earendil-works/pi-tui";
--import { Type } from "typebox";
--import { executeSubagent, executeParallel } from "./execute.js";
--// agent-manager.js lazy-loaded below to keep subagent tool registration fast
-+import { StringEnum } from "@earendil-works/pi-ai";
-+import { Type, type Static } from "typebox";
+ import { Text, type TUI } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
+ import { SUBAGENT_PARAMS_SCHEMA, SUBAGENT_OUTPUT_SCHEMA, subagentStructuredContent, type SubagentParams } from "./tool-schema.js";
+ import { executeSubagent, executeParallel } from "./execute.js";
+-import { formatParallelResults, formatSingleResult } from "./format.js";
 +import { loadSubagentConfig } from "./config.js";
 +import { resolveConfiguredLimits, validateDispatchPolicy } from "./dispatch-policy.js";
-+import { executeSubagent, executeParallel, aggregateUsage } from "./execute.js";
 +import { resolveChildExecution } from "./execution-profile.js";
-@@ -8,0 +12,6 @@ import { validateModel, firstError } from "./model-validation.js";
-+import {
-+  MAX_SUBAGENT_DURATION_MS,
-+  SUBAGENT_EXECUTION_MODES,
-+  SUBAGENT_OUTPUT_CONTRACTS,
-+  SUBAGENT_THINKING_LEVELS,
-+} from "./types.js";
-@@ -10,0 +20 @@ import type {
-+  SubagentOutputContract,
-@@ -15,0 +26,2 @@ import type {
-+const PARALLEL_OUTPUT_MAX_CHARS = 12_000;
-+
-@@ -17,0 +30,20 @@ import type {
-+const SubagentLimitsSchema = Type.Object({
-+  maxProviderRequests: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum provider requests for this child" })),
-+  maxToolCalls: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum tool calls for this child" })),
-+  maxTotalTokens: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum input, output, and cache tokens for this child" })),
-+  maxOutputTokens: Type.Optional(Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Best-effort provider-native output cap for one-shot children" })),
-+  maxCostUsd: Type.Optional(Type.Number({ exclusiveMinimum: 0, description: "Observed cost ceiling in USD; may overshoot by one response" })),
-+  maxDurationMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SUBAGENT_DURATION_MS, description: "Maximum wall time in milliseconds for this child" })),
-+  maxIdleMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SUBAGENT_DURATION_MS, description: "Maximum milliseconds between valid child activity events" })),
-+});
-+
-+const ExecutionModeSchema = StringEnum(SUBAGENT_EXECUTION_MODES, {
-+  description: "agentic: normal child with tools and ambient context; one-shot: isolated packet with one provider request",
-+});
-+const ThinkingLevelSchema = StringEnum(SUBAGENT_THINKING_LEVELS, {
-+  description: "Child thinking level. Agent frontmatter wins, then task-level, then top-level thinking.",
-+});
-+const OutputContractSchema = StringEnum(SUBAGENT_OUTPUT_CONTRACTS, {
-+  description: "Caller-supplied result transport label; Archimedes reports but does not evaluate it.",
-+});
-+
-@@ -24,0 +57,4 @@ const TaskItem = Type.Object({
-+  limits: Type.Optional(SubagentLimitsSchema),
-+  mode: Type.Optional(ExecutionModeSchema),
-+  thinking: Type.Optional(ThinkingLevelSchema),
-+  outputContract: Type.Optional(OutputContractSchema),
-@@ -45,0 +82,4 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
-+  limits: Type.Optional(SubagentLimitsSchema),
-+  mode: Type.Optional(ExecutionModeSchema),
-+  thinking: Type.Optional(ThinkingLevelSchema),
-+  outputContract: Type.Optional(OutputContractSchema),
-@@ -47,0 +88,2 @@ const SUBAGENT_PARAMS_SCHEMA = Type.Object({
-+type SubagentParams = Static<typeof SUBAGENT_PARAMS_SCHEMA>;
-+
-@@ -57,0 +100,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
++import { formatSingleResult } from "./format.js";
+ // agent-manager.js lazy-loaded below to keep subagent tool registration fast
+ import { renderSubagentResult } from "./render.js";
+ import { RowBlock } from "./row-block.js";
+@@ -36,6 +39,7 @@
+ // ── Tool registration ───────────────────────────────────────────────────────
+ 
+ export function registerSubagent(pi: ExtensionAPI): void {
 +  if (process.env.PI_SUBAGENT_SOCKET) return;
-+
-@@ -62 +106 @@ export function registerSubagent(pi: ExtensionAPI): void {
+   // Floor check before anything that can fail (ADR 0026). This package spawns
+   // pi with flags and reads event fields that only behave correctly on 1.x
+   // (`--tools` semantics, `agent_settled.aborted`, print-mode exit codes), and a
+@@ -48,26 +52,11 @@
+     name: "subagent",
+     label: "Subagent",
+     description:
 -      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Model override is rarely needed; the agent config or parent model is used by default.",
 +      "Delegate tasks to subagents. Provide either 'task' (single) or 'tasks' (parallel). Agent is optional — omit for a config-less run with the parent's model and all tools. Use mode 'one-shot' for one isolated response from a complete packet. Model override is rarely needed; the agent config or parent model is used by default.",
-@@ -67,8 +111 @@ export function registerSubagent(pi: ExtensionAPI): void {
--      params: {
--        agent?: string;
--        task?: string;
--        tasks?: Array<{ agent?: string; task: string; count?: number; model?: string; cwd?: string }>;
--        model?: string;
--        cwd?: string;
--        async?: boolean;
--      },
-+      params: SubagentParams,
-@@ -79,0 +117,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
+     parameters: SUBAGENT_PARAMS_SCHEMA,
+     outputSchema: SUBAGENT_OUTPUT_SCHEMA,
+-    /**
+-     * Declared to the model, never callable from a codemode script — pi's own
+-     * wording for this exposure is "orchestrating" tools
+-     * (`dist/core/extensions/types.d.ts`, `ToolExposure`), and dispatching a
+-     * child session is that.
+-     *
+-     * Measured cost, so it is not discovered later: before this line a codemode
+-     * script could dispatch a child and read its report — `tools.subagent({ task:
+-     * "Reply with exactly the single word: child" })` resolved to
+-     * `{ mode: "single", results: [ { outcome: "completed", finalOutput: "child",
+-     * usage: {…} } ] }` on a real headless pi. After it the same call reports
+-     * `tools.subagent does not exist`, and `subagent` is gone from the script's
+-     * `ALL_TOOLS`. A script that wants a child's work now has to ask the model to
+-     * dispatch one; `list_agents` stays `direct`, so scripts can still read the
+-     * catalogue. The model's own dispatches are unaffected.
+-     */
+-    exposure: "model-only",
++    // Preserve existing script callers; child recursion is blocked separately.
++    exposure: "direct",
+ 
+     async execute(
+       _id: string,
+@@ -77,9 +66,37 @@
+       ctx: ExtensionContext,
+     ): Promise<SubagentToolResult> {
+       const agents = discoverAgents(ctx.cwd);
 +      let config;
 +      let configuredLimits;
 +      try {
@@ -935,18 +1082,17 @@ index 964ea7f..fc14391 100644
 +      } catch (error) {
 +        return policyError(params.tasks?.length ? "parallel" : "single", error);
 +      }
-@@ -82,0 +128,24 @@ export function registerSubagent(pi: ExtensionAPI): void {
+ 
+       // Parallel mode
+       if (params.tasks && params.tasks.length > 0) {
 +        let taskPlans;
 +        try {
 +          taskPlans = params.tasks.map((task) => {
 +            const agentConfig = task.agent ? findAgent(agents, task.agent) : undefined;
 +            return {
-+              task,
-+              agentConfig,
++              task, agentConfig,
 +              execution: resolveChildExecution({
-+                operatorLimits: configuredLimits,
-+                topLevel: params,
-+                task,
++                operatorLimits: configuredLimits, topLevel: params, task,
 +                agentThinking: agentConfig?.thinking,
 +              }),
 +            };
@@ -959,61 +1105,43 @@ index 964ea7f..fc14391 100644
 +        } catch (error) {
 +          return policyError("parallel", error);
 +        }
-+
-@@ -87,3 +156,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
--        const unknownAgents = params.tasks
--          .filter((t) => t.agent && !findAgent(agents, t.agent!))
--          .map((t) => `"${t.agent}"`);
-+        const unknownAgents = taskPlans
-+          .filter(({ task, agentConfig }) => task.agent && !agentConfig)
-+          .map(({ task }) => `"${task.agent}"`);
-@@ -94,2 +163 @@ export function registerSubagent(pi: ExtensionAPI): void {
--        const unknownAgentSet = new Set(unknownAgents.map((n) => n.replace(/"/g, '')));
--        for (const t of params.tasks) {
-+        for (const { task, agentConfig } of taskPlans) {
-@@ -97,2 +165 @@ export function registerSubagent(pi: ExtensionAPI): void {
--          if (t.agent && unknownAgentSet.has(t.agent)) continue;
--          const taskAgentConfig = t.agent ? findAgent(agents, t.agent) : undefined;
-+          if (task.agent && !agentConfig) continue;
-@@ -100,4 +167,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
--            validateModel(t.model, ctx.modelRegistry, { agentName: t.agent }),
--            validateModel(taskAgentConfig?.model, ctx.modelRegistry, {
--              agentName: t.agent,
--              agentFilePath: taskAgentConfig?.filePath,
-+            validateModel(task.model, ctx.modelRegistry, { agentName: task.agent }),
-+            validateModel(agentConfig?.model, ctx.modelRegistry, {
-+              agentName: task.agent,
-+              agentFilePath: agentConfig?.filePath,
-@@ -120,5 +187,5 @@ export function registerSubagent(pi: ExtensionAPI): void {
+         // Combined pre-spawn checks for parallel mode: unknown agents + invalid
+         // models. If ANY task is invalid, abort the whole batch with a single
+         // tool result listing all errors (no tasks spawn).
+@@ -134,9 +151,11 @@
+           warnUnknownThinkingLevel(ctx, warnedThinking, t.agent ? findAgent(agents, t.agent)?.thinking : undefined);
+         }
+         const results: SubagentResult[] = await executeParallel({
 -          tasks: params.tasks.map((t) => ({
--            agent: t.agent ?? undefined,
++          tasks: taskPlans.map(({ task: t, agentConfig, execution }) => ({
+             agent: t.agent ?? undefined,
 -            agentConfig: t.agent ? findAgent(agents, t.agent) : undefined,
--            task: t.task,
--            model: t.model,
-+          tasks: taskPlans.map(({ task, agentConfig, execution }) => ({
-+            agent: task.agent ?? undefined,
 +            agentConfig,
-+            task: task.task,
-+            model: task.model,
-@@ -126 +193,3 @@ export function registerSubagent(pi: ExtensionAPI): void {
--            cwd: t.cwd ?? undefined,
-+            cwd: task.cwd ?? undefined,
 +            execution,
-+            outputContract: (task.outputContract ?? params.outputContract) as SubagentOutputContract | undefined,
-@@ -142 +211,4 @@ export function registerSubagent(pi: ExtensionAPI): void {
--          content: [{ type: "text", text: formatResultsSummary(results) }],
++            ...((t.outputContract ?? params.outputContract) ? { outputContract: t.outputContract ?? params.outputContract! } : {}),
+             task: t.task,
+             model: t.model,
+             activeModel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+@@ -161,7 +180,10 @@
+ 
+         const nativeUsage = sumNativeUsage(results);
+         return {
+-          content: [{ type: "text", text: formatParallelResults(results) }],
 +          content: [
 +            { type: "text", text: formatResultsSummary(results) },
 +            ...formatParallelOutputs(results),
 +          ],
-@@ -151,0 +224 @@ export function registerSubagent(pi: ExtensionAPI): void {
-+          usage: aggregateUsage(results),
-@@ -185,0 +259,13 @@ export function registerSubagent(pi: ExtensionAPI): void {
+           ...(nativeUsage ? { usage: nativeUsage } : {}),
+           structuredContent: subagentStructuredContent("parallel", results),
+           details: {
+@@ -219,7 +241,21 @@
+         }
+         warnUnavailableTools(pi, ctx, new Set(), params.agent ?? "subagent", agentConfig?.tools);
+         warnUnknownThinkingLevel(ctx, new Set(), agentConfig?.thinking);
 +        let execution;
 +        try {
 +          execution = resolveChildExecution({
-+            operatorLimits: configuredLimits,
-+            topLevel: params,
++            operatorLimits: configuredLimits, topLevel: params,
 +            agentThinking: agentConfig?.thinking,
 +          });
 +          const retries = SettingsManager.create(params.cwd ?? process.cwd())
@@ -1022,15 +1150,17 @@ index 964ea7f..fc14391 100644
 +        } catch (error) {
 +          return policyError("single", error);
 +        }
-@@ -193,0 +280,2 @@ export function registerSubagent(pi: ExtensionAPI): void {
+         const result: SubagentResult = await executeSubagent({
 +          execution,
-+          outputContract: params.outputContract as SubagentOutputContract | undefined,
-@@ -207 +295 @@ export function registerSubagent(pi: ExtensionAPI): void {
--          content: [{ type: "text", text: result.finalOutput ?? result.error ?? "completed" }],
-+          content: [{ type: "text", text: resultOutput(result) }],
-@@ -213,0 +302 @@ export function registerSubagent(pi: ExtensionAPI): void {
-+          usage: aggregateUsage([result]),
-@@ -282,0 +372,8 @@ export function registerSubagent(pi: ExtensionAPI): void {
++          ...(params.outputContract ? { outputContract: params.outputContract } : {}),
+           agent: params.agent ?? undefined,
+           agentConfig,
+           task: params.task,
+@@ -475,3 +511,57 @@
+ export default function (pi: ExtensionAPI): void {
+   registerSubagent(pi);
+ }
++
 +function policyError(mode: "single" | "parallel", error: unknown): SubagentToolResult {
 +  return {
 +    content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
@@ -1039,12 +1169,23 @@ index 964ea7f..fc14391 100644
 +  };
 +}
 +
-@@ -312,0 +410,4 @@ function formatProgressSummary(progress: SubagentProgress[]): string {
++const PARALLEL_OUTPUT_MAX_CHARS = 12_000;
++
 +function resultOutput(result: SubagentResult): string {
 +  return result.finalOutput ?? result.error ?? "completed";
 +}
 +
-@@ -323,0 +425,29 @@ function formatResultsSummary(results: SubagentResult[]): string {
++function formatResultsSummary(results: SubagentResult[]): string {
++  const lines = results.map((r) => {
++    const status = r.error || r.exitCode !== 0 ? "✗" : "✓";
++    const summary = r.progressSummary
++      ? `${r.progressSummary.toolCount} tools · ${Math.round(r.progressSummary.tokens / 1000)}k tok · ${Math.round(r.progressSummary.durationMs / 1000)}s`
++      : "";
++    return `${status} ${r.agent}${summary ? " " + summary : ""}`;
++  });
++  return lines.join("\n");
++}
++
 +function formatParallelOutputs(results: SubagentResult[]): Array<{ type: "text"; text: string }> {
 +  const messageMaxChars = Math.floor(PARALLEL_OUTPUT_MAX_CHARS / Math.max(1, results.length));
 +  const suffix = "\n[delegated output truncated]";
@@ -1073,10 +1214,8 @@ index 964ea7f..fc14391 100644
 +    }];
 +  });
 +}
-+
 diff --git a/src/limits.ts b/src/limits.ts
 new file mode 100644
-index 0000000..65926df
 --- /dev/null
 +++ b/src/limits.ts
 @@ -0,0 +1,302 @@
@@ -1384,7 +1523,6 @@ index 0000000..65926df
 +}
 diff --git a/src/output-limit.ts b/src/output-limit.ts
 new file mode 100644
-index 0000000..2007a45
 --- /dev/null
 +++ b/src/output-limit.ts
 @@ -0,0 +1,102 @@
@@ -1491,41 +1629,58 @@ index 0000000..2007a45
 +  }
 +}
 diff --git a/src/spawn.ts b/src/spawn.ts
-index d64d741..790e82f 100644
 --- a/src/spawn.ts
 +++ b/src/spawn.ts
-@@ -5,0 +6 @@ import * as path from "node:path";
+@@ -4,10 +4,19 @@
+ import * as os from "node:os";
+ import * as path from "node:path";
+ import { randomUUID } from "node:crypto";
 +import { fileURLToPath } from "node:url";
-@@ -7 +8 @@ import { randomUUID } from "node:crypto";
--import { getBus, Events } from "@pi-archimedes/core/bus";
-+import { getBus, Events, type AskRequestPayload } from "@pi-archimedes/core/bus";
-@@ -8,0 +10,8 @@ import type { AgentConfig } from "./agents.js";
 +import { ONE_SHOT_SYSTEM_PROMPT } from "./execution-profile.js";
 +import { encodeLimitsEnvironment, SUBAGENT_LIMITS_ENV } from "./limits.js";
 +import type { ResolvedChildExecution, SubagentLimits } from "./types.js";
+ import type { EventBus } from "@earendil-works/pi-coding-agent";
+ import { Events, emitOn } from "@pi-archimedes/core/events";
+ import { resolveThinkingLevel } from "./thinking-validation.js";
+ import type { AgentConfig } from "./agents.js";
 +
 +export interface IdleWaitCallbacks {
 +  pauseIdle: () => void;
 +  resumeIdle: () => void;
 +}
-@@ -16,0 +26,8 @@ export interface SpawnOptions {
-+  execution: ResolvedChildExecution;
-+  idleWait?: IdleWaitCallbacks | undefined;
-+}
-+
-+export function resolveEffectiveModel(
-+  options: Pick<SpawnOptions, "agent" | "model" | "activeModel">,
-+): string | undefined {
-+  return options.agent?.model ?? options.model ?? options.activeModel;
-@@ -80 +97,4 @@ function resolvePiBinary(): string {
--function startAskSocketServer(agentName: string): { socketPath: string; cleanup: () => void } {
+ 
+ export interface SpawnOptions {
+   task: string;
+@@ -18,6 +27,8 @@
+   agent: AgentConfig | undefined;
+   /** The parent's host handle (`pi.events`) — see `startAskSocketServer`. */
+   events: EventBus;
++  execution?: ResolvedChildExecution;
++  idleWait?: IdleWaitCallbacks;
+ }
+ 
+ /**
+@@ -102,7 +113,11 @@
+  *
+  * Returns the socket path and a cleanup function.
+  */
+-export function startAskSocketServer(agentName: string, events: EventBus): { socketPath: string; cleanup: () => void } {
 +export function startAskSocketServer(
 +  agentName: string,
++  events: EventBus,
 +  idleWait?: IdleWaitCallbacks,
 +): { socketPath: string; cleanup: () => void } {
-@@ -89,2 +109,9 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
+   // Use named pipes on Windows, Unix domain sockets elsewhere.
+   // Linux socket path limit is 108 chars — keep it short.
+   const id = randomUUID().slice(0, 8);
+@@ -111,32 +126,33 @@
+       ? `\\\\.\\pipe\\pi-ask-${id}`
+       : path.join(os.tmpdir(), `pi-ask-${id}.sock`);
+ 
 -  // Map of pending ask requests: requestId → write-back callback
 -  const pending = new Map<string, (response: unknown) => void>();
+-
+-  // Listen for ASK_RESPONSE on the handle and route back to the waiting socket conn
 +  // Map pending requests to their socket so disconnects release paused idle leases.
 +  const pending = new Map<string, { socket: net.Socket; send: (response: unknown) => void }>();
 +  const finishPending = (requestId: string, response?: unknown): void => {
@@ -1535,7 +1690,14 @@ index d64d741..790e82f 100644
 +    if (response !== undefined) request.send(response);
 +    idleWait?.resumeIdle();
 +  };
-@@ -99,10 +126,6 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
++
++  // Listen for ASK_RESPONSE from the bus and route back to the waiting socket conn
+   const unsubResponse = events.on(Events.ASK_RESPONSE, (payload: unknown) => {
+     const data = payload as {
+       requestId: string;
+       cancelled: boolean;
+       results: Array<{ id: string; selectedOptions: string[]; customInput?: string }>;
+     };
 -    const send = pending.get(data.requestId);
 -    if (send) {
 -      pending.delete(data.requestId);
@@ -1552,7 +1714,19 @@ index d64d741..790e82f 100644
 +      cancelled: data.cancelled,
 +      results: data.results,
 +    });
-@@ -128,8 +151,31 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
+   });
+ 
+   const server = net.createServer((socket) => {
+     let buffer = "";
+-    // requestIds seen on this socket (for the ASK_CANCEL wiring below)
+-    const socketRequestIds = new Set<string>();
+ 
+     socket.on("data", (chunk: Buffer) => {
+       buffer += chunk.toString("utf-8");
+@@ -153,18 +169,39 @@
+             questions: unknown[];
+             toolCallId?: string;
+           };
 -          if (msg.type === "ask_request") {
 -            // Register write-back so ASK_RESPONSE handler can find this socket
 -            pending.set(msg.requestId, (response) => {
@@ -1592,18 +1766,166 @@ index d64d741..790e82f 100644
 +                  // socket already closed
 +                }
 +              },
-@@ -141 +187 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
--              questions: msg.questions,
-+              questions: msg.questions as AskRequestPayload["questions"],
-@@ -149,0 +196,5 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
-+    socket.on("close", () => {
+             });
+-            socketRequestIds.add(msg.requestId);
+-            // Forward onto the handle — the ask package (or the bridge, in bridge mode)
+-            // answers it; toolCallId rides along for Client correlation
++            // Forward to bus — ask package will show the TUI dialog
+             emitOn(events, Events.ASK_REQUEST, {
+               source: `subagent:${agentName}`,
+               requestId: msg.requestId,
+@@ -178,19 +215,14 @@
+       }
+     });
+ 
+-    // Child exit (or the child's own 5-min timeout → socket.end()) closes the
+-    // socket: signal the bridge via ASK_CANCEL for any still-pending ask so it
+-    // can cancel the relayed Client request. We only signal — the bridge is
+-    // the sole ASK_RESPONSE emitter (no double-decrement of its refcount).
+     socket.on("close", () => {
+-      for (const rid of socketRequestIds) {
+-        if (pending.has(rid)) {
+-          emitOn(events, Events.ASK_CANCEL, { requestId: rid, source: `subagent:${agentName}` });
+-          pending.delete(rid);
 +      for (const [requestId, request] of pending) {
-+        if (request.socket === socket) finishPending(requestId);
-+      }
-+    });
-@@ -156,0 +208 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
++        if (request.socket === socket) {
++          emitOn(events, Events.ASK_CANCEL, { requestId, source: `subagent:${agentName}` });
++          finishPending(requestId);
+         }
+       }
+     });
+-
+     socket.on("error", () => { /* connection dropped */ });
+   });
+ 
+@@ -198,6 +230,7 @@
+ 
+   const cleanup = () => {
+     unsubResponse();
 +    for (const requestId of [...pending.keys()]) finishPending(requestId);
-@@ -166,0 +219,67 @@ function startAskSocketServer(agentName: string): { socketPath: string; cleanup:
+     server.close();
+     // Named pipes on Windows are cleaned up automatically; only unlink on Unix
+     if (process.platform !== "win32") {
+@@ -217,103 +250,21 @@
+ export function spawnSubagent(options: SpawnOptions): ChildProcess {
+   const piBinary = resolvePiBinary();
+   const agentName = options.agent?.name ?? "general";
+-
+-  // Start ask bridge socket before spawning so the env var is ready
+-  const { socketPath, cleanup: cleanupSocket } = startAskSocketServer(agentName, options.events);
+-
+-  // Build CLI args
+-  const args: string[] = ["--mode", "json", "--no-session", "-p"];
+-
+-  // Model: agent.model > options.model > options.activeModel
+-  const model = resolveModel(options);
+-  if (model) {
+-    args.push("--model", model);
+-  }
+-
+-  // Thinking level from agent config. An unknown level is NOT passed on: pi
+-  // warns and drops the flag itself, which leaves the child on the default
+-  // level with the explanation in a stderr nobody reads for a successful run.
+-  // `index.ts` reports the same drop where the user can see it.
+-  const thinking = resolveThinkingLevel(options.agent?.thinking);
+-  if (thinking.level !== undefined) {
+-    args.push("--thinking", thinking.level);
+-  }
+-
+-  // Tool allowlist from agent config.
+-  //
+-  // pi 1.0.4 changed what a non-empty `--tools` does to MCP tools. It no longer
+-  // filters them: unless the list is empty or names an `mcp__` entry, they stay
+-  // REGISTERED — reachable through codemode and `tool_search` — even though they
+-  // are not *declared* to the model (`agent-session.js`: `_allowlistFiltersMcp`
+-  // false → `_isAllowedTool` keeps them, `_isActivatable` withholds the
+-  // declaration unless `tool_search` can load them). So the child's tool box is
+-  // wider than the three names in the config, which is the hole ADR 0028 closed:
+-  // `--no-mcp` stops the servers connecting at all, so there is nothing to reach.
+-  // A config that wants the servers asks with `mcp: true` — verified against a
+-  // live 1.2.0 child: with `--tools read` it sees exactly `read` either way, so
+-  // the opt-in's observable effect today is registration, not a declared list
+-  // (see ADR 0028's verification note for the open follow-up).
+-  const tools = options.agent?.tools ?? [];
+-  if (tools.length > 0) {
+-    args.push("--tools", tools.join(","));
+-    if (options.agent?.mcp !== true) {
+-      args.push("--no-mcp");
+-    }
+-  }
+-
+-  // Always exclude the subagent tool itself to prevent infinite recursion
+-  args.push("--exclude-tools", "subagent");
+-
+-  // Agent system prompt
+-  const systemPrompt = options.agent?.systemPrompt?.trim();
+-  if (systemPrompt) {
+-    args.push("--system-prompt", systemPrompt);
+-  }
+-
+-  // The task is the final positional argument
+-  args.push(options.task);
+-
+-  // On Windows, spawn `node <resolved-js-path>` instead of the raw binary.
+-  // The resolved path is a .js file which cannot be spawned directly on Windows.
+-  // Using process.execPath avoids shell: true (no escaping risks, kill() works).
+-  const isWindowsResolved = process.platform === "win32" && piBinary !== "pi";
+-
+-  const child = spawn(
+-    isWindowsResolved ? process.execPath : piBinary,
+-    [
+-      ...(isWindowsResolved ? [piBinary] : []),
+-      ...args,
+-    ],
+-    {
+-      cwd: options.cwd || process.cwd(),
+-      env: {
+-        ...process.env,
+-        PI_SUBAGENT_SOCKET: socketPath,
+-      },
+-      stdio: ["ignore", "pipe", "pipe"],
+-      windowsHide: true,
+-    },
+-  );
+-
+-  // Clean up socket server when child exits
++  const { socketPath, cleanup: cleanupSocket } = startAskSocketServer(agentName, options.events, options.idleWait);
++  const invocation = buildSpawnInvocation(piBinary, buildSubagentArgs(options));
++
++  const child = spawn(invocation.command, invocation.args, {
++    cwd: options.cwd || process.cwd(),
++    env: buildSpawnEnvironment(socketPath, options.execution?.limits),
++    stdio: ["ignore", "pipe", "pipe"],
++    windowsHide: true,
++  });
++
+   child.on("exit", cleanupSocket);
+   child.on("error", cleanupSocket);
+ 
+-  // Handle abort signal
+   if (options.signal) {
+-    const abortHandler = () => {
+-      if (child.pid && !child.killed) {
+-        child.kill("SIGTERM");
+-        const forceKill = setTimeout(() => {
+-          if (!child.killed) child.kill("SIGKILL");
+-        }, 3000);
+-        forceKill.unref();
+-      }
+-    };
+-    // A signal that is ALREADY aborted never dispatches its "abort" event (it
+-    // fires exactly once, at abort time), so addEventListener alone would never
+-    // kill the child — call the handler directly in that case. (kill is
+-    // idempotent via the child.killed guard, so both branches coexist safely.)
++    const abortHandler = () => terminateChild(child);
+     if (options.signal.aborted) abortHandler();
+     else options.signal.addEventListener("abort", abortHandler, { once: true });
+     child.on("exit", () => options.signal!.removeEventListener("abort", abortHandler));
+@@ -321,3 +272,77 @@
+ 
+   return child;
+ }
++
 +export function buildSubagentArgs(
 +  options: SpawnOptions,
 +  childGuardPath = fileURLToPath(new URL("./child-guard.ts", import.meta.url)),
@@ -1611,21 +1933,23 @@ index d64d741..790e82f 100644
 +  const args: string[] = ["--mode", "json", "--no-session", "-p"];
 +  const model = resolveEffectiveModel(options);
 +  if (model) args.push("--model", model);
-+  const thinking = options.execution.profile.thinking;
++  const thinking = resolveThinkingLevel(options.execution?.profile.thinking ?? options.agent?.thinking).level;
 +  if (thinking) args.push("--thinking", thinking);
 +
-+  const mode = options.execution.profile.mode;
++  const mode = options.execution?.profile.mode ?? "agentic";
 +  if (mode === "one-shot") {
-+    args.push("--no-tools", "--no-extensions", "--no-skills", "--no-context-files");
++    args.push("--no-tools", "--no-extensions", "--no-skills", "--no-context-files", "--no-mcp");
 +  } else if (options.agent?.tools && options.agent.tools.length > 0) {
 +    args.push("--tools", options.agent.tools.join(","));
++    if (options.agent.mcp !== true) args.push("--no-mcp");
 +  }
 +
 +  const systemPrompt = options.agent?.systemPrompt?.trim() ||
 +    (mode === "one-shot" ? ONE_SHOT_SYSTEM_PROMPT : undefined);
 +  if (systemPrompt) args.push("--system-prompt", systemPrompt);
 +
-+  if (options.execution.limits) args.push("--extension", childGuardPath);
++  args.push("--exclude-tools", "subagent");
++  if (options.execution?.limits) args.push("--extension", childGuardPath);
 +  args.push(options.task);
 +  return args;
 +}
@@ -1653,6 +1977,7 @@ index d64d741..790e82f 100644
 +  };
 +}
 +
++
 +export function terminateChild(child: ChildProcess, graceMs = 3000): void {
 +  if (!child.pid || child.killed || child.exitCode !== null || child.signalCode !== null) return;
 +  child.kill("SIGTERM");
@@ -1671,110 +1996,52 @@ index d64d741..790e82f 100644
 +  child.once("exit", () => clearTimeout(timer));
 +}
 +
-@@ -175,0 +295,2 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
-+  const { socketPath, cleanup: cleanupSocket } = startAskSocketServer(agentName, options.idleWait);
-+  const invocation = buildSpawnInvocation(piBinary, buildSubagentArgs(options));
-@@ -177,33 +298,6 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
--  // Start ask bridge socket before spawning so the env var is ready
--  const { socketPath, cleanup: cleanupSocket } = startAskSocketServer(agentName);
--
--  // Build CLI args
--  const args: string[] = ["--mode", "json", "--no-session", "-p"];
--
--  // Model: agent.model > options.model > options.activeModel
--  const model = options.agent?.model ?? options.model ?? options.activeModel;
--  if (model) {
--    args.push("--model", model);
--  }
--
--  // Thinking level from agent config
--  if (options.agent?.thinking) {
--    args.push("--thinking", options.agent.thinking);
--  }
--
--  // Tool allowlist from agent config
--  if (options.agent?.tools && options.agent.tools.length > 0) {
--    args.push("--tools", options.agent.tools.join(","));
--  }
--
--  // Always exclude the subagent tool itself to prevent infinite recursion
--  args.push("--exclude-tools", "subagent");
--
--  // Agent system prompt
--  const systemPrompt = options.agent?.systemPrompt?.trim();
--  if (systemPrompt) {
--    args.push("--system-prompt", systemPrompt);
--  }
--
--  // The task is the final positional argument
--  args.push(options.task);
-+  const child = spawn(invocation.command, invocation.args, {
-+    cwd: options.cwd || process.cwd(),
-+    env: buildSpawnEnvironment(socketPath, options.execution.limits),
-+    stdio: ["ignore", "pipe", "pipe"],
-+    windowsHide: true,
-+  });
-@@ -211,23 +304,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
--  // On Windows, spawn `node <resolved-js-path>` instead of the raw binary.
--  // The resolved path is a .js file which cannot be spawned directly on Windows.
--  // Using process.execPath avoids shell: true (no escaping risks, kill() works).
--  const isWindowsResolved = process.platform === "win32" && piBinary !== "pi";
--
--  const child = spawn(
--    isWindowsResolved ? process.execPath : piBinary,
--    [
--      ...(isWindowsResolved ? [piBinary] : []),
--      ...args,
--    ],
--    {
--      cwd: options.cwd || process.cwd(),
--      env: {
--        ...process.env,
--        PI_SUBAGENT_SOCKET: socketPath,
--      },
--      stdio: ["ignore", "pipe", "pipe"],
--      windowsHide: true,
--    },
--  );
--
--  // Clean up socket server when child exits
-@@ -237 +307,0 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
--  // Handle abort signal
-@@ -239,10 +309,3 @@ export function spawnSubagent(options: SpawnOptions): ChildProcess {
--    const abortHandler = () => {
--      if (child.pid && !child.killed) {
--        child.kill("SIGTERM");
--        const forceKill = setTimeout(() => {
--          if (!child.killed) child.kill("SIGKILL");
--        }, 3000);
--        forceKill.unref();
--      }
--    };
--    options.signal.addEventListener("abort", abortHandler, { once: true });
-+    const abortHandler = () => terminateChild(child);
-+    if (options.signal.aborted) abortHandler();
-+    else options.signal.addEventListener("abort", abortHandler, { once: true });
++
++/** Compatibility name for the same native model-resolution rule. */
++export const resolveEffectiveModel = resolveModel;
 diff --git a/src/stream.ts b/src/stream.ts
-index d3a2524..0a5bb53 100644
 --- a/src/stream.ts
 +++ b/src/stream.ts
-@@ -0,0 +1 @@
+@@ -1,30 +1,231 @@
 +import { createHash } from "node:crypto";
-@@ -3,2 +4,6 @@ import type { ChildProcess } from "node:child_process";
--import type { StreamState, SubagentProgress, SubagentResult } from "./types.js";
--import { getBus, Events } from "@pi-archimedes/core/bus";
+ import { createInterface } from "node:readline";
+ import type { ChildProcess } from "node:child_process";
 +import type { ResolvedChildExecution, StreamState, SubagentProgress, SubagentResult } from "./types.js";
-+import { getBus, Events, type TodoUpdatePayload } from "@pi-archimedes/core/bus";
+ import type { EventBus } from "@earendil-works/pi-coding-agent";
+-import type { StreamState, SubagentProgress, SubagentResult } from "./types.js";
+ import { Events, emitOn } from "@pi-archimedes/core/events";
+ import { normalizeTodoItems, pickTodoListRaw } from "@pi-archimedes/todo/prepare-args";
++import { decideRunOutcome } from "./run-outcome.js";
 +import { decodeLimitStop } from "./limits.js";
 +import { decodeOutputLimitEvidence } from "./output-limit.js";
 +import { scheduleTerminateChild } from "./spawn.js";
 +import { addUsage, isUsage, readUsage, toSubagentUsage } from "./usage.js";
-@@ -9,0 +15,2 @@ import {
+ import {
+   type JsonEvent,
+   handleToolStart,
+   handleToolEnd,
+   handleToolResult,
 +  handleMessageStart,
 +  handleMessageUpdate,
-@@ -16,0 +24 @@ export interface StreamCallbacks {
+   handleMessageEnd,
+   handleAgentEnd,
+ } from "./handlers.js";
+-import { decideRunOutcome } from "./run-outcome.js";
+ 
+ export interface StreamCallbacks {
+   agent?: string;
+   task?: string;
++  /** Parent host handle; never recreate the retired global bus. */
++  events?: EventBus;
 +  execution?: ResolvedChildExecution;
-@@ -17,0 +26,198 @@ export interface StreamCallbacks {
+   onProgress?: (progress: SubagentProgress) => void;
+-  /**
+-   * The parent's host handle (`pi.events`), injected. `streamEvents` is a plain
+-   * function over a child process, so it has no `pi` of its own; the child's
+-   * todo state is announced on the handle the caller is holding, which is the
+-   * same one the todo package subscribed on in this process.
+-   */
+-  events: EventBus;
 +  onActivity?: () => void;
 +  onTermination?: (termination: NonNullable<SubagentResult["termination"]>) => void;
 +  onSettled?: () => void;
@@ -1973,16 +2240,36 @@ index d3a2524..0a5bb53 100644
 +    default:
 +      return false;
 +  }
-@@ -32,0 +239,6 @@ export function streamEvents(
+ }
+ 
+ /**
+@@ -36,14 +237,21 @@
+  */
+ export function streamEvents(
+   child: ChildProcess,
+-  callbacks: StreamCallbacks,
++  callbacks: StreamCallbacks = {},
+ ): Promise<SubagentResult> {
+   return new Promise((resolve, reject) => {
+     const startTime = Date.now();
 +    let settled = false;
 +    const settle = (): void => {
 +      if (settled) return;
 +      settled = true;
 +      callbacks.onSettled?.();
 +    };
-@@ -36,0 +249 @@ export function streamEvents(
+ 
+     // Startup safeguard: if no JSON event arrives within 2 minutes, kill the child.
+     const STARTUP_TIMEOUT_MS = 2 * 60 * 1000;
+     let startupTimer: NodeJS.Timeout | undefined = setTimeout(() => {
 +      settle();
-@@ -55,5 +268,3 @@ export function streamEvents(
+       child.kill("SIGKILL");
+       reject(
+         new Error(
+@@ -62,49 +270,136 @@
+     const state: StreamState = {
+       toolCount: 0,
+       turnCount: 0,
 -      totalInput: 0,
 -      totalOutput: 0,
 -      totalCacheRead: 0,
@@ -1991,31 +2278,30 @@ index d3a2524..0a5bb53 100644
 +      usage: readUsage(undefined),
 +      turnUsage: readUsage(undefined),
 +      partialUsage: readUsage(undefined),
-@@ -62,0 +274 @@ export function streamEvents(
+       currentTool: undefined,
+       currentToolArgs: undefined,
+       currentToolStartedAt: undefined,
 +      provider: undefined,
-@@ -64,0 +277,3 @@ export function streamEvents(
+       model: undefined,
+       accumulatedOutput: [],
 +      streamingOutput: undefined,
 +      streamingParts: new Map(),
 +      outputLimit: undefined,
-@@ -67,0 +283 @@ export function streamEvents(
-+      error: undefined,
-@@ -70,4 +286 @@ export function streamEvents(
+       recentOutput: [],
+       toolCalls: [],
+       finalOutput: undefined,
+-    };
+-
 -    // Collect stderr for error reporting
 -    const stderrChunks: Buffer[] = [];
 -    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 -
++      error: undefined,
++    };
++
 +    const stderrLines: string[] = [];
-@@ -74,0 +288,9 @@ export function streamEvents(
-+    let termination = undefined as SubagentResult["termination"];
-+    const toolFingerprints = new Map<
-+      string,
-+      { toolName: string; call?: string } | null
-+    >();
-+    const seenToolCallIds = new Set<string>();
-+    let repeatedErrorTracking = true;
-+    let lastErrorFingerprint: string | undefined;
-+    let repeatedErrorCount = 0;
-@@ -76,22 +298,100 @@ export function streamEvents(
+     let error: string | undefined;
+-
 -    const buildProgress = (): SubagentProgress => ({
 -      agent: callbacks.agent ?? "subagent",
 -      status: "running",
@@ -2038,6 +2324,16 @@ index d3a2524..0a5bb53 100644
 -      toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
 -      model: state.model,
 -    });
++    let termination = undefined as SubagentResult["termination"];
++    const toolFingerprints = new Map<
++      string,
++      { toolName: string; call?: string } | null
++    >();
++    const seenToolCallIds = new Set<string>();
++    let repeatedErrorTracking = true;
++    let lastErrorFingerprint: string | undefined;
++    let repeatedErrorCount = 0;
++
 +    const resetRepeatedErrorStreak = (): void => {
 +      lastErrorFingerprint = undefined;
 +      repeatedErrorCount = 0;
@@ -2138,26 +2434,64 @@ index d3a2524..0a5bb53 100644
 +        model: state.model,
 +      };
 +    };
-@@ -107,0 +408 @@ export function streamEvents(
+ 
+     const emitProgress = () => callbacks.onProgress?.(buildProgress());
+ 
+@@ -115,15 +410,12 @@
+     if (!child.stdout) {
+       clearStartupTimer();
+       clearInterval(heartbeat);
 +      settle();
-@@ -118 +419 @@ export function streamEvents(
+       reject(new Error("subagent child has no stdout pipe"));
+       return;
+     }
+ 
+     const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
+-
+-    // toolCallId → raw todoList from tool_execution_start, consumed by the
+-    // matching tool_execution_end. pi emits tool_execution_start with the
+-    // raw (pre-prepareToolCall) arguments, so these may be unrepaired.
+     const pendingTodoArgs = new Map<string, unknown[]>();
+     let subagentSource = `subagent:${callbacks.agent ?? "general"}`;
+ 
+@@ -131,40 +423,63 @@
+       const trimmed = line.trim();
+       if (!trimmed) return;
+ 
 -      let event: JsonEvent;
 +      let parsed: unknown;
-@@ -120 +421 @@ export function streamEvents(
+       try {
 -        event = JSON.parse(trimmed) as JsonEvent;
 +        parsed = JSON.parse(trimmed) as unknown;
-@@ -124,0 +426,2 @@ export function streamEvents(
-+      if (!isKnownEvent(parsed)) return;
-+      const event = parsed;
-@@ -126,2 +429,5 @@ export function streamEvents(
+       } catch {
+         // Non-JSON output — ignore (can happen from pi startup messages)
+         return;
+       }
+-
 -      // First real event means model has engaged — cancel startup watchdog
 -      clearStartupTimer();
++      if (!isKnownEvent(parsed)) return;
++      const event = parsed;
++
 +      if (isActivityEvent(event)) {
 +        // First runtime-valid event means model has engaged — cancel startup watchdog.
 +        clearStartupTimer();
 +        callbacks.onActivity?.();
 +      }
-@@ -136,0 +443,25 @@ export function streamEvents(
+ 
+       switch (event.type) {
+         case "session": {
+           if (typeof event.id === "string" && event.id) {
+             state.childSessionId = event.id;
+-            // A child with a session id gets a unique per-child todo source so
+-            // concurrent children sharing an agent name don't clobber each
+-            // other's accepted state when one clears on exit. Children without
+-            // a session id (e.g. tests) keep the legacy subagent:<agent> form.
+             subagentSource = `subagent:${callbacks.agent ?? "general"}:${event.id}`;
+           }
+           break;
+         }
+         case "tool_execution_start": {
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -2183,10 +2517,40 @@ index d3a2524..0a5bb53 100644
 +              }
 +            }
 +          }
-@@ -146 +477 @@ export function streamEvents(
--                todos: todoList,
-+                todos: todoList as TodoUpdatePayload["todos"],
-@@ -152,0 +484,22 @@ export function streamEvents(
+           handleToolStart(state, event);
+           emitProgress();
++          // Start arguments are not accepted state. Publish only after success.
+           if (event.toolName === "manage_todo_list" && typeof event.toolCallId === "string") {
+             const args = event.args as Record<string, unknown> | undefined;
+-            // Raw (pre-prepareArguments) args: the child model may have used
+-            // an alias key (todo_list/todos) — pickTodoListRaw covers it.
+             const todoList = pickTodoListRaw(args);
+-            if (Array.isArray(todoList)) {
+-              pendingTodoArgs.set(event.toolCallId, todoList);
+-            }
++            if (Array.isArray(todoList)) pendingTodoArgs.set(event.toolCallId, todoList);
+           }
+           break;
+         }
+@@ -174,19 +489,34 @@
+             const stowed = id ? pendingTodoArgs.get(id) : undefined;
+             if (id) pendingTodoArgs.delete(id);
+             const result = event.result as Record<string, unknown> | undefined;
+-            // Tool-level failure (todo's execute() RETURNS {isError:true} on validation
+-            // rejection — it does not throw) arrives as event.isError=false with
+-            // result.isError=true. Harness failures (abort, not-found, block, throw)
+-            // arrive as event.isError=true. Check BOTH — the same convention
+-            // handleToolResult in handlers.ts already uses.
+             const failed = event.isError === true || result?.isError === true;
+             if (!failed) {
+               const detailsTodos = (result?.details as Record<string, unknown> | undefined)?.todos;
+               const todos = normalizeTodoItems(Array.isArray(detailsTodos) ? detailsTodos : stowed);
+-              if (todos) {
+-                emitOn(callbacks.events, Events.TODOS_UPDATE, { source: subagentSource, todos });
+-              }
++              if (todos) emitOn(callbacks.events, Events.TODOS_UPDATE, { source: subagentSource, todos });
+             }
++          }
 +          const toolCallId = typeof event.toolCallId === "string" && event.toolCallId
 +            ? event.toolCallId
 +            : undefined;
@@ -2208,8 +2572,13 @@ index d3a2524..0a5bb53 100644
 +            toolFingerprints.delete(toolCallKey);
 +            if (pending.call) observeToolResult(pending.call, event.result, event.isError);
 +            else resetRepeatedErrorStreak();
-+          }
-@@ -160,0 +514,11 @@ export function streamEvents(
+           }
+           handleToolEnd(state);
+           emitProgress();
+@@ -196,6 +526,17 @@
+         }
+         case "turn_start": {
+           state.turnCount++;
 +          state.turnUsage = readUsage(undefined);
 +          state.partialUsage = readUsage(undefined);
 +          break;
@@ -2221,39 +2590,98 @@ index d3a2524..0a5bb53 100644
 +        }
 +        case "message_update": {
 +          if (handleMessageUpdate(state, event)) emitProgress();
-@@ -172 +536 @@ export function streamEvents(
+           break;
+         }
+         case "message_end": {
+@@ -208,66 +549,76 @@
+           break;
+         }
+         case "agent_settled": {
+-          // pi 1.1.0: the child's own statement that its run is over, and
+-          // whether it was cancelled. `agent_end` fires for a cancelled run too
+-          // (and can fire while a continuation is still pending), so this — not
+-          // `agent_end` — is what an outcome is read from.
+           if (event.aborted === true) state.settledAborted = true;
+           break;
+         }
 -        // Ignore: agent_start, message_start, message_update, turn_end, tool_execution_update
 +        // Valid activity with no local state mutation: agent_start, turn_end, tool_execution_update.
-@@ -177,0 +542 @@ export function streamEvents(
+       }
+     });
+ 
+     // Handle process exit
+     child.on("close", (code, signal) => {
 +      settle();
-@@ -181 +546,2 @@ export function streamEvents(
+       clearStartupTimer();
+       clearInterval(heartbeat);
+       const durationMs = Date.now() - startTime;
 -      const exitCode = code ?? 1;
+-
+-      const outcome = decideRunOutcome({
 +      const processExitCode = code ?? 1;
 +      const usage = observedUsage();
-@@ -183,3 +549,3 @@ export function streamEvents(
--      // Surface stderr as error if the process failed and we have no other error
--      if (exitCode !== 0 && !error) {
--        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
-+      error ??= state.error;
-+      if (processExitCode !== 0 && !error) {
-+        const stderr = stderrLines.join("\n").trim();
-@@ -187,0 +554,7 @@ export function streamEvents(
-+      const exitCode = termination ? 2 : state.error ? 1 : processExitCode;
-+      termination ??= exitCode === 0
-+        ? { reason: "completed", usageState: "complete" }
-+        : {
-+          reason: "process-error",
-+          usageState: state.streamingOutput ? "partial" : "unknown",
++
++      // Explicit managed stops remain failures with their first-stop evidence.
++      // Otherwise retain native completed/truncated/aborted outcomes; a natural
++      // output truncation is not a crash, even when print mode exits nonzero.
++      let outcome = termination ? "failed" : decideRunOutcome({
+         settledAborted: state.settledAborted === true,
+         stopReason: state.lastStopReason,
+-        // The raw code, not `exitCode`: `null` is the difference between "it was
+-        // killed" and "it failed", and the outcome table reads that difference.
+         exitCode: code,
+         signal: signal ?? undefined,
+       });
+-
+-      // stderr explains a failure and nothing else. A truncated run's stderr is
+-      // pi's own "Response was truncated" notice and an aborted one's is noise —
+-      // promoting either to `error` would report a real answer as a broken one.
++      if (callbacks.execution && !termination && (outcome === "truncated" || outcome === "aborted")) {
++        termination = {
++          reason: outcome === "truncated" ? "output-limit" : "user-abort",
++          usageState: outcome === "truncated" ? "complete" : "partial",
 +        };
-@@ -192 +565,4 @@ export function streamEvents(
++        error = `Subagent stopped: ${termination.reason}`;
++        outcome = "failed";
++      }
+       if (outcome === "failed" && !error) {
+-        const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
+-        if (stderr) error = stderr;
+-        else if (code === null) error = `subagent terminated by ${signal ?? "a signal"}`;
+-        // A json child that errored leaves nothing behind to read: the exit code
+-        // stays 0 (the stopReason→code mapping is print mode's text branch) and
+-        // stderr is clean, which used to make a failed run byte-identical to a
+-        // successful one at this boundary. A failed run always says why.
+-        else if (state.lastStopReason === "error")
+-          error = 'subagent failed: the child\u2019s last response ended with stopReason "error"';
+-        else error = `subagent failed with exit code ${code ?? "null"}`;
+-      }
++        const stderr = stderrLines.join("\n").trim();
++        error = stderr || state.error || (code === null
++          ? `subagent terminated by ${signal ?? "a signal"}`
++          : `subagent failed with exit code ${code}`);
++      }
++      const exitCode = termination ? 2 : state.error ? 1 : processExitCode;
++      termination ??= outcome === "failed"
++        ? { reason: "process-error", usageState: state.streamingOutput ? "partial" : "unknown" }
++        : outcome === "aborted"
++          ? { reason: "user-abort", usageState: "partial" }
++          : outcome === "truncated"
++            ? { reason: "output-limit", usageState: "complete" }
++            : { reason: "completed", usageState: "complete" };
+ 
+       const result: SubagentResult = {
+         agent: callbacks.agent ?? "subagent",
+         task: callbacks.task ?? "",
 -        ...(state.childSessionId ? { childSessionId: state.childSessionId } : {}),
 +        ...(state.childSessionId ? {
 +          childSessionId: state.childSessionId,
 +          childTrace: { sessionId: state.childSessionId },
 +        } : {}),
-@@ -193,0 +570 @@ export function streamEvents(
+         exitCode,
+         ...(outcome === "failed" ? {} : { outcome }),
 +        provider: state.provider,
-@@ -195,9 +572,9 @@ export function streamEvents(
+         model: state.model,
 -        usage: {
 -          input: state.totalInput,
 -          output: state.totalOutput,
@@ -2272,19 +2700,180 @@ index d3a2524..0a5bb53 100644
 +        } : {}),
 +        usage: toSubagentUsage(usage, state.turnCount),
 +        finalOutput: state.finalOutput ?? observedOutput(),
-@@ -204,0 +582 @@ export function streamEvents(
+         error,
 +        termination,
-@@ -212 +590 @@ export function streamEvents(
+         progress: {
+           ...buildProgress(),
+           status: outcome === "failed" ? "failed" : "completed",
+@@ -276,22 +627,21 @@
+         },
+         progressSummary: {
+           toolCount: state.toolCount,
 -          tokens: state.totalInput + state.totalOutput,
 +          tokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
-@@ -227,0 +606 @@ export function streamEvents(
+           durationMs,
+         },
+       };
+ 
+       callbacks.onProgress?.(result.progress!);
+ 
+-      // Clear subagent todos from the handle on exit
+-      emitOn(callbacks.events, Events.TODOS_CLEAR, {
+-        source: subagentSource,
+-      });
++      // Subscribers register before execution; deferred stale-handle emits are safe.
++      emitOn(callbacks.events, Events.TODOS_CLEAR, { source: subagentSource });
+ 
+       resolve(result);
+     });
+ 
+     child.on("error", (err) => {
 +      settle();
+       clearStartupTimer();
+       clearInterval(heartbeat);
+       reject(err);
+diff --git a/src/tool-schema.ts b/src/tool-schema.ts
+--- a/src/tool-schema.ts
++++ b/src/tool-schema.ts
+@@ -1,7 +1,31 @@
+ import { Type, type Static } from "typebox";
++import { MAX_SUBAGENT_DURATION_MS, SUBAGENT_EXECUTION_MODES, SUBAGENT_OUTPUT_CONTRACTS, SUBAGENT_THINKING_LEVELS, SUBAGENT_TERMINATION_REASONS, SUBAGENT_USAGE_STATES } from "./types.js";
+ import type { SubagentResult, SubagentRunReport } from "./types.js";
+ 
+ // ── JSON Schema for tool parameters (TypeBox) ──────────────────────────────
++
++const SubagentLimitsSchema = Type.Object({
++  maxProviderRequests: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum provider requests for this child" })),
++  maxToolCalls: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum tool calls for this child" })),
++  maxTotalTokens: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum input, output, and cache tokens for this child" })),
++  maxOutputTokens: Type.Optional(Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Best-effort provider-native output cap for one-shot children" })),
++  maxCostUsd: Type.Optional(Type.Number({ exclusiveMinimum: 0, description: "Observed cost ceiling in USD; may overshoot by one response" })),
++  maxDurationMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SUBAGENT_DURATION_MS, description: "Maximum wall time in milliseconds for this child" })),
++  maxIdleMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SUBAGENT_DURATION_MS, description: "Maximum milliseconds between valid child activity events" })),
++});
++
++const ExecutionModeSchema = Type.Unsafe<(typeof SUBAGENT_EXECUTION_MODES)[number]>({
++  type: "string", enum: [...SUBAGENT_EXECUTION_MODES],
++  description: "agentic: normal child with tools and ambient context; one-shot: isolated packet with one provider request",
++});
++const ThinkingLevelSchema = Type.Unsafe<(typeof SUBAGENT_THINKING_LEVELS)[number]>({
++  type: "string", enum: [...SUBAGENT_THINKING_LEVELS],
++  description: "Child thinking level. Agent frontmatter wins, then task-level, then top-level thinking.",
++});
++const OutputContractSchema = Type.Unsafe<(typeof SUBAGENT_OUTPUT_CONTRACTS)[number]>({
++  type: "string", enum: [...SUBAGENT_OUTPUT_CONTRACTS],
++  description: "Caller-supplied result transport label; Archimedes reports but does not evaluate it.",
++});
+ 
+ const TaskItem = Type.Object({
+   agent: Type.Optional(Type.String({
+@@ -10,6 +34,10 @@
+   task: Type.String(),
+   model: Type.Optional(Type.String()),
+   cwd: Type.Optional(Type.String()),
++  limits: Type.Optional(SubagentLimitsSchema),
++  mode: Type.Optional(ExecutionModeSchema),
++  thinking: Type.Optional(ThinkingLevelSchema),
++  outputContract: Type.Optional(OutputContractSchema),
+ });
+ 
+ export const SUBAGENT_PARAMS_SCHEMA = Type.Object({
+@@ -28,6 +56,10 @@
+   cwd: Type.Optional(Type.String({
+     description: "Working directory for the subagent",
+   })),
++  limits: Type.Optional(SubagentLimitsSchema),
++  mode: Type.Optional(ExecutionModeSchema),
++  thinking: Type.Optional(ThinkingLevelSchema),
++  outputContract: Type.Optional(OutputContractSchema),
+ });
+ 
+ /**
+@@ -70,12 +102,18 @@
+ // that run's `error` field set inside `results` (pre-existing shape, unchanged
+ // by these schemas; see the per-run failure markers in `formatParallelResults`).
+ 
++const CostBreakdownSchema = Type.Object({
++  input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(),
++  cacheWrite: Type.Number(), total: Type.Number(),
++});
++
+ const UsageSchema = Type.Object({
+   input: Type.Number(),
+   output: Type.Number(),
+   cacheRead: Type.Number(),
+   cacheWrite: Type.Number(),
+   cost: Type.Number(),
++  costBreakdown: Type.Optional(CostBreakdownSchema),
+   turns: Type.Number(),
+ });
+ 
+@@ -85,11 +123,32 @@
+   durationMs: Type.Number(),
+ });
+ 
+-const RunReportSchema = Type.Object({
++const ExecutionSchema = Type.Object({
++  profile: Type.Object({ mode: ExecutionModeSchema, thinking: Type.Optional(Type.String()) }),
++  limits: Type.Optional(SubagentLimitsSchema),
++  outputLimit: Type.Optional(Type.Object({
++    requested: Type.Integer({ minimum: 1 }),
++    effective: Type.Optional(Type.Integer({ minimum: 1 })),
++    enforcement: Type.Union([Type.Literal("applied"), Type.Literal("unsupported")]),
++  })),
++});
++const TerminationSchema = Type.Object({
++  reason: Type.Unsafe<(typeof SUBAGENT_TERMINATION_REASONS)[number]>({ type: "string", enum: [...SUBAGENT_TERMINATION_REASONS] }),
++  limit: Type.Optional(Type.Number({ minimum: 0 })),
++  observed: Type.Optional(Type.Number({ minimum: 0 })),
++  usageState: Type.Unsafe<(typeof SUBAGENT_USAGE_STATES)[number]>({ type: "string", enum: [...SUBAGENT_USAGE_STATES] }),
++});
++
++export const RunReportSchema = Type.Object({
+   agent: Type.String(),
+   task: Type.String(),
+   exitCode: Type.Number(),
+   childSessionId: Type.Optional(Type.String()),
++  childTrace: Type.Optional(Type.Object({ sessionId: Type.String(), traceId: Type.Optional(Type.String()) })),
++  provider: Type.Optional(Type.String()),
++  execution: Type.Optional(ExecutionSchema),
++  termination: Type.Optional(TerminationSchema),
++  outputContract: Type.Optional(OutputContractSchema),
+   outcome: Type.Optional(
+     Type.Union([Type.Literal("completed"), Type.Literal("truncated"), Type.Literal("aborted")]),
+   ),
+@@ -117,6 +176,18 @@
+       task: result.task,
+       exitCode: result.exitCode,
+       ...(result.childSessionId !== undefined && { childSessionId: result.childSessionId }),
++      ...(result.childTrace && { childTrace: { ...result.childTrace } }),
++      ...(result.provider !== undefined && { provider: result.provider }),
++      ...(result.outputContract && { outputContract: result.outputContract }),
++      ...(result.termination && { termination: { ...result.termination } }),
++      ...(result.execution && { execution: {
++        profile: {
++          mode: result.execution.profile.mode,
++          ...(result.execution.profile.thinking !== undefined && { thinking: result.execution.profile.thinking }),
++        },
++        ...(result.execution.limits && { limits: { ...result.execution.limits } }),
++        ...(result.execution.outputLimit && { outputLimit: { ...result.execution.outputLimit } }),
++      } }),
+       ...(result.outcome !== undefined && { outcome: result.outcome }),
+       usage: {
+         input: result.usage.input,
+@@ -124,6 +195,7 @@
+         cacheRead: result.usage.cacheRead,
+         cacheWrite: result.usage.cacheWrite,
+         cost: result.usage.cost,
++        ...(result.usage.costBreakdown && { costBreakdown: { ...result.usage.costBreakdown } }),
+         turns: result.usage.turns,
+       },
+       ...(result.model !== undefined && { model: result.model }),
 diff --git a/src/types.ts b/src/types.ts
-index 0217f26..d1fe770 100644
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -0,0 +1,82 @@
-+import type { Usage } from "@earendil-works/pi-ai";
+@@ -1,4 +1,84 @@
+ import type { Usage } from "@earendil-works/pi-ai";
 +
 +export const MAX_SUBAGENT_DURATION_MS = 2_147_483_647;
 +
@@ -2365,83 +2954,171 @@ index 0217f26..d1fe770 100644
 +  observed?: number;
 +  usageState: SubagentUsageState;
 +}
-+
-@@ -6,0 +89 @@ export interface SubagentUsage {
+ 
+ export interface SubagentUsage {
+   input: number;
+@@ -6,6 +86,7 @@
+   cacheRead: number;
+   cacheWrite: number;
+   cost: number;
 +  costBreakdown?: Usage["cost"];
-@@ -9,0 +93,5 @@ export interface SubagentUsage {
+   turns: number;
+ }
+ 
+@@ -41,6 +122,10 @@
+   currentToolArgs: string | undefined;
+   currentToolStartedAt: number | undefined;
+   toolCount: number;
++  turnCount?: number;
++  turnTokens?: number;
++  cacheReadTokens?: number;
++  cacheWriteTokens?: number;
+   inputTokens: number;
+   outputTokens: number;
+   tokens: number;
+@@ -57,11 +142,27 @@
+   toolCalls: SubagentToolCall[] | undefined;
+ }
+ 
 +export interface SubagentChildTraceRef {
 +  sessionId: string;
 +  traceId?: string;
 +}
 +
-@@ -23,0 +112,4 @@ export interface SubagentProgress {
-+  /** Current provider turn number. Optional for external progress producers. */
-+  turnCount?: number;
-+  /** Tokens observed in the current provider turn. */
-+  turnTokens?: number;
-@@ -25,0 +118,2 @@ export interface SubagentProgress {
-+  cacheReadTokens?: number;
-+  cacheWriteTokens?: number;
-@@ -39,0 +134,6 @@ export interface SubagentProgress {
 +export interface SubagentProgressSummary {
 +  toolCount: number;
 +  tokens: number;
 +  durationMs: number;
 +}
 +
-@@ -44,0 +145,2 @@ export interface SubagentResult {
-+  /** Native child trace reference; traceId is omitted when unavailable. */
+ export interface SubagentResult {
+   agent: string;
+   task: string;
+   /** Logical Pi session UUID for this spawned subagent process. */
+   childSessionId?: string;
 +  childTrace?: SubagentChildTraceRef;
-@@ -47,5 +149,11 @@ export interface SubagentResult {
++  provider?: string | undefined;
++  execution?: ResolvedChildExecution;
++  outputContract?: SubagentOutputContract;
++  termination?: SubagentTermination;
+   exitCode: number;
+   /**
+    * How the run ended, when it ended. Absent when the run **failed** (an error
+@@ -86,11 +187,11 @@
+    * that reports nothing to anyone: the tool result is the only cost report.
+    */
+   usageAccountedElsewhere?: boolean;
 -  model: string | undefined;
 -  finalOutput: string | undefined;
 -  error: string | undefined;
 -  progress: SubagentProgress | undefined;
 -  progressSummary: { toolCount: number; tokens: number; durationMs: number } | undefined;
-+  provider?: string | undefined;
 +  model?: string | undefined;
-+  /** Effective child profile, limits, and output-limit enforcement evidence. */
-+  execution?: ResolvedChildExecution;
-+  /** Caller-supplied transport label; Archimedes does not evaluate it. */
-+  outputContract?: SubagentOutputContract;
 +  finalOutput?: string | undefined;
 +  error?: string | undefined;
-+  termination?: SubagentTermination;
 +  progress?: SubagentProgress | undefined;
 +  progressSummary?: SubagentProgressSummary | undefined;
-@@ -57,0 +166,2 @@ export interface SubagentToolResult {
-+  /** Nested child-model usage for Pi versions that support tool-result accounting. */
-+  usage?: Usage;
-@@ -63 +173 @@ export interface SubagentDetails {
+ }
+ 
+ export interface SubagentToolResult {
+@@ -126,46 +227,36 @@
+  * The machine-readable report for one run — `SubagentResult` without the live
+  * progress blob (see `subagentStructuredContent()` in `tool-schema.ts`).
+  */
+-export type SubagentRunReport = {
+-  agent: string;
+-  task: string;
+-  exitCode: number;
+-  childSessionId?: string;
+-  outcome?: RunOutcome;
+-  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number; turns: number };
+-  model?: string;
+-  finalOutput?: string;
+-  error?: string;
+-  progressSummary?: { toolCount: number; tokens: number; durationMs: number };
+-};
++// Derive the JSON report from its schema so public types and script values agree.
++export type SubagentRunReport = import("typebox").Static<typeof import("./tool-schema.js").RunReportSchema>;
+ 
+ export interface SubagentDetails {
+   mode: "single" | "parallel";
+   results: SubagentResult[];
 -  progress: SubagentProgress[] | undefined;
 +  progress?: SubagentProgress[] | undefined;
-@@ -71,5 +181,3 @@ export interface StreamState {
+ }
+ 
+ /** Mutable state during streaming — shared between stream.ts and handlers.ts */
+ export interface StreamState {
+   childSessionId?: string;
++  lastStopReason?: string;
++  settledAborted?: boolean;
+   toolCount: number;
+   turnCount: number;
 -  totalInput: number;
 -  totalOutput: number;
 -  totalCacheRead: number;
 -  totalCacheWrite: number;
 -  totalCost: number;
+-  /** `stopReason` of the last assistant message seen (`length` ⇒ truncated). */
+-  lastStopReason?: string;
+-  /** `agent_settled.aborted` — pi 1.1.0's own account of a cancelled run. */
+-  settledAborted?: boolean;
 +  usage: Usage;
 +  turnUsage: Usage;
 +  partialUsage: Usage;
-@@ -78,0 +187 @@ export interface StreamState {
+   currentTool: string | undefined;
+   currentToolArgs: string | undefined;
+   currentToolStartedAt: number | undefined;
 +  provider: string | undefined;
-@@ -80,0 +190,3 @@ export interface StreamState {
+   model: string | undefined;
+   accumulatedOutput: string[];
 +  streamingOutput: string | undefined;
 +  streamingParts: Map<number, { type: "text" | "thinking"; content: string }>;
 +  outputLimit: OutputLimitEvidence | undefined;
-@@ -83,0 +196 @@ export interface StreamState {
-+  error?: string | undefined;
-@@ -85 +197,0 @@ export interface StreamState {
+   recentOutput: string[];
+   toolCalls: SubagentToolCall[];
+   finalOutput: string | undefined;
+-}
 -
++  error?: string | undefined;
++}
 diff --git a/src/usage.ts b/src/usage.ts
-new file mode 100644
-index 0000000..884279c
---- /dev/null
+--- a/src/usage.ts
 +++ b/src/usage.ts
-@@ -0,0 +1,94 @@
-+import type { Usage } from "@earendil-works/pi-ai";
-+import type { SubagentUsage } from "./types.js";
+@@ -21,26 +21,12 @@
+ /**
+  * The child's summed usage in pi's own `Usage` shape.
+  *
+- * The child's JSON stream reports one cost **total** per message, which is what
+- * pi adds up (`addUsageToTotals` reads `usage.cost.total`); the per-kind split is
+- * not observable from out here, so it is reported as zero rather than guessed at.
++ * The stream preserves native per-kind cost when available. Older producers
++ * supply only a total; missing splits stay zero instead of being guessed.
+  * `totalTokens` follows pi's own definition — input + output + both cache kinds.
+  */
+ export function toNativeUsage(usage: SubagentUsage): Usage {
+-  return {
+-    input: usage.input,
+-    output: usage.output,
+-    cacheRead: usage.cacheRead,
+-    cacheWrite: usage.cacheWrite,
+-    totalTokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
+-    cost: {
+-      input: 0,
+-      output: 0,
+-      cacheRead: 0,
+-      cacheWrite: 0,
+-      total: usage.cost,
+-    },
+-  };
++  return fromSubagentUsage(usage);
+ }
+ 
+ /**
+@@ -85,3 +71,95 @@
+     zero,
+   );
+ }
 +
 +function isNonNegativeFiniteNumber(value: unknown): value is number {
 +  return typeof value === "number" && Number.isFinite(value) && value >= 0;

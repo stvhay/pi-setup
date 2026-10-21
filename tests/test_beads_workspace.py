@@ -48,11 +48,10 @@ def test_node_test_runtime_is_pinned():
     lock = json.loads(lock_path.read_text())
     assert manifest["private"] is True
     assert manifest["engines"]["node"] == ">=24 <25"
-    assert manifest["devDependencies"]["@earendil-works/pi-coding-agent"] == "0.84.1"
+    assert manifest["devDependencies"]["@earendil-works/pi-coding-agent"] == "1.3.0"
     assert lock["packages"][""]["devDependencies"] == manifest["devDependencies"]
-    nested = "node_modules/@earendil-works/pi-coding-agent/node_modules/"
-    assert lock["packages"][nested + "undici"]["version"] == "8.9.0"
-    assert lock["packages"][nested + "brace-expansion"]["version"] == "5.0.9"
+    assert lock["packages"]["node_modules/undici"]["version"] == "8.10.2"
+    assert lock["packages"]["node_modules/brace-expansion"]["version"] == "5.0.12"
     missing_integrity = [
         path
         for path, package in lock["packages"].items()

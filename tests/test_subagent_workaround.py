@@ -700,10 +700,8 @@ export function createObservationCapturePort() {
         errorMessage,
       }});
       const start = (prompt) => runner.emitBeforeAgentStart(
-        prompt,
-        undefined,
-        "system",
-        {{ cwd: process.cwd() }},
+        {{ messageType: "user", prompt }},
+        {{ cwd: process.cwd(), forceSystemPrompt: "system" }},
       );
       const end = (messages) => runner.emit({{ type: "agent_end", messages }});
       const settle = () => runner.emit({{ type: "agent_settled" }});
@@ -1923,3 +1921,54 @@ def test_subagent_results_write_payload_free_agnt_metrics(tmp_path):
         "HOME": str(home),
         "PI_CODING_AGENT_DIR": str(ROOT / "pi" / "agent"),
     })
+
+
+def test_managed_json_reports_preserve_contracts_artifacts_and_failure_evidence():
+    script = f"""
+      {SUBAGENT_HARNESS}
+      installDefaultHandlers();
+      for (const mode of ["single", "parallel"]) {{
+        const contracts = mode === "single" ? ["artifact"] : ["inline", "artifact", "status-only", "pass-no-findings"];
+        const tasks = contracts.map((outputContract, i) => ({{ task: `Task ${{i}}`, outputContract, limits: {{ maxIdleMs: 100 }} }}));
+        const results = tasks.map((task, i) => ({{
+          agent: "subagent", task: task.task, exitCode: i === 2 ? 1 : 0,
+          finalOutput: `RAW OUTPUT ${{i}} ` + "x".repeat(13000),
+          usage: {{ input: 10, output: 3, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1 }},
+          ...(i === 2 ? {{ error: "Subagent stopped: idle-limit", execution: {{ profile: {{ mode: "agentic" }}, limits: {{ maxIdleMs: 100 }} }}, termination: {{ reason: "idle-limit", limit: 100, observed: 101, usageState: "partial" }} }} : {{}}),
+        }}));
+        const input = mode === "single" ? tasks[0] : {{ tasks }};
+        const native = {{ mode, results: structuredClone(results) }};
+        const before = structuredClone(native);
+        const patch = await handlers.tool_result({{
+          toolName: "subagent", toolCallId: `json-${{mode}}`, input,
+          content: [{{ type: "text", text: mode === "single" ? results[0].finalOutput : "summary" }}],
+          structuredContent: native, details: {{ mode, results }}, isError: false,
+        }}, {{ cwd: process.cwd() }});
+        assert.equal(patch.structuredContent.mode, mode);
+        assert.equal(patch.structuredContent.results.length, results.length);
+        assert.deepEqual(native, before, "do not mutate upstream report");
+        patch.structuredContent.results.forEach((report, i) => {{
+          assert.equal(report.outputContract, contracts[i]);
+          assert.equal(report.artifact.status, "persisted");
+          assert(report.artifact.refs[0].startsWith("runtime:delegated-results/"));
+          assert.deepEqual(report.usage, results[i].usage);
+          assert.equal(patch.details.results[i].finalOutput.length > 13000, true);
+          if (contracts[i] === "inline") {{
+            assert.equal(report.outputStatus, "truncated");
+            assert.equal(report.finalOutput.length <= 12000, true);
+          }} else {{
+            assert.equal(report.outputStatus, "omitted");
+            assert.equal(Object.hasOwn(report, "finalOutput"), false);
+          }}
+          if (i === 2) {{
+            assert.equal(report.executionOutcome, "unavailable");
+            assert.equal(report.terminationEvidence.reason, "idle-limit");
+            assert.equal(report.terminationEvidence.source, "caller");
+            assert.equal(report.terminationEvidence.usageState, "partial");
+          }} else assert.equal(report.executionOutcome, "succeeded");
+        }});
+        if (mode === "single") assert.equal(patch.content.some((part) => part.text?.includes("RAW OUTPUT")), false);
+        else assert.equal(patch.isError, true);
+      }}
+    """
+    run_node(script)

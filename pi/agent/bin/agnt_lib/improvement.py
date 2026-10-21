@@ -349,10 +349,14 @@ def _usage_details(generation: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _usage_count(usage: dict[str, Any] | None, key: str) -> int | None:
-    value = usage.get(key) if usage is not None else None
-    if type(value) not in {int, float} or not math.isfinite(value) or value < 0 or int(value) != value:
-        return None
-    return int(value)
+    # Prefer current Langfuse keys; historical aliases are alternatives, never additive.
+    keys = ("cache_read_input_tokens", "cacheRead") if key == "cacheRead" else (key,)
+    for candidate in keys:
+        value = usage.get(candidate) if usage is not None else None
+        if type(value) not in {int, float} or not math.isfinite(value) or value < 0 or int(value) != value:
+            continue
+        return int(value)
+    return None
 
 
 def _cohort_dimension(value: Any) -> str | None:

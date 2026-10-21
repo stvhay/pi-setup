@@ -25,6 +25,7 @@ export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
   process.env.LANGFUSE_CAPTURE_TOOL_IO_BYTES = "false";
   process.env.LANGFUSE_CAPTURE_SYSTEM_PROMPT = "false";
   process.env.LANGFUSE_CAPTURE_CWD = "false";
+  process.env.LANGFUSE_CAPTURE_PATHS = "false";
 
   try {
     const config = JSON.parse(
