@@ -33,6 +33,14 @@ Deployment-only: follow `pi/README.md#deployment-evidence-and-recovery`; reuse v
 
 Track `flake.lock` for reproducible Nix/direnv environments.
 
+## Dependency upgrade policy
+
+- Upgrade dependencies first, then adapt and verify our patches against the updated dependency graph. Target the latest stable plugin releases and direct/transitive runtime and development dependencies, not merely the newest top-level plugin version or versions allowed by existing ranges.
+- Inspect upstream constraints and refresh lockfiles deliberately. Do not retain older dependencies solely to preserve patches, avoid migration work, or inherit upstream pins unchanged. Resolve compatibility conflicts; if the latest stable versions cannot form a working supported graph, explain the specific conflict and obtain an explicit user-approved exception with the retained version, reason, and revisit condition.
+- Keep exact versions, integrity checks, and lockfiles for reproducibility after selecting and verifying the updated graph. They record a tested result, not permission to leave dependencies stale. Preserve explicitly intentional rolling sources; prerelease adoption requires separate agreement.
+- Port or retire patches with equivalent contract tests. Verify the actual resolved dependencies in both fresh and reused installation paths, plus audit results, package projections, and behavior/privacy tests. Updating a fork lockfile alone is not proof that installed plugins receive those dependencies; never force overrides merely to silence an audit.
+- Report plugin currency, dependency currency/security exceptions, and live deployment status separately. Do not call an upgrade complete with unapproved stale-dependency exceptions. This policy does not grant push, merge, credential-change, or deployment authority.
+
 ## Verification
 
 Current known commands:
