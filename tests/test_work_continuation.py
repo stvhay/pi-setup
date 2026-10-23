@@ -22,8 +22,9 @@ def runtime(agnt, tmp_path, monkeypatch, request):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    subprocess.run(["git", "-C", str(repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
-                    "commit", "--allow-empty", "-qm", "base"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Fixture"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "fixture@example.test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "--allow-empty", "-qm", "base"], check=True)
     other = tmp_path / "other"
     subprocess.run(["git", "-C", str(repo), "worktree", "add", "-qb", "other", str(other)], check=True)
     monkeypatch.chdir(repo)
