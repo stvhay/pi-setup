@@ -62,6 +62,17 @@ def test_node_test_runtime_is_pinned():
     assert "node_modules/" in (ROOT / ".gitignore").read_text().splitlines()
 
 
+def test_nix_npm_matches_runtime_delivery_toolchain():
+    manifest = json.loads((ROOT / "patches/pi-packages/langfuse-runtime/package.json").read_text())
+    version = manifest["packageManager"].removeprefix("npm@")
+    flake = (ROOT / "flake.nix").read_text()
+
+    assert f'version = "{version}";' in flake
+    assert 'url = "https://registry.npmjs.org/npm/-/npm-${version}.tgz";' in flake
+    assert 'hash = "sha512-' in flake
+    assert "npm-toolchain =" in flake
+
+
 def test_checkout_local_artifacts_are_ignored_without_hiding_durable_skill_evals():
     ignored_paths = (
         ".beads.gate.lock",
