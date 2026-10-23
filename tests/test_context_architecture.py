@@ -922,6 +922,31 @@ def test_token_saver_explains_bounded_batching_and_progress_fallback():
     assert "description: Use when token/context discipline matters" in skill
 
 
+def test_tool_output_guidance_preserves_status_and_retrievable_evidence():
+    instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    skill = (AGENT / "skills" / "token-saver" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "Filter verbose tool results before model context" in instructions
+    assert "preserve failures and required proof" in instructions
+    assert "original command exit status" in skill
+    assert "private artifact" in skill and "artifact path" in skill
+    assert "filter's exit status" in skill
+    assert "explicitly required full reads" in skill
+    assert "short or explicitly requested complete output" in skill
+    assert "never fall back to loading the whole source" not in skill
+
+
+def test_tool_output_guidance_scopes_browser_and_filters_batches():
+    skill = (AGENT / "skills" / "token-saver" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "scoped locator/DOM reads" in skill
+    assert "unknown/changed structure or a failed locator" in skill
+    assert "required screenshots and proof" in skill
+    assert "filter inside `codemode` before printing" in skill
+    assert "each rejected/failed call" in skill
+    assert "Do not replay completed effects" in skill
+
+
 def test_brainstorming_distinguishes_transient_todos_from_durable_work_state():
     brainstorming = (AGENT / "skills" / "brainstorming" / "SKILL.md").read_text(encoding="utf-8")
 

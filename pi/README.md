@@ -207,6 +207,8 @@ For the conceptual overview, see [The agnt System](../docs/AGNT-SYSTEM.md). For 
 
 Normal Pi sessions use direct inspect/edit/test tools. Code-changing work must have a Bead before editing. Manual `agnt work` artifact workflows remain explicit opt-in orchestration; long-lived Pi runtime automation belongs in a separate project.
 
+Tool-output discipline lives in `agent/AGENTS.md` and the [token-saver skill](agent/skills/token-saver/SKILL.md): retain verbose logs privately, return status/excerpts/artifact paths, scope browser reads after discovery, and filter independent batches before printing. This is agent guidance, not automatic truncation or a summarization service; failures, required full reads, and proof remain intact. Static checks verify guidance presence, not measured token or latency savings.
+
 ## Provider credentials
 
 Provider credentials belong in Pi's ignored `auth.json`, the shell environment, or ignored local env files—not in git. Pi has a built-in OpenRouter provider: run `/login openrouter` or set `OPENROUTER_API_KEY`. `models.json` uses only per-model output-cap overrides; it does not duplicate the provider, endpoint, or credential. OpenAI/Codex remains the default root provider; direct OpenRouter is reserved for fresh bounded delegated calls under the approved [model portfolio](../docs/MODEL-PORTFOLIO-2026-08.md). No local or relay provider is configured.

@@ -10,7 +10,7 @@ Once loaded, apply these rules for the rest of the job. Loading cannot erase or 
 ## Spend rules
 
 1. **Local code first for exact work.** Before calling any model, use shell tools or standard-library code for counting, sorting, exact text search, field extraction, date normalization, format conversion, file comparison, and output validation.
-2. **Retrieve passages, not sources.** Search large transcripts, repositories, exports, and files locally. Send only matching passages with minimal surrounding context. If insufficient, add one more bounded passage at a time; never fall back to loading the whole source.
+2. **Retrieve passages, not sources.** Search locally; return relevant passages with enough context to decide. Expand insufficient excerpts by relevant section; preserve explicitly required full reads.
 3. **Minimize tool surface.** For each new job or worker, load only tools it can use; load none for a no-tool job. If the current call's tools are already fixed, do not use unrelated tools.
 4. **Choose models directly.** Use measured routing/eval history when available. Use a smaller model only when expected total job cost improves, including every call, retry, and likely human repair. If evidence is absent, keep the capable default. Never call a model to choose a model.
 5. **Match requested shape.** Return only what was requested: a sentence stays one sentence. No process diary, unrequested options, or extra framing.
@@ -18,9 +18,15 @@ Once loaded, apply these rules for the rest of the job. Loading cannot erase or 
 
 Do not weaken input validation, security, accessibility, approval, data-loss prevention, or required verification to save tokens.
 
+## Tool results
+
+- **Commands:** retain verbose logs in a private artifact; return the original command exit status, useful counts, bounded failure excerpts, and artifact path. A filter's exit status or no matching lines cannot prove command success. Keep warnings relevant to the decision; never commit raw private logs or secrets.
+- **Browser:** after discovery, use scoped locator/DOM reads. Broader snapshots need unknown/changed structure or a failed locator; retain required screenshots and proof.
+- Return short or explicitly requested complete output directly. If evidence is insufficient, read more from the retained source. Do not replay completed effects to recover output or add a model summarizer.
+
 ## Batching and progress
 
-- **Batch only independent read-only operations.** Issue unrelated reads, searches, and checks in one turn when tools support parallel calls. Keep dependent retrieval serial.
+- **Batch only independent read-only operations.** Keep dependent retrieval serial; filter inside `codemode` before printing selected fields or excerpts instead of raw result arrays. Report each rejected/failed call, including failures returned as values; `Promise.allSettled` fulfillment alone is not tool success.
 - **Writes, approvals, and safety gates stay serial.** Never batch operations whose order or intermediate result affects correctness, consent, or recovery.
 - **Use execution-derived status.** Prefer harness tool activity, test output, and subagent progress over model-authored “still working” turns.
 - **Use todos by phase.** Update `manage_todo_list` at phase boundaries, then mark a completed phase immediately. Use finer updates only when harness status is unavailable or a long step needs visible recovery state.
