@@ -92,7 +92,7 @@ bd ready      # list unblocked work
 bd show <id>  # inspect one work item
 ```
 
-Create or inspect a Bead before making code changes, then work directly in the current Pi session by default. Follow [Contributing](CONTRIBUTING.md) for planning, verification, review, and branch-readiness requirements.
+Create or inspect a Bead before making code changes, then work directly in the current Pi session by default. Follow [Contributing](CONTRIBUTING.md) for planning, verification, review, and branch-readiness requirements. The complete local Python gate is `.venv/bin/python scripts/check-python-tests.py`: four isolated file shards, retained logs, and failure/count checks; CI retains the serial suite.
 
 ## Core concepts
 

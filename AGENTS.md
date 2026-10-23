@@ -40,7 +40,7 @@ npm ci --ignore-scripts
 scripts/check-pi-config.sh
 bash -n scripts/*.sh
 .venv/bin/python -m ruff check pi/agent/bin/agnt_lib tests
-.venv/bin/python -m pytest tests/ --durations=15
+.venv/bin/python scripts/check-python-tests.py
 pi/agent/bin/agnt eval run routing-smoke
 pi/agent/bin/agnt eval run role-context-smoke
 ```
