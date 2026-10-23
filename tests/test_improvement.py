@@ -36,9 +36,10 @@ def isolated_link_checkout(monkeypatch, tmp_path):
 
 class FakeTelemetryClient(LangfuseClient):
     def __init__(self, responses: list[dict[str, Any]]):
+        super().__init__("http://127.0.0.1", "fixture", "fixture")
         self.responses = list(responses)
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
-        self.bodies: list[dict[str, Any] | None] = []
+        self.bodies: list[dict[str, Any] | list[dict[str, Any]] | None] = []
 
     def _request(self, method: str, path: str, body=None, params=None):
         self.calls.append((method, path, dict(params or {})))
@@ -46,357 +47,193 @@ class FakeTelemetryClient(LangfuseClient):
         return self.responses.pop(0)
 
 
-def test_observation_reads_are_time_bounded_and_stop_at_limit():
-    client = FakeTelemetryClient([
-        {"data": [{"id": "one"}, {"id": "two"}], "meta": {"page": 1, "totalPages": 2}},
-        {"data": [{"id": "three"}, {"id": "ignored"}], "meta": {"page": 2, "totalPages": 2}},
-    ])
+def _v4_trace(identifier):
+    return {"id": f"observation-{identifier}", "traceId": identifier, "parentObservationId": None,
+            "startTime": "2026-07-26T12:00:00Z", "endTime": None, "projectId": "fixture",
+            "type": "SPAN", "modelId": None, "inputPrice": None, "outputPrice": None, "totalPrice": None}
 
-    rows = client.list_observations(
-        from_start_time="2026-07-26T00:00:00Z",
-        to_start_time="2026-07-27T00:00:00Z",
-        limit=3,
-        page_size=2,
+
+def _discover(client, **kwargs):
+    return client.list_traces_with_metadata(
+        from_timestamp="2026-07-26T00:00:00Z", to_timestamp="2026-07-27T00:00:00Z", **kwargs,
     )
 
-    assert [row["id"] for row in rows] == ["one", "two", "three"]
-    assert client.calls == [
-        (
-            "GET",
-            "/api/public/observations",
-            {
-                "fromStartTime": "2026-07-26T00:00:00Z",
-                "toStartTime": "2026-07-27T00:00:00Z",
-                "limit": 2,
-                "page": 1,
-            },
-        ),
-        (
-            "GET",
-            "/api/public/observations",
-            {
-                "fromStartTime": "2026-07-26T00:00:00Z",
-                "toStartTime": "2026-07-27T00:00:00Z",
-                "limit": 1,
-                "page": 2,
-            },
-        ),
-    ]
+
+def test_observation_reads_are_time_bounded_and_stop_at_limit():
+    client = FakeTelemetryClient([
+        {"data": [_v4_trace("one"), _v4_trace("two")], "meta": {"cursor": "next"}},
+        {"data": [_v4_trace("three")], "meta": {"cursor": "beyond-limit"}},
+    ])
+    rows = client.list_observations(
+        from_start_time="2026-07-26T00:00:00Z", to_start_time="2026-07-27T00:00:00Z",
+        limit=3, page_size=2,
+    )
+    assert [row["traceId"] for row in rows] == ["one", "two", "three"]
+    assert [call[2]["limit"] for call in client.calls] == [2, 1]
+    assert client.calls[1][2]["cursor"] == "next"
+    for method, path, params in client.calls:
+        assert method == "GET" and path == "/api/public/v2/observations"
+        assert params["fromStartTime"] == "2026-07-26T00:00:00Z"
+        assert params["toStartTime"] == "2026-07-27T00:00:00Z"
+        assert "page" not in params
 
 
 def test_observation_reads_can_filter_one_trace():
-    client = FakeTelemetryClient([{"data": [], "meta": {"page": 1, "totalPages": 1}}])
-
+    client = FakeTelemetryClient([{"data": [], "meta": {}}])
     client.list_observations(
-        from_start_time="2026-07-26T00:00:00Z",
-        to_start_time="2026-07-27T00:00:00Z",
-        trace_id="private-trace",
-        limit=1,
+        from_start_time="2026-07-26T00:00:00Z", to_start_time="2026-07-27T00:00:00Z",
+        trace_id="private-trace", limit=1,
     )
-
     assert client.calls[0][2]["traceId"] == "private-trace"
 
 
 def test_observation_reads_reject_missing_bounds_or_nonpositive_limits():
     client = FakeTelemetryClient([])
-
     with pytest.raises(ValueError, match="time bounds"):
         client.list_observations(from_start_time="", to_start_time="2026-07-27T00:00:00Z", limit=1)
     with pytest.raises(ValueError, match="positive"):
         client.list_observations(from_start_time="2026-07-26T00:00:00Z", to_start_time="2026-07-27T00:00:00Z", limit=0)
-
     assert client.calls == []
 
 
-def test_legacy_list_traces_return_contract_is_paginated():
+def test_list_traces_return_contract_is_cursor_paginated():
     client = FakeTelemetryClient([
-        {"data": [{"id": "first"}], "meta": {"page": 1, "totalPages": 2}},
-        {"data": [{"id": "second"}], "meta": {"page": 2, "totalPages": 2}},
+        {"data": [_v4_trace("first")], "meta": {"cursor": "next"}},
+        {"data": [_v4_trace("second")], "meta": {}},
     ])
-
     rows = client.list_traces(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        limit=2,
-        page_size=1,
+        from_timestamp="2026-07-26T00:00:00Z", to_timestamp="2026-07-27T00:00:00Z",
+        limit=2, page_size=1,
     )
-
     assert isinstance(rows, list)
     assert [row["id"] for row in rows] == ["first", "second"]
-    assert client.calls == [
-        (
-            "GET",
-            "/api/public/traces",
-            {
-                "fromTimestamp": "2026-07-26T00:00:00Z",
-                "toTimestamp": "2026-07-27T00:00:00Z",
-                "limit": 1,
-                "page": 1,
-            },
-        ),
-        (
-            "GET",
-            "/api/public/traces",
-            {
-                "fromTimestamp": "2026-07-26T00:00:00Z",
-                "toTimestamp": "2026-07-27T00:00:00Z",
-                "limit": 1,
-                "page": 2,
-            },
-        ),
-    ]
+    assert len(client.calls) == 2
+    assert client.calls[1][2]["cursor"] == "next"
+    assert all(call[1] == "/api/public/v2/observations" and "page" not in call[2] for call in client.calls)
 
 
 def test_trace_discovery_paginates_until_api_end():
     client = FakeTelemetryClient([
-        {"data": [{"id": "first"}], "meta": {}},
-        {"data": [{"id": "second"}], "meta": {}},
+        {"data": [_v4_trace("first")], "meta": {"cursor": "second"}},
+        {"data": [_v4_trace("second")], "meta": {"cursor": "last"}},
         {"data": [], "meta": {}},
     ])
-
-    assert hasattr(client, "list_traces_with_metadata")
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        page_size=1,
-    )
-
-    assert discovery == {
-        "traces": [{"id": "first"}, {"id": "second"}],
-        "totalAvailable": None,
-        "scanned": 2,
-        "maxTraces": 500,
-        "complete": True,
-        "continuation": {"hasMore": False, "nextPage": None, "reason": "api-end"},
-    }
-    assert [call[2]["page"] for call in client.calls] == [1, 2, 3]
+    discovery = _discover(client, page_size=1)
+    assert [row["id"] for row in discovery["traces"]] == ["first", "second"]
+    assert discovery["totalAvailable"] is None
+    assert discovery["scanned"] == discovery["observationsScanned"] == 2
+    assert discovery["maxTraces"] == 500 and discovery["complete"] is True
+    assert discovery["gaps"] == []
+    assert discovery["continuation"] == {"hasMore": False, "nextPage": None, "nextCursor": None, "reason": "api-end"}
+    assert [call[2].get("cursor") for call in client.calls] == [None, "second", "last"]
 
 
-def test_trace_discovery_reports_lower_bounds_from_api_total():
-    client = FakeTelemetryClient([
-        {
-            "data": [{"id": "first"}, {"id": "second"}],
-            "meta": {"page": 1, "totalPages": 1, "totalItems": 3},
-        },
-    ])
-
-    assert hasattr(client, "list_traces_with_metadata")
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-    )
-
-    assert discovery["totalAvailable"] == 3
-    assert discovery["scanned"] == 2
-    assert discovery["complete"] is False
-    assert discovery["continuation"] == {
-        "hasMore": True,
-        "nextPage": 2,
-        "reason": "api-incomplete",
-    }
+def test_trace_discovery_never_uses_observation_total_as_trace_total():
+    client = FakeTelemetryClient([{
+        "data": [_v4_trace("first"), _v4_trace("second")],
+        "meta": {"totalItems": 3, "cursor": "more"},
+    }])
+    discovery = _discover(client, max_traces=2)
+    assert discovery["totalAvailable"] is None
+    assert discovery["scanned"] == 2 and discovery["complete"] is False
+    assert discovery["continuation"]["nextCursor"] == "more"
 
 
 def test_trace_discovery_stops_at_operator_max_and_reports_lower_bound():
     client = FakeTelemetryClient([{
-        "data": [{"id": "first"}, {"id": "second"}],
-        "meta": {"page": 1, "totalPages": 3, "totalItems": 5},
+        "data": [_v4_trace("first"), _v4_trace("second")], "meta": {"cursor": "more"},
     }])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=2,
-    )
-
-    assert discovery == {
-        "traces": [{"id": "first"}, {"id": "second"}],
-        "totalAvailable": 5,
-        "scanned": 2,
-        "maxTraces": 2,
-        "complete": False,
-        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
-    }
+    discovery = _discover(client, max_traces=2)
+    assert discovery["scanned"] == discovery["observationsScanned"] == 2
+    assert discovery["maxTraces"] == 2 and discovery["complete"] is False
+    assert discovery["totalAvailable"] is None
+    assert discovery["continuation"] == {"hasMore": True, "nextPage": None, "nextCursor": "more", "reason": "max-observations"}
+    assert len(client.calls) == 1
 
 
-def test_trace_discovery_validates_total_against_raw_page_before_operator_cap():
+def test_trace_discovery_detects_raw_page_overrun_before_operator_cap():
     client = FakeTelemetryClient([{
-        "data": [{"id": "first"}, {"id": "overflow"}],
-        "meta": {"totalItems": 1},
+        "data": [_v4_trace("first"), _v4_trace("overflow")], "meta": {"totalItems": 1, "cursor": "skips"},
     }])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=1,
-    )
-
-    assert discovery == {
-        "traces": [{"id": "first"}],
-        "totalAvailable": None,
-        "scanned": 1,
-        "maxTraces": 1,
-        "complete": False,
-        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
-    }
+    discovery = _discover(client, max_traces=1)
+    assert [row["id"] for row in discovery["traces"]] == ["first"]
+    assert discovery["totalAvailable"] is None
+    assert discovery["scanned"] == 1 and discovery["complete"] is False
+    assert discovery["continuation"] == {"hasMore": True, "nextPage": None, "nextCursor": None, "reason": "response-overrun"}
 
 
-def test_trace_discovery_at_cap_honors_later_total_pages():
+def test_trace_discovery_at_cap_honors_cursor_not_legacy_totals():
     client = FakeTelemetryClient([{
-        "data": [{"id": "first"}],
-        "meta": {"page": 1, "totalPages": 2, "totalItems": 1},
+        "data": [_v4_trace("first")], "meta": {"cursor": "more", "totalItems": 1, "totalPages": 1},
     }])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=1,
-    )
-
-    assert discovery == {
-        "traces": [{"id": "first"}],
-        "totalAvailable": 1,
-        "scanned": 1,
-        "maxTraces": 1,
-        "complete": False,
-        "continuation": {"hasMore": True, "nextPage": 2, "reason": "max-traces"},
-    }
+    discovery = _discover(client, max_traces=1)
+    assert discovery["scanned"] == 1 and discovery["complete"] is False
+    assert discovery["continuation"]["nextCursor"] == "more"
+    assert discovery["continuation"]["reason"] == "max-observations"
 
 
 def test_trace_discovery_keeps_empty_nonterminal_page_incomplete():
-    client = FakeTelemetryClient([{
-        "data": [],
-        "meta": {"page": 1, "totalPages": 2},
-    }])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=10,
-    )
-
-    assert discovery == {
-        "traces": [],
-        "totalAvailable": None,
-        "scanned": 0,
-        "maxTraces": 10,
-        "complete": False,
-        "continuation": {"hasMore": True, "nextPage": 2, "reason": "api-incomplete"},
-    }
+    discovery = _discover(FakeTelemetryClient([{"data": [], "meta": {"cursor": "more"}}]), max_traces=10)
+    assert discovery["scanned"] == 0 and discovery["complete"] is False
+    assert discovery["continuation"] == {"hasMore": True, "nextPage": None, "nextCursor": "more", "reason": "incomplete-response"}
 
 
 def test_trace_discovery_has_finite_safe_default():
-    client = FakeTelemetryClient([{"data": [], "meta": {}}])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-    )
-
+    discovery = _discover(FakeTelemetryClient([{"data": [], "meta": {}}]))
     assert discovery["maxTraces"] == 500
 
 
 def test_trace_discovery_stops_on_repeated_page_without_counting_it_twice():
-    page = {"data": [{"id": "first"}], "meta": {}}
+    page = {"data": [_v4_trace("first")], "meta": {"cursor": "same"}}
     client = FakeTelemetryClient([page, page])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=10,
-    )
-
-    assert discovery["traces"] == [{"id": "first"}]
-    assert discovery["complete"] is False
-    assert discovery["continuation"] == {
-        "hasMore": True,
-        "nextPage": 2,
-        "reason": "non-advancing-page",
-    }
-    assert len(client.calls) == 2
+    discovery = _discover(client, max_traces=10)
+    assert [row["id"] for row in discovery["traces"]] == ["first"]
+    assert discovery["complete"] is False and len(client.calls) == 2
+    assert discovery["continuation"]["reason"] == "non-advancing-page"
 
 
-def test_trace_discovery_does_not_false_complete_on_empty_page_before_valid_total():
+def test_trace_discovery_does_not_false_complete_on_empty_page_with_cursor():
     client = FakeTelemetryClient([
-        {"data": [{"id": "first"}], "meta": {"totalItems": 2}},
-        {"data": [], "meta": {"totalItems": 2}},
+        {"data": [_v4_trace("first")], "meta": {"cursor": "next", "totalItems": 2}},
+        {"data": [], "meta": {"cursor": "more", "totalItems": 2}},
     ])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=10,
-    )
-
-    assert discovery["totalAvailable"] == 2
-    assert discovery["complete"] is False
-    assert discovery["continuation"] == {
-        "hasMore": True,
-        "nextPage": 3,
-        "reason": "api-incomplete",
-    }
+    discovery = _discover(client, max_traces=10)
+    assert discovery["totalAvailable"] is None and discovery["complete"] is False
+    assert discovery["continuation"]["reason"] == "incomplete-response"
 
 
-def test_trace_discovery_validates_total_before_stopping_on_repeated_page():
+def test_trace_discovery_repeated_page_cannot_import_changed_legacy_totals():
     client = FakeTelemetryClient([
-        {"data": [{"id": "first"}], "meta": {"totalItems": 3}},
-        {"data": [{"id": "first"}], "meta": {"totalItems": 4}},
+        {"data": [_v4_trace("first")], "meta": {"cursor": "next", "totalItems": 3}},
+        {"data": [_v4_trace("first")], "meta": {"cursor": "more", "totalItems": 4}},
     ])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=10,
-    )
-
-    assert discovery["traces"] == [{"id": "first"}]
-    assert discovery["totalAvailable"] is None
-    assert discovery["complete"] is False
+    discovery = _discover(client, max_traces=10)
+    assert [row["id"] for row in discovery["traces"]] == ["first"]
+    assert discovery["totalAvailable"] is None and discovery["complete"] is False
     assert discovery["continuation"]["reason"] == "non-advancing-page"
 
 
 @pytest.mark.parametrize("invalid_total", [True, 1.5, -1])
-def test_trace_discovery_treats_invalid_totals_as_unavailable_without_false_completion(invalid_total):
+def test_trace_discovery_ignores_invalid_legacy_totals_without_false_completion(invalid_total):
     client = FakeTelemetryClient([{
-        "data": [{"id": "first"}, {"id": "second"}],
-        "meta": {"totalItems": invalid_total, "totalPages": 1},
+        "data": [_v4_trace("first"), _v4_trace("second")],
+        "meta": {"totalItems": invalid_total, "totalPages": 1, "cursor": "more"},
     }])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=10,
-    )
-
+    discovery = _discover(client, max_traces=2)
     assert discovery["totalAvailable"] is None
-    assert discovery["scanned"] == 2
-    assert discovery["complete"] is False
-    assert discovery["continuation"] == {
-        "hasMore": True,
-        "nextPage": 2,
-        "reason": "api-incomplete",
-    }
+    assert discovery["scanned"] == 2 and discovery["complete"] is False
+    assert discovery["continuation"]["nextCursor"] == "more"
 
 
-def test_trace_discovery_treats_inconsistent_totals_as_unavailable_without_false_completion():
+def test_trace_discovery_ignores_inconsistent_legacy_totals_without_false_completion():
     client = FakeTelemetryClient([
-        {"data": [{"id": "first"}], "meta": {"totalItems": 3, "totalPages": 2}},
-        {"data": [{"id": "second"}], "meta": {"totalItems": 4, "totalPages": 2}},
+        {"data": [_v4_trace("first")], "meta": {"cursor": "next", "totalItems": 3}},
+        {"data": [_v4_trace("second")], "meta": {"cursor": "more", "totalItems": 4}},
     ])
-
-    discovery = client.list_traces_with_metadata(
-        from_timestamp="2026-07-26T00:00:00Z",
-        to_timestamp="2026-07-27T00:00:00Z",
-        max_traces=10,
-    )
-
+    discovery = _discover(client, max_traces=2, page_size=1)
     assert discovery["totalAvailable"] is None
-    assert discovery["scanned"] == 2
-    assert discovery["complete"] is False
-    assert discovery["continuation"] == {
-        "hasMore": True,
-        "nextPage": 3,
-        "reason": "api-incomplete",
-    }
+    assert discovery["scanned"] == 2 and discovery["complete"] is False
+    assert discovery["continuation"]["nextCursor"] == "more"
 
 
 def test_score_reads_follow_cursor_and_stop_at_limit():
@@ -483,41 +320,22 @@ def test_paginated_reads_reject_malformed_metadata():
 
 
 def test_session_score_writes_use_caller_id_for_idempotent_updates():
-    client = FakeTelemetryClient([{"id": "stable-score"}, {"id": "stable-score"}])
+    client = FakeTelemetryClient([{"data": [], "meta": {}}, {"message": "Accepted"}, {"message": "Accepted"}])
     kwargs = {
-        "score_id": "stable-score",
-        "session_id": "private-session",
-        "name": "improvement_review_status",
-        "metadata": {"reviewId": "private-review"},
+        "score_id": "stable-score", "session_id": "private-session", "name": "improvement_review_status",
+        "metadata": {"reviewId": "private-review"}, "timestamp": "2026-07-26T12:00:00Z",
     }
-
     client.put_session_score(value="reviewed", **kwargs)
     client.put_session_score(value="needs-human", **kwargs)
-
     assert client.calls == [
-        ("POST", "/api/public/scores", {}),
-        ("POST", "/api/public/scores", {}),
+        ("GET", "/api/public/v3/scores", {"id": "stable-score", "fields": "subject", "limit": 2}),
+        ("POST", "/api/public/scores", {}), ("POST", "/api/public/scores", {}),
     ]
-    assert client.bodies == [
-        {
-            "id": "stable-score",
-            "sessionId": "private-session",
-            "name": "improvement_review_status",
-            "value": "reviewed",
-            "dataType": "CATEGORICAL",
-            "source": "API",
-            "metadata": {"reviewId": "private-review"},
-        },
-        {
-            "id": "stable-score",
-            "sessionId": "private-session",
-            "name": "improvement_review_status",
-            "value": "needs-human",
-            "dataType": "CATEGORICAL",
-            "source": "API",
-            "metadata": {"reviewId": "private-review"},
-        },
-    ]
+    assert client.bodies == [None, *[[{
+        "id": "stable-score", "timestamp": "2026-07-26T12:00:00Z", "sessionId": "private-session",
+        "name": "improvement_review_status", "value": value, "dataType": "CATEGORICAL", "source": "API",
+        "metadata": {"reviewId": "private-review"},
+    }] for value in ("reviewed", "needs-human")]]
 
 
 def test_annotation_import_keeps_optional_langfuse_failure_as_explicit_gap():
@@ -617,7 +435,7 @@ def test_paginated_reads_reject_non_list_data_without_echoing_it():
             limit=1,
         )
 
-    assert str(caught.value) == "Langfuse response data was not a list"
+    assert str(caught.value) == "Langfuse trace read incomplete: malformed-response"
 
 
 def test_malformed_response_error_does_not_echo_telemetry(monkeypatch):

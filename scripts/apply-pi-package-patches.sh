@@ -10,7 +10,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/apply-pi-package-patches.sh [--check]
 
-Apply version-locked temporary patches to Pi's installed npm packages.
+Apply version-locked Archimedes patches. Isolated Langfuse releases are never patched here.
 
 Environment overrides:
   PI_PACKAGE_ROOT       node_modules root. Default: ~/.pi/agent/npm/node_modules
@@ -96,9 +96,6 @@ apply_preflighted_patch() {
   echo "$label: applied"
 }
 
-LANGFUSE_LABEL="pi-langfuse 1.7.0"
-LANGFUSE_DIR="$PACKAGE_ROOT/pi-langfuse"
-LANGFUSE_PATCH="$PATCH_ROOT/pi-langfuse-1.7.0.patch"
 ARCHIMEDES_META_LABEL="pi-archimedes 2.11.1"
 ARCHIMEDES_META_DIR="$PACKAGE_ROOT/pi-archimedes"
 ARCHIMEDES_META_PATCH="$PATCH_ROOT/pi-archimedes-meta-2.11.1.patch"
@@ -116,8 +113,6 @@ ARCHIMEDES_SUBAGENT_DIR="$PACKAGE_ROOT/@pi-archimedes/subagent"
 ARCHIMEDES_SUBAGENT_PATCH="$PATCH_ROOT/pi-archimedes-subagent-2.11.1.patch"
 
 # Validate every package and patch before mutating any installed source tree.
-LANGFUSE_STATE=$(patch_state "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "pi-langfuse" "1.7.0" "$LANGFUSE_PATCH" \
-  "src/redaction.ts" "MALFORMED_MEDIA_DATA_URI" "src/langfuse.ts" "score.id ??= randomUUID()")
 ARCHIMEDES_META_STATE=$(patch_state "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "pi-archimedes" "2.11.1" \
   "$ARCHIMEDES_META_PATCH" "src/settings.ts" "subagentMaxProviderRequests")
 ARCHIMEDES_ASK_STATE=$(patch_state "$ARCHIMEDES_ASK_LABEL" "$ARCHIMEDES_ASK_DIR" \
@@ -131,7 +126,6 @@ ARCHIMEDES_SUBAGENT_STATE=$(patch_state "$ARCHIMEDES_SUBAGENT_LABEL" "$ARCHIMEDE
   "@pi-archimedes/subagent" "2.11.1" "$ARCHIMEDES_SUBAGENT_PATCH" "src/types.ts" "maxOutputTokens")
 
 if [ "$MODE" = check ]; then
-  echo "$LANGFUSE_LABEL: $LANGFUSE_STATE"
   echo "$ARCHIMEDES_META_LABEL: $ARCHIMEDES_META_STATE"
   echo "$ARCHIMEDES_ASK_LABEL: $ARCHIMEDES_ASK_STATE"
   echo "$ARCHIMEDES_CORE_LABEL: $ARCHIMEDES_CORE_STATE"
@@ -140,7 +134,6 @@ if [ "$MODE" = check ]; then
   exit
 fi
 
-apply_preflighted_patch "$LANGFUSE_LABEL" "$LANGFUSE_DIR" "$LANGFUSE_PATCH" "$LANGFUSE_STATE"
 apply_preflighted_patch "$ARCHIMEDES_META_LABEL" "$ARCHIMEDES_META_DIR" "$ARCHIMEDES_META_PATCH" "$ARCHIMEDES_META_STATE"
 apply_preflighted_patch "$ARCHIMEDES_ASK_LABEL" "$ARCHIMEDES_ASK_DIR" \
   "$ARCHIMEDES_ASK_PATCH" "$ARCHIMEDES_ASK_STATE"

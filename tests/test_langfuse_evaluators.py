@@ -220,7 +220,7 @@ def test_langfuse_wrapper_loads_without_optional_package(tmp_path):
           events: {{ on() {{}} }},
         }});
         assert.equal(typeof handlers.message_end, "function");
-        assert.deepEqual(errors, ["[langfuse-projection] pi-langfuse package is unavailable"]);
+        assert.deepEqual(errors, ["[langfuse-projection] verified Langfuse runtime is unavailable"]);
       }} finally {{
         console.error = originalError;
       }}

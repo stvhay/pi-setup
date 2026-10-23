@@ -6,7 +6,9 @@ PATCH="$ROOT/patches/pi-packages/pi-langfuse-1.7.0.patch"
 FORK="$ROOT/forks/pi-langfuse"
 TSX="$FORK/node_modules/.bin/tsx"
 BASE_HEAD="1c4dd956597af272d1869ce897e922d7702845fe"
-FORK_HEAD="0ba150f5bd38c1e282feec5a488a918e6076063b"
+LEGACY_HEAD="0ba150f5bd38c1e282feec5a488a918e6076063b"
+BUNDLE="$ROOT/patches/pi-packages/langfuse-runtime"
+NPM_CLI=${PI_LANGFUSE_NPM_CLI:-}
 PATCH_SHA256="d41b50c3bfd1477f6eaa5299597a0699f9bd028d4f66b8dde8b422f0a57b6909"
 NPM_INTEGRITY="sha512-dXMv4NLySMzOfIBmaSNUsu83HQNh3N4qxjgD9l5hvmWARSJ75W2YnD1dfIoRi9QUb2LnJsmSVHqJV9ENDL5K8w=="
 
@@ -18,14 +20,13 @@ fail() {
 [ -x "$TSX" ] || fail "missing fork test runtime; run npm ci --ignore-scripts in forks/pi-langfuse"
 
 read -r mode gitlink stage _ < <(git -C "$ROOT" ls-files --stage -- forks/pi-langfuse)
-[ "$mode" = "160000" ] && [ "$stage" = "0" ] && [ "$gitlink" = "$FORK_HEAD" ] \
-  || fail "forks/pi-langfuse gitlink does not match $FORK_HEAD"
-[ "$(git -C "$FORK" rev-parse HEAD)" = "$FORK_HEAD" ] \
-  || fail "forks/pi-langfuse checkout does not match $FORK_HEAD"
-[ "$(git -C "$FORK" show -s --format=%P HEAD)" = "$BASE_HEAD" ] \
-  || fail "maintained fork head is not directly based on npm source $BASE_HEAD"
-git -C "$FORK" diff --quiet HEAD -- package.json src test \
-  || fail "maintained fork production or contract tests are dirty"
+[ "$mode" = "160000" ] && [ "$stage" = "0" ] || fail "missing maintained fork gitlink"
+[ "$(git -C "$FORK" rev-parse HEAD)" = "$gitlink" ] || fail "fork checkout differs from pinned gitlink"
+git -C "$FORK" merge-base --is-ancestor "$LEGACY_HEAD" HEAD || fail "published history was not preserved"
+[ "$(git -C "$FORK" show -s --format=%P "$LEGACY_HEAD")" = "$BASE_HEAD" ] || fail "historical npm ancestry changed"
+[ -z "$(git -C "$FORK" status --porcelain)" ] || fail "maintained fork has uncommitted source"
+[ -n "$NPM_CLI" ] || NPM_CLI=$(python3 -c 'import pathlib,shutil; print(pathlib.Path(shutil.which("npm")).resolve())')
+[ "$(node "$NPM_CLI" --version)" = 12.2.1 ] || fail "set PI_LANGFUSE_NPM_CLI to npm 12.2.1 npm-cli.js"
 
 python3 - "$PATCH" "$PATCH_SHA256" <<'PY'
 import hashlib
@@ -40,7 +41,9 @@ if actual != expected:
 PY
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/pi-langfuse-package-proof.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
+TMP=$(cd "$TMP" && pwd -P)
+HARNESS=
+trap 'rm -rf "$TMP"; [ -z "$HARNESS" ] || rm -rf "$HARNESS"' EXIT
 mkdir -p "$TMP/packs" "$TMP/base" "$TMP/projected"
 npm pack "pi-langfuse@1.7.0" --ignore-scripts --json --pack-destination "$TMP/packs" > "$TMP/pack.json"
 
@@ -52,7 +55,8 @@ import pathlib
 import sys
 
 metadata, packs, expected_integrity = sys.argv[1:]
-entry = json.loads(pathlib.Path(metadata).read_text(encoding="utf-8"))[0]
+metadata = json.loads(pathlib.Path(metadata).read_text(encoding="utf-8"))
+entry = metadata[0] if isinstance(metadata, list) else metadata
 if (entry.get("name"), entry.get("version"), entry.get("integrity")) != (
     "pi-langfuse",
     "1.7.0",
@@ -79,7 +83,7 @@ if patch --force --fuzz=0 --forward --dry-run -p1 -d "$TMP/projected" < "$PATCH"
 fi
 
 # Compare every production file, including upstream files outside the patch.
-python3 - "$TMP/base" "$TMP/projected" "$FORK" "$BASE_HEAD" <<'PYPROJECTION'
+python3 - "$TMP/base" "$TMP/projected" "$FORK" "$BASE_HEAD" "$LEGACY_HEAD" <<'PYPROJECTION'
 import pathlib
 import subprocess
 import sys
@@ -91,12 +95,16 @@ for name in paths:
     expected = subprocess.check_output(["git", "-C", str(fork), "show", f"{base_head}:{name}"])
     if (base / name).read_bytes() != expected:
         raise SystemExit(f"npm base {name} differs from pinned upstream source")
-paths = ["package.json", "index.ts"] + sorted(str(p.relative_to(fork)) for p in (fork / "src").rglob("*") if p.is_file())
+# This patch is historical provenance, not the current delivery mechanism.
+legacy_head = sys.argv[5]
+paths = ["package.json", "index.ts"] + subprocess.check_output(
+    ["git", "-C", str(fork), "ls-tree", "-r", "--name-only", legacy_head, "--", "src"], text=True).splitlines()
 for name in paths:
-    if (projected / name).read_bytes() != (fork / name).read_bytes():
-        raise SystemExit(f"projected {name} differs from maintained fork")
-if {p.relative_to(projected / "src") for p in (projected / "src").rglob("*") if p.is_file()} != {p.relative_to(fork / "src") for p in (fork / "src").rglob("*") if p.is_file()}:
-    raise SystemExit("projected production file inventory differs from maintained fork")
+    expected = subprocess.check_output(["git", "-C", str(fork), "show", f"{legacy_head}:{name}"])
+    if (projected / name).read_bytes() != expected:
+        raise SystemExit(f"historical projection differs: {name}")
+if {str(p.relative_to(projected)) for p in (projected / "src").rglob("*") if p.is_file()} != {p for p in paths if p.startswith("src/")}:
+    raise SystemExit("historical projection file inventory differs")
 PYPROJECTION
 
 # Include the OS implementation even when Nix/Homebrew supplies PATH patch.
@@ -121,27 +129,42 @@ for patch_bin in "${PATCH_ENGINES[@]}"; do
   echo "Verified exact Langfuse round trip: $patch_bin"
 done
 
-cp -R "$FORK/test" "$TMP/projected/test"
-cp "$ROOT/tests/fixtures/langfuse-managed-wrapper.test.ts" "$TMP/projected/test/managed-wrapper.test.ts"
-# Run byte-identical wrapper under this ESM package scope, like Pi's TS loader.
-cp "$ROOT/pi/agent/extensions/langfuse-config-env.ts" "$TMP/projected/managed-wrapper.ts"
-cmp "$ROOT/pi/agent/extensions/langfuse-config-env.ts" "$TMP/projected/managed-wrapper.ts"
-ln -s "$FORK/node_modules" "$TMP/projected/node_modules"
-# Do not inherit live credentials or capture overrides into offline contracts.
-python3 - "$TMP/projected" "$TMP/projected/managed-wrapper.ts" <<'PYTEST'
+# Current delivery must match a fresh deterministic build and real installed
+# dependencies. The test harness uses the fork's dev SDK, not borrowed runtime deps.
+(cd "$FORK" && node "$NPM_CLI" run typecheck && node test/run.mjs)
+PI_LANGFUSE_NPM_CLI="$NPM_CLI" node --test "$FORK/vendor/langfuse-otel/test/installed.test.mjs"
+PI_LANGFUSE_NPM_CLI="$NPM_CLI" node --test "$FORK/vendor/runtime-release/test/build.test.mjs"
+node "$FORK/vendor/runtime-release/build.mjs" --output "$TMP/rebuilt" --npm-cli "$NPM_CLI"
+diff -qr "$BUNDLE" "$TMP/rebuilt" || fail "tracked runtime projection is stale"
+DEST="$TMP/destination"
+python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" --bundle "$BUNDLE" --dest "$DEST" --npm-cli "$NPM_CLI"
+python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" --bundle "$BUNDLE" --dest "$DEST" --npm-cli "$NPM_CLI"
+python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" --bundle "$BUNDLE" --dest "$DEST" --check
+RELEASE_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$BUNDLE/release.json")
+RELEASE="$DEST/runtime/pi-langfuse/releases/$RELEASE_ID"
+(cd "$RELEASE" && node "$NPM_CLI" audit --omit=dev --json) > "$TMP/production-audit.json"
+python3 - "$TMP/production-audit.json" <<'PYAUDIT'
+import json, sys
+assert json.load(open(sys.argv[1]))["metadata"]["vulnerabilities"]["total"] == 0
+PYAUDIT
+
+HARNESS=$(mktemp -d "$FORK/node_modules/.langfuse-proof.XXXXXX")
+mkdir -p "$HARNESS/lib" "$TMP/home"
+printf '{"type":"module"}\n' > "$HARNESS/package.json"
+cp "$ROOT/tests/fixtures/langfuse-managed-wrapper.test.ts" "$HARNESS/managed-wrapper.test.ts"
+cp "$ROOT/pi/agent/extensions/langfuse-config-env.ts" "$HARNESS/managed-wrapper.ts"
+cp "$ROOT/pi/agent/extensions/lib/langfuse-runtime.ts" "$HARNESS/lib/langfuse-runtime.ts"
+python3 - "$TSX" "$HARNESS" "$RELEASE" "$TMP/home" <<'PYTEST'
 import os
+import pathlib
 import subprocess
 import sys
 
-env = {key: value for key, value in os.environ.items() if not key.startswith(("LANGFUSE_", "PI_LANGFUSE_"))}
-env["PI_LANGFUSE_MANAGED_WRAPPER"] = sys.argv[2]
-raise SystemExit(subprocess.run([
-    "node_modules/.bin/tsx", "--test",
-    "test/quality.test.ts", "test/tool.test.ts", "test/generation.test.ts",
-    "test/redaction.test.ts", "test/cache-contract.test.ts", "test/langfuse.test.ts",
-    "test/capture-policy.test.ts", "test/config.test.ts", "test/pi-1-events.test.ts",
-    "test/system-state.test.ts", "test/managed-wrapper.test.ts",
-], cwd=sys.argv[1], env=env).returncode)
+tsx, harness, release, home = sys.argv[1:]
+env = {key: os.environ[key] for key in ("PATH", "TMPDIR", "LANG", "SystemRoot") if key in os.environ}
+env.update(HOME=home, PI_LANGFUSE_MANAGED_WRAPPER=str(pathlib.Path(harness, "managed-wrapper.ts")),
+           PI_LANGFUSE_RUNTIME_RELEASE=release)
+raise SystemExit(subprocess.run([tsx, "--test", str(pathlib.Path(harness, "managed-wrapper.test.ts"))], env=env).returncode)
 PYTEST
-
-echo "PASS: pi-langfuse npm base, fork projection, reversibility, privacy, ingestion, cache, quality and managed wrapper verified"
+python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" --bundle "$BUNDLE" --dest "$DEST" --check
+echo "PASS: historical npm provenance, deterministic isolated projection, fresh/reused installed tree, zero production audit and real Pi wrapper/quality loading verified"

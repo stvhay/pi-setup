@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from conftest import run_node
+from test_langfuse_runtime_wrapper import make_release
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +102,7 @@ def fake_langfuse_agent_dir(tmp_path: Path) -> Path:
         """,
         encoding="utf-8",
     )
+    make_release(agent_dir, code=(package_dir / "index.js").read_text(encoding="utf-8"))
     return agent_dir
 
 
@@ -172,6 +174,7 @@ def fake_privacy_langfuse_agent_dir(tmp_path: Path) -> Path:
         ),
         encoding="utf-8",
     )
+    make_release(agent_dir, code=(package_dir / "index.js").read_text(encoding="utf-8"))
     return agent_dir
 
 

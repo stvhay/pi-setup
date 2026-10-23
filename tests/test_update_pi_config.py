@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+
+from test_langfuse_runtime_delivery import bundle as bundle, installed_copy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +23,7 @@ def run_update(
 ) -> subprocess.CompletedProcess[str]:
     env = {
         key: value for key, value in os.environ.items()
-        if not key.startswith(("LANGFUSE_", "PI_CONFIG_", "PI_PACKAGE_PATCH_", "PI_CODING_AGENT_"))
+        if not key.startswith(("LANGFUSE_", "PI_LANGFUSE_", "PI_CONFIG_", "PI_PACKAGE_PATCH_", "PI_CODING_AGENT_"))
     }
     env["PI_CONFIG_DEST"] = str(dest)
     env["PI_COMMAND"] = "/usr/bin/true"
@@ -345,7 +348,7 @@ def test_update_refuses_non_pi_basename_before_creating_parent(tmp_path):
     assert not dest.parent.exists()
 
 
-def test_update_preserves_pi_managed_mutable_state(tmp_path):
+def test_update_preserves_pi_managed_mutable_state(tmp_path, bundle):
     dest = tmp_path / ".pi"
     agent = dest / "agent"
     agent.mkdir(parents=True)
@@ -357,14 +360,23 @@ def test_update_preserves_pi_managed_mutable_state(tmp_path):
     models_store = '{"openrouter":{"models":[{"id":"cached-model"}]}}\n'
     (agent / "models-store.json").write_text(models_store, encoding="utf-8")
 
-    # Keep one real-source integration; synthetic cases need only the config layout.
-    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(ROOT / "pi")})
+    # Real config/layout, with fixture release bytes; actual SDK installation is
+    # exercised separately by the package delivery verifier.
+    artifact, proof, dependency = bundle
+    source = tmp_path / "source"
+    shutil.copytree(ROOT / "pi", source)
+    settings_path = source / "agent/settings.json"
+    settings = json.loads(settings_path.read_text())
+    for entry in settings["packages"]:
+        if isinstance(entry, dict) and entry["source"].startswith("../runtime/pi-langfuse/"):
+            entry["source"] = f"../runtime/pi-langfuse/releases/{proof['id']}"
+    settings_path.write_text(json.dumps(settings))
+    installed_copy(artifact, dest / "runtime/pi-langfuse/releases" / proof["id"], dependency)
+    proc = run_update(dest, env_overrides={"PI_CONFIG_SOURCE": str(source), "PI_LANGFUSE_RUNTIME_BUNDLE": str(artifact)})
 
     assert proc.returncode == 0, proc.stderr
     deployed_settings = json.loads((agent / "settings.json").read_text(encoding="utf-8"))
-    source_settings = json.loads(
-        (ROOT / "pi" / "agent" / "settings.json").read_text(encoding="utf-8")
-    )
+    source_settings = json.loads((source / "agent/settings.json").read_text(encoding="utf-8"))
     assert deployed_settings["lastChangelogVersion"] == "99.0.0"
     assert deployed_settings["packages"] == source_settings["packages"]
     assert "runtimeOnly" not in deployed_settings
@@ -663,98 +675,10 @@ def test_update_installs_exact_patch_bases_before_applying_patches(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert log.read_text(encoding="utf-8").splitlines() == [
         f"pi|{dest / 'agent'}|install npm:pi-archimedes@2.11.1",
-        f"pi|{dest / 'agent'}|install npm:pi-langfuse@1.7.0",
         f"patch|{dest}|",
     ]
 
 
-@pytest.mark.parametrize("upgrade_fails", [False, True])
-def test_update_pins_patch_base_dependencies_during_langfuse_upgrade(tmp_path, upgrade_fails):
-    dest = tmp_path / ".pi"
-    modules = dest / "agent" / "npm" / "node_modules"
-    meta = modules / "pi-archimedes"
-    subagent = modules / "@pi-archimedes" / "subagent"
-    langfuse = modules / "pi-langfuse"
-    for package, name, version in (
-        (meta, "pi-archimedes", "2.11.1"),
-        (subagent, "@pi-archimedes/subagent", "2.11.1"),
-        (langfuse, "pi-langfuse", "1.5.10"),
-    ):
-        package.mkdir(parents=True)
-        (package / "package.json").write_text(
-            json.dumps({"name": name, "version": version}),
-            encoding="utf-8",
-        )
-    write_applied_archimedes(meta, subagent)
-    manifest = dest / "agent" / "npm" / "package.json"
-    manifest.write_text(
-        json.dumps({
-            "private": True,
-            "dependencies": {
-                "pi-archimedes": "^2.11.1",
-                "pi-langfuse": "^1.5.10",
-            },
-        }),
-        encoding="utf-8",
-    )
-    fake_pi = tmp_path / "pi"
-    fake_pi.write_text(
-        """#!/bin/sh
-python3 - "$PI_CODING_AGENT_DIR" <<'PY'
-import json, pathlib, sys
-agent = pathlib.Path(sys.argv[1])
-manifest = agent / "npm/package.json"
-data = json.loads(manifest.read_text())
-assert data["dependencies"]["pi-archimedes"] == "2.11.1"
-if __import__("os").environ.get("FAIL_LANGFUSE_INSTALL") == "1":
-    raise SystemExit(7)
-package = agent / "npm/node_modules/pi-langfuse/package.json"
-package.write_text(json.dumps({"name": "pi-langfuse", "version": "1.7.0"}))
-data["dependencies"]["pi-langfuse"] = "^1.7.0"
-manifest.write_text(json.dumps(data))
-PY
-""",
-        encoding="utf-8",
-    )
-    fake_patch = tmp_path / "apply-patches"
-    fake_patch.write_text(
-        """#!/bin/sh
-python3 - "$PI_CONFIG_DEST/agent/npm/package.json" <<'PY'
-import json, pathlib, sys
-deps = json.loads(pathlib.Path(sys.argv[1]).read_text())["dependencies"]
-assert deps["pi-archimedes"] == "2.11.1"
-assert deps["pi-langfuse"] == "1.7.0"
-PY
-""",
-        encoding="utf-8",
-    )
-    fake_pi.chmod(0o755)
-    fake_patch.chmod(0o755)
-
-    proc = run_update(
-        dest,
-        env_overrides={
-            "PI_COMMAND": str(fake_pi),
-            "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
-            "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path)),
-            "FAIL_LANGFUSE_INSTALL": "1" if upgrade_fails else "0",
-        },
-    )
-
-    dependencies = json.loads(manifest.read_text(encoding="utf-8"))["dependencies"]
-    if upgrade_fails:
-        assert proc.returncode != 0
-        assert dependencies == {
-            "pi-archimedes": "2.11.1",
-            "pi-langfuse": "^1.5.10",
-        }
-        assert json.loads((langfuse / "package.json").read_text(encoding="utf-8"))["version"] == "1.5.10"
-    else:
-        assert proc.returncode == 0, proc.stderr
-        assert dependencies == {
-            "pi-archimedes": "2.11.1",
-            "pi-langfuse": "1.7.0",
-        }
 
 
 def test_update_repairs_missing_archimedes_subagent_before_patching(tmp_path):
@@ -849,7 +773,7 @@ def test_update_skips_exact_patch_bases_before_applying_patches(tmp_path):
     assert "@pi-archimedes/core 2.11.1: already installed" in proc.stdout
     assert "@pi-archimedes/subagent 2.11.1: already installed" in proc.stdout
     assert "@pi-archimedes/footer 2.11.1: already installed" in proc.stdout
-    assert "pi-langfuse 1.7.0: already installed" in proc.stdout
+    assert "pi-langfuse 1.7.0: already installed" not in proc.stdout
 
 
 @pytest.mark.parametrize("applied", [False, True])
@@ -981,137 +905,11 @@ def test_update_reinstalls_exact_archimedes_when_footer_patch_revision_is_stale(
     ]
 
 
-@pytest.mark.parametrize("partial_state", ["marked", "unmarked"])
-def test_update_reinstalls_exact_langfuse_when_patch_revision_is_stale(tmp_path, partial_state):
-    dest = tmp_path / ".pi"
-    log = tmp_path / "package-sync.log"
-    for relative, name, version in (
-        ("pi-archimedes", "pi-archimedes", "2.11.1"),
-        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.11.1"),
-        ("pi-langfuse", "pi-langfuse", "1.7.0"),
-    ):
-        package = write_package(dest / "agent" / "npm" / "node_modules", relative, name, version)
-    modules = dest / "agent" / "npm" / "node_modules"
-    write_applied_archimedes(
-        modules / "pi-archimedes",
-        modules / "@pi-archimedes/subagent",
-    )
-    langfuse = modules / "pi-langfuse"
-    (langfuse / "src").mkdir()
-    if partial_state == "marked":
-        (langfuse / "index.ts").write_text("getSessionId?.();\n", encoding="utf-8")
-        (langfuse / "src/langfuse.ts").write_text(
-            "score.id ??= randomUUID();\nconst MAX_INGESTION_REQUEST_BYTES = 3_000_000;\n",
-            encoding="utf-8",
-        )
-        (langfuse / "src/types.ts").write_text("old-type\n", encoding="utf-8")
-    else:
-        (langfuse / "index.ts").write_text("getSessionFile?.();\n", encoding="utf-8")
-        (langfuse / "src/langfuse.ts").write_text("old-runtime\n", encoding="utf-8")
-        (langfuse / "src/types.ts").write_text("new-type\n", encoding="utf-8")
-    fake_pi = tmp_path / "pi"
-    fake_patch = tmp_path / "apply-patches"
-    fake_pi.write_text(
-        '#!/bin/sh\n'
-        'root="$PI_CODING_AGENT_DIR/npm/node_modules/pi-langfuse"\n'
-        'mkdir -p "$root"\n'
-        'printf \'{"name":"pi-langfuse","version":"1.7.0"}\\n\' >"$root/package.json"\n'
-        'printf "pi|%s\\n" "$*" >>"$PI_DEPLOY_LOG"\n',
-        encoding="utf-8",
-    )
-    fake_patch.write_text(
-        '#!/bin/sh\nprintf "patch|%s\\n" "$PI_CONFIG_DEST" >>"$PI_DEPLOY_LOG"\n',
-        encoding="utf-8",
-    )
-    fake_pi.chmod(0o755)
-    fake_patch.chmod(0o755)
-
-    proc = run_update(
-        dest,
-        env_overrides={
-            "PI_COMMAND": str(fake_pi),
-            "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
-            "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path)),
-            "PI_DEPLOY_LOG": str(log),
-        },
-    )
-
-    assert proc.returncode == 0, proc.stderr
-    assert log.read_text(encoding="utf-8").splitlines() == [
-        "pi|install npm:pi-langfuse@1.7.0",
-        f"patch|{dest}",
-    ]
-    assert not list((dest / "agent" / "npm").glob(".langfuse-reinstall.*"))
 
 
-@pytest.mark.parametrize("failure", ["install", "patch-helper", "live-check"])
-def test_update_restores_stale_langfuse_after_failure(tmp_path, failure):
-    dest = tmp_path / ".pi"
-    modules = dest / "agent" / "npm" / "node_modules"
-    for relative, name, version in (
-        ("pi-archimedes", "pi-archimedes", "2.11.1"),
-        ("@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.11.1"),
-        ("pi-langfuse", "pi-langfuse", "1.7.0"),
-    ):
-        package = write_package(modules, relative, name, version)
-    write_applied_archimedes(
-        modules / "pi-archimedes",
-        modules / "@pi-archimedes/subagent",
-    )
-    langfuse = modules / "pi-langfuse"
-    (langfuse / "index.ts").write_text("getSessionId?.();\n", encoding="utf-8")
-    (langfuse / "src").mkdir()
-    stale = langfuse / "src/langfuse.ts"
-    stale.write_text(
-        "score.id ??= randomUUID();\nconst MAX_INGESTION_REQUEST_BYTES = 3_000_000;\n",
-        encoding="utf-8",
-    )
-    (langfuse / "src/types.ts").write_text("old-type\n", encoding="utf-8")
-    (langfuse / "old-runtime.txt").write_text("keep me\n", encoding="utf-8")
-    fake_pi = tmp_path / "pi"
-    fake_patch = tmp_path / "apply-patches"
-    fake_pi.write_text(
-        '#!/bin/sh\n'
-        + ("exit 7\n" if failure == "install" else "")
-        + 'root="$PI_CODING_AGENT_DIR/npm/node_modules/pi-langfuse"\n'
-        'mkdir -p "$root"\n'
-        'printf \'{"name":"pi-langfuse","version":"1.7.0"}\\n\' >"$root/package.json"\n',
-        encoding="utf-8",
-    )
-    fake_patch.write_text(
-        "#!/bin/sh\n" + ("exit 7\n" if failure == "patch-helper" else "exit 0\n"),
-        encoding="utf-8",
-    )
-    fake_pi.chmod(0o755)
-    fake_patch.chmod(0o755)
-    overrides = {
-        "PI_COMMAND": str(fake_pi),
-        "PI_PACKAGE_PATCH_HELPER": str(fake_patch),
-        "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path)),
-    }
-    if failure == "live-check":
-        source = config_source(tmp_path / "source")
-        agnt = source / "agent/bin/agnt"
-        agnt.write_text(
-            '#!/bin/sh\n[ "$PI_CONFIG_DIR" != "$PI_CONFIG_DEST" ] || exit 7\nprintf "{}\\n"\n',
-            encoding="utf-8",
-        )
-        agnt.chmod(0o755)
-        overrides.update({
-            "PI_CONFIG_SOURCE": str(source),
-        })
-
-    proc = run_update(dest, env_overrides=overrides)
-
-    assert proc.returncode != 0
-    assert stale.read_text(encoding="utf-8") == (
-        "score.id ??= randomUUID();\nconst MAX_INGESTION_REQUEST_BYTES = 3_000_000;\n"
-    )
-    assert (langfuse / "old-runtime.txt").read_text(encoding="utf-8") == "keep me\n"
-    assert not list((dest / "agent" / "npm").glob(".langfuse-reinstall.*"))
 
 
-@pytest.mark.parametrize("failure", ["second-move", "langfuse-install", "patch-helper", "live-check"])
+@pytest.mark.parametrize("failure", ["second-move", "patch-helper", "live-check"])
 def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure):
     dest = tmp_path / ".pi"
     modules = dest / "agent" / "npm" / "node_modules"
@@ -1121,7 +919,7 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
     for package, name, version in (
         (meta, "pi-archimedes", "2.11.1"),
         (subagent, "@pi-archimedes/subagent", "2.11.1"),
-        (langfuse, "pi-langfuse", "1.5.8" if failure == "langfuse-install" else "1.7.0"),
+        (langfuse, "pi-langfuse", "1.7.0"),
     ):
         package.mkdir(parents=True)
         (package / "package.json").write_text(
@@ -1153,7 +951,7 @@ def test_update_restores_stale_archimedes_after_later_failure(tmp_path, failure)
         'printf \'{"name":"@pi-archimedes/core","version":"2.11.1"}\\n\' >"$root/@pi-archimedes/core/package.json"\n'
         'printf \'{"name":"@pi-archimedes/subagent","version":"2.11.1"}\\n\' >"$root/@pi-archimedes/subagent/package.json"\n'
         'printf \'{"name":"@pi-archimedes/footer","version":"2.11.1"}\\n\' >"$root/@pi-archimedes/footer/package.json"\n'
-        + ('case "$*" in *pi-langfuse*) exit 7;; esac\n' if failure == "langfuse-install" else ""),
+,
         encoding="utf-8",
     )
     fake_patch.write_text(
@@ -1218,7 +1016,7 @@ def test_update_dry_run_reports_package_sync_without_executing_it(tmp_path):
     assert f"PI_CODING_AGENT_DIR={dest / 'agent'}" in proc.stdout
     assert "install npm:pi-archimedes@2.11.1" in proc.stdout
     assert "install npm:@pi-archimedes/subagent@2.11.1" not in proc.stdout
-    assert "install npm:pi-langfuse@1.7.0" in proc.stdout
+    assert "install npm:pi-langfuse@1.7.0" not in proc.stdout
     assert f"PI_CONFIG_DEST={dest}" in proc.stdout
 
 
@@ -1360,3 +1158,21 @@ def test_update_refuses_symlinked_backup_root(tmp_path):
     proc = run_update(dest)
     assert proc.returncode != 0
     assert not list(outside.iterdir())
+
+
+def test_archimedes_pin_preserves_legacy_langfuse_declaration(tmp_path):
+    dest = tmp_path / ".pi"
+    modules = dest / "agent/npm/node_modules"
+    meta = write_package(modules, "pi-archimedes", "pi-archimedes", "2.11.1")
+    subagent = write_package(modules, "@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.11.1")
+    write_applied_archimedes(meta, subagent)
+    manifest = dest / "agent/npm/package.json"
+    manifest.write_text(json.dumps({"private": True, "dependencies": {
+        "pi-archimedes": "^2.11.1", "pi-langfuse": "^1.5.10",
+    }}))
+    result = run_update(dest, env_overrides={"PI_COMMAND": "/usr/bin/false",
+        "PI_PACKAGE_PATCH_DIR": str(langfuse_patch_dir(tmp_path))})
+    assert result.returncode == 0, result.stderr
+    assert json.loads(manifest.read_text())["dependencies"] == {
+        "pi-archimedes": "2.11.1", "pi-langfuse": "^1.5.10",
+    }

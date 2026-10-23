@@ -5,6 +5,12 @@
 **Consumer:** pi-setup quality lifecycle and bounded private evidence review
 **Scope:** Contract and Q18V provenance record; no upstream or runtime mutation
 
+## Maintained v4 delivery addendum — 2026-10-22
+
+`pi-ox9n` preserves these factories and public TypeScript declarations while replacing the historical npm patch delivery below with the compiled, lock-controlled `patches/pi-packages/langfuse-runtime/` projection. Its `./quality` export resolves compiled ESM with a generated sibling declaration; installed strict type tests exercise the public import. The managed wrapper loads registration and quality from the same verified release, never the shared npm tree. See [current delivery](../../patches/pi-packages/README.md).
+
+For server 4.59.0+, trace and observation reads use bounded v2 observation cursors. Trace limits bound observations scanned, not distinct grouped traces. Only a unique physical or logical root supplies trace IO, metadata and a valid timezone-aware timestamp. Missing, ambiguous or invalid-time roots produce explicit gaps; unknown totals remain absent. IO is decoded once. Score cursors reject cycles and empty nonterminal pages; each paginated query keeps its initial project configuration. These semantics supersede the older endpoint/restore assumptions, not the non-authoritative evidence boundary. Historical Q18V identities and permissions below remain historical; they grant no new publication or deployment authority.
+
 ## Proven need
 
 pi-setup currently imports `src/langfuse.js`, `src/redaction.js`, and

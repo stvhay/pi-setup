@@ -1,6 +1,6 @@
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { resolveLangfuseRuntime } from "./lib/langfuse-runtime.ts";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -72,11 +72,11 @@ export default async function langfuseConfigEnv(pi?: ExtensionAPI) {
   let langfuseEntry: string | undefined;
   let qualityEntry: string | undefined;
   try {
-    const require = createRequire(resolve(agentDir, "npm", "package.json"));
-    langfuseEntry = require.resolve("pi-langfuse");
-    qualityEntry = require.resolve("pi-langfuse/quality");
+    const runtime = resolveLangfuseRuntime(agentDir);
+    langfuseEntry = runtime.entry;
+    qualityEntry = runtime.quality;
   } catch {
-    console.error("[langfuse-projection] pi-langfuse package is unavailable");
+    console.error("[langfuse-projection] verified Langfuse runtime is unavailable");
   }
 
   let registered = false;

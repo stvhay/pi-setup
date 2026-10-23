@@ -1261,9 +1261,13 @@ def test_compatibility_matrix_covers_every_configured_package():
     packages = json.loads(SETTINGS.read_text(encoding="utf-8"))["packages"]
     for package in packages:
         source = package["source"] if isinstance(package, dict) else package
-        row = next((line for line in text.splitlines() if f"`{source}`" in line), None)
+        matrix_source = source
+        if source.startswith("../runtime/pi-langfuse/releases/"):
+            assert re.fullmatch(r"\.\./runtime/pi-langfuse/releases/[0-9a-f]{64}", source)
+            matrix_source = "../runtime/pi-langfuse/releases/<content-hash>"
+        row = next((line for line in text.splitlines() if f"`{matrix_source}`" in line), None)
         assert row, f"missing compatibility row for {source}"
-        if "@" not in source.split(":", 1)[1].lstrip("@"):
+        if source.startswith(("npm:", "git:")) and "@" not in source.split(":", 1)[1].lstrip("@"):
             assert "Intentional rolling" in row
             assert re.search(r"observed \d{4}-\d{2}-\d{2}:", row)
 

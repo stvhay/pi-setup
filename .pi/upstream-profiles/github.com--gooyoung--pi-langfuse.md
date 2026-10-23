@@ -4,7 +4,7 @@ repository: https://github.com/gooyoung/pi-langfuse
 last_checked_utc: '2026-10-21T19:13:06.816722Z'
 target_ref: v1.7.0
 source_commit: 1c4dd956597af272d1869ce897e922d7702845fe
-status: published-not-deployed
+status: historical-published-baseline
 quality_port_status: maintained-fork-local-verified
 quality_port_verified_utc: '2026-10-21T19:13:06.816893Z'
 npm_published_utc: '2026-10-08T02:13:34.481Z'
@@ -89,7 +89,13 @@ published_recovery_head: e5596e8df6136b07db143025ef400d325454b958
 
 # gooyoung/pi-langfuse upstream profile
 
-## Current 1.7.0 published vendor candidate
+## Current maintained candidate — pi-ox9n
+
+The frontmatter hashes and identities describe the published `pi-7zn8` baseline, not the local `pi-ox9n` candidate. Current source is committed as `f1024ce99d1fe3a360d3f220db75467aaad30894` in `forks/pi-langfuse` and published to its existing vendor branch under approval `pi-mhd9`; its generated runtime descriptor is `patches/pi-packages/langfuse-runtime/release.json`. Langfuse 6 with the maintained OTel 3 port targets server 4.59.0+. v4 OTLP, batch scores and bounded v2 readers replace legacy trace ingestion/polling. A lock-controlled isolated release replaces shared-tree patching; actual-state legacy transition is explicit, with no automatic migration mechanism. Public quality declarations remain part of the compiled projection.
+
+Use npm 12.2.1 and the maintained English `DEVELOPMENT.md`; the historical workflow below does not override it. Current evidence is under `.pi/reviews/pi-ox9n/final-review/`: four discovered issues independently confirmed and fixed, 272 hermetic consumer tests plus strict types, and real fresh/reused updater plus Pi loader/privacy/quality proof. Stale integration fixtures were corrected. Under approval `pi-3f0v`, policy-preserving instruction compression clears the pre-existing size gate (105 context tests pass); complete root gates and integration status are recorded in pi-ox9n. No live service verification or deployment is implied. Publication approval `pi-mhd9` is consumed; any further push needs new exact approval.
+
+## Historical 1.7.0 published vendor candidate
 
 `pi-7zn8` ports retained contracts onto upstream `v1.7.0` without rewriting old fork history.
 Local head `0ba150f5bd38c1e282feec5a488a918e6076063b` is one commit above the exact npm source.

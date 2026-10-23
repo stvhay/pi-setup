@@ -1,7 +1,7 @@
 # Architecture
 
 pi-setup is configuration-as-code for a reusable Pi agent environment. It has
-one deployable artifact (the `pi/` tree), one orchestration CLI (`agnt`), and
+tracked config (`pi/`) with verified package projections, one orchestration CLI (`agnt`), and
 a feedback loop that lets routing and prompts improve from observed outcomes.
 For the narrative overview, start with [The agnt System](AGNT-SYSTEM.md). For
 the feedback loop, see [Self-Improvement Loop](SELF-IMPROVEMENT.md).
@@ -15,6 +15,7 @@ pi-setup/ (this repo, source of truth)
 ├── docs/                architecture, procedures, design decisions, audits
 ├── scripts/             deploy, layout checks, behavioral eval suite
 ├── tests/               pytest for agnt/agent-instructions internals
+├── patches/pi-packages/ generated runtime projection and Archimedes patches
 ├── forks/               pinned submodules for active upstream contributions
 └── .pi/                 project plans; optional ignored runtime/scratch
 ```
@@ -22,7 +23,8 @@ pi-setup/ (this repo, source of truth)
 - `scripts/update-pi-config.sh` deploys `pi/` → `~/.pi` by default;
   `--dry-run` previews changes. Runtime secrets/state (`auth.json`, `sessions/`,
   `trust.json`, `~/.pi/metrics/`, caches) are rsync-excluded and survive deploys.
-  Missing, mismatched, or stale-patch exact package bases are installed before
+  A verified isolated Langfuse release is prepared before managed config changes;
+  settings activate last. Missing, mismatched, or stale-patch Archimedes bases are installed before
   tracked patches run; current exact installs stay untouched to avoid broad npm reification.
   Patch-base entries remain exact in the runtime npm manifest so installing one
   cannot upgrade another through npm's default caret ranges. The script owns
@@ -45,11 +47,7 @@ pi-setup/ (this repo, source of truth)
 - `scripts/apply-pi-package-patches.sh` applies temporary, version-locked patches
   from `patches/pi-packages/`. Normal deployment invokes it automatically after
   exact base reconciliation. It is idempotent and fails closed on version or
-  source-context mismatch. The Langfuse 1.7.0 projection keeps ordinary strings
-  finite, permits valid media only on the transient OTel extraction path, stores
-  bounded omission markers in REST fallback, emits privacy-controlled versioned
-  tool-payload byte states, and exposes bounded local quality ports without making
-  them released-package evidence. The Archimedes 2.11.1
+  source-context mismatch. This helper never patches Langfuse. The Archimedes 2.11.1
   projection adds bounded agentic/one-shot execution, legacy and Pi 1.3 child-stream
   parsing, bounded parent-visible outputs, adaptive token progress, and repeated-error
   termination while preserving native child session/model behavior. Host `pi.events`
@@ -58,6 +56,18 @@ pi-setup/ (this repo, source of truth)
   references and termination-source evidence without changing raw result details.
   New sudo/web plugins remain disabled in tracked settings. Publication and live
   deployment are separately gated.
+- Langfuse uses `forks/pi-langfuse/vendor/runtime-release/build.mjs` →
+  `patches/pi-packages/langfuse-runtime/` → a content-addressed release under
+  `<destination>/runtime/pi-langfuse/releases/`. The installer verifies the locked
+  production graph and actual dependency bytes; the wrapper verifies and loads
+  that same release for registration and quality. Host Pi peers stay external.
+  Langfuse 6/OTel 3 target server 4.59.0+: traces use v4 OTLP, scores use batch POST,
+  and bounded v2 observation scans reconstruct trace evidence with explicit gaps.
+  Sanitized retry snapshots retain IDs without raw media; shutdown shares an abort
+  deadline with media uploads. No REST visibility polling or fallback remains.
+  Legacy shared-tree retirement is an explicit actual-state transition, not an
+  automatic ownership/transaction/recovery subsystem. Unrelated packages and old
+  release recovery bytes remain untouched by normal deployment.
 - Two instruction levels share one filename: the repo root `AGENTS.md` is
   *project* instructions for working on pi-setup itself; `pi/agent/AGENTS.md`
   is the *global* instruction file every Pi session loads after deploy.

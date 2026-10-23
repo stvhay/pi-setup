@@ -43,6 +43,7 @@ from .quality import (
     validate_public_work,
 )
 from .runs import default_runs_dir
+from .session_time import session_start as _session_start
 
 REVIEW_SCORE = "improvement_review_status"
 WORK_LINK_SCORE = "improvement_work_item"
@@ -2974,22 +2975,6 @@ def promote_finding(
         )
 
 
-def _session_start(session_id: str) -> datetime | None:
-    try:
-        return datetime.strptime(session_id.split("_", 1)[0], "%Y-%m-%dT%H-%M-%S-%fZ").replace(tzinfo=timezone.utc)
-    except ValueError:
-        try:
-            session_uuid = uuid.UUID(session_id)
-            if session_uuid.version != 7:
-                return None
-            milliseconds = session_uuid.int >> 80
-            return datetime.fromtimestamp(milliseconds // 1000, tz=timezone.utc).replace(
-                microsecond=(milliseconds % 1000) * 1000
-            )
-        except (ValueError, OverflowError, OSError):
-            return None
-
-
 def _session_starts_within(session_id: str, since: str | None, until: str | None) -> bool:
     if since is None and until is None:
         return True
@@ -3095,10 +3080,18 @@ def _review_eligibility(
         max_traces=max_traces,
     )
     traces = discovery["traces"]
+    # V4 child-only/ambiguous groups have no trustworthy root settlement time.
+    # Keep their discovery gaps, but never turn them into review candidates.
+    incomplete_roots = {
+        item["traceId"] for item in discovery.get("gaps", [])
+        if isinstance(item, dict) and isinstance(item.get("traceId"), str)
+        and item.get("code") in {"root-unavailable", "ambiguous-root", "root-time-unavailable"}
+    }
     all_groups: dict[str, list[dict[str, Any]]] = {}
     for trace in traces:
         session_id = trace.get("sessionId")
-        if isinstance(session_id, str) and session_id and _trace_is_settled(trace, cohort_until):
+        if (trace.get("id") not in incomplete_roots
+                and isinstance(session_id, str) and session_id and _trace_is_settled(trace, cohort_until)):
             all_groups.setdefault(session_id, []).append(trace)
     for session_traces in all_groups.values():
         session_traces.sort(
@@ -3116,6 +3109,9 @@ def _review_eligibility(
         trace_id = trace.get("id")
         parent_session_id = trace.get("sessionId")
         if not isinstance(trace_id, str) or not trace_id:
+            continue
+        if trace_id in incomplete_roots:
+            unclassified_projection_traces.add(trace_id)
             continue
         rows = client.list_observations(
             from_start_time=since,

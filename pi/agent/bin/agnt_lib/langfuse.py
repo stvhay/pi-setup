@@ -7,8 +7,11 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from .session_time import session_start
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[2] / "langfuse" / "evaluators.json"
 MAX_PAGE_SIZE = 100
@@ -71,17 +74,73 @@ def run_sync(manifest: dict[str, Any], client: Any, *, apply: bool, quiet: bool)
     return 0 if apply or not drift else 1
 
 
+def _group_trace_observations(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    gaps: list[dict[str, str]] = []
+    context_fields = ("sessionId", "userId", "tags", "release", "environment", "version", "public", "bookmarked")
+    for row in rows:
+        trace_id = row.get("traceId")
+        if not isinstance(trace_id, str) or not trace_id:
+            gaps.append({"scope": "traces", "code": "trace-id-unavailable"})
+            continue
+        groups.setdefault(trace_id, []).append(row)
+    traces = []
+    for trace_id, observations in groups.items():
+        physical = [row for row in observations if "parentObservationId" in row and row["parentObservationId"] is None]
+        roots = physical or [row for row in observations if row.get("isRootObservation") is True]
+        root = roots[0] if len(roots) == 1 else None
+        context = dict(root) if root is not None else {}
+        if root is None:
+            gaps.append({"scope": "traces", "traceId": trace_id, "code": "ambiguous-root" if roots else "root-unavailable"})
+            for field in (*context_fields, "traceName"):
+                values = [row[field] for row in observations if field in row]
+                distinct = {json.dumps(value, sort_keys=True) for value in values}
+                if len(distinct) == 1:
+                    context[field] = values[0]
+                elif len(distinct) > 1:
+                    item = {"scope": "traces", "traceId": trace_id, "code": "conflicting-trace-context"}
+                    if item not in gaps:
+                        gaps.append(item)
+        trace = {"id": trace_id, **{field: context[field] for field in context_fields if field in context}}
+        if "traceName" in context:
+            trace["name"] = context["traceName"]
+        elif root is not None and "name" in root:
+            trace["name"] = root["name"]
+        if root is not None:
+            timestamp = root.get("startTime")
+            try:
+                parsed = datetime.fromisoformat(timestamp) if isinstance(timestamp, str) else None
+            except ValueError:
+                parsed = None
+            if parsed is not None and parsed.tzinfo is not None:
+                trace["timestamp"] = timestamp
+            else:
+                gaps.append({"scope": "traces", "traceId": trace_id, "code": "root-time-unavailable"})
+            for field in ("input", "output", "metadata"):
+                if field in root:
+                    trace[field] = root[field]
+        traces.append(trace)
+    return traces, gaps
+
+
 class LangfuseClient:
     def __init__(self, base_url: str, public_key: str, secret_key: str):
         token = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
         self.base_url = base_url.rstrip("/")
         self.headers = {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
+        # Version of this owned REST adapter, not the official Python SDK.
+        self.headers.update({
+            "X-Langfuse-Sdk-Name": "pi-agnt-rest",
+            "X-Langfuse-Sdk-Version": "1.0.0",
+            "X-Langfuse-Public-Key": public_key,
+        })
+        self._score_timestamps: dict[tuple[str, str, str], str] = {}
 
     def _request(
         self,
         method: str,
         path: str,
-        body: dict[str, Any] | None = None,
+        body: dict[str, Any] | list[dict[str, Any]] | None = None,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         query = urllib.parse.urlencode({key: value for key, value in (params or {}).items() if value is not None})
@@ -94,6 +153,7 @@ class LangfuseClient:
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
                 payload = json.load(response)
+                status = response.status
         except urllib.error.HTTPError as exc:
             raise LangfuseError(f"Langfuse request failed with HTTP {exc.code}") from None
         except (urllib.error.URLError, TimeoutError):
@@ -102,6 +162,9 @@ class LangfuseClient:
             raise LangfuseError("Langfuse response was not valid JSON") from None
         if not isinstance(payload, dict):
             raise LangfuseError("Langfuse response was not a JSON object")
+        if method == "POST" and path == "/api/public/scores" and status == 207:
+            if not all(field in payload for field in ("accepted", "rejected", "errors")):
+                raise LangfuseError("Langfuse returned an invalid partial score acknowledgement")
         return payload
 
     @staticmethod
@@ -121,151 +184,134 @@ class LangfuseClient:
     def _list(self, path: str) -> list[dict[str, Any]]:
         return self._data(self._request("GET", path, params={"limit": 50, "page": 1}))
 
-    def _legacy_rows(
-        self,
-        path: str,
-        *,
-        bounds: dict[str, str],
-        limit: int,
-        page_size: int,
-        filters: dict[str, str] | None = None,
-    ) -> list[dict[str, Any]]:
-        if not all(bounds.values()):
+    def _observation_rows(
+        self, *, from_start_time: str, to_start_time: str, limit: int,
+        page_size: int, fields: str, trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not from_start_time or not to_start_time:
             raise ValueError("Langfuse reads require time bounds")
-        if limit < 1 or page_size < 1:
-            raise ValueError("Langfuse read limits must be positive")
+        if type(limit) is not int or type(page_size) is not int or min(limit, page_size) < 1:
+            raise ValueError("Langfuse read limits must be positive integers")
         rows: list[dict[str, Any]] = []
-        page = 1
-        while len(rows) < limit:
-            payload = self._request("GET", path, params={
-                **bounds,
-                **(filters or {}),
-                "limit": min(page_size, MAX_PAGE_SIZE, limit - len(rows)),
-                "page": page,
-            })
-            items = self._data(payload)
-            rows.extend(items)
-            meta = self._meta(payload)
-            if not items or page >= int(meta.get("totalPages") or page):
+        seen_ids: set[tuple[str | None, str]] = set()
+        seen_cursors: set[str] = set()
+        cursor: str | None = None
+        scanned = 0
+        complete = False
+        reason = "max-observations"
+        while scanned < limit:
+            size = min(page_size, MAX_PAGE_SIZE, limit - scanned)
+            params: dict[str, Any] = {
+                "fromStartTime": from_start_time, "toStartTime": to_start_time,
+                "fields": fields, "limit": size,
+            }
+            if cursor is not None:
+                params["cursor"] = cursor
+            if trace_id is not None:
+                params["traceId"] = trace_id
+            payload = self._request("GET", "/api/public/v2/observations", params=params)
+            items, meta = payload.get("data"), payload.get("meta")
+            if not isinstance(items, list) or not all(isinstance(row, dict) for row in items) or not isinstance(meta, dict):
+                reason = "malformed-response"
                 break
-            page += 1
-        return rows[:limit]
+            accepted = items[:size]
+            scanned += len(accepted)
+            invalid = None
+            for row in accepted:
+                identifier, row_trace = row.get("id"), row.get("traceId")
+                if not isinstance(identifier, str) or not identifier or (row_trace is not None and not isinstance(row_trace, str)):
+                    invalid = "malformed-response"
+                elif (row_trace, identifier) in seen_ids:
+                    invalid = "non-advancing-page"
+                elif trace_id is not None and row_trace != trace_id:
+                    invalid = "unexpected-trace"
+                else:
+                    seen_ids.add((row_trace, identifier))
+                    decoded = dict(row)
+                    for field in ("input", "output"):
+                        if isinstance(decoded.get(field), str):
+                            try:
+                                decoded[field] = json.loads(decoded[field])
+                            except (ValueError, RecursionError):
+                                pass
+                    rows.append(decoded)
+            next_cursor = meta.get("cursor")
+            if next_cursor is not None and (
+                not isinstance(next_cursor, str) or not next_cursor or len(next_cursor) > 8192
+            ):
+                cursor, reason = None, "malformed-metadata"
+                break
+            cursor = next_cursor
+            if len(items) > size:
+                # The service cursor skips records omitted from this overrun.
+                cursor, reason = None, "response-overrun"
+                break
+            if invalid:
+                reason = invalid
+                break
+            if cursor is not None and cursor in seen_cursors:
+                reason = "non-advancing-cursor"
+                break
+            if cursor is None:
+                complete, reason = True, "api-end"
+                break
+            seen_cursors.add(cursor)
+            if not items:
+                reason = "incomplete-response"
+                break
+        return {"rows": rows, "scanned": scanned, "complete": complete, "cursor": cursor, "reason": reason}
 
     def list_observations(
-        self,
-        *,
-        from_start_time: str,
-        to_start_time: str,
-        limit: int,
-        page_size: int = 100,
-        trace_id: str | None = None,
+        self, *, from_start_time: str, to_start_time: str, limit: int,
+        page_size: int = 100, trace_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self._legacy_rows(
-            "/api/public/observations",
-            bounds={"fromStartTime": from_start_time, "toStartTime": to_start_time},
-            limit=limit,
-            page_size=page_size,
-            filters={"traceId": trace_id} if trace_id else None,
+        result = self._observation_rows(
+            from_start_time=from_start_time, to_start_time=to_start_time,
+            limit=limit, page_size=page_size, trace_id=trace_id,
+            fields="core,basic,time,io,metadata,model,usage,prompt,metrics,trace_context",
         )
+        if result["reason"] not in ("api-end", "max-observations"):
+            # A short list would otherwise masquerade as complete evidence.
+            raise LangfuseError(f"Langfuse observation read incomplete: {result['reason']}")
+        return result["rows"]
 
     def list_traces(self, *, from_timestamp: str, to_timestamp: str, limit: int, page_size: int = 100) -> list[dict[str, Any]]:
-        return self._legacy_rows(
-            "/api/public/traces",
-            bounds={"fromTimestamp": from_timestamp, "toTimestamp": to_timestamp},
-            limit=limit,
-            page_size=page_size,
+        result = self.list_traces_with_metadata(
+            from_timestamp=from_timestamp, to_timestamp=to_timestamp,
+            max_traces=limit, page_size=page_size,
         )
+        reason = result["continuation"]["reason"]
+        if reason in {"malformed-response", "malformed-metadata", "non-advancing-page",
+                      "non-advancing-cursor", "incomplete-response", "response-overrun"}:
+            raise LangfuseError(f"Langfuse trace read incomplete: {reason}")
+        return result["traces"]
 
     def list_traces_with_metadata(
-        self,
-        *,
-        from_timestamp: str,
-        to_timestamp: str,
-        page_size: int = 100,
-        max_traces: int = DEFAULT_MAX_TRACES,
+        self, *, from_timestamp: str, to_timestamp: str,
+        page_size: int = 100, max_traces: int = DEFAULT_MAX_TRACES,
     ) -> dict[str, Any]:
-        if not from_timestamp or not to_timestamp:
-            raise ValueError("Langfuse reads require time bounds")
-        if page_size < 1 or type(max_traces) is not int or max_traces < 1:
-            raise ValueError("Langfuse read limits must be positive")
-        traces: list[dict[str, Any]] = []
-        page = 1
-        total_available: int | None = None
-        total_unavailable = False
-        previous_items: list[dict[str, Any]] | None = None
-        complete = False
-        reason = "max-traces"
-        next_page: int | None = 1
-        while len(traces) < max_traces:
-            payload = self._request("GET", "/api/public/traces", params={
-                "fromTimestamp": from_timestamp,
-                "toTimestamp": to_timestamp,
-                "limit": min(page_size, MAX_PAGE_SIZE, max_traces - len(traces)),
-                "page": page,
-            })
-            items = self._data(payload)
-            meta = self._meta(payload)
-            repeated_page = bool(items and items == previous_items)
-            uncapped_count = len(traces) + (0 if repeated_page else len(items))
-
-            raw_total = meta.get("totalItems")
-            if raw_total is not None:
-                if (
-                    type(raw_total) is not int
-                    or raw_total < uncapped_count
-                    or (total_available is not None and raw_total != total_available)
-                ):
-                    total_available = None
-                    total_unavailable = True
-                elif not total_unavailable:
-                    total_available = raw_total
-
-            if not repeated_page:
-                previous_items = items
-                traces.extend(items[: max_traces - len(traces)])
-
-            if total_available is not None and len(traces) > total_available:
-                total_available = None
-                total_unavailable = True
-
-            if repeated_page:
-                reason = "non-advancing-page"
-                next_page = page
-                break
-
-            raw_total_pages = meta.get("totalPages")
-            total_pages = raw_total_pages if type(raw_total_pages) is int and raw_total_pages > 0 else None
-            if not items:
-                complete = (
-                    not total_unavailable
-                    and (total_available is None or len(traces) >= total_available)
-                    and (total_pages is None or page >= total_pages)
-                )
-                reason = "api-end" if complete else "api-incomplete"
-                next_page = None if complete else page + 1
-                break
-            if total_pages is not None and page >= total_pages:
-                complete = not total_unavailable and (total_available is None or len(traces) >= total_available)
-                reason = "api-end" if complete else "api-incomplete"
-                next_page = None if complete else page + 1
-                break
-            if len(traces) >= max_traces:
-                complete = not total_unavailable and total_available == len(traces) and (total_pages is None or page >= total_pages)
-                reason = "api-end" if complete else "max-traces"
-                next_page = None if complete else page + 1
-                break
-            page += 1
-
+        result = self._observation_rows(
+            from_start_time=from_timestamp, to_start_time=to_timestamp,
+            limit=max_traces, page_size=page_size,
+            fields="core,basic,io,metadata,trace_context",
+        )
+        traces, gaps = _group_trace_observations(result["rows"])
+        if not result["complete"]:
+            gaps.insert(0, {"scope": "traces", "code": result["reason"]})
+        complete = result["complete"] and not gaps
         return {
             "traces": traces,
-            "totalAvailable": total_available,
+            "totalAvailable": None,  # v2 has no trace total; observation counts are not equivalent.
             "scanned": len(traces),
+            "observationsScanned": result["scanned"],
             "maxTraces": max_traces,
             "complete": complete,
+            "gaps": gaps,
             "continuation": {
-                "hasMore": not complete,
-                "nextPage": next_page,
-                "reason": reason,
+                "hasMore": not result["complete"],
+                "nextPage": None,  # Retained compatibility key; v2 has no page numbers.
+                "nextCursor": result["cursor"],
+                "reason": result["reason"] if not result["complete"] or not gaps else gaps[0]["code"],
             },
         }
 
@@ -367,6 +413,60 @@ class LangfuseClient:
             f"/api/public/score-configs/{self._annotation_path_id(config_id)}",
         )
 
+    @staticmethod
+    def _checked_score_timestamp(value: Any) -> datetime:
+        try:
+            if not isinstance(value, str) or "T" not in value:
+                raise ValueError
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValueError
+            return parsed
+        except ValueError:
+            raise LangfuseError("Stable score timestamp is unavailable or invalid") from None
+
+    def _score_timestamp(self, score_id: str, session_id: str, name: str, timestamp: str | None) -> str:
+        if any(not isinstance(value, str) or not value for value in (score_id, session_id, name)) or "," in score_id:
+            raise LangfuseError("Score identity cannot be queried unambiguously")
+        if timestamp is not None:
+            self._checked_score_timestamp(timestamp)
+        key = (score_id, session_id, name)
+        saved = self._score_timestamps.get(key)
+        if saved is None:
+            # Exact ID lookup is bounded without scanning an arbitrary time range.
+            # Recover old scores' original timestamps before migrating their writes.
+            payload = self._request("GET", "/api/public/v3/scores", params={
+                "id": score_id, "fields": "subject", "limit": 2,
+            })
+            if not isinstance(payload, dict):
+                raise LangfuseError("Score identity lookup response is not an object")
+            rows = payload.get("data")
+            meta = payload.get("meta")
+            if not isinstance(rows, list) or len(rows) > 1 or not isinstance(meta, dict) or meta.get("cursor") is not None:
+                raise LangfuseError("Score identity lookup is incomplete or ambiguous")
+            if rows:
+                row = rows[0]
+                if (
+                    not isinstance(row, dict) or row.get("id") != score_id or row.get("name") != name
+                    or row.get("source") != "API" or not isinstance(row.get("subject"), dict)
+                    or row["subject"].get("kind") != "session" or row["subject"].get("id") != session_id
+                ):
+                    raise LangfuseError("Score identity lookup does not match the requested session score")
+                saved = row.get("timestamp")
+                self._checked_score_timestamp(saved)
+            elif timestamp is not None:
+                saved = timestamp
+            else:
+                started = session_start(session_id)
+                if started is None:
+                    raise LangfuseError("New session score requires an explicit stable timestamp")
+                saved = started.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            # Retain before POST: a lost acknowledgement must not change identity.
+            self._score_timestamps[key] = saved
+        if timestamp is not None and self._checked_score_timestamp(timestamp) != self._checked_score_timestamp(saved):
+            raise LangfuseError("Score timestamp conflicts with its existing identity")
+        return saved
+
     def put_session_score(
         self,
         *,
@@ -376,16 +476,38 @@ class LangfuseClient:
         value: str | int | float,
         metadata: dict[str, Any] | None = None,
         data_type: str = "CATEGORICAL",
+        timestamp: str | None = None,
     ) -> dict[str, Any]:
-        return self._request("POST", "/api/public/scores", {
+        body = [{
             "id": score_id,
+            "timestamp": self._score_timestamp(score_id, session_id, name, timestamp),
             "sessionId": session_id,
             "name": name,
             "value": value,
             "dataType": data_type,
             "source": "API",
             "metadata": metadata or {},
-        })
+        }]
+        try:
+            size = len(json.dumps(body, allow_nan=False).encode())
+        except (TypeError, ValueError):
+            raise LangfuseError("Score request is not valid JSON") from None
+        if size > 3_000_000:
+            raise LangfuseError("Score request exceeds the byte ceiling")
+        result = self._request("POST", "/api/public/scores", body)
+        if not isinstance(result, dict):
+            raise LangfuseError("Langfuse returned an invalid score acknowledgement")
+        if any(field in result for field in ("accepted", "rejected", "errors")):
+            if (
+                type(result.get("accepted")) is not int or result["accepted"] != 1
+                or type(result.get("rejected")) is not int or result["rejected"] != 0
+                or result.get("errors") != []
+            ):
+                # 207 rejects are terminal for this attempt, not a retry trigger.
+                raise LangfuseError("Langfuse rejected the session score or returned an invalid acknowledgement")
+        elif result.get("message") != "Accepted":
+            raise LangfuseError("Langfuse returned an invalid score acknowledgement")
+        return result
 
     def list_evaluators(self):
         return self._list("/api/public/unstable/evaluators")

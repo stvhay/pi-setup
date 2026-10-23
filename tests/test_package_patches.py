@@ -216,8 +216,8 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path,
     applied = _run(package_root, patch_root)
     assert applied.returncode == 0, applied.stderr
     assert "nativeSession" in langfuse.read_text(encoding="utf-8")
-    assert "MAX_INGESTION_REQUEST_BYTES" in (langfuse.parent / "src/langfuse.ts").read_text(encoding="utf-8")
-    assert "MALFORMED_MEDIA_DATA_URI" in (langfuse.parent / "src/redaction.ts").read_text(encoding="utf-8")
+    assert "MAX_INGESTION_REQUEST_BYTES" not in (langfuse.parent / "src/langfuse.ts").read_text(encoding="utf-8")
+    assert "MALFORMED_MEDIA_DATA_URI" not in (langfuse.parent / "src/redaction.ts").read_text(encoding="utf-8")
     assert "maxOutputTokens" in archimedes.read_text(encoding="utf-8")
     assert "maxProviderRequests" in archimedes.read_text(encoding="utf-8")
     assert "subagentMaxProviderRequests" in meta.read_text(encoding="utf-8")
@@ -225,81 +225,22 @@ def test_package_patch_helper_is_checked_idempotent_and_version_locked(tmp_path,
 
     repeated = _run(package_root, patch_root)
     assert repeated.returncode == 0, repeated.stderr
-    assert repeated.stdout.count("already applied") == 6
+    assert repeated.stdout.count("already applied") == 5
 
     package_json = package_root / "pi-langfuse/package.json"
     package_json.write_text(json.dumps({"name": "pi-langfuse", "version": "1.5.8"}), encoding="utf-8")
+    untouched = _run(package_root, patch_root, "--check")
+    assert untouched.returncode == 0, untouched.stderr
+    assert json.loads(package_json.read_text())["version"] == "1.5.8"
+    package_json = package_root / "@pi-archimedes/subagent/package.json"
+    package_json.write_text(json.dumps({"name": "@pi-archimedes/subagent", "version": "1.0.0"}))
     rejected = _run(package_root, patch_root, "--check")
     assert rejected.returncode != 0
-    assert "expected pi-langfuse 1.7.0" in rejected.stderr
+    assert "expected @pi-archimedes/subagent 2.11.1" in rejected.stderr
 
 
-def test_package_patch_helper_rejects_partial_marker_state(tmp_path):
-    package_root = tmp_path / "node_modules"
-    _archimedes_footer(package_root)
-    langfuse = _package(
-        package_root,
-        "pi-langfuse",
-        "pi-langfuse",
-        "1.7.0",
-        "export const session = ctx?.sessionManager?.getSessionId?.();\n",
-    )
-    score_source = langfuse.parent / "src/langfuse.ts"
-    redaction_source = langfuse.parent / "src/redaction.ts"
-    redaction_source.write_text(
-        redaction_source.read_text(encoding="utf-8")
-        + 'export const MALFORMED_MEDIA_DATA_URI = "[malformed media data URI]";\n',
-        encoding="utf-8",
-    )
-    _package(
-        package_root,
-        "@pi-archimedes/subagent",
-        "@pi-archimedes/subagent",
-        "2.11.1",
-        "export const result = {};\n",
-    )
-    _archimedes_meta(package_root)
-    patch_root = _fixture_patches(tmp_path / "patches")
-
-    rejected = _run(package_root, patch_root, "--check")
-
-    assert rejected.returncode != 0
-    assert "partially patched" in rejected.stderr
-    assert "MAX_INGESTION_REQUEST_BYTES" not in score_source.read_text(encoding="utf-8")
 
 
-def test_package_patch_helper_rejects_unmarked_partial_state(tmp_path):
-    package_root = tmp_path / "node_modules"
-    _archimedes_footer(package_root)
-    langfuse = _package(
-        package_root,
-        "pi-langfuse",
-        "pi-langfuse",
-        "1.7.0",
-        'export const session = "file";\n',
-    )
-    score_source = langfuse.parent / "src/langfuse.ts"
-    score_source.write_text(
-        score_source.read_text(encoding="utf-8").replace(
-            "export const flush = true;",
-            "const MAX_INGESTION_REQUEST_BYTES = 3_000_000;\nexport const flush = true;",
-        ),
-        encoding="utf-8",
-    )
-    _package(
-        package_root,
-        "@pi-archimedes/subagent",
-        "@pi-archimedes/subagent",
-        "2.11.1",
-        "export const result = {};\n",
-    )
-    _archimedes_meta(package_root)
-    patch_root = _fixture_patches(tmp_path / "patches")
-
-    rejected = _run(package_root, patch_root, "--check")
-
-    assert rejected.returncode != 0
-    assert "patch does not match installed source" in rejected.stderr
 
 
 @pytest.mark.parametrize("applied", [False, True])
@@ -338,32 +279,6 @@ def test_package_patch_helper_rejects_offset_patch_matches(tmp_path, patch_imple
         assert {path: path.read_bytes() for path in package_root.rglob("*") if path.is_file()} == before
 
 
-def test_package_patch_helper_rejects_missing_score_id_dependency(tmp_path):
-    package_root = tmp_path / "node_modules"
-    _archimedes_footer(package_root)
-    langfuse = _package(package_root, "pi-langfuse", "pi-langfuse", "1.7.0", 'export const session = "file";\n')
-    score_source = langfuse.parent / "src/langfuse.ts"
-    score_source.write_text(
-        score_source.read_text(encoding="utf-8").replace(
-            "score.id ??= randomUUID();",
-            "score.id = randomUUID();",
-        ),
-        encoding="utf-8",
-    )
-    _package(
-        package_root,
-        "@pi-archimedes/subagent",
-        "@pi-archimedes/subagent",
-        "2.11.1",
-        "export const result = {};\n",
-    )
-    _archimedes_meta(package_root)
-    patch_root = _fixture_patches(tmp_path / "patches")
-
-    rejected = _run(package_root, patch_root, "--check")
-
-    assert rejected.returncode != 0
-    assert "required source context is missing" in rejected.stderr
 
 
 def test_package_patch_helper_preflights_every_package_before_mutation(tmp_path):
@@ -438,7 +353,10 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
     )
 
     assert head.returncode == 0, head.stderr
-    assert head.stdout.strip() == LANGFUSE_VENDOR_HEAD
+    pinned = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "--stage", "forks/pi-langfuse"], text=True).split()
+    assert pinned[:1] == ["160000"] and pinned[2] == "0"
+    assert head.stdout.strip() == pinned[1]
+    assert subprocess.run(["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", LANGFUSE_VENDOR_HEAD, "HEAD"]).returncode == 0
     assert "branch = vendor/pi-setup-170" in GITMODULES.read_text(encoding="utf-8")
     assert subprocess.run(
         ["git", "-C", str(LANGFUSE_VENDOR), "merge-base", "--is-ancestor", LANGFUSE_UPSTREAM_170, "HEAD"],
@@ -449,8 +367,7 @@ def test_langfuse_vendor_submodule_pins_combined_runtime_head():
         capture_output=True,
     )
     assert count.returncode == 0, count.stderr
-    assert count.stdout.strip() == "1"
-
+    assert int(count.stdout.strip()) >= 1
 
 
 def test_active_patch_inventory_matches_maintained_fork_projections():
@@ -460,7 +377,6 @@ def test_active_patch_inventory_matches_maintained_fork_projections():
         "pi-archimedes-footer-2.11.1.patch",
         "pi-archimedes-meta-2.11.1.patch",
         "pi-archimedes-subagent-2.11.1.patch",
-        "pi-langfuse-1.7.0.patch",
     }
     helper = SCRIPT.read_text(encoding="utf-8")
     deploy = UPDATE_SCRIPT.read_text(encoding="utf-8")
@@ -468,11 +384,14 @@ def test_active_patch_inventory_matches_maintained_fork_projections():
     deployed = set(re.findall(r"\$PACKAGE_PATCH_DIR/([A-Za-z0-9._-]+\.patch)", deploy))
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
 
-    assert {path.name for path in PATCHES.glob("*.patch")} == expected
+    assert {path.name for path in PATCHES.glob("*.patch")} == expected | {"pi-langfuse-1.7.0.patch"}
     assert configured == expected
     assert deployed == expected
     assert {"source": "npm:pi-archimedes@2.11.1", "extensions": []} in settings["packages"]
-    assert {"source": "npm:pi-langfuse@1.7.0", "extensions": []} in settings["packages"]
+    release = json.loads((PATCHES / "langfuse-runtime/release.json").read_text())
+    assert {"source": "../runtime/pi-langfuse/releases/" + release["id"], "extensions": []} in settings["packages"]
+    assert "npm:pi-langfuse" not in SETTINGS.read_text()
+    assert "install_langfuse_patch_base" not in deploy
 
 
 def test_package_projection_docs_match_adopted_public_ports():
@@ -620,13 +539,17 @@ def test_langfuse_package_proof_is_executable_and_integrity_pinned():
     assert "sha512-dXMv4NLySMzOfIBmaSNUsu83HQNh3N4qxjgD9l5hvmWARSJ75W2YnD1dfIoRi9QUb2LnJsmSVHqJV9ENDL5K8w==" in proof
     assert "patch --force --fuzz=0 --forward" in proof
     assert '"$patch_bin" --verbose --force --fuzz=0 --reverse --dry-run' in proof
-    assert "test/quality.test.ts" in proof
-    assert 'FORK_HEAD="0ba150f5bd38c1e282feec5a488a918e6076063b"' in proof
+    assert 'LEGACY_HEAD="0ba150f5bd38c1e282feec5a488a918e6076063b"' in proof
     assert 'BASE_HEAD="1c4dd956597af272d1869ce897e922d7702845fe"' in proof
-    for contract in ("tool", "generation", "redaction", "cache-contract", "langfuse", "managed-wrapper"):
-        assert f"test/{contract}.test.ts" in proof
-    assert "cmp " in proof
-    assert "diff -qr" in proof
+    assert 'merge-base --is-ancestor "$LEGACY_HEAD" HEAD' in proof
+    assert 'run typecheck && node test/run.mjs' in proof
+    assert 'vendor/runtime-release/build.mjs' in proof
+    assert 'diff -qr "$BUNDLE" "$TMP/rebuilt"' in proof
+    assert proof.count('--bundle "$BUNDLE" --dest "$DEST" --npm-cli "$NPM_CLI"') == 2
+    assert 'managed-wrapper.test.ts' in proof
+    assert 'PI_LANGFUSE_RUNTIME_RELEASE=release' in proof
+    assert 'audit --omit=dev --json' in proof
+    assert 'ln -s' not in proof
 
 
 def test_langfuse_quality_port_maintained_fork_gate_requires_exact_evidence():
@@ -776,7 +699,8 @@ def test_actual_projection_source_round_trip(tmp_path, patch_implementation, pac
         if direction == "--forward":
             for section in source_sections:
                 relative = shlex.split(section.splitlines()[0])[1].removeprefix("b/")
-                assert (fixture / relative).read_bytes() == (fork / prefix / relative).read_bytes(), relative
+                expected = subprocess.check_output(["git", "-C", str(fork), "show", f"{LANGFUSE_VENDOR_HEAD}:{relative}"]) if langfuse else (fork / prefix / relative).read_bytes()
+                assert (fixture / relative).read_bytes() == expected, relative
     restored = snapshot()
     changed = sorted(path for path in original.keys() | restored.keys() if original.get(path) != restored.get(path))
     assert not changed, f"{patch_implementation}: reverse changed {changed}"
@@ -789,3 +713,43 @@ def test_package_proofs_cover_path_and_system_patch_engines():
         assert '"${PATCH_ENGINES[@]}"' in source
         assert '--verbose' in source
         assert 'diff -qr' in source
+
+
+@pytest.mark.parametrize("marked", [False, True])
+def test_archimedes_partial_patch_is_rejected_without_any_mutation(tmp_path, marked):
+    packages = tmp_path / "node_modules"
+    _archimedes_meta(packages)
+    _archimedes_footer(packages)
+    code = "export const result = { " + ("maxOutputTokens: 17" if marked else "maxProviderRequests: 1") + " };\n"
+    _package(packages, "@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.11.1", code)
+    patches = _fixture_patches(tmp_path / "patches")
+    before = {path: path.read_bytes() for path in packages.rglob("*") if path.is_file()}
+    result = _run(packages, patches)
+    assert result.returncode != 0
+    assert ("partially patched" if marked else "patch does not match installed source") in result.stderr
+    assert {path: path.read_bytes() for path in packages.rglob("*") if path.is_file()} == before
+
+
+def test_archimedes_footer_requires_its_host_api_context(tmp_path):
+    packages = tmp_path / "node_modules"
+    _archimedes_meta(packages)
+    footer = _archimedes_footer(packages)
+    footer.write_text("export const footer = {};\n")
+    _package(packages, "@pi-archimedes/subagent", "@pi-archimedes/subagent", "2.11.1", "export const result = {};\n")
+    result = _run(packages, _fixture_patches(tmp_path / "patches"), "--check")
+    assert result.returncode != 0
+    assert "required source context is missing" in result.stderr
+
+
+def test_langfuse_proof_canonicalizes_its_owned_scratch_directory(tmp_path):
+    directory = tmp_path / "actual"
+    directory.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(directory, target_is_directory=True)
+    setup = "\n".join(line for line in LANGFUSE_PACKAGE_PROOF.read_text().splitlines() if line.startswith("TMP="))
+    result = subprocess.run(["bash", "-c", 'set -eu\n' + setup + '\nprintf "%s\n" "$TMP"'],
+        env={**os.environ, "TMPDIR": str(alias)}, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    scratch = Path(result.stdout.strip())
+    assert scratch == scratch.resolve(), "installer refuses symlinked ancestors, including macOS /var"
+    assert scratch.parent == directory.resolve()

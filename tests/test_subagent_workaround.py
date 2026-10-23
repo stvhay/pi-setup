@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from conftest import run_node as run_node_process
+from test_langfuse_runtime_wrapper import make_release
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -554,7 +555,7 @@ def test_subagent_provider_errors_exit_nonzero_with_upstream_context():
 def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdown(tmp_path):
     agent_dir = tmp_path / "agent"
     npm_dir = agent_dir / "npm"
-    package_dir = npm_dir / "node_modules" / "pi-langfuse"
+    package_dir = tmp_path / "release-source"
     subagent_dir = npm_dir / "node_modules" / "@pi-archimedes" / "subagent"
     (package_dir / "src").mkdir(parents=True)
     subagent_dir.mkdir(parents=True)
@@ -562,7 +563,7 @@ def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdo
     (agent_dir / "bin").mkdir(parents=True)
     (npm_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
     (package_dir / "package.json").write_text(
-        '{"name":"pi-langfuse","type":"module","exports":{".":"./index.ts","./quality":"./src/quality.ts"}}\n',
+        '{"name":"pi-langfuse","type":"module","exports":{".":"./index.js","./quality":"./src/quality.js"}}\n',
         encoding="utf-8",
     )
     (subagent_dir / "package.json").write_text(
@@ -573,7 +574,7 @@ def test_interactive_result_lifecycle_uses_loaded_runtime_after_agent_end_shutdo
         'export const SUBAGENT_OUTPUT_CONTRACTS = ["inline", "artifact", "status-only", "pass-no-findings"] as const;\n',
         encoding="utf-8",
     )
-    (package_dir / "index.ts").write_text(
+    (package_dir / "index.js").write_text(
         """
 import { configure, getRuntime, shutdownRuntime } from "./src/langfuse.js";
 export default function register(pi) {
@@ -587,7 +588,7 @@ export default function register(pi) {
 """,
         encoding="utf-8",
     )
-    (package_dir / "src" / "langfuse.ts").write_text(
+    (package_dir / "src" / "langfuse.js").write_text(
         """
 let config;
 let runtime;
@@ -632,7 +633,7 @@ export async function shutdownRuntime() {
 """,
         encoding="utf-8",
     )
-    (package_dir / "src" / "quality.ts").write_text(
+    (package_dir / "src" / "quality.js").write_text(
         """
 import { getRuntime } from "./langfuse.js";
 export function createObservationCapturePort() {
@@ -659,6 +660,10 @@ export function createObservationCapturePort() {
 """,
         encoding="utf-8",
     )
+    make_release(agent_dir, overrides={
+        str(path.relative_to(package_dir)): path.read_text()
+        for path in package_dir.rglob("*") if path.is_file()
+    })
     (agent_dir / "pi-langfuse" / "config.json").write_text(
         '{"publicKey":"test-public","secretKey":"test-secret","host":"https://langfuse.test"}\n',
         encoding="utf-8",

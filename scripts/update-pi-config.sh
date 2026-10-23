@@ -15,7 +15,8 @@ PI_COMMAND=${PI_COMMAND:-pi}
 PACKAGE_PATCH_HELPER=${PI_PACKAGE_PATCH_HELPER:-$ROOT/scripts/apply-pi-package-patches.sh}
 PACKAGE_PATCH_DIR=${PI_PACKAGE_PATCH_DIR:-$ROOT/patches/pi-packages}
 ARCHIMEDES_REINSTALL_BACKUP=
-LANGFUSE_REINSTALL_BACKUP=
+LANGFUSE_RUNTIME_BUNDLE=${PI_LANGFUSE_RUNTIME_BUNDLE:-$ROOT/patches/pi-packages/langfuse-runtime}
+LANGFUSE_NPM_CLI=${PI_LANGFUSE_NPM_CLI:-}
 DEPLOY_BACKUP=
 export PYTHONDONTWRITEBYTECODE=1
 
@@ -61,8 +62,10 @@ Usage: scripts/update-pi-config.sh [--dry-run] [--file PATH]
 Update ~/.pi from this repository's tracked pi/ directory.
 
 This repository is the source of truth. The live ~/.pi directory is treated as
-runtime/deployed state. Runtime secrets and local state are preserved. Missing,
-mismatched, or stale-patch exact package bases are installed, then tracked patches run.
+runtime/deployed state. Runtime secrets and local state are preserved. Prepare the
+verified isolated Langfuse release, reconcile Archimedes patches, then activate config.
+Legacy shared Langfuse contents require an explicit transition; this updater does
+not reinstall, prune, or migrate them.
 Checks run before and after apply. Managed config backups stay under
 <destination>/runtime/deployment-backups/. --dry-run itemizes actual file changes.
 Remote evaluator changes are separate: agnt langfuse apply (requires approval).
@@ -84,6 +87,8 @@ Environment overrides:
   PI_CONFIG_SOURCE          Source config directory. Default: <repo>/pi
   PI_CONFIG_DEST            Destination. Default: $HOME/.pi
   PI_CONFIG_DEST_UNSAFE_OK  Set to 1 to allow a non-.pi destination after review.
+  PI_LANGFUSE_NPM_CLI       Path to npm 12.2.1's npm-cli.js (needed for fresh install).
+  PI_LANGFUSE_RUNTIME_BUNDLE Reviewed release bundle; defaults to tracked projection.
 EOF
 }
 
@@ -126,7 +131,8 @@ run() {
 }
 
 preserve_changelog() {
-  python3 - "$1" "$2" <<'PY'
+  # Optional third argument supplies new settings for atomic, activation-last writes.
+  python3 - "$@" <<'PY'
 import json
 import os
 import pathlib
@@ -136,9 +142,11 @@ import tempfile
 runtime_path = pathlib.Path(sys.argv[1])
 deployed_path = pathlib.Path(sys.argv[2])
 runtime_settings = json.loads(runtime_path.read_text(encoding="utf-8"))
-if "lastChangelogVersion" in runtime_settings:
-    deployed_settings = json.loads(deployed_path.read_text(encoding="utf-8"))
-    deployed_settings["lastChangelogVersion"] = runtime_settings["lastChangelogVersion"]
+source_path = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else deployed_path
+if len(sys.argv) > 3 or "lastChangelogVersion" in runtime_settings:
+    deployed_settings = json.loads(source_path.read_text(encoding="utf-8"))
+    if "lastChangelogVersion" in runtime_settings:
+        deployed_settings["lastChangelogVersion"] = runtime_settings["lastChangelogVersion"]
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -149,9 +157,53 @@ if "lastChangelogVersion" in runtime_settings:
         json.dump(deployed_settings, output, indent=2)
         output.write("\n")
         temporary_path = pathlib.Path(output.name)
-    temporary_path.chmod(deployed_path.stat().st_mode)
+    temporary_path.chmod((deployed_path if deployed_path.exists() else source_path).stat().st_mode)
     os.replace(temporary_path, deployed_path)
 PY
+}
+
+prepare_langfuse_runtime() {
+  [ -f "$SOURCE/agent/extensions/langfuse-config-env.ts" ] || return 0
+  local phase=$1 preview flag=--dry-run
+  [ "$phase" != check ] || flag=--check
+  preview=$(python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" \
+    --bundle "$LANGFUSE_RUNTIME_BUNDLE" --dest "$DEST" "$flag")
+  printf '%s\n' "$preview"
+  python3 - "$SOURCE" "$DEST" "$FILE" "$preview" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+source, dest = map(Path, sys.argv[1:3])
+selected_file, preview = sys.argv[3:]
+expected = "../runtime/pi-langfuse/releases/" + json.loads(preview)["id"]
+settings_paths = [source / "agent/settings.json"]
+if selected_file:
+    settings_paths.append(dest / "agent/settings.json")
+    for root in (source, dest):
+        path = root / "agent/extensions/lib/langfuse-runtime.ts"
+        if any(part.is_symlink() for part in [path, *path.parents]):
+            raise SystemExit("Langfuse wrapper library must not be symlinked")
+    if (source / "agent/extensions/lib/langfuse-runtime.ts").read_bytes() != (dest / "agent/extensions/lib/langfuse-runtime.ts").read_bytes():
+        raise SystemExit("Langfuse wrapper library differs; use a full reviewed update")
+for path in settings_paths:
+    packages = json.loads(path.read_text())["packages"]
+    candidates = []
+    for entry in packages:
+        name = entry.get("source", "") if isinstance(entry, dict) else entry
+        if name.startswith(("../runtime/pi-langfuse/", "npm:pi-langfuse")):
+            candidates.append(entry)
+    if len(candidates) != 1 or not isinstance(candidates[0], dict) or candidates[0].get("source") != expected or candidates[0].get("extensions") != []:
+        raise SystemExit("Langfuse settings must select exactly the verified release with extensions: []")
+PY
+  if [ "$phase" = apply ]; then
+    local npm_cli=$LANGFUSE_NPM_CLI
+    if [ -z "$npm_cli" ]; then
+      npm_cli=$(python3 -c 'import pathlib,shutil; p=shutil.which("npm"); print(pathlib.Path(p).resolve() if p else "")')
+    fi
+    python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" \
+      --bundle "$LANGFUSE_RUNTIME_BUNDLE" --dest "$DEST" --npm-cli "$npm_cli"
+  fi
 }
 
 package_is_exact() {
@@ -250,54 +302,6 @@ restore_archimedes_reinstall_backup() {
   done
   rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
   ARCHIMEDES_REINSTALL_BACKUP=
-}
-
-restore_langfuse_reinstall_backup() {
-  [ -n "$LANGFUSE_REINSTALL_BACKUP" ] || return 0
-  local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
-  if [ -d "$LANGFUSE_REINSTALL_BACKUP/pi-langfuse" ]; then
-    rm -rf "$package_dir"
-    mv "$LANGFUSE_REINSTALL_BACKUP/pi-langfuse" "$package_dir"
-  fi
-  rm -rf "$LANGFUSE_REINSTALL_BACKUP"
-  LANGFUSE_REINSTALL_BACKUP=
-}
-
-reinstall_langfuse_patch_base() {
-  local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
-  if [ "$MODE" = dry-run ]; then
-    run rm -rf "$package_dir"
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.7.0
-    return
-  fi
-
-  local backup
-  backup=$(mktemp -d "$DEST/agent/npm/.langfuse-reinstall.XXXXXX")
-  LANGFUSE_REINSTALL_BACKUP=$backup
-  mv "$package_dir" "$backup/pi-langfuse"
-  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.7.0 \
-    && package_is_exact "$package_dir/package.json" pi-langfuse 1.7.0; then
-    return
-  fi
-
-  restore_langfuse_reinstall_backup
-  echo "Could not reinstall exact Langfuse patch base; restored previous package files" >&2
-  return 1
-}
-
-install_langfuse_patch_base() {
-  local package_dir="$DEST/agent/npm/node_modules/pi-langfuse"
-  local package_json="$package_dir/package.json"
-  local patch_file="$PACKAGE_PATCH_DIR/pi-langfuse-1.7.0.patch"
-  if package_is_exact "$package_json" pi-langfuse 1.7.0; then
-    if package_patch_is_clean_or_applied "$package_dir" "$patch_file"; then
-      echo "pi-langfuse 1.7.0: already installed"
-    else
-      reinstall_langfuse_patch_base
-    fi
-  else
-    run env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-langfuse@1.7.0
-  fi
 }
 
 reinstall_archimedes_patch_base() {
@@ -438,6 +442,9 @@ if [ "$CRAFT" -eq 1 ]; then
 fi
 
 if [ -n "$FILE" ]; then
+  if [ "$FILE" = agent/extensions/langfuse-config-env.ts ]; then
+    prepare_langfuse_runtime check
+  fi
   python3 - "$SOURCE" "$DEST" "$FILE" "$MODE" <<'PY'
 import hashlib
 import json
@@ -528,6 +535,10 @@ fi
 # Fail before any bulk write on malformed/unowned Craft config; never connect MCP.
 python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST"
 
+# Prepare the isolated release before changing managed config. Legacy shared npm
+# contents are deliberately untouched; their transition is explicit, not automated.
+prepare_langfuse_runtime "$MODE"
+
 mkdir_parent() {
   local dir
   dir=$(dirname "$1")
@@ -544,7 +555,7 @@ if [ "$MODE" = apply ]; then
   (umask 077; mkdir -p "$DEST/runtime/deployment-backups")
   DEPLOY_BACKUP=$(mktemp -d "$DEST/runtime/deployment-backups/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")
   echo "Managed config backup: $DEPLOY_BACKUP"
-  rsync -a "${RSYNC_EXCLUDES[@]}" "$DEST/" "$DEPLOY_BACKUP/config/"
+  rsync -a --checksum "${RSYNC_EXCLUDES[@]}" "$DEST/" "$DEPLOY_BACKUP/config/"
   (
     umask 077
     printf 'source=%s\ndestination=%s\n' "$SOURCE" "$DEST" >"$DEPLOY_BACKUP/identity.txt"
@@ -565,7 +576,7 @@ if [ "${1:---dry-run}" = --apply ] && [ -f "$settings" ]; then
   cp "$settings" "$saved_settings"
 fi
 SH
-      printf 'rsync -a --delete --itemize-changes "${flags[@]}"'
+      printf 'rsync -a --checksum --delete --itemize-changes "${flags[@]}"'
       printf ' %q' "${RSYNC_EXCLUDES[@]}" "$DEPLOY_BACKUP/config/" "$DEST/"
       printf '\n'
       printf '%s\n' 'if [ -n "$saved_settings" ] && [ -f "$settings" ]; then' \
@@ -595,15 +606,10 @@ cleanup() {
   if [ "$status" -ne 0 ]; then
     [ -z "$DEPLOY_BACKUP" ] || echo "Deploy failed; config backup retained: $DEPLOY_BACKUP" >&2
     restore_archimedes_reinstall_backup
-    restore_langfuse_reinstall_backup
   else
     if [ -n "$ARCHIMEDES_REINSTALL_BACKUP" ]; then
       rm -rf "$ARCHIMEDES_REINSTALL_BACKUP"
       ARCHIMEDES_REINSTALL_BACKUP=
-    fi
-    if [ -n "$LANGFUSE_REINSTALL_BACKUP" ]; then
-      rm -rf "$LANGFUSE_REINSTALL_BACKUP"
-      LANGFUSE_REINSTALL_BACKUP=
     fi
   fi
   if [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
@@ -636,28 +642,12 @@ if [ -f "$legacy_ollama_extension" ] && grep -qF './olla-provider.ts' "$legacy_o
 fi
 
 
-if [ "$MODE" = dry-run ]; then
-  run rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
-  rsync -a --delete --dry-run --itemize-changes "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
-else
-  rsync -a --delete --itemize-changes "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/" | tee "$DEPLOY_BACKUP/changes.txt"
-fi
-
-if [ "$MODE" = apply ] && [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
-  preserve_changelog "$RUNTIME_SETTINGS_BACKUP" "$DEST/agent/settings.json"
-elif [ "$MODE" = dry-run ] && [ -f "$DEST/agent/settings.json" ]; then
-  echo "DRY-RUN: preserve Pi-managed lastChangelogVersion in $DEST/agent/settings.json"
-fi
-
 # Reconcile only missing, mismatched, or stale version-locked patch bases.
 # Keep their npm manifest entries exact before and after each install so npm cannot
 # reify a newly released version of one patch base while installing the other.
 pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.11.1"
-pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.7.0"
 install_archimedes_patch_base
 pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.11.1"
-install_langfuse_patch_base
-pin_patch_base_dependency "pi-langfuse" "pi-langfuse" "1.7.0"
 if [ "$MODE" = dry-run ]; then
   run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
 elif env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"; then
@@ -667,9 +657,18 @@ else
   exit 1
 fi
 
+if [ "$MODE" = dry-run ]; then
+  run rsync -a --checksum --delete --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+  rsync -a --checksum --delete --dry-run --itemize-changes "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+else
+  rsync -a --checksum --delete --itemize-changes --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/" | tee "$DEPLOY_BACKUP/changes.txt"
+fi
+
 # Local deployment never changes remote evaluators, even when credentials exist.
 if [ "$MODE" = apply ]; then
   python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST" --apply
+  prepare_langfuse_runtime check
+  preserve_changelog "${RUNTIME_SETTINGS_BACKUP:-$SOURCE/agent/settings.json}" "$DEST/agent/settings.json" "$SOURCE/agent/settings.json"
   (cd "$ROOT" && PI_CONFIG_DIR="$DEST" scripts/check-pi-config.sh) 2>&1 | tee "$DEPLOY_BACKUP/verification.txt"
   touch "$DEST/.managed-by-pi-setup"
   echo "Done. Local config verified; remote Langfuse evaluators unchanged."
