@@ -232,6 +232,48 @@ def test_adapter_defaults_prompt_and_existing_lifecycle(tmp_path):
     ''', env=env)
 
 
+def test_adapter_defers_full_guidance_to_evidence_initialization(tmp_path):
+    full_guidance = "Detailed browser operating instructions.\n" + OLD_GUIDANCE
+    script, env = adapter_script(tmp_path, prompt=full_guidance)
+    run_node(script + r'''
+      await fire("session_start");
+      const before = (await fire("before_agent_start", {systemPrompt: "base"})).systemPrompt;
+      assert.doesNotMatch(before, /Detailed browser operating instructions/);
+      assert.match(before, /browser_evidence.*initialize/);
+      assert.match(before, /read|follow/i);
+      const evidence = extension.tools.get("browser_evidence").definition;
+      const initialized = await evidence.execute("init", {operation: "initialize"}, undefined, undefined, ctx);
+      const text = initialized.content.map(item => item.text).join("\n");
+      assert.match(text, /Detailed browser operating instructions/);
+      assert.match(text, /Browser downloads policy: allow/);
+      assert.doesNotMatch(text, /Remote files require explicit user approval/);
+      assert.deepEqual(initialized.details, {});
+      assert.equal(initialized.content.at(-1).text, "allow", "preserve upstream checklist response");
+      for (const operation of ["audit", "prove", "list", "get"]) {
+        const result = await evidence.execute(operation, {operation}, undefined, undefined, ctx);
+        assert.equal(result.content.length, 1, "do not repeat full guidance on evidence reads/proofs");
+      }
+      assert.equal((await call("browser")).content.length, 1);
+      assert.equal((await fire("before_agent_start", {systemPrompt: "base"})).systemPrompt, before,
+        "initialization must not expand or churn the system prompt");
+      put("downloads", "deny");
+      await assert.rejects(() => evidence.execute("init", {operation: "initialize"}, undefined, undefined, ctx), /policy|approval/i);
+    ''', env=env)
+
+
+def test_adapter_deferred_guidance_uses_effective_download_policy(tmp_path):
+    script, env = adapter_script(tmp_path)
+    for mode in ("ask", "deny"):
+        env["BETTERWRIGHT_PI_DOWNLOAD_POLICY"] = mode
+        run_node(script + r'''
+          await fire("session_start");
+          const result = await extension.tools.get("browser_evidence").definition.execute(
+            "init", {operation: "initialize"}, undefined, undefined, ctx);
+          assert.match(result.content[0].text, new RegExp("Browser downloads policy: " + process.env.BETTERWRIGHT_PI_DOWNLOAD_POLICY));
+          assert.doesNotMatch(result.content[0].text, /Remote files require explicit user approval/);
+        ''', env=env)
+
+
 def test_adapter_ask_deny_and_metadata_floor(tmp_path):
     script, env = adapter_script(tmp_path)
     env["BETTERWRIGHT_PI_DOWNLOAD_POLICY"] = "ask"

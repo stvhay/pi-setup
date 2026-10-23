@@ -48,7 +48,7 @@ def test_node_test_runtime_is_pinned():
     lock = json.loads(lock_path.read_text())
     assert manifest["private"] is True
     assert manifest["engines"]["node"] == ">=24 <25"
-    assert manifest["devDependencies"]["@earendil-works/pi-coding-agent"] == "1.3.0"
+    assert manifest["devDependencies"]["@earendil-works/pi-coding-agent"] == "1.4.0"
     assert lock["packages"][""]["devDependencies"] == manifest["devDependencies"]
     assert lock["packages"]["node_modules/undici"]["version"] == "8.10.2"
     assert lock["packages"]["node_modules/brace-expansion"]["version"] == "5.0.12"
