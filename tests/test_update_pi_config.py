@@ -58,11 +58,15 @@ def config_source(source: Path) -> Path:
 
 @pytest.mark.parametrize("relative,backup_name,file_mode,old,new", [
     ("agent/extensions/fixture.ts", "before.ts", 0o640, "old extension\n", "new extension\n"),
+    ("agent/AGENTS.md", "before.md", 0o640, "old guidance\n", "new guidance\n"),
+    ("agent/skills/token-saver/SKILL.md", "before.md", 0o640, "old skill\n", "new skill\n"),
     ("agent/bin/start-craft-mcp.sh", "before.sh", 0o750, "#!/bin/sh\nexit 98\n", "#!/bin/sh\nexit 99\n"),
 ])
 def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path, relative, backup_name, file_mode, old, new):
     source = config_source(tmp_path / "source")
     dest = config_source(tmp_path / ".pi")
+    for root in (source, dest):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
     (source / relative).write_text(new)
     (source / relative).chmod(0o755 if relative.endswith(".sh") else 0o644)
     (dest / relative).write_text(old)
@@ -70,6 +74,9 @@ def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path, r
     mcp = dest / "agent/mcp.json"
     mcp.write_text('{"mcpServers":{"preserved":{}}}\n')
     settings = (dest / "agent/settings.json").read_bytes()
+    installed = dest / "agent/install/releases/fixture/runtime"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("preserved runtime\n")
     overrides = {"PI_CONFIG_SOURCE": str(source), "PI_COMMAND": "/usr/bin/false",
                  "PI_PACKAGE_PATCH_HELPER": "/usr/bin/false"}
 
@@ -86,6 +93,7 @@ def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path, r
     assert (dest / relative).read_text() == new
     assert mcp.read_text() == '{"mcpServers":{"preserved":{}}}\n'
     assert (dest / "agent/settings.json").read_bytes() == settings
+    assert installed.read_text() == "preserved runtime\n"
     backups = list((dest / "runtime/deployment-backups").glob(f"*/{backup_name}"))
     assert len(backups) == 1
     assert backups[0].read_text() == old
@@ -104,7 +112,9 @@ def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path, r
                                      "agent/extensions/../escape.ts", "agent/extensions/missing.ts",
                                      "agent/bin/agnt", "agent/bin/other.sh",
                                      "agent/bin/./start-craft-mcp.sh", "agent/bin/start-craft-mcp.sh/",
-                                     "agent/extensions/fixture.local.ts"])
+                                     "agent/extensions/fixture.local.ts", "agent/./AGENTS.md",
+                                     "agent/AGENTS.md/", "agent/skills/token-saver/./SKILL.md",
+                                     "agent/skills/other/SKILL.md"])
 def test_file_update_rejects_unmanaged_or_missing_paths(tmp_path, relative):
     dest = config_source(tmp_path / ".pi")
     proc = run_update(dest, "--file", relative)
@@ -161,8 +171,32 @@ def test_craft_file_update_refuses_unsafe_or_nonexecutable_paths(tmp_path, side,
     assert not (dest / "runtime").exists()
 
 
+@pytest.mark.parametrize("relative", ["agent/AGENTS.md", "agent/skills/token-saver/SKILL.md"])
+@pytest.mark.parametrize("side", ["source", "destination"])
+@pytest.mark.parametrize("problem", ["missing", "symlink", "symlink-parent"])
+def test_guidance_file_update_refuses_unsafe_paths(tmp_path, relative, side, problem):
+    source = config_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    for root in (source, dest):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(f"{root.name} guidance\n")
+    root = source if side == "source" else dest
+    path = root / relative
+    if problem == "missing":
+        path.unlink()
+    else:
+        path = path.parent if problem == "symlink-parent" else path
+        moved = tmp_path / "preserved"
+        path.rename(moved)
+        path.symlink_to(moved, target_is_directory=moved.is_dir())
+    proc = run_update(dest, "--file", relative, env_overrides={"PI_CONFIG_SOURCE": str(source)})
+    assert proc.returncode != 0
+    assert not (dest / "runtime").exists()
+
+
 @pytest.mark.parametrize("relative", ["agent/bin/other.sh", "agent/bin/start-craft-mcp.sh.extra",
-                                     "agent/bin/agnt", "agent/extensions/fixture.local.ts"])
+                                     "agent/bin/agnt", "agent/extensions/fixture.local.ts",
+                                     "agent/settings.json", "agent/AGENTS.md.extra"])
 def test_file_update_rejects_other_existing_files(tmp_path, relative):
     source = config_source(tmp_path / "source")
     dest = config_source(tmp_path / ".pi")

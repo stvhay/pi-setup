@@ -70,7 +70,8 @@ Checks run before and after apply. Managed config backups stay under
 <destination>/runtime/deployment-backups/. --dry-run itemizes actual file changes.
 Remote evaluator changes are separate: agnt langfuse apply (requires approval).
 --file replaces one existing top-level agent/extensions/NAME.ts (not .local.ts)
-or exactly agent/bin/start-craft-mcp.sh, with a file backup and hash receipt.
+or exactly agent/bin/start-craft-mcp.sh, agent/AGENTS.md, or
+agent/skills/token-saver/SKILL.md, with a file backup and hash receipt.
 It skips packages, other config, and deletions; symlinks are refused.
 The Craft launcher must already be executable at source and destination.
 
@@ -459,10 +460,12 @@ source, destination = map(Path, sys.argv[1:3])
 relative, mode = sys.argv[3:]
 is_extension = bool(re.fullmatch(r"agent/extensions/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ts", relative)) and not relative.endswith(".local.ts")
 is_craft_launcher = relative == "agent/bin/start-craft-mcp.sh"
-if not (is_extension or is_craft_launcher):
-    raise SystemExit("--file requires one managed top-level TypeScript extension or agent/bin/start-craft-mcp.sh")
-kind = "Craft launcher" if is_craft_launcher else "extension"
-backup_name = "before.sh" if is_craft_launcher else "before.ts"
+is_guidance = relative in {"agent/AGENTS.md", "agent/skills/token-saver/SKILL.md"}
+if not (is_extension or is_craft_launcher or is_guidance):
+    raise SystemExit("--file requires a managed top-level TypeScript extension, agent/bin/start-craft-mcp.sh, "
+                     "agent/AGENTS.md, or agent/skills/token-saver/SKILL.md")
+kind = "guidance" if is_guidance else "Craft launcher" if is_craft_launcher else "extension"
+backup_name = "before.md" if is_guidance else "before.sh" if is_craft_launcher else "before.ts"
 
 
 def checked_file(root):
@@ -523,6 +526,8 @@ try:
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     if is_craft_launcher:
         print("Selected Craft launcher verified. Used on next authorized app start; no app start or restart performed.")
+    elif is_guidance:
+        print("Selected guidance verified. Reload or restart Pi to load it; no automatic reload.")
     else:
         print("Selected extension verified. Restart Pi to load it; no automatic restart.")
 finally:
