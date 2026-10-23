@@ -179,10 +179,9 @@ class LifecycleStore:
             if owner is not None and (owner["session"] != session or owner["phase"] != "active"
                                       or owner["checkout"] != checkout):
                 raise ValueError("execution ownership conflict")
-            if any(key != bead and (value["session"] == session or
-                                    (value["checkout"] == checkout and value["phase"] != "completed"))
+            if any(key != bead and value["session"] == session
                    for key, value in state["owners"].items()):
-                raise ValueError("session or checkout ownership cannot be shared or relabeled")
+                raise ValueError("session ownership cannot be shared or relabeled")
             if owner is None:
                 state["owners"][bead] = {"session": session, "checkout": checkout, "phase": "active"}
                 self._write(state)

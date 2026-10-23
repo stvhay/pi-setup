@@ -91,13 +91,19 @@ def stage(agnt, tx, capsys):
     capsys.readouterr()
 
 
-def test_nested_checkout_cannot_gain_second_execution_owner(runtime):
+def test_direct_sessions_share_canonical_checkout_without_relabeling(runtime, monkeypatch):
     repo, store = runtime["repo"], runtime["store"]
     nested = repo / "nested"
     nested.mkdir()
-    store.claim("pi-a", "session-a", str(repo))
-    with pytest.raises(ValueError, match="ownership"):
-        store.claim("pi-b", "session-b", str(nested))
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    owner = store.owner("pi-a")
+    monkeypatch.setenv("PI_SESSION_ID", "session-b")
+    monkeypatch.chdir(nested)
+    assert runtime["work"].direct_start("pi-b", claim=True)["status"] == "started"
+    assert store.owner("pi-a") == owner
+    assert store.owner("pi-b")["checkout"] == str(repo)
+    for session, bead in (("session-a", "pi-a"), ("session-b", "pi-b")):
+        assert runtime["quality"].session_attempt_state(session) == {"beadId": bead, "outcome": None}
 
 
 def test_workspace_snapshot_ignores_git_environment(runtime, monkeypatch):

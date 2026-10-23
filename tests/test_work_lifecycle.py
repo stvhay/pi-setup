@@ -205,10 +205,23 @@ def test_staged_but_not_attaching_transition_can_cancel(lifecycle, tmp_path):
                        attach=lambda *_: pytest.fail("cancelled child must not attach"))
 
 
-def test_two_beads_cannot_own_same_checkout(lifecycle, tmp_path):
+def test_distinct_sessions_can_claim_distinct_beads_in_same_checkout(lifecycle, tmp_path):
     journal, repo, _ = setup_attempt(lifecycle, tmp_path)
-    with pytest.raises(ValueError, match="ownership"):
-        journal.claim("pi-b", "session-b", str(repo))
+    owner = journal.owner("pi-a")
+    journal.claim("pi-b", "session-b", str(repo))
+    assert journal.owner("pi-a") == owner
+    assert journal.owner("pi-b") == {"session": "session-b", "checkout": str(repo), "phase": "active"}
+    assert (repo / "unfinished.txt").read_text() == "preserve dirty work"
+
+
+@pytest.mark.parametrize("separate_checkout", [False, True])
+def test_session_cannot_claim_second_bead(lifecycle, tmp_path, separate_checkout):  # Tests FAIL-1
+    journal, repo, _ = setup_attempt(lifecycle, tmp_path)
+    checkout = tmp_path / "other" if separate_checkout else repo
+    checkout.mkdir(exist_ok=True)
+    with pytest.raises(ValueError, match="session ownership"):
+        journal.claim("pi-b", "session-a", str(checkout))
+    assert journal.owner("pi-b") is None
 
 
 def test_prepare_cannot_reserve_another_beads_checkout(lifecycle, tmp_path):
