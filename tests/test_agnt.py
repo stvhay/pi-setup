@@ -1356,7 +1356,8 @@ def test_work_dispatch_plan_uses_action_template(agnt):
     assert plan["inputRefs"] == ["docs/example.md"]
 
 
-def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path, capsys):
+@pytest.mark.parametrize("compact", [False, True])
+def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path, capsys, compact):
     cmd_work = getattr(agnt, "cmd_work", None)
     assert cmd_work is not None, "agnt work command is missing"
     bead = {"id": "pi-test.direct", "title": "Direct task", "status": "open"}
@@ -1381,9 +1382,12 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
         "link_current_session": fake_link,
         "create_run_bundle": fail_bundle,
     }):
-        assert agnt.main(["work", "direct-start", "pi-test.direct"]) == 0
+        assert agnt.main(["work", "direct-start", "pi-test.direct", *(["--compact"] if compact else [])]) == 0
 
-    assert json.loads(capsys.readouterr().out) == {
+    output = json.loads(capsys.readouterr().out)
+    if compact:
+        assert output.pop("presentation")["fullCommand"] == "bd show pi-test.direct --json"
+    assert output == {
         "bead": bead,
         "repair": None,
         "schemaVersion": 1,
@@ -1397,6 +1401,43 @@ def test_direct_start_shows_and_links_without_claim_or_run_bundle(agnt, tmp_path
     assert bead_calls == [["show", "pi-test.direct"]]
     assert link_calls == ["pi-test.direct"]
     assert not (tmp_path / "runs").exists()
+
+
+@pytest.mark.parametrize("status,code", [("started", 0), ("partial", 3), ("error", 2)])
+def test_direct_start_compact_preserves_constraints_and_failure_status(agnt, capsys, status, code):
+    dependency = {"id": "pi-gate", "dependency_type": "blocks", "status": "closed",
+                  "metadata": {"pi": {"approval": {"status": "rejected"}}},
+                  "description": "historical detail " * 10000, "notes": "read before effects",
+                  "design": "design", "acceptance_criteria": "criteria"}
+    bead = {"id": "pi-test.direct", "description": "current objective", "notes": "Do not deploy",
+            "metadata": {"pi": {"decisionRefs": ["pi-gate"]}}, "dependencies": [dependency]}
+    original = {"schemaVersion": 1, "status": status, "bead": bead,
+                "stages": {"link": {"status": "failed"}}, "repair": {"safeToRetry": False}}
+    with patch.dict(agnt.cmd_work.__globals__, {"direct_start": lambda *a, **kw: original}):
+        assert agnt.main(["work", "direct-start", bead["id"], "--compact"]) == code
+        output = capsys.readouterr().out
+        result = json.loads(output)
+        assert result["status"] == status
+        assert result["stages"] == original["stages"]
+        assert result["repair"] == original["repair"]
+        assert result["bead"]["notes"] == bead["notes"]
+        assert result["bead"]["description"] == bead["description"]
+        assert result["bead"]["metadata"] == bead["metadata"]
+        assert result["bead"]["dependencies"] == [{k: v for k, v in dependency.items()
+                                                  if k not in {"description", "design", "notes", "acceptance_criteria", "metadata"}}]
+        assert result["presentation"]["fullCommand"] == "bd show pi-test.direct --json"
+        assert "before effects" in result["presentation"]["warning"]
+        assert "decision metadata" in result["presentation"]["warning"]
+        assert len(output) < len(json.dumps(original)) // 10
+        assert agnt.main(["work", "direct-start", bead["id"]]) == code
+        assert json.loads(capsys.readouterr().out) == original
+    assert dependency["notes"] == "read before effects"
+
+
+def test_compact_direct_start_quotes_full_detail_command(agnt, capsys):
+    assert agnt.main(["work", "direct-start", "bad bead; echo unsafe", "--compact"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["presentation"]["fullCommand"] == "bd show 'bad bead; echo unsafe' --json"
 
 
 def test_direct_start_and_status_use_local_authority_without_langfuse(

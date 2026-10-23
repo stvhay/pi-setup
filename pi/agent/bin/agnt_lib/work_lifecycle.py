@@ -1212,6 +1212,8 @@ def add_cli_parsers(sub: Any) -> None:
     for name in ("transition-status", "transition-recover", "transition-bind-child", "transition-isolate", "transition-stage", "transition-launch", "transition-attach", "transition-cancel", "transition-abort-launch"):
         parser = sub.add_parser(name, help="inspect or reconcile the exact persisted transition")
         parser.add_argument("transition_id")
+        if name == "transition-recover":
+            parser.add_argument("--compact", action="store_true", help="omit workspace hash inventories, retaining all progress and recovery state")
         if name in {"transition-bind-child", "transition-isolate", "transition-stage", "transition-launch", "transition-attach", "transition-cancel", "transition-abort-launch"}:
             parser.add_argument("--session-id", required=True)
         if name == "transition-abort-launch":
@@ -1280,7 +1282,20 @@ def dispatch_cli(args: Any) -> dict[str, Any]:
         tx = _advance_isolation(store, args.transition_id, args.session_id)
     elif args.command == "transition-recover":
         tx = store.recover(args.transition_id)
-        return {**_transition_response(tx), "checkpoint": store.get_checkpoint(tx["checkpointRef"])}
+        result = {**_transition_response(tx), "checkpoint": store.get_checkpoint(tx["checkpointRef"])}
+        if args.compact:
+            for record, key in ((tx, "targetWorkspace"), (result["checkpoint"], "workspace")):
+                workspace = record[key]
+                if workspace is None:
+                    continue
+                record[key] = {**{k: v for k, v in workspace.items() if k != "changed"},
+                               "changedPathCount": len(workspace["changed"]),
+                               "changedFingerprint": fingerprint(workspace["changed"])}
+            result["presentation"] = {
+                "fullCommand": f"agnt work transition-recover {args.transition_id}",
+                "warning": "Workspace hash inventories omitted; checkpoint progress is unchanged, historical context, not authority. Preserve dirty work and revalidate current canonical constraints before effects.",
+            }
+        return result
     else:
         tx = store.status(args.transition_id)
         if args.command in {"transition-bind-child", "transition-stage", "transition-launch", "transition-cancel", "transition-abort-launch"}:

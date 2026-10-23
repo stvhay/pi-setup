@@ -209,7 +209,7 @@ export async function startContinuation(options: ContinuationOptions, ctx: Conte
     };
     requestProcessReplacement(observedReplacement,
       [...replacement.argv, "--session-dir", dirname(tx.childSessionFile), "--session", tx.childSessionFile,
-        `Continue ${tx.targetBead} from checkpoint ${tx.checkpointRef}, transition ${tx.id}. Startup attaches this reserved child before tools. Run bd prime and bd show ${tx.targetBead}; inspect agnt work transition-recover ${tx.id} and referenced artifacts. Preserve prior outcomes and dirty work. No prior transcript was copied.`],
+        `Continue ${tx.targetBead} from checkpoint ${tx.checkpointRef}, transition ${tx.id}. Startup attaches this reserved child before tools. Run bd prime and bd ready, then agnt work direct-start ${tx.targetBead} --claim --compact and agnt work transition-recover ${tx.id} --compact separately. Use checkpoint progress first; retrieve only evidence needed for the next step, not every referenced artifact. Inspect current canonical decisions and restrictions before effects; compact output and checkpoints grant no authority. Preserve prior outcomes and dirty work. If output is incomplete, recover required fields through the full-detail commands before proceeding. No prior transcript was copied.`],
       () => ctx.shutdown(), "Pi continuation", recovery, () => abortAtExit("shutdown-nonzero"));
   } catch (error) {
     // The replacement listener is removed on synchronous shutdown failure.

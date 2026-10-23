@@ -116,7 +116,13 @@ def test_continuation_reserves_exact_child_and_no_transcript(tmp_path):
         assert.equal(header.parentSession, {str(tmp_path / "source.jsonl")!r});
         onExit(0);
         assert.ok(invocation[1].includes(file));
-        assert.match(invocation[1].at(-1), /checkpoint/);
+        const kickoff = invocation[1].at(-1);
+        assert.match(kickoff, /checkpoint/);
+        assert.match(kickoff, /agnt work direct-start pi-a --claim --compact/);
+        assert.match(kickoff, /agnt work transition-recover [a-f0-9]+ --compact/);
+        assert.doesNotMatch(kickoff, /bd show/);
+        assert.match(kickoff, /before effects/);
+        assert.match(kickoff, /next step/);
       }} finally {{ Object.assign(process, saved); }}
     '''
     run_node(script, env=env)

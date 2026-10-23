@@ -275,6 +275,69 @@ def test_launch_reservation_cannot_be_replayed(agnt, runtime, capsys):
     assert json.loads(capsys.readouterr().out)["transition"]["requiredAction"] == "reconcile-launch"
 
 
+@pytest.mark.parametrize("launch", [False, True])
+def test_compact_recovery_preserves_progress_and_uncertainty(agnt, runtime, capsys, launch):  # Tests INV-3
+    from agnt_lib.authority import fingerprint
+    assert runtime["work"].direct_start("pi-a", claim=False)["status"] == "started"
+    for i in range(100):
+        (runtime["repo"] / f"dirty-{i}.txt").write_text("preserve")
+    facts = progress()
+    facts.update(decisions=["prior grant consumed", "do not replay"], blockers=["cleanup unverified"],
+                 verification=["historical only"], artifactRefs=["evidence.json"], ownedPaths=["dirty-0.txt"])
+    cp = runtime["store"].checkpoint("pi-a", "session-a", facts)
+    tx = prepare(agnt, runtime, cp, capsys)
+    if launch:
+        stage(agnt, tx, capsys)
+        assert agnt.main(["work", "transition-launch", tx["id"], "--session-id", "session-a"]) == 0
+        capsys.readouterr()
+    assert agnt.main(["work", "transition-recover", tx["id"]]) == 0
+    full = json.loads(capsys.readouterr().out)
+    assert agnt.main(["work", "transition-recover", tx["id"], "--compact"]) == 0
+    output = capsys.readouterr().out
+    compact = json.loads(output)
+    assert compact["checkpoint"]["progress"] == facts
+    assert compact["transition"]["requiredAction"] == ("reconcile-launch" if launch else "stage-exact-child")
+    for field, workspace in [("checkpoint", "workspace"), ("transition", "targetWorkspace")]:
+        original = full[field][workspace]
+        projected = compact[field][workspace]
+        assert projected == {**{k: v for k, v in original.items() if k != "changed"},
+                             "changedPathCount": len(original["changed"]),
+                             "changedFingerprint": fingerprint(original["changed"])}
+        assert {k: v for k, v in compact[field].items() if k != workspace} == {
+            k: v for k, v in full[field].items() if k != workspace}
+    assert compact["presentation"]["fullCommand"] == f"agnt work transition-recover {tx['id']}"
+    assert "not authority" in compact["presentation"]["warning"]
+    assert len(output) < len(json.dumps(full)) // 2
+    assert runtime["store"].get_checkpoint(cp["id"]) == cp
+
+
+def test_compact_recovery_keeps_unresolved_isolation(agnt, runtime, capsys, monkeypatch):  # Tests INV-3
+    assert runtime["work"].direct_start("pi-a", claim=False)["status"] == "started"
+    cp = checkpoint(agnt, runtime, capsys)
+    tx = prepare(agnt, runtime, cp, capsys)
+    unresolved = {**tx, "state": "isolating", "targetWorkspace": None, "cancelRequested": True,
+                  "requiredAction": "finish-cancellation", "deliveryStatus": "uncertain"}
+    monkeypatch.setattr(runtime["store"], "recover", lambda _: unresolved.copy())
+    assert agnt.main(["work", "transition-recover", tx["id"], "--compact"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "blocked"
+    assert result["transition"] == unresolved
+    assert result["checkpoint"]["progress"] == cp["progress"]
+
+
+def test_compact_recovery_missing_checkpoint_stays_blocked(agnt, runtime, capsys, monkeypatch):  # Tests FAIL-2
+    assert runtime["work"].direct_start("pi-a", claim=False)["status"] == "started"
+    tx = prepare(agnt, runtime, checkpoint(agnt, runtime, capsys), capsys)
+    def missing(_):
+        raise KeyError("missing checkpoint")
+    monkeypatch.setattr(runtime["store"], "get_checkpoint", missing)
+    assert agnt.main(["work", "transition-recover", tx["id"], "--compact"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "blocked"
+    assert "missing checkpoint" in result["reason"]
+    assert "checkpoint" not in result
+
+
 @pytest.mark.parametrize("reason", ["shutdown-request-failed", "launch-request-failed"])
 def test_known_preexit_failure_restores_source(agnt, runtime, capsys, monkeypatch, reason):
     from agnt_lib import work_lifecycle

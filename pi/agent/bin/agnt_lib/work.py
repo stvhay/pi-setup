@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1606,6 +1607,7 @@ def cmd_work(argv: List[str]) -> int:
     add_cli_parsers(sub)
     direct_start_cmd = sub.add_parser("direct-start", help="validate a bead, optionally claim it, and link this Pi session")
     direct_start_cmd.add_argument("bead_id")
+    direct_start_cmd.add_argument("--compact", action="store_true", help="omit expanded dependency bodies from output; keep task constraints and validation unchanged")
     direct_start_cmd.add_argument("--claim", action="store_true", help="atomically claim the bead; idempotent for the current actor")
     direct_start_cmd.add_argument("--scope-bead", action="append", dest="scope_beads",
                                   help="additional explicitly approved Bead in this work set; repeat before first start, never inferred from ready work")
@@ -1687,6 +1689,17 @@ def cmd_work(argv: List[str]) -> int:
         return 2 if result["status"] == "blocked" else 0
     if args.command == "direct-start":
         result = direct_start(args.bead_id, claim=args.claim, scope_beads=args.scope_beads)
+        if args.compact:
+            bead = dict(result["bead"])
+            for key in ("dependencies", "dependents"):
+                if isinstance(bead.get(key), list):
+                    bead[key] = [{k: v for k, v in ref.items()
+                                  if k not in {"description", "design", "notes", "acceptance_criteria", "metadata"}}
+                                 if isinstance(ref, dict) else ref for ref in bead[key]]
+            result = {**result, "bead": bead, "presentation": {
+                "fullCommand": shlex.join(["bd", "show", args.bead_id, "--json"]),
+                "warning": "Expanded dependency prose and decision metadata omitted, not authority. Inspect full relevant referenced Beads and decisions before effects, including rejected/pending decisions, revocations and consumed grants; task notes and metadata are unchanged.",
+            }}
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "started" else 3 if result["status"] == "partial" else 2
     if args.command == "status":
