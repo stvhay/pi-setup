@@ -279,4 +279,11 @@ Do not commit credentials, sessions, caches, trust state, onboarding state, API 
 - `agent/models-store.json`
 - `agent/trust.json`
 
-Deployment preserves Pi's runtime-managed `lastChangelogVersion` marker while replacing the remaining settings from tracked `agent/settings.json`.
+Deployment preserves these local `agent/settings.json` preferences when present:
+
+- `lastChangelogVersion`, `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `enabledModels`, and `modelThinkingLevels` (including explicit empty collections).
+- Known Archimedes namespaces: `archimedes.ui`, `.footer`, `.diff`, `.notify`, `.sessionName`, `.imagePaste`, `.todo`, `.ask`, `.subagent`, `.web`, and `.sudo`.
+
+Tracked Archimedes fields override conflicting local fields recursively, so disabled tools and configured limits remain enforced; other local fields in those namespaces survive. Missing preferences use tracked defaults. Package declarations, other settings, unknown namespaces, and retired migration namespaces remain repository-managed rather than blanket-merged.
+
+Dry-run reports the effective settings change and preserved key names, never values. Malformed settings JSON or non-object Archimedes namespaces stop the update before package/config writes. Activation remains atomic. Generated rollback scripts use the same preservation rules, with the saved settings snapshot authoritative for conflicting Archimedes fields. Older rollback scripts retain their original behavior. This prevents future preference loss; it does not recover choices already overwritten by an earlier deployment.

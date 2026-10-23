@@ -131,8 +131,8 @@ run() {
   fi
 }
 
-preserve_changelog() {
-  # Optional third argument supplies new settings for atomic, activation-last writes.
+preserve_settings() {
+  # Shared by preflight, activation and the standalone rollback script.
   python3 - "$@" <<'PY'
 import json
 import os
@@ -142,12 +142,57 @@ import tempfile
 
 runtime_path = pathlib.Path(sys.argv[1])
 deployed_path = pathlib.Path(sys.argv[2])
-runtime_settings = json.loads(runtime_path.read_text(encoding="utf-8"))
 source_path = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else deployed_path
-if len(sys.argv) > 3 or "lastChangelogVersion" in runtime_settings:
-    deployed_settings = json.loads(source_path.read_text(encoding="utf-8"))
-    if "lastChangelogVersion" in runtime_settings:
-        deployed_settings["lastChangelogVersion"] = runtime_settings["lastChangelogVersion"]
+mode = sys.argv[4] if len(sys.argv) > 4 else "apply"
+
+
+def read_settings(path):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise SystemExit(f"Cannot read settings JSON: {path}") from None
+    if not isinstance(data, dict):
+        raise SystemExit(f"Settings must be a JSON object: {path}")
+    return data
+
+
+runtime_settings = read_settings(runtime_path) if runtime_path.exists() else {}
+deployed_settings = read_settings(source_path)
+local_keys = (
+    "lastChangelogVersion", "defaultProvider", "defaultModel", "defaultThinkingLevel",
+    "enabledModels", "modelThinkingLevels",
+)
+namespaces = tuple("archimedes." + name for name in (
+    "ui", "footer", "diff", "notify", "sessionName", "imagePaste",
+    "todo", "ask", "subagent", "web", "sudo",
+))
+
+
+def managed_overlay(local, managed):
+    result = dict(local)
+    for key, value in managed.items():
+        result[key] = (managed_overlay(result[key], value)
+                       if isinstance(result.get(key), dict) and isinstance(value, dict)
+                       else value)
+    return result
+
+
+for key in local_keys:
+    if key in runtime_settings:
+        deployed_settings[key] = runtime_settings[key]
+for key in namespaces:
+    for settings in (runtime_settings, deployed_settings):
+        if key in settings and not isinstance(settings[key], dict):
+            raise SystemExit(f"Settings namespace must be an object: {key}")
+    if key in runtime_settings:
+        # Explicit tracked leaves (including disabled tools and limits) remain authoritative.
+        deployed_settings[key] = managed_overlay(runtime_settings[key], deployed_settings.get(key, {}))
+
+if mode == "dry-run":
+    action = "unchanged" if deployed_settings == runtime_settings else "update"
+    preserved = sorted(set(runtime_settings).intersection((*local_keys, *namespaces)))
+    print(f"agent/settings.json: {action}; preserved local preferences: {', '.join(preserved) or 'none'}; managed Archimedes fields take precedence")
+else:
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -537,6 +582,9 @@ PY
   exit $?
 fi
 
+# Validate and preview the effective settings before any package/config mutation.
+preserve_settings "$DEST/agent/settings.json" "$DEST/agent/settings.json" "$SOURCE/agent/settings.json" dry-run
+
 # Fail before any bulk write on malformed/unowned Craft config; never connect MCP.
 python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST"
 
@@ -566,16 +614,21 @@ if [ "$MODE" = apply ]; then
     printf 'source=%s\ndestination=%s\n' "$SOURCE" "$DEST" >"$DEPLOY_BACKUP/identity.txt"
     {
       printf '#!/usr/bin/env bash\nset -euo pipefail\n'
-      declare -f preserve_changelog
+      declare -f preserve_settings
       printf '# Config only: packages, credentials and runtime state are excluded.\n'
       printf '# Preview first; --apply requires separate approval for managed deletions.\n'
       printf 'case "${1:---dry-run}" in --dry-run) flags=(--dry-run);; --apply) flags=();; *) exit 2;; esac\n'
       printf 'test "$(cd %q && pwd -P)" = %q\n' "$DEST" "$DEST"
       printf 'test "$(cd %q && pwd -P)" = %q\n' "$DEPLOY_BACKUP/config" "$DEPLOY_BACKUP/config"
       printf 'settings=%q\n' "$DEST/agent/settings.json"
+      printf 'previous_settings=%q\n' "$DEPLOY_BACKUP/config/agent/settings.json"
       cat <<'SH'
 saved_settings=
 trap '[ -z "$saved_settings" ] || rm -f "$saved_settings"' EXIT
+if [ -f "$previous_settings" ]; then
+  preserve_settings "$settings" "$settings" "$previous_settings" dry-run
+  flags+=(--exclude=/agent/settings.json)
+fi
 if [ "${1:---dry-run}" = --apply ] && [ -f "$settings" ]; then
   saved_settings=$(mktemp)
   cp "$settings" "$saved_settings"
@@ -584,8 +637,8 @@ SH
       printf 'rsync -a --checksum --delete --itemize-changes "${flags[@]}"'
       printf ' %q' "${RSYNC_EXCLUDES[@]}" "$DEPLOY_BACKUP/config/" "$DEST/"
       printf '\n'
-      printf '%s\n' 'if [ -n "$saved_settings" ] && [ -f "$settings" ]; then' \
-        '  preserve_changelog "$saved_settings" "$settings"' 'fi'
+      printf '%s\n' 'if [ "${1:---dry-run}" = --apply ] && [ -f "$previous_settings" ]; then' \
+        '  preserve_settings "${saved_settings:-$settings}" "$settings" "$previous_settings"' 'fi'
     } >"$DEPLOY_BACKUP/restore.sh"
   )
   printf 'Rollback preview: bash %q\n' "$DEPLOY_BACKUP/restore.sh"
@@ -602,9 +655,8 @@ if [ -e "$DEST/.git" ]; then
   run mv "$DEST/.git" "$backup"
 fi
 
-# Preserve the Pi-managed changelog marker while replacing the rest of the
-# repository-managed settings file. The temporary copy is mode 0600 and is
-# removed on exit.
+# Snapshot runtime-owned preferences before package installs can edit settings.
+# The temporary copy is mode 0600 and is removed on exit.
 RUNTIME_SETTINGS_BACKUP=
 cleanup() {
   local status=$?
@@ -664,7 +716,7 @@ fi
 
 if [ "$MODE" = dry-run ]; then
   run rsync -a --checksum --delete --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
-  rsync -a --checksum --delete --dry-run --itemize-changes "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+  rsync -a --checksum --delete --dry-run --itemize-changes --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
 else
   rsync -a --checksum --delete --itemize-changes --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/" | tee "$DEPLOY_BACKUP/changes.txt"
 fi
@@ -673,7 +725,7 @@ fi
 if [ "$MODE" = apply ]; then
   python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST" --apply
   prepare_langfuse_runtime check
-  preserve_changelog "${RUNTIME_SETTINGS_BACKUP:-$SOURCE/agent/settings.json}" "$DEST/agent/settings.json" "$SOURCE/agent/settings.json"
+  preserve_settings "${RUNTIME_SETTINGS_BACKUP:-$SOURCE/agent/settings.json}" "$DEST/agent/settings.json" "$SOURCE/agent/settings.json"
   (cd "$ROOT" && PI_CONFIG_DIR="$DEST" scripts/check-pi-config.sh) 2>&1 | tee "$DEPLOY_BACKUP/verification.txt"
   touch "$DEST/.managed-by-pi-setup"
   echo "Done. Local config verified; remote Langfuse evaluators unchanged."

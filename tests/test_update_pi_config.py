@@ -417,6 +417,67 @@ def test_update_preserves_pi_managed_mutable_state(tmp_path, bundle):
     assert (agent / "models-store.json").read_text(encoding="utf-8") == models_store
 
 
+def test_update_preserves_local_preferences_and_managed_restrictions(tmp_path):
+    source = config_source(tmp_path / "source")
+    dest = config_source(tmp_path / ".pi")
+    managed = {
+        "packages": [], "defaultProvider": "managed", "defaultModel": "managed-model",
+        "defaultThinkingLevel": "medium", "enabledModels": ["managed/*"],
+        "archimedes.web": {"enabled": False}, "archimedes.sudo": {"enabled": False},
+        "archimedes.subagent": {"defaultLimits": {"maxToolCalls": 10}},
+    }
+    preferences = {
+        "defaultProvider": "local", "defaultModel": "local-model",
+        "defaultThinkingLevel": "high", "enabledModels": [],
+        "modelThinkingLevels": {"local/local-model": "low"},
+        "archimedes.ui": {"startupSplash": False, "toolStyle": "Native"},
+        "archimedes.footer": {"branchMaxLength": 30},
+        "archimedes.sessionName": {"model": "local/name-model"},
+        "archimedes.diff": {"diffTheme": "github-light"},
+        "archimedes.notify": {"enabled": False},
+        "archimedes.imagePaste": {"suppressNativePaste": False},
+        "archimedes.todo": {"enabled": False}, "archimedes.ask": {"enabled": True},
+    }
+    runtime = {
+        **preferences, "packages": ["unmanaged"], "runtimeOnly": True,
+        "archimedes.unknown": {"enabled": True},
+        "archimedes.web": {"enabled": True, "provider": "local-provider"},
+        "archimedes.sudo": {"enabled": True},
+        "archimedes.subagent": {"maxParallel": 2, "defaultLimits": {"maxToolCalls": 0, "maxCostUsd": 1}},
+    }
+    (source / "agent/settings.json").write_text(json.dumps(managed))
+    target = dest / "agent/settings.json"
+    target.write_text(json.dumps(runtime))
+    target.chmod(0o600)
+    env = {"PI_CONFIG_SOURCE": str(source)}
+    preview = run_update(dest, "--dry-run", env_overrides=env)
+    assert preview.returncode == 0, preview.stderr
+    assert json.loads(target.read_text()) == runtime
+    assert "preserved local preferences" in preview.stdout
+    assert "local-model" not in preview.stdout
+    result = run_update(dest, env_overrides=env)
+    assert result.returncode == 0, result.stderr
+    deployed = json.loads(target.read_text())
+    assert deployed == {
+        **managed, **preferences,
+        "archimedes.web": {"enabled": False, "provider": "local-provider"},
+        "archimedes.subagent": {"maxParallel": 2, "defaultLimits": {"maxToolCalls": 10, "maxCostUsd": 1}},
+    }
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("content", ['[]', '{broken', '{"archimedes.ui":false}'])
+@pytest.mark.parametrize("mode", [(), ("--dry-run",)])
+def test_update_rejects_malformed_runtime_settings_before_mutation(tmp_path, content, mode):
+    dest = config_source(tmp_path / ".pi")
+    target = dest / "agent/settings.json"
+    target.write_text(content)
+    result = run_update(dest, *mode)
+    assert result.returncode != 0
+    assert target.read_text() == content
+    assert not (dest / "runtime").exists()
+
+
 def test_update_preserves_mcp_runtime_without_craft_template(tmp_path):
     dest = config_source(tmp_path / ".pi")
     names = ("mcp.json", "mcp-auth.json", "mcp.log", "mcp.log.1")
@@ -1137,13 +1198,16 @@ def test_update_backs_up_managed_config_and_retains_restore_command(tmp_path):
     assert str(backup) in proc.stdout
     current = json.loads((dest / "agent/settings.json").read_text())
     current["lastChangelogVersion"] = "newer-runtime-marker"
+    current["defaultModel"] = "new-local-model"
+    current["archimedes.footer"] = {"branchMaxLength": 42}
     (dest / "agent/settings.json").write_text(json.dumps(current), encoding="utf-8")
     preview = subprocess.run(["bash", str(backup / "restore.sh")], capture_output=True, text=True, timeout=10)
     assert preview.returncode == 0, preview.stderr
     assert (dest / "agent/settings.json").read_text() != settings
     restored = subprocess.run(["bash", str(backup / "restore.sh"), "--apply"], capture_output=True, text=True, timeout=10)
     assert restored.returncode == 0, restored.stderr
-    expected = {**json.loads(settings), "lastChangelogVersion": "newer-runtime-marker"}
+    expected = {**json.loads(settings), "lastChangelogVersion": "newer-runtime-marker",
+                "defaultModel": "new-local-model", "archimedes.footer": {"branchMaxLength": 42}}
     assert json.loads((dest / "agent/settings.json").read_text()) == expected
     assert (dest / "stale.txt").read_text() == "previous"
     assert not (dest / "agent/catalog.json").exists()
