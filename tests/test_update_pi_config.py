@@ -43,6 +43,114 @@ def run_update(
         )
 
 
+@pytest.mark.parametrize("diagnostic,exit_code,expected", [
+    ("", 0, "OK"),
+    ("printf 'WARNING: fixture stdout warning\\n'", 0, "WARNING"),
+    ("printf 'fixture stderr diagnostic\\n' >&2", 0, "WARNING"),
+    ("printf 'fixture failure detail\\n'; exit 23", 1, "FAILED"),
+])
+def test_update_status_retains_logs_and_surfaces_diagnostics(tmp_path, diagnostic, exit_code, expected):
+    helper = tmp_path / "patch-helper"
+    helper.write_text("#!/bin/sh\nprintf 'fixture routine detail\\n'\n" + diagnostic + "\n")
+    helper.chmod(0o755)
+    result = run_update(tmp_path / ".pi", env_overrides={"PI_PACKAGE_PATCH_HELPER": str(helper)})
+    assert result.returncode == exit_code
+    output = result.stdout + result.stderr
+    assert f"{expected}:" in output
+    assert "STEP: Apply package patches" in result.stdout
+    log_line = next(line for line in result.stdout.splitlines() if line.startswith("Logs: "))
+    logs = Path(log_line.removeprefix("Logs: "))
+    assert logs.stat().st_mode & 0o777 == 0o700
+    files = list(logs.glob("*.log"))
+    assert files and all(path.stat().st_mode & 0o777 == 0o600 for path in files)
+    details = "".join(path.read_text() for path in files)
+    assert "fixture routine detail" in details
+    if exit_code == 0:
+        assert "fixture routine detail" not in output
+        assert "PASS: Pi config layout" not in output
+    if diagnostic:
+        message = {"WARNING": "fixture", "FAILED": "fixture failure detail"}[expected]
+        assert message in result.stderr
+    if exit_code:
+        assert "OK:" not in output
+        assert "config backup retained:" in result.stderr
+    shutil.rmtree(logs)
+
+
+def test_update_status_preserves_install_exit_code(tmp_path):
+    helper = tmp_path / "installer"
+    helper.write_text("#!/bin/sh\nprintf 'installer failed\\n' >&2\nexit 23\n")
+    helper.chmod(0o755)
+    result = run_update(tmp_path / ".pi", env_overrides={"PI_COMMAND": str(helper)})
+    assert result.returncode == 23
+    assert "installer failed" in result.stderr
+    assert "FAILED:" in result.stderr and "exit 23" in result.stderr
+    assert "OK:" not in result.stdout
+
+
+def test_update_status_reports_cleanup_failure(tmp_path):
+    dest = config_source(tmp_path / ".pi")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    rm = bin_dir / "rm"
+    rm.write_text('#!/bin/sh\ncase "$*" in *pi-settings.*) echo "cleanup failed" >&2; exit 24;; esac\nexec /bin/rm "$@"\n')
+    rm.chmod(0o755)
+    result = run_update(dest, env_overrides={"PATH": f"{bin_dir}:{os.environ['PATH']}"})
+    assert result.returncode == 24
+    assert "cleanup failed" in result.stderr
+    assert "FAILED:" in result.stderr and "exit 24" in result.stderr
+    assert "OK:" not in result.stdout
+
+
+@pytest.mark.parametrize("command", ["rm", "mv"])
+def test_update_status_reports_nested_restore_failure(tmp_path, command):
+    source = SCRIPT.read_text()
+    functions = []
+    for name in ("finish", "restore_archimedes_reinstall_backup", "cleanup"):
+        body = source.split(f"{name}() {{\n", 1)[1].split("\n}\n", 1)[0]
+        functions.append(f"{name}() {{\n{body}\n}}")
+    (tmp_path / "backup/pi-archimedes").mkdir(parents=True)
+    script = "set -euo pipefail\n" + "\n".join(functions) + f'''
+SHOW_RESULT=1 OUTPUT_WARNINGS=0 MODE=apply CURRENT_STEP=restore LOG_DIR=/fixture/logs
+DEPLOY_BACKUP= RUNTIME_SETTINGS_BACKUP=
+DEST="$1/dest" ARCHIMEDES_REINSTALL_BACKUP="$1/backup"
+rm() {{ {'return 73' if command == 'rm' else ':'}; }}
+mv() {{ {'return 73' if command == 'mv' else ':'}; }}
+trap cleanup EXIT
+exit 42
+'''
+    result = subprocess.run(["bash", "-c", script, "_", str(tmp_path)], capture_output=True, text=True)
+    assert result.returncode == 73
+    assert "FAILED:" in result.stderr and "exit 73" in result.stderr
+    assert "Logs: /fixture/logs" in result.stdout
+
+
+def test_update_status_tracks_preview_warnings_without_hiding_changes(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    rsync = bin_dir / "rsync"
+    rsync.write_text("#!/bin/sh\nprintf 'preview diagnostic\\n' >&2\nprintf '>f+++++++++ visible-file\\n'\n")
+    rsync.chmod(0o755)
+    result = run_update(tmp_path / ".pi", "--dry-run", env_overrides={"PATH": f"{bin_dir}:{os.environ['PATH']}"})
+    assert result.returncode == 0
+    assert "preview diagnostic" in result.stderr
+    assert ">f+++++++++ visible-file" in result.stdout
+    assert "WARNING: Preview only" in result.stdout
+    assert "OK:" not in result.stdout
+    assert not (tmp_path / ".pi").exists()
+
+
+def test_update_status_marks_preview_and_early_failure(tmp_path):
+    preview = run_update(tmp_path / ".pi", "--dry-run")
+    assert preview.returncode == 0
+    assert "OK: Preview only" in preview.stdout
+    assert not (tmp_path / ".pi").exists()
+    failed = run_update(tmp_path / ".pi", "--not-an-option")
+    assert failed.returncode == 2
+    assert "FAILED:" in failed.stderr
+    assert "Unknown argument" in failed.stderr
+
+
 def config_source(source: Path) -> Path:
     for directory in ("agent/bin", "agent/skills", "agent/extensions"):
         (source / directory).mkdir(parents=True, exist_ok=True)
@@ -105,6 +213,8 @@ def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path, r
     assert (dest / relative).stat().st_mode & 0o777 == file_mode
     repeated = run_update(dest, "--file", relative, env_overrides=overrides)
     assert repeated.returncode == 0, repeated.stderr
+    assert "OK:" in applied.stdout and "OK:" in repeated.stdout
+    assert "OK: Preview only" in preview.stdout
     assert list((dest / "runtime/deployment-backups").glob(f"*/{backup_name}")) == backups
 
 

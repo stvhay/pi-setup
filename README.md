@@ -94,6 +94,12 @@ bd show <id>  # inspect one work item
 
 Create or inspect a Bead before making code changes, then work directly in the current Pi session by default. Follow [Contributing](CONTRIBUTING.md) for planning, verification, review, and branch-readiness requirements. The complete local Python gate is `.venv/bin/python scripts/check-python-tests.py`: four isolated file shards, retained logs, and failure/count checks; CI retains the serial suite.
 
+### Temporary development dependency exception
+
+Human approval `pi-5lr1` (2026-10-24) permits updater task `pi-9aal` to close with the root development graph unchanged: latest published `@earendil-works/pi-coding-agent@1.4.0` exactly requires `undici@8.10.2`, preventing a supported lock-only upgrade to patched `8.12.2+` (latest checked: `8.12.3`). `npm audit` remains failing: high-severity excessive content-encoding denial of service, moderate EventSource memory denial of service, and subresource-integrity bypass. Passing tests do not resolve these risks.
+
+Remediation `pi-cgpz` remains open. Revisit on the first supported SDK release correcting the pin or **2026-10-31**, whichever comes first; the exception may be revoked sooner. This exception covers only the root development graph and updater development closeout—not live runtime, deployment, plugin currency, forced overrides, forks, or downgrades.
+
 ## Core concepts
 
 The context and work system uses small, separate primitives:

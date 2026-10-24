@@ -20,6 +20,58 @@ LANGFUSE_NPM_CLI=${PI_LANGFUSE_NPM_CLI:-}
 DEPLOY_BACKUP=
 export PYTHONDONTWRITEBYTECODE=1
 
+LOG_DIR=
+LOG_STEP=0
+OUTPUT_WARNINGS=0
+SHOW_RESULT=1
+CURRENT_STEP=arguments
+finish() {
+  local status=${1:-$?}
+  if [ "$SHOW_RESULT" -eq 1 ]; then
+    if [ "$status" -ne 0 ]; then
+      printf 'FAILED: %s (exit %s).\n' "$CURRENT_STEP" "$status" >&2
+    else
+      local result=OK description='Update completed.'
+      [ "$OUTPUT_WARNINGS" -eq 0 ] || result=WARNING
+      [ "$MODE" != dry-run ] || description='Preview only; destination unchanged.'
+      printf '%s: %s\n' "$result" "$description"
+    fi
+    [ -z "$LOG_DIR" ] || printf 'Logs: %s\n' "$LOG_DIR"
+  fi
+  return "$status"
+}
+trap finish EXIT
+
+# Only external commands: conditional calls disable errexit inside shell functions.
+run_logged() {
+  CURRENT_STEP=$1
+  shift
+  printf 'STEP: %s\n' "$CURRENT_STEP"
+  if [ -z "$LOG_DIR" ]; then
+    LOG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pi-update.XXXXXX") || return $?
+  fi
+  LOG_STEP=$((LOG_STEP + 1))
+  local out="$LOG_DIR/$LOG_STEP.stdout.log" err="$LOG_DIR/$LOG_STEP.stderr.log" status=0
+  (umask 077; touch "$out" "$err") || return $?
+  "$@" >"$out" 2>"$err" || status=$?
+  if [ -s "$err" ]; then
+    OUTPUT_WARNINGS=1
+    cat "$err" >&2
+  fi
+  if [ "$status" -ne 0 ]; then
+    cat "$out" >&2
+  elif [ "${SHOW_COMMAND_OUTPUT:-0}" -eq 1 ]; then
+    cat "$out"
+  fi
+  if grep -Eiq 'warn(ing)?|deprecated' "$out"; then
+    OUTPUT_WARNINGS=1
+    if [ "$status" -eq 0 ] && [ "${SHOW_COMMAND_OUTPUT:-0}" -eq 0 ]; then
+      grep -Ei 'warn(ing)?|deprecated' "$out" >&2
+    fi
+  fi
+  return "$status"
+}
+
 # Preserve runtime secrets/state while deleting stale managed files. Source-only
 # metadata and caches are not deployed or deletion-protected.
 RSYNC_EXCLUDES=(
@@ -108,7 +160,7 @@ while [ $# -gt 0 ]; do
       FILE=$2
       shift
       ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) SHOW_RESULT=0; usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
   shift
@@ -123,7 +175,7 @@ fi
 
 run() {
   if [ "$MODE" = apply ]; then
-    "$@"
+    run_logged "Prepare destination / install packages" "$@"
   else
     printf 'DRY-RUN:'
     printf ' %q' "$@"
@@ -247,7 +299,7 @@ PY
     if [ -z "$npm_cli" ]; then
       npm_cli=$(python3 -c 'import pathlib,shutil; p=shutil.which("npm"); print(pathlib.Path(p).resolve() if p else "")')
     fi
-    python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" \
+    run_logged "Prepare Langfuse runtime" python3 "$ROOT/scripts/install-pi-langfuse-runtime.py" \
       --bundle "$LANGFUSE_RUNTIME_BUNDLE" --dest "$DEST" --npm-cli "$npm_cli"
   fi
 }
@@ -370,7 +422,7 @@ reinstall_archimedes_patch_base() {
     mv "$modules/@pi-archimedes/$package" "$backup/@pi-archimedes/$package" \
       || { restore_archimedes_reinstall_backup; return 1; }
   done
-  if env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.11.1 \
+  if run_logged "Reinstall Archimedes" env PI_CODING_AGENT_DIR="$DEST/agent" "$PI_COMMAND" install npm:pi-archimedes@2.11.1 \
     && package_is_exact "$meta_dir/package.json" pi-archimedes 2.11.1 \
     && package_is_exact "$ask_dir/package.json" @pi-archimedes/ask 2.11.1 \
     && package_is_exact "$core_dir/package.json" @pi-archimedes/core 2.11.1 \
@@ -417,6 +469,7 @@ install_archimedes_patch_base() {
   fi
 }
 
+CURRENT_STEP='Validate target'
 if [ ! -d "$SOURCE" ]; then
   echo "Config source directory is not available: $SOURCE" >&2
   exit 1
@@ -472,7 +525,8 @@ validate_dest() {
 
 validate_dest
 printf 'Source: %s\nDestination: %s\nHost: %s\nUser: %s\n' "$SOURCE" "$DEST" "$(hostname)" "$(id -un)"
-(cd "$ROOT" && PI_CONFIG_DIR="$SOURCE" scripts/check-pi-config.sh)
+# Keep validation rooted in the repository without changing caller-relative options.
+run_logged "Validate source" bash -c 'cd "$1" && PI_CONFIG_DIR="$2" scripts/check-pi-config.sh' _ "$ROOT" "$SOURCE"
 
 if [ "$CRAFT" -eq 1 ]; then
   craft_args=("$SOURCE/agent/craft/packages.json" --source "$SOURCE" --destination "$DEST" --home "$HOME")
@@ -484,14 +538,17 @@ if [ "$CRAFT" -eq 1 ]; then
   [ "$CRAFT_DOWNLOAD" -eq 0 ] || craft_args+=(--download)
   [ "$CRAFT_ENABLE" -eq 0 ] || craft_args+=(--enable)
   [ "$MODE" = dry-run ] || craft_args+=(--apply)
-  exec python3 "$ROOT/scripts/install-craft-tools.py" "${craft_args[@]}"
+  SHOW_COMMAND_OUTPUT=1 run_logged "Craft tools" python3 "$ROOT/scripts/install-craft-tools.py" "${craft_args[@]}"
+  exit $?
 fi
 
 if [ -n "$FILE" ]; then
+  CURRENT_STEP='Selected file'
+  printf 'STEP: %s\n' "$CURRENT_STEP"
   if [ "$FILE" = agent/extensions/langfuse-config-env.ts ]; then
     prepare_langfuse_runtime check
   fi
-  python3 - "$SOURCE" "$DEST" "$FILE" "$MODE" <<'PY'
+  SHOW_COMMAND_OUTPUT=1 run_logged "Replace selected file" python3 - "$SOURCE" "$DEST" "$FILE" "$MODE" <<'PY'
 import hashlib
 import json
 import os
@@ -582,11 +639,13 @@ PY
   exit $?
 fi
 
+CURRENT_STEP='Prepare configuration'
+printf 'STEP: %s\n' "$CURRENT_STEP"
 # Validate and preview the effective settings before any package/config mutation.
 preserve_settings "$DEST/agent/settings.json" "$DEST/agent/settings.json" "$SOURCE/agent/settings.json" dry-run
 
 # Fail before any bulk write on malformed/unowned Craft config; never connect MCP.
-python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST"
+SHOW_COMMAND_OUTPUT=1 run_logged "Check Craft configuration" python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST"
 
 # Prepare the isolated release before changing managed config. Legacy shared npm
 # contents are deliberately untouched; their transition is explicit, not automated.
@@ -608,7 +667,7 @@ if [ "$MODE" = apply ]; then
   (umask 077; mkdir -p "$DEST/runtime/deployment-backups")
   DEPLOY_BACKUP=$(mktemp -d "$DEST/runtime/deployment-backups/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")
   echo "Managed config backup: $DEPLOY_BACKUP"
-  rsync -a --checksum "${RSYNC_EXCLUDES[@]}" "$DEST/" "$DEPLOY_BACKUP/config/"
+  run_logged "Back up managed configuration" rsync -a --checksum "${RSYNC_EXCLUDES[@]}" "$DEST/" "$DEPLOY_BACKUP/config/"
   (
     umask 077
     printf 'source=%s\ndestination=%s\n' "$SOURCE" "$DEST" >"$DEPLOY_BACKUP/identity.txt"
@@ -660,6 +719,9 @@ fi
 RUNTIME_SETTINGS_BACKUP=
 cleanup() {
   local status=$?
+  # Also report failures during cleanup without changing errexit behavior.
+  set -E
+  trap 'finish "$?"' ERR
   if [ "$status" -ne 0 ]; then
     [ -z "$DEPLOY_BACKUP" ] || echo "Deploy failed; config backup retained: $DEPLOY_BACKUP" >&2
     restore_archimedes_reinstall_backup
@@ -672,6 +734,8 @@ cleanup() {
   if [ -n "$RUNTIME_SETTINGS_BACKUP" ]; then
     rm -f "$RUNTIME_SETTINGS_BACKUP"
   fi
+  trap - ERR
+  finish "$status"
   return "$status"
 }
 trap cleanup EXIT
@@ -707,26 +771,35 @@ install_archimedes_patch_base
 pin_patch_base_dependency "pi-archimedes" "pi-archimedes" "2.11.1"
 if [ "$MODE" = dry-run ]; then
   run env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"
-elif env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"; then
+elif run_logged "Apply package patches" env PI_CONFIG_DEST="$DEST" "$PACKAGE_PATCH_HELPER"; then
   : # Keep any reinstall backup until every later deployment step succeeds.
 else
   restore_archimedes_reinstall_backup
   exit 1
 fi
 
+CURRENT_STEP='Copy managed configuration'
+printf 'STEP: %s\n' "$CURRENT_STEP"
 if [ "$MODE" = dry-run ]; then
   run rsync -a --checksum --delete --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
-  rsync -a --checksum --delete --dry-run --itemize-changes --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
+  SHOW_COMMAND_OUTPUT=1 run_logged "Preview managed files" rsync -a --checksum --delete --dry-run --itemize-changes --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/"
 else
-  rsync -a --checksum --delete --itemize-changes --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/" | tee "$DEPLOY_BACKUP/changes.txt"
+  copy_status=0
+  run_logged "Copy managed files" rsync -a --checksum --delete --itemize-changes --exclude=/agent/settings.json "${RSYNC_EXCLUDES[@]}" "$SOURCE/" "$DEST/" || copy_status=$?
+  cp "$LOG_DIR/$LOG_STEP.stdout.log" "$DEPLOY_BACKUP/changes.txt"
+  [ "$copy_status" -eq 0 ] || exit "$copy_status"
 fi
 
 # Local deployment never changes remote evaluators, even when credentials exist.
 if [ "$MODE" = apply ]; then
-  python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST" --apply
+  SHOW_COMMAND_OUTPUT=1 run_logged "Reconcile Craft configuration" python3 "$ROOT/scripts/reconcile-craft-mcp.py" "$SOURCE" "$DEST" --apply
   prepare_langfuse_runtime check
   preserve_settings "${RUNTIME_SETTINGS_BACKUP:-$SOURCE/agent/settings.json}" "$DEST/agent/settings.json" "$SOURCE/agent/settings.json"
-  (cd "$ROOT" && PI_CONFIG_DIR="$DEST" scripts/check-pi-config.sh) 2>&1 | tee "$DEPLOY_BACKUP/verification.txt"
+  # Keep the existing backup receipt even when verification fails.
+  verification_status=0
+  run_logged "Verify destination" bash -c 'cd "$1" && PI_CONFIG_DIR="$2" scripts/check-pi-config.sh' _ "$ROOT" "$DEST" || verification_status=$?
+  cat "$LOG_DIR/$LOG_STEP.stdout.log" "$LOG_DIR/$LOG_STEP.stderr.log" >"$DEPLOY_BACKUP/verification.txt"
+  [ "$verification_status" -eq 0 ] || exit "$verification_status"
   touch "$DEST/.managed-by-pi-setup"
   echo "Done. Local config verified; remote Langfuse evaluators unchanged."
 else
