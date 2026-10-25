@@ -6,7 +6,7 @@
   "cases": [
     {
       "name": "code-reviewer-role",
-      "args": ["--role", "code-reviewer", "--context", "openrouter/minimax/minimax-m3"],
+      "args": ["--role", "code-reviewer", "--context", "openrouter/minimax/minimax-m3.1-flash"],
       "contains": ["# Role: code reviewer", "### Verdict: PASS | NEEDS_WORK | NOT_SURE", "# Project Instructions"]
     },
     {

@@ -7,11 +7,11 @@ qualified:
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-6-luna
   - openrouter/anthropic/claude-opus-5.5
-  - openrouter/moonshotai/kimi-k3
+  - openrouter/moonshotai/kimi-k3.1-pro
   - openai-codex/gpt-6.1-sol
 thinkingLow: medium
 thinkingMedium: high
 thinkingHigh: high
 ---
 
-Use as a read-only specialist advisor, not as the default workflow controller. Start by raising the OpenAI/Codex orchestrator to high or xhigh thinking. Use Opus 5.5 for independent high-risk review. Use Kimi K3 rarely: explicit unresolved frontier work requiring its long context or visual specialization, always in a fresh bounded worker after a budget check.
+Use as a read-only specialist advisor, not as the default workflow controller. Start by raising the OpenAI/Codex orchestrator to high or xhigh thinking. Use Opus 5.5 for independent high-risk review. Use Kimi K3.1 Pro rarely: explicit unresolved frontier work requiring its long context or visual specialization, always in a fresh bounded worker after a budget check.

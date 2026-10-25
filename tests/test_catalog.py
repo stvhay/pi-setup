@@ -17,8 +17,8 @@ def test_catalog_opportunity_rates(common):
     assert rates["cacheRead"] == 0.06
 
     rates = common.opportunity_rates("openrouter/moonshotai/kimi-k2.7-code")
-    assert rates["input"] == 0.73
-    assert rates["output"] == 3.5
+    assert rates["input"] == 0.6712
+    assert rates["output"] == 3.35
 
     rates = common.opportunity_rates("openrouter/moonshotai/kimi-k3")
     assert rates["input"] == 3.0

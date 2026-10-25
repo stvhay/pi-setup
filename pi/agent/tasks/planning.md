@@ -4,7 +4,7 @@ summary: Convert approved designs into concrete filesystem-first implementation 
 preferred:
   - openai-codex/gpt-6-astra
 qualified:
-  - openrouter/minimax/minimax-m3
+  - openrouter/minimax/minimax-m3.1-flash
   - openrouter/moonshotai/kimi-k2.7-code
   - openrouter/anthropic/claude-opus-5.5
   - openai-codex/gpt-6.1-sol

@@ -270,6 +270,50 @@ def test_codex_subscription_defaults_resolve_in_pi_without_network(tmp_path):
     run_node(script, env={"HOME": str(tmp_path)})
 
 
+def test_openrouter_overrides_resolve_in_pi_without_network(tmp_path):
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readFileSync }} from "node:fs";
+      import {{ ModelRuntime }} from "@earendil-works/pi-coding-agent";
+      import {{ getSupportedThinkingLevels, InMemoryModelsStore }} from "@earendil-works/pi-ai";
+
+      // Simulate remotely discovered IDs absent from Pi 1.4.0's bundled catalog.
+      const modelsStore = new InMemoryModelsStore();
+      await modelsStore.write("openrouter", {{ models:
+        ["minimax/minimax-m3.1-flash", "moonshotai/kimi-k3.1-pro",
+         "moonshotai/kimi-k2.7-code", "anthropic/claude-opus-5.5", "z-ai/glm-5.3-flash"].map(id => ({{
+          id, name: id, provider: "openrouter", api: "openai-completions",
+          baseUrl: "https://openrouter.ai/api/v1", reasoning: true, input: ["text"],
+          cost: {{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }},
+          contextWindow: 128000, maxTokens: 128000,
+        }})),
+      }});
+      const runtime = await ModelRuntime.create({{
+        authPath: {str(tmp_path / 'auth.json')!r},
+        modelsPath: {str(MODELS)!r},
+        modelsStore,
+        allowModelNetwork: false,
+      }});
+      assert.equal(runtime.getError(), undefined);
+      const overrides = JSON.parse(readFileSync({str(MODELS)!r}, "utf8"))
+        .providers.openrouter.modelOverrides;
+      for (const [id, expected] of Object.entries(overrides)) {{
+        const model = runtime.getModel("openrouter", id);
+        assert.ok(model, id);
+        for (const field of ["contextWindow", "input", "reasoning", "maxTokens"])
+          assert.deepEqual(model[field], expected[field], `${{id}} ${{field}}`);
+        assert.deepEqual(model.cost, {{ ...expected.cost, tiers: undefined }}, id);
+        for (const [level, value] of Object.entries(expected.thinkingLevelMap))
+          assert.equal(model.thinkingLevelMap[level], value, `${{id}} ${{level}}`);
+      }}
+      assert.deepEqual(getSupportedThinkingLevels(runtime.getModel("openrouter", "minimax/minimax-m3.1-flash")),
+        ["low", "medium", "high", "xhigh", "max"]);
+      assert.deepEqual(getSupportedThinkingLevels(runtime.getModel("openrouter", "moonshotai/kimi-k3.1-pro")),
+        ["off", "low", "high", "max"]);
+    """
+    run_node(script, env={"HOME": str(tmp_path)})
+
+
 def test_betterwright_remains_unpinned_with_tracked_permission_adapter():
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
 

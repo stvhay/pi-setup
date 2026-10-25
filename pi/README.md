@@ -221,7 +221,7 @@ Tool-output discipline lives in `agent/AGENTS.md` and the [token-saver skill](ag
 
 ## Provider credentials
 
-Provider credentials belong in Pi's ignored `auth.json`, the shell environment, or ignored local env files—not in git. Pi has a built-in OpenRouter provider: run `/login openrouter` or set `OPENROUTER_API_KEY`. `models.json` uses only per-model output-cap overrides; it does not duplicate the provider, endpoint, or credential. OpenAI/Codex remains the default root provider; direct OpenRouter is reserved for fresh bounded delegated calls under the approved [model portfolio](../docs/MODEL-PORTFOLIO-2026-08.md). No local or relay provider is configured.
+Provider credentials belong in Pi's ignored `auth.json`, the shell environment, or ignored local env files—not in git. Pi has a built-in OpenRouter provider: run `/login openrouter` or set `OPENROUTER_API_KEY`. `models.json` uses per-model cost, context, thinking and 16,384-token output-cap overrides; it does not duplicate the provider, endpoint, or credential. OpenAI/Codex remains the default root provider; direct OpenRouter is reserved for fresh bounded delegated calls under the approved [model portfolio](../docs/MODEL-PORTFOLIO-2026-08.md). No local or relay provider is configured.
 
 `agent/extensions/zz-output-redaction.ts` defensively redacts credential-shaped values at shared tool, assistant-output, and extension-diagnostic boundaries while preserving surrounding status, exit, path, and error evidence. Structured tool results are redacted alongside visible content, retaining MCP envelopes and error flags for codemode. Canonical base64 PNG data with a PNG signature stays opaque; this is not an image-content privacy check, and other binary formats do not yet have this exemption. RPC and JSON text/thinking deltas are withheld until complete redacted end/final events are available. User input is not rewritten; credentials still belong in managed stores or environment references, never prompts or command literals.
 
@@ -234,7 +234,7 @@ Tracked evaluator desired state lives in `agent/langfuse/evaluators.json`; `agnt
 Example direct OpenRouter smoke test after authentication:
 
 ```bash
-pi --print --provider openrouter --model minimax/minimax-m3 \
+pi --print --provider openrouter --model minimax/minimax-m3.1-flash \
   --thinking medium "Reply with OK only."
 ```
 

@@ -7,11 +7,11 @@ qualified:
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-6-luna
   - openrouter/moonshotai/kimi-k2.7-code
-  - openrouter/minimax/minimax-m3
+  - openrouter/minimax/minimax-m3.1-flash
   - openai-codex/gpt-6.1-sol
 thinkingLow: medium
 thinkingMedium: medium
 thinkingHigh: high
 ---
 
-Use only after the relevant workflow approval gate. Keep changes small and verifiable. Keep Astra as the normal implementation lead. Use Kimi K2.7 Code for a bounded different-family check and M3 as a canary until project evidence supports broader autonomy. Metered OpenRouter workers require fresh packets, strict TDD, and verification gates.
+Use only after the relevant workflow approval gate. Keep changes small and verifiable. Keep Astra as the normal implementation lead. Use Kimi K2.7 Code for a bounded different-family check and M3.1 Flash as a canary until project evidence supports broader autonomy. Metered OpenRouter workers require fresh packets, strict TDD, and verification gates.

@@ -18,7 +18,7 @@
 
 Keep ChatGPT/OpenAI Codex **Pro 20×** as root capacity and default controller. Use a small pay-as-you-go **OpenRouter API** portfolio for bounded, fresh delegated diversity calls. Do not add another subscription yet. Keep only configured Codex and OpenRouter venues; use Git history instead of dormant provider code for rollback.
 
-Pi has a built-in `openrouter` provider. Authenticate with `/login openrouter` or `OPENROUTER_API_KEY`; do not define a duplicate custom provider and never commit credentials. `pi/agent/models.json` only applies a 16,384-token operational output cap to each approved OpenRouter model, preventing provider credit checks from reserving each model's much larger catalog maximum. Active model selection lives in `pi/agent/settings.json`, deterministic model facts in `pi/agent/catalog.json`, and task routing in `pi/agent/tasks/`.
+Pi has a built-in `openrouter` provider. Authenticate with `/login openrouter` or `OPENROUTER_API_KEY`; do not define a duplicate custom provider and never commit credentials. `pi/agent/models.json` applies provider metadata overrides and a 16,384-token operational output cap to each approved OpenRouter model, preventing provider credit checks from reserving each model's much larger catalog maximum. Active model selection lives in `pi/agent/settings.json`, deterministic model facts in `pi/agent/catalog.json`, and task routing in `pi/agent/tasks/`.
 
 ## Astra matrix amendment — September 2026
 
@@ -65,6 +65,24 @@ All four advertise an optional 872,000 maximum context. Sol/Astra/Terra also adv
 
 Tests resolve tracked overrides through the installed Pi runtime offline, checking model selection, context, input and supported thinking. No live deployment or inference probe is part of this alignment. Rollback is a policy-only revert of this amendment and its synchronized config/tests.
 
+## OpenRouter successor refresh — 2026-10-25
+
+`pi-27x1` replaces active M3 with **M3.1 Flash** and K3 with **K3.1 Pro**, using the public OpenRouter `/api/v1/models` snapshot recovered for this task. Built-in provider overrides pin runtime metadata to routing facts; no custom provider is added. Pi 1.4.0's bundled catalog lacks the two successors: a refreshed catalog is required (`pi update --models` before selecting them on a fresh installation). Existing live cached entries resolve correctly with tracked overrides offline; deterministic tests use synthetic catalog entries. No runtime cache is committed or refreshed by this task.
+
+| Model | Effective context | USD/M input / output / cache read / cache write |
+|---|---:|---|
+| M3.1 Flash | 1,048,576 | 0.15 / 0.60 / 0.015 / 0 |
+| K3.1 Pro | 1,048,576 | 2 / 10 / 0.20 / 0 |
+| K2.7 Code | 262,144 | 0.6712 / 3.35 / 0.15 / 0 |
+| Opus 5.5 | 1,000,000 | 4 / 20 / 0.20 / 5 |
+| GLM 5.3 Flash | 1,048,575 | 0.15 / 0.50 / 0.03 / 0 |
+
+GLM advertises 1,048,576 tokens, but the snapshot's top-provider limit is one token lower; use that conservative runtime/routing bound. Zero cache-write rates mean no separately advertised charge. Pi input remains text/image, not video. M3.1 supports native low/medium/high/xhigh/max, not off/minimal. K3.1 supports off mapped to `none`, low/high/max; minimal/medium/xhigh are unsupported. K2.7 retains mandatory reasoning with provider-default effort; Opus and GLM retain their supported effort maps. Every operational output cap remains 16,384.
+
+Codex remains controller. M3.1 stays canary-only; K3.1 inherits manual unresolved-critical review escalation gates, not automatic review eligibility. Spending gates and fresh-worker requirements remain unchanged. K3.1 input costs $2/M, higher than the prior live K3 price of $0.239/M. Historical disabled M3/K3 family facts and calibration outcomes stay separate; they do not establish successor quality. Active matrices below use successor names; historical evidence above retains original names.
+
+Offline runtime and routing tests verify overrides, prices, enabled targets and thinking. No paid capability probe or live deployment. Rollback: revert this task's configuration and synchronized tests/guidance. Dependency exception `pi-u3ic` permits existing Pi 1.4.0 / undici 8.10.2 only for this tracked-only task; `pi-i80y` remains required before deployment.
+
 ## Lasting routing and output policy
 
 Historical policy (superseded by the Astra amendment above): `pi-04q7.8` replaces the `pi-04q7.2` interim floor with an owner-selected capability/effort ladder: Terra at low thinking, then Sol at low, medium, high, extra-high, and explicit exceptional maximum effort. Existing routing maps `cheap-peer` to Terra-low; planning and research to Sol low/medium/high by risk; review to Sol low/medium/extra-high by risk; and orchestration to Sol extra-high. Maximum effort remains an explicit exceptional override because task routing has three risk levels. Luna remains a subscription-backed fallback, Terra remains a review challenger, and different-family checks remain independent.
@@ -97,9 +115,9 @@ Consequences:
 
 | Role | Pi target | Default use |
 |---|---|---|
-| Bulk/canary peer | `openrouter/minimax/minimax-m3` | Cheap bounded critique, extraction, research, or decomposed workstream; shadow/canary until qualified |
+| Bulk/canary peer | `openrouter/minimax/minimax-m3.1-flash` | Cheap bounded critique, extraction, research, or decomposed workstream; shadow/canary until qualified |
 | Coding/review challenger | `openrouter/moonshotai/kimi-k2.7-code` | Different-family coding or normal-review check |
-| Frontier escalation | `openrouter/moonshotai/kimi-k3` | Concrete unresolved critical issue only, after budget and evidence gates |
+| Frontier escalation | `openrouter/moonshotai/kimi-k3.1-pro` | Concrete unresolved critical issue only, after budget and evidence gates |
 | Independent high-risk reviewer | `openrouter/anthropic/claude-opus-5.5` | Architecture, high-risk review, or phase checkpoint |
 | Manual canary | `openrouter/z-ai/glm-5.3-flash` | Revealed Ox Alpha successor; picker-only until direct OpenRouter evidence supports task routing |
 
@@ -111,34 +129,34 @@ All metered OpenRouter calls use fresh workers with bounded complete packets. Th
 
 | Work type | Primary | Independent check |
 |---|---|---|
-| Precise, repetitive work | Terra — low through `cheap-peer` | Luna fallback; M3 bounded shadow sample |
+| Precise, repetitive work | Terra — low through `cheap-peer` | Luna fallback; M3.1 Flash bounded shadow sample |
 | Planning and research | Astra — medium at every risk | Terra-low advisory pass; bounded different-family critique |
 | Normal code review | Astra — medium | Terra challenger; explicitly budgeted Kimi K2.7 Code diversity pass |
 | Complex/high-risk review | Astra — high | Explicitly budgeted Opus 5.5; Terra challenger; human adjudication |
 | Moderate coding | Astra — medium | Kimi K2.7 Code |
 | Orchestration/main agent | Astra — medium startup; high routed orchestration | Opus 5.5 at phase checkpoints only |
 | Ambiguous change/architecture | Astra — high | Opus 5.5 |
-| Difficult debugging | Astra — high | Kimi K3 high after two failed hypotheses |
-| Exceptional single problem | Astra — explicit max override | Opus 5.5; Kimi K3 max only if unresolved |
-| Large decomposable project | Ultra-capability OpenAI coordinator | M3/Luna workstreams; Opus 5.5 final gate |
+| Difficult debugging | Astra — high | Kimi K3.1 Pro high after two failed hypotheses |
+| Exceptional single problem | Astra — explicit max override | Opus 5.5; Kimi K3.1 Pro max only if unresolved |
+| Large decomposable project | Ultra-capability OpenAI coordinator | M3.1 Flash/Luna workstreams; Opus 5.5 final gate |
 
 Use provider-native/default effort when Pi exposes no model-specific control. Never claim an unsupported effort level.
 
 ## Cost-balancing reverse matrix
 
-This is an external-primary canary, not the default. Highest-risk control remains OpenAI-led until M3 earns promotion.
+This is an external-primary canary, not the default. Highest-risk control remains OpenAI-led until M3.1 Flash earns promotion.
 
 | Work type | External primary | OpenAI check |
 |---|---|---|
-| Precise, repetitive work | M3 | Luna medium, sampled |
-| Normal code review | M3 | Terra high |
-| Complex/high-risk review | M3 first pass | Terra extra high + human |
-| Moderate coding | M3 | Terra high |
-| Orchestration/main agent | M3 bounded phase | Astra high at every phase boundary |
-| Architecture | M3 draft | Astra high final decision |
-| Difficult debugging | M3 hypotheses/tests | Astra high after narrowing |
-| Exceptional single problem | Keep Astra maximum as primary | Opus 5.5 or Kimi K3 independent check |
-| Large decomposable project | Keep OpenAI coordinator; M3 workstreams | Terra extra high + Opus 5.5 integration gate |
+| Precise, repetitive work | M3.1 Flash | Luna medium, sampled |
+| Normal code review | M3.1 Flash | Terra high |
+| Complex/high-risk review | M3.1 Flash first pass | Terra extra high + human |
+| Moderate coding | M3.1 Flash | Terra high |
+| Orchestration/main agent | M3.1 Flash bounded phase | Astra high at every phase boundary |
+| Architecture | M3.1 Flash draft | Astra high final decision |
+| Difficult debugging | M3.1 Flash hypotheses/tests | Astra high after narrowing |
+| Exceptional single problem | Keep Astra maximum as primary | Opus 5.5 or Kimi K3.1 Pro independent check |
+| Large decomposable project | Keep OpenAI coordinator; M3.1 Flash workstreams | Terra extra high + Opus 5.5 integration gate |
 
 ## Spend and promotion gates
 
@@ -156,8 +174,8 @@ This is an external-primary canary, not the default. Highest-risk control remain
 
 1. Keep Pro 20× and run direct OpenRouter peers only on bounded packets.
 2. Record usable output, acceptance, verification outcome, provider retries, latency, and cost through existing invocation telemetry.
-3. Keep M3 canary-only until it has enough accepted, verified work to compare against Luna/Terra controls.
-4. Buy MiniMax Plus only if M3 handles delegated work non-inferiorly and expected direct M3 API spend exceeds its subscription cost.
+3. Keep M3.1 Flash canary-only until it has enough accepted, verified work to compare against Luna/Terra controls.
+4. Buy MiniMax Plus only if M3.1 Flash handles delegated work non-inferiorly and expected direct M3.1 Flash API spend exceeds its subscription cost.
 5. Buy Copilot Pro+ only if premium-model usage or access friction consistently exceeds $39/month in value.
 6. Evaluate GLM-5.3-Flash through manual direct-OpenRouter canaries before adding any task route.
 

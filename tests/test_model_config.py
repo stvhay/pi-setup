@@ -11,9 +11,9 @@ MODELS = AGENT / "models.json"
 CATALOG = AGENT / "catalog.json"
 APPROVED_OPENROUTER_MODELS = {
     "openrouter/anthropic/claude-opus-5.5",
-    "openrouter/minimax/minimax-m3",
+    "openrouter/minimax/minimax-m3.1-flash",
     "openrouter/moonshotai/kimi-k2.7-code",
-    "openrouter/moonshotai/kimi-k3",
+    "openrouter/moonshotai/kimi-k3.1-pro",
     "openrouter/z-ai/glm-5.3-flash",
 }
 
@@ -52,12 +52,12 @@ def test_builtin_openrouter_uses_only_bounded_model_overrides():
     assert set(provider) == {"modelOverrides"}
     assert set(provider["modelOverrides"]) == {
         "anthropic/claude-opus-5.5",
-        "minimax/minimax-m3",
+        "minimax/minimax-m3.1-flash",
         "moonshotai/kimi-k2.7-code",
-        "moonshotai/kimi-k3",
+        "moonshotai/kimi-k3.1-pro",
         "z-ai/glm-5.3-flash",
     }
-    assert all(item == {"maxTokens": 16_384} for item in provider["modelOverrides"].values())
+    assert all(item["maxTokens"] == 16_384 for item in provider["modelOverrides"].values())
     assert "models" not in provider
     assert "apiKey" not in provider
 
@@ -88,7 +88,7 @@ def test_review_skill_matches_approved_astra_first_diversity_matrix():
     assert "**Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`" in skill
     assert "openrouter/moonshotai/kimi-k2.7-code" in skill
     assert "openrouter/anthropic/claude-opus-5.5" in skill
-    assert "Kimi K3 is never an automatic review target" in skill
+    assert "Kimi K3.1 Pro is never an automatic review target" in skill
     assert "Only tracked Codex and OpenRouter routes are configured" in skill
 
 
@@ -121,25 +121,27 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
         "gpt-6-luna",
         "claude-opus-5.5",
         "minimax-m3",
-        "kimi-k2.7-code",
         "kimi-k3",
+        "minimax-m3.1-flash",
+        "kimi-k2.7-code",
+        "kimi-k3.1-pro",
         "glm-5.3-flash",
     }
     expected = {
-        "minimax-m3": {
-            "target": "openrouter/minimax/minimax-m3",
-            "contextWindow": 524_288,
-            "rates": {"input": 0.3, "output": 1.2, "cacheRead": 0.06},
+        "minimax-m3.1-flash": {
+            "target": "openrouter/minimax/minimax-m3.1-flash",
+            "contextWindow": 1_048_576,
+            "rates": {"input": 0.15, "output": 0.6, "cacheRead": 0.015},
         },
         "kimi-k2.7-code": {
             "target": "openrouter/moonshotai/kimi-k2.7-code",
             "contextWindow": 262_144,
-            "rates": {"input": 0.73, "output": 3.5, "cacheRead": 0.15},
+            "rates": {"input": 0.6712, "output": 3.35, "cacheRead": 0.15},
         },
-        "kimi-k3": {
-            "target": "openrouter/moonshotai/kimi-k3",
+        "kimi-k3.1-pro": {
+            "target": "openrouter/moonshotai/kimi-k3.1-pro",
             "contextWindow": 1_048_576,
-            "rates": {"input": 3.0, "output": 15.0, "cacheRead": 0.3},
+            "rates": {"input": 2.0, "output": 10.0, "cacheRead": 0.2},
         },
         "claude-opus-5.5": {
             "target": "openrouter/anthropic/claude-opus-5.5",
@@ -148,7 +150,7 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
         },
         "glm-5.3-flash": {
             "target": "openrouter/z-ai/glm-5.3-flash",
-            "contextWindow": 1_310_720,
+            "contextWindow": 1_048_575,
             "rates": {"input": 0.15, "output": 0.5, "cacheRead": 0.03},
         },
     }
@@ -160,6 +162,28 @@ def test_approved_openrouter_models_have_cataloged_runtime_metadata():
         assert venue["reasoning"] is True
         assert venue["contextWindow"] == wanted["contextWindow"]
         assert family["openrouterRates"] == wanted["rates"]
+
+
+def test_openrouter_runtime_matches_routing_metadata():
+    families = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
+    overrides = json.loads(MODELS.read_text(encoding="utf-8"))["providers"]["openrouter"]["modelOverrides"]
+    for target in APPROVED_OPENROUTER_MODELS:
+        model = target.removeprefix("openrouter/")
+        family = next(f for f in families.values() if any(v["target"] == target for v in f["venues"]))
+        venue = next(v for v in family["venues"] if v["target"] == target)
+        runtime = overrides[model]
+        for field in ("contextWindow", "thinkingLevelMap", "reasoning", "input"):
+            assert runtime[field] == venue[field], (model, field)
+        assert runtime["cost"] == {"cacheWrite": 0, **family["openrouterRates"]}
+        assert runtime["input"] == ["text", "image"]
+    assert overrides["minimax/minimax-m3.1-flash"]["thinkingLevelMap"] == {
+        "off": None, "minimal": None, "low": "low", "medium": "medium",
+        "high": "high", "xhigh": "xhigh", "max": "max",
+    }
+    assert overrides["moonshotai/kimi-k3.1-pro"]["thinkingLevelMap"] == {
+        "off": "none", "minimal": None, "low": "low", "medium": None,
+        "high": "high", "xhigh": None, "max": "max",
+    }
 
 
 def test_active_task_targets_and_workers_have_enabled_cataloged_overrides(common):
@@ -195,6 +219,8 @@ def test_retired_catalog_facts_remain_separate_and_disabled(common):
         ("openai-codex/gpt-5.6-sol", "gpt-5.6-sol"),
         ("openai-codex/gpt-5.6-luna", "gpt-5.6-luna"),
         ("openrouter/anthropic/claude-opus-5", "claude-opus-5"),
+        ("openrouter/minimax/minimax-m3", "minimax-m3"),
+        ("openrouter/moonshotai/kimi-k3", "kimi-k3"),
     ):
         assert target not in enabled
         assert common.family_for_target(target) == family
@@ -229,9 +255,9 @@ def test_october_codex_metadata_does_not_inherit_old_audio_or_effort():
 def test_approved_dispatch_roles_use_direct_openrouter_targets():
     task = lambda name: (AGENT / "tasks" / f"{name}.md").read_text(encoding="utf-8")
 
-    assert "openrouter/minimax/minimax-m3" in task("cheap-peer")
+    assert "openrouter/minimax/minimax-m3.1-flash" in task("cheap-peer")
     assert "openrouter/moonshotai/kimi-k2.7-code" in task("implementation")
     assert "openrouter/moonshotai/kimi-k2.7-code" in task("review")
     assert "openrouter/anthropic/claude-opus-5.5" in task("review")
-    assert "openrouter/moonshotai/kimi-k3" not in task("implementation")
-    assert "openrouter/moonshotai/kimi-k3" not in task("cheap-peer")
+    assert "openrouter/moonshotai/kimi-k3.1-pro" not in task("implementation")
+    assert "openrouter/moonshotai/kimi-k3.1-pro" not in task("cheap-peer")

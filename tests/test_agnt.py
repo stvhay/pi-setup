@@ -76,7 +76,7 @@ def test_route_cost_rank_cheap_budget_orders_subscription_before_metered(agnt):
         "openai-codex/gpt-6.1-sol", info["openai-codex/gpt-6.1-sol"], "cheap"
     )
     metered = agnt.route_cost_rank(
-        "openrouter/minimax/minimax-m3", info["openrouter/minimax/minimax-m3"], "cheap"
+        "openrouter/minimax/minimax-m3.1-flash", info["openrouter/minimax/minimax-m3.1-flash"], "cheap"
     )
     assert subscription < metered
 
@@ -87,7 +87,7 @@ def test_route_cost_rank_quality_budget_prefers_frontier(agnt):
         "openai-codex/gpt-6.1-sol", info["openai-codex/gpt-6.1-sol"], "quality"
     )
     cheap = agnt.route_cost_rank(
-        "openrouter/minimax/minimax-m3", info["openrouter/minimax/minimax-m3"], "quality"
+        "openrouter/minimax/minimax-m3.1-flash", info["openrouter/minimax/minimax-m3.1-flash"], "quality"
     )
     assert frontier < cheap
 
@@ -98,15 +98,15 @@ def test_configured_model_info_loads_catalog(agnt):
     assert codex["costClass"] == "frontier"
     assert codex["reasoning"] is True
     assert codex["family"] == "gpt-6.1-sol"
-    m3 = info["openrouter/minimax/minimax-m3"]
-    assert m3["family"] == "minimax-m3"
-    assert m3["cost"] == {"input": 0.3, "output": 1.2, "cacheRead": 0.06}
+    m3 = info["openrouter/minimax/minimax-m3.1-flash"]
+    assert m3["family"] == "minimax-m3.1-flash"
+    assert m3["cost"] == {"input": 0.15, "output": 0.6, "cacheRead": 0.015}
 
 
 def test_catalog_marks_subscription_and_metered_billing(agnt):
     info = agnt.configured_model_info()
     assert info["openai-codex/gpt-6.1-sol"]["billingClass"] == "subscription"
-    assert info["openrouter/minimax/minimax-m3"]["billingClass"] == "metered"
+    assert info["openrouter/minimax/minimax-m3.1-flash"]["billingClass"] == "metered"
     assert info["openrouter/anthropic/claude-opus-5.5"]["billingClass"] == "metered"
 
 
@@ -130,7 +130,7 @@ def test_choose_thinking_level_uses_catalog_reasoning_flag(agnt):
         agnt.choose_thinking_level(
             "medium",
             "balanced",
-            info["openrouter/moonshotai/kimi-k3"],
+            info["openrouter/moonshotai/kimi-k3.1-pro"],
         )
         == "high"
     )
@@ -188,7 +188,7 @@ def test_unknown_task_has_no_legacy_provider_fallback(agnt):
 
 def test_high_risk_quality_fallbacks_stay_subscription_without_metered_budget(agnt):
     positive_metered = {
-        "minimax-m3": {"invocations": 5, "positive": 5, "negative": 0, "escalated": 0},
+        "minimax-m3.1-flash": {"invocations": 5, "positive": 5, "negative": 0, "escalated": 0},
     }
     with patch.dict(agnt.select_model.__globals__, {"route_metric_stats": lambda: positive_metered}):
         result = agnt.select_model("orchestration", risk="high", budget="quality")
@@ -207,11 +207,11 @@ def test_high_risk_quality_fallbacks_stay_subscription_without_metered_budget(ag
 
 def test_apply_assumed_cost_openrouter_uses_catalog_rates(agnt):
     usage = agnt.apply_assumed_cost(
-        usage_tokens(), "openrouter/minimax/minimax-m3"
+        usage_tokens(), "openrouter/minimax/minimax-m3.1-flash"
     )
     assert usage["costSource"] == "openrouter-assumed"
     assert usage["costEstimated"] is True
-    assert round(usage["cost"]["total"], 2) == 1.5
+    assert round(usage["cost"]["total"], 2) == 0.75
 
 
 def test_apply_assumed_cost_provider_reported_untouched(agnt):
@@ -223,7 +223,7 @@ def test_apply_assumed_cost_provider_reported_untouched(agnt):
         "cacheWrite": 0.0,
         "total": 0.3,
     }
-    result = agnt.apply_assumed_cost(usage, "openrouter/minimax/minimax-m3")
+    result = agnt.apply_assumed_cost(usage, "openrouter/minimax/minimax-m3.1-flash")
     assert result["costSource"] == "provider-reported"
     assert result["cost"]["total"] == 0.3
 
@@ -1053,12 +1053,12 @@ def test_self_contained_review_requires_budget_for_metered_candidates(agnt):
         "openrouter/moonshotai/kimi-k2.7-code",
     ]
     metered = bounded["fanout"][1]
-    assert metered["estimatedCostUsd"] == pytest.approx(0.01576)
+    assert metered["estimatedCostUsd"] == pytest.approx(0.0147544)
     assert metered["limits"] == {
         "maxOutputTokens": 2_000,
         "maxDurationMs": 300_000,
     }
-    assert bounded["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.01576)
+    assert bounded["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.0147544)
     assert bounded["meteredBudget"]["maxMarginalUsd"] == 0.10
 
 
@@ -1090,16 +1090,16 @@ def test_metered_repository_fanout_requires_complete_evidence_and_budget(agnt):
         "openrouter/moonshotai/kimi-k2.7-code",
     ]
     metered = bounded["fanout"][1]
-    assert metered["estimatedCostUsd"] == pytest.approx(0.0715)
+    assert metered["estimatedCostUsd"] == pytest.approx(0.06706)
     assert "estimatedMarginalUsd" not in metered
     assert metered["meteredJustification"] == "quality-benefit"
     assert metered["limits"] == {
         "maxProviderRequests": 6,
         "maxTotalTokens": 60_000,
-        "maxCostUsd": pytest.approx(0.0715),
+        "maxCostUsd": pytest.approx(0.06706),
         "maxDurationMs": 300_000,
     }
-    assert bounded["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.0715)
+    assert bounded["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.06706)
     assert bounded["meteredBudget"]["maxMarginalUsd"] == 0.10
 
 
@@ -1109,7 +1109,7 @@ def test_metered_repository_fanout_omits_candidates_over_aggregate_budget(agnt):
         source_access="repository",
         estimated_input_tokens=10_000,
         estimated_output_tokens=10_000,
-        max_marginal_usd=0.05,
+        max_marginal_usd=0.045,
         metered_justification="quality-benefit",
         fanout_size=3,
         use_history=False,
@@ -1117,9 +1117,9 @@ def test_metered_repository_fanout_omits_candidates_over_aggregate_budget(agnt):
 
     assert [item["target"] for item in result["fanout"]] == [
         "openai-codex/gpt-6-astra",
-        "openrouter/minimax/minimax-m3",
+        "openrouter/minimax/minimax-m3.1-flash",
     ]
-    assert result["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.015)
+    assert result["meteredBudget"]["estimatedFanoutUsd"] == pytest.approx(0.0075)
     assert result["meteredBudget"]["omittedTargets"] == ["openrouter/moonshotai/kimi-k2.7-code"]
 
 
@@ -1320,7 +1320,7 @@ def test_routine_routes_prefer_codex_and_exclude_kimi_k3(agnt):
     assert {task: result["selected"] for task, result in results.items()} == expected
     assert results["cheap-peer"]["thinkingLevel"] == "low"
     assert all(
-        "openrouter/moonshotai/kimi-k3" not in result["candidateOrder"]
+        "openrouter/moonshotai/kimi-k3.1-pro" not in result["candidateOrder"]
         for result in results.values()
     )
 

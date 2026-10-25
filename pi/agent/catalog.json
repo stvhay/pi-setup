@@ -119,6 +119,58 @@
         }
       ]
     },
+    "minimax-m3.1-flash": {
+      "openrouterRates": {
+        "input": 0.15,
+        "output": 0.6,
+        "cacheRead": 0.015
+      },
+      "venues": [
+        {
+          "target": "openrouter/minimax/minimax-m3.1-flash",
+          "costClass": "cheap",
+          "billingClass": "metered",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1048576,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          }
+        }
+      ]
+    },
+    "kimi-k3.1-pro": {
+      "openrouterRates": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.2
+      },
+      "venues": [
+        {
+          "target": "openrouter/moonshotai/kimi-k3.1-pro",
+          "costClass": "frontier",
+          "billingClass": "metered",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": "none",
+            "minimal": null,
+            "low": "low",
+            "medium": null,
+            "high": "high",
+            "xhigh": null,
+            "max": "max"
+          },
+          "input": ["text", "image"],
+          "contextWindow": 1048576
+        }
+      ]
+    },
     "minimax-m3": {
       "openrouterRates": {
         "input": 0.3,
@@ -138,8 +190,8 @@
     },
     "kimi-k2.7-code": {
       "openrouterRates": {
-        "input": 0.73,
-        "output": 3.5,
+        "input": 0.6712,
+        "output": 3.35,
         "cacheRead": 0.15
       },
       "venues": [
@@ -204,7 +256,7 @@
             "max": "max"
           },
           "input": ["text", "image"],
-          "contextWindow": 1310720
+          "contextWindow": 1048575
         }
       ]
     },

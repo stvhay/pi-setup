@@ -14,7 +14,7 @@ rg -n "orchestration|review|research" /tmp/agnt-tasks.txt >/dev/null
 
 bin/agnt tasks --models >/tmp/agnt-task-models.txt
 rg -nF "openai-codex/gpt-6.1-sol" /tmp/agnt-task-models.txt >/dev/null
-rg -n "openrouter/minimax/minimax-m3" /tmp/agnt-task-models.txt >/dev/null
+rg -n "openrouter/minimax/minimax-m3.1-flash" /tmp/agnt-task-models.txt >/dev/null
 rg -nF "openrouter/anthropic/claude-opus-5.5" /tmp/agnt-task-models.txt >/dev/null
 
 bin/agnt metrics -h >/tmp/agnt-metrics-help.txt
@@ -30,6 +30,6 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/AGENTS.d/models/openrouter/minimax"
 printf '# Root\n' > "$TMP/AGENTS.md"
 printf '# Provider context\n' > "$TMP/AGENTS.d/models/openrouter.md"
-printf '# Nested model context\n' > "$TMP/AGENTS.d/models/openrouter/minimax/minimax-m3.md"
-bin/agent-instructions "$TMP/AGENTS.md" --context openrouter/minimax/minimax-m3 > /tmp/agnt-nested-context.txt
+printf '# Nested model context\n' > "$TMP/AGENTS.d/models/openrouter/minimax/minimax-m3.1-flash.md"
+bin/agent-instructions "$TMP/AGENTS.md" --context openrouter/minimax/minimax-m3.1-flash > /tmp/agnt-nested-context.txt
 rg -n "Provider context|Nested model context" /tmp/agnt-nested-context.txt >/dev/null

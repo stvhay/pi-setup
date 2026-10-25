@@ -21,7 +21,7 @@ At start, read shared conventions if needed:
 - Verify Critical and Important findings against code plus a focused test, reproducer, specification, or profile.
 - Use profiling for performance claims.
 - Keep cloud packets free of secrets, credentials, private customer data, and unrelated proprietary context.
-- Kimi K3 is never an automatic review target.
+- Kimi K3.1 Pro is never an automatic review target.
 
 ## Models and measured cost policy
 
@@ -31,10 +31,10 @@ Use `agnt route --task review --access self-contained` for complete discovery pa
 - **Subscription-backed challenger:** `openai-codex/gpt-5.6-terra`, used for matched canaries or explicit independent checks.
 - **Medium-risk diversity:** `openrouter/moonshotai/kimi-k2.7-code`, scoped and one-shot.
 - **High-risk independent reviewer:** `openrouter/anthropic/claude-opus-5.5`, scoped and one-shot; human adjudication remains required for consequential findings.
-- **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3`.
-- **Canary only:** `openrouter/minimax/minimax-m3` until accepted-output evidence supports promotion.
+- **Manual unresolved-critical escalation only:** `openrouter/moonshotai/kimi-k3.1-pro`.
+- **Canary only:** `openrouter/minimax/minimax-m3.1-flash` until accepted-output evidence supports promotion.
 
-Kimi K3 is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker; never switch a long-running root conversation to it. All metered candidates are excluded unless routing receives positive input/output token estimates, `quality-benefit` or `missing-capability` justification, and an aggregate `maxMarginalUsd`. Self-contained discovery then receives route-generated output and duration limits; repository access requires agentic mode and route-generated request, token, cost, and duration limits. Only tracked Codex and OpenRouter routes are configured.
+Kimi K3.1 Pro is never an automatic review target. Every metered OpenRouter reviewer runs in a fresh worker; never switch a long-running root conversation to it. All metered candidates are excluded unless routing receives positive input/output token estimates, `quality-benefit` or `missing-capability` justification, and an aggregate `maxMarginalUsd`. Self-contained discovery then receives route-generated output and duration limits; repository access requires agentic mode and route-generated request, token, cost, and duration limits. Only tracked Codex and OpenRouter routes are configured.
 
 `agnt route` measures month-to-date marginal review spend from OpenRouter, configured metered venues, and positive provider-reported retired venues; it excludes configured subscription targets. `AGNT_REVIEW_PAID_SPEND_USD` is an operator-supplied floor. Override from an authoritative provider dashboard when needed:
 
@@ -187,9 +187,9 @@ Route fresh filesystem verifiers with `agnt route --task review --access reposit
 
 Validate the enriched artifact again. Do not implement a fix solely because several reviewers agree.
 
-## Deterministic K3 escalation gate
+## Deterministic K3.1 Pro escalation gate
 
-A focused one-shot K3 call is permitted only when all conditions hold:
+A focused one-shot K3.1 Pro call is permitted only when all conditions hold:
 
 1. the finding maps to a predefined Critical impact category;
 2. it includes a location, invariant/claim, and concrete failure scenario;
