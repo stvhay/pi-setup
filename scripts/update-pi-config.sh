@@ -216,7 +216,7 @@ local_keys = (
 )
 namespaces = tuple("archimedes." + name for name in (
     "ui", "footer", "diff", "notify", "sessionName", "imagePaste",
-    "todo", "ask", "subagent", "web", "sudo",
+    "todo", "ask", "subagent", "web", "sudo", "meta",
 ))
 
 

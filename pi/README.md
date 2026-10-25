@@ -286,7 +286,7 @@ Do not commit credentials, sessions, caches, trust state, onboarding state, API 
 Deployment preserves these local `agent/settings.json` preferences when present:
 
 - `lastChangelogVersion`, `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `enabledModels`, and `modelThinkingLevels` (including explicit empty collections).
-- Known Archimedes namespaces: `archimedes.ui`, `.footer`, `.diff`, `.notify`, `.sessionName`, `.imagePaste`, `.todo`, `.ask`, `.subagent`, `.web`, and `.sudo`.
+- Known Archimedes namespaces: `archimedes.ui`, `.footer`, `.diff`, `.notify`, `.sessionName`, `.imagePaste`, `.todo`, `.ask`, `.subagent`, `.web`, `.sudo`, and `.meta` (including the existing onboarding completion marker; deployment never creates it).
 
 Tracked Archimedes fields override conflicting local fields recursively, so disabled tools and configured limits remain enforced; other local fields in those namespaces survive. Missing preferences use tracked defaults. Package declarations, other settings, unknown namespaces, and retired migration namespaces remain repository-managed rather than blanket-merged.
 

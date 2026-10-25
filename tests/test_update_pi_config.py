@@ -527,7 +527,8 @@ def test_update_preserves_pi_managed_mutable_state(tmp_path, bundle):
     assert (agent / "models-store.json").read_text(encoding="utf-8") == models_store
 
 
-def test_update_preserves_local_preferences_and_managed_restrictions(tmp_path):
+@pytest.mark.parametrize("meta", [None, {}, {"onboarded": False}, {"onboarded": True}])
+def test_update_preserves_local_preferences_and_managed_restrictions(tmp_path, meta):
     source = config_source(tmp_path / "source")
     dest = config_source(tmp_path / ".pi")
     managed = {
@@ -548,6 +549,8 @@ def test_update_preserves_local_preferences_and_managed_restrictions(tmp_path):
         "archimedes.imagePaste": {"suppressNativePaste": False},
         "archimedes.todo": {"enabled": False}, "archimedes.ask": {"enabled": True},
     }
+    if meta is not None:
+        preferences["archimedes.meta"] = meta
     runtime = {
         **preferences, "packages": ["unmanaged"], "runtimeOnly": True,
         "archimedes.unknown": {"enabled": True},
