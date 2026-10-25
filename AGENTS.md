@@ -1,20 +1,12 @@
 # Project Instructions
 
-## Workflow
-
-- Use Pi skills: design/planning/verification/review/docs/branch finishing. Implementation plans: `.pi/plans/`.
-- Beads (`bd`/`beads`): canonical work graph; each code-changing task needs a Bead before edits. Run `bd prime`, `bd ready`, `bd show <id>`.
-- Default to direct current-session work; explicitly opt into beneficial run artifacts/orchestrated worktrees. GitHub issues: external adapter/export, never agent truth.
-- Unless explicitly narrowed, implementation approval includes staging and one local atomic commit of task-owned changes; follow the shared development completion contract before closeout.
-- Initial implementation approval may preauthorize exact reversible local Git setup and cleanup: named task branches/worktrees, post-integration removal, and staged tracked/config-controlled deletions. Before cleanup/deletion, show exact paths/branches and commit-SHA recovery sources. Stop on unrelated changes, ambiguous ownership, untracked runtime data, backups, remote refs/deletion, force/reset/clean, or history rewrite.
-- Initial implementation approval may preauthorize one exact local integration via `agnt work integrate`, naming target checkout/branch, expected target HEAD, and source commit SHA. It serializes the target, rechecks scope under lock, aborts conflicts, and stops on divergence; alternatives need explicit approval.
-- Initial implementation approval may preauthorize deployment to verified local-live and explicitly designated test/staging environments: one single-use action binding Bead, source-selection rule, resolved target identity, exact preview/effect bounds, verification, rollback, and stop conditions. Production, unknown/mismatched targets, secrets changes, destructive rollback, or scope/preview changes need new explicit approval; rejection/cancellation/timeout fails closed.
-- Initial implementation approval may preauthorize one ordinary branch push after successful Bead closeout, binding exact remote and branch identity, approved base SHA, bounded candidate-selection rule, expected remote state, final gates, and fail-closed checks. First attempt consumes authority. Protected or production branch pushes, PR actions, force, tags, releases, merges, deletion, and history rewrite are excluded.
-- Beads sync messages grant no repository Git authority. Outside exact initial scope, push, branch/worktree deletion, local merge, deployment need explicit approval. Also require explicit approval to merge outside guarded integration, deploy outside verified non-production boundaries, force/reset/clean, delete Beads, change Beads remotes, rewrite Beads/Dolt history, or install Beads hooks. Remote deletion/history rewrite remain explicitly gated.
+Applies to maintaining this repository, not projects using the deployed configuration. Shared workflow, Beads, approval, Git, and handoff rules belong in `pi/agent/AGENTS.md` (deployed to `~/.pi/agent/AGENTS.md`). If shared instructions are not already loaded, read that tracked file; repository rules below add constraints, not authority.
 
 ## Repository
 
-Reusable Pi config source of truth: tracked repo `pi/` (deployable). Live `~/.pi` is runtime/deployed, not source.
+Reusable Pi config source of truth: tracked repo `pi/` (deployable). Live `~/.pi` is runtime/deployed, not source. Root `AGENTS.md` governs maintenance here; `pi/agent/AGENTS.md` contains cross-project guidance. Keep each rule with its owner rather than duplicating it.
+
+Keep deterministic domain logic in `agnt_lib`; extensions own Pi lifecycle, UI, session, and provider integration; typed tools stay thin.
 
 Pi config changes:
 1. Edit tracked `pi/`; run project checks.

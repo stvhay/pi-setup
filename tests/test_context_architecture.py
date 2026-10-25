@@ -26,9 +26,6 @@ def test_global_instructions_are_compact_and_retain_audited_gates():
     assert (len(instructions) + len(project)) * 5 <= 15_784 * 4
 
     for clause in (
-        "deterministic domain logic in `agnt_lib`",
-        "extensions own Pi lifecycle, UI, session, and provider integration",
-        "typed tools stay thin",
         "stop retrying and run read-only `agnt doctor --json`",
         "`agnt work direct-closeout <id> --outcome success --reason \"<reason>\"`",
         "`agnt route --task review --access repository`",
@@ -44,6 +41,32 @@ def test_global_instructions_are_compact_and_retain_audited_gates():
         "never weaken security, approval, verification, Git, or project rules",
     ):
         assert clause in instructions
+
+
+def test_instruction_owners_separate_shared_policy_from_repository_maintenance():
+    shared = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
+    project = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    for clause in (
+        "deterministic domain logic in `agnt_lib`",
+        "extensions own Pi lifecycle, UI, session, and provider integration",
+        "typed tools stay thin",
+        "scripts/update-pi-config.sh",
+        "## Dependency upgrade policy",
+    ):
+        assert clause in project
+        assert clause not in shared
+    for clause in (
+        "Beads is canonical; GitHub issues are external adapters/exports",
+        "Use applicable skills for design/planning/verification/review/docs/branch finishing",
+        "Initial implementation approval may cover",
+        "agnt work direct-closeout",
+    ):
+        assert clause in shared
+        assert clause not in project
+    assert "If shared instructions are not already loaded, read that tracked file" in project
+    assert "`pi/agent/AGENTS.md`" in project
+    assert "not projects using the deployed configuration" in project
 
 
 def load_frontmatter(common, path: Path):
@@ -606,7 +629,6 @@ PROSE_CONTRACT_CASES = (
     ),
     (
         (
-            ROOT / "AGENTS.md",
             AGENT / "skills" / "project-init" / "templates" / "AGENTS.md",
             AGENT / "skills" / "dev-workflow-common" / "SKILL.md",
         ),
@@ -624,7 +646,7 @@ PROSE_CONTRACT_CASES = (
         True,
     ),
     (
-        (ROOT / "AGENTS.md", AGENT / "skills" / "dev-workflow-common" / "SKILL.md"),
+        (AGENT / "skills" / "dev-workflow-common" / "SKILL.md",),
         (
             "Initial implementation approval may preauthorize one exact local integration",
             "agnt work integrate",
@@ -636,14 +658,13 @@ PROSE_CONTRACT_CASES = (
     (
         (
             AGENT / "AGENTS.md",
-            ROOT / "AGENTS.md",
             AGENT / "skills" / "project-init" / "templates" / "AGENTS.md",
         ),
         ("implementation approval includes staging and one local atomic commit",),
         True,
     ),
     (
-        (ROOT / "AGENTS.md", AGENT / "skills" / "project-init" / "templates" / "AGENTS.md"),
+        (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md",),
         (
             "Initial implementation approval may preauthorize one ordinary branch push after successful Bead closeout",
             "exact remote and branch identity",
@@ -651,7 +672,7 @@ PROSE_CONTRACT_CASES = (
         True,
     ),
     (
-        (ROOT / "AGENTS.md", AGENT / "skills" / "project-init" / "templates" / "AGENTS.md"),
+        (AGENT / "skills" / "project-init" / "templates" / "AGENTS.md",),
         ("protected or production branch",),
         False,
     ),

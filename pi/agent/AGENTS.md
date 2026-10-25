@@ -1,10 +1,10 @@
-# Tools
+# Shared tools
 
-- Use `rg PATTERN [PATH]` (search), `ast-grep --pattern '<code>' --lang <lang>` (structural search), `nanobanana -o OUT.png <prompt>` (images, when `GEMINI_API_KEY` exists).
+Across projects; project `AGENTS.md` adds repository-specific rules. Use `rg PATTERN [PATH]` (search), `ast-grep --pattern '<code>' --lang <lang>` (structural search), `nanobanana -o OUT.png <prompt>` (images, when `GEMINI_API_KEY` exists).
 
 # agnt
 
-`~/.pi/agent/bin/agnt` is deterministic human/CI/headless adapter. Keep deterministic domain logic in `agnt_lib`; extensions own Pi lifecycle, UI, session, and provider integration; typed tools stay thin. See `~/.pi/agent/bin/README.md` or command help.
+`~/.pi/agent/bin/agnt` is deterministic human/CI/headless adapter. See `~/.pi/agent/bin/README.md` or command help.
 
 Discover with `agnt tasks --models`, `agnt route --task TASK --risk medium --budget balanced`, `agnt eval list`, `agnt context-health`, or `agnt plans-dir`; prefer deterministic helpers/evals to prompt procedures.
 
@@ -12,10 +12,10 @@ Discover with `agnt tasks --models`, `agnt route --task TASK --risk medium --bud
 
 - Default: direct current-session work. Batch independent reads; serialize mutations, approvals, and safety gates. Update progress at phase boundaries.
 - After repeated unexpected tool/provider/environment/Node/npm/Docker/Beads failures, stop retrying and run read-only `agnt doctor --json`; shell startup or home-managed config changes need approval.
-- Before code changes, run `bd prime`, `bd ready`, then `agnt work direct-start <id> [--claim]`; `--claim` claims/links one session/Bead without run bundles/worktrees. For public interface, persistent state, security boundary, dependency or cross-cutting changes: outcome, affected boundary, smallest implementation, verification. Ask one targeted question (options and a recommendation) when interpretations differ materially.
+- Beads is canonical; GitHub issues are external adapters/exports. Before code changes, run `bd prime`, `bd ready`, `bd show <id>`, then `agnt work direct-start <id> [--claim]`; `--claim` claims/links one session/Bead without run bundles/worktrees. For public interface, persistent state, security boundary, dependency or cross-cutting changes: outcome, affected boundary, smallest implementation, verification. Ask one targeted question (options and a recommendation) when interpretations differ materially.
 - Commit task-owned changes before direct closeout: `agnt work direct-closeout <id> --outcome success --reason "<reason>"`. Use `agnt improve outcome <id> <partial|failure|unclear>` only for non-success/manual repair. Closeout records explicit success, verifies session ownership/outcome match, rejects tracked non-Beads changes, closes, exports/verifies `.beads/issues.jsonl`, commits only shared portable Beads state; never pushes. Keep objective, decisions, constraints, blockers, verification, next-work refs in Beads or exact tracked/private artifacts.
 - For unfinished work, `handoff_bead` saves `progress`/refs; `targetBead` switches within scope. Keep dirty work/outcomes; no transcripts or false success. Recover pending decisions; reconcile uncertain effects. After successful closeout, omit target. `/new` is human fallback only for unavailable runtime, never ownership override.
-- Read-only/docs need no Bead unless policy requires one. Plans: `.pi/plans/`. Observational memory is advisory until promoted.
+- Use applicable skills for design/planning/verification/review/docs/branch finishing. Read-only/docs need no Bead unless policy requires one. Plans: `.pi/plans/`. Observational memory is advisory until promoted.
 - Filter verbose tool results before model context; preserve failures and required proof. Before architecture/dependency work, query `graphify-out/graph.json`, then verify source.
 - Route unnamed `subagent` once via `route`: repository access is agentic; self-contained cold packets use one-shot mode. `agnt route --task review --access repository`; `--access self-contained`. Use `artifact` for deferred full results, `status-only` for deterministic checks, `inline` when content is needed now; `pass-no-findings` only when explicitly requested.
 - Subscription-backed peers normally omit request/token/cost caps. Use `maxIdleMs` only for an identified liveness risk; routine reviews have no caller deadline, and reserve `maxDurationMs` for metered/hard bounds. Metered OpenRouter runs only in fresh subagents with estimates, justification, and aggregate budget; repository routes add request/token/cost limits. Keep subscription OpenAI/Codex as controller; verify peers.
