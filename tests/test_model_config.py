@@ -208,15 +208,15 @@ def test_retired_catalog_facts_remain_separate_and_disabled(common):
 
 def test_october_codex_metadata_does_not_inherit_old_audio_or_effort():
     families = json.loads(CATALOG.read_text(encoding="utf-8"))["families"]
-    for family, off in (("gpt-6.1-sol", None), ("gpt-6-luna", "none")):
+    for family in ("gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"):
         venue = families[family]["venues"][0]
         assert venue["target"] == f"openai-codex/{family}"
         assert venue["input"] == ["text", "image"]
-        assert venue["contextWindow"] == 272_000
+        assert venue["contextWindow"] == (500_000 if family == "gpt-6.1-sol" else 272_000)
         assert venue["reasoning"] is True
         assert venue["billingClass"] == "subscription"
         assert venue["thinkingLevelMap"] == {
-            "off": off, "minimal": "low", "low": "low", "medium": "medium",
+            "off": None, "minimal": "low", "low": "low", "medium": "medium",
             "high": "high", "xhigh": "xhigh", "max": "max",
         }
     opus = families["claude-opus-5.5"]["venues"][0]

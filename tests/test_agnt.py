@@ -1286,7 +1286,10 @@ def test_astra_matrix_floor_capabilities_and_fallback(agnt):
             item["target"] == model and item["reason"] == "missing modality audio"
             for item in audio["rejectedCandidates"]
         )
-    oversized = agnt.select_model("research", context_tokens=272_001, use_history=False)
+    for context in (272_001, 500_000):
+        fallback = agnt.select_model("research", context_tokens=context, use_history=False)
+        assert fallback["selected"] == "openai-codex/gpt-6.1-sol"
+    oversized = agnt.select_model("research", context_tokens=500_001, use_history=False)
     assert oversized["routeStatus"] == "no_candidate"
 
 

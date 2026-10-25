@@ -40,7 +40,7 @@
             "max": "max"
           },
           "input": ["text", "image"],
-          "contextWindow": 272000
+          "contextWindow": 500000
         }
       ]
     },
@@ -52,13 +52,15 @@
           "billingClass": "subscription",
           "reasoning": true,
           "thinkingLevelMap": {
-            "minimal": null,
-            "low": "instant",
+            "off": null,
+            "minimal": "low",
+            "low": "low",
             "medium": "medium",
             "high": "high",
-            "xhigh": "extra high"
+            "xhigh": "xhigh",
+            "max": "max"
           },
-          "input": ["text", "image", "audio"],
+          "input": ["text", "image"],
           "contextWindow": 272000
         }
       ]
@@ -77,7 +79,7 @@
           "billingClass": "subscription",
           "reasoning": true,
           "thinkingLevelMap": {
-            "off": "none",
+            "off": null,
             "minimal": "low",
             "low": "low",
             "medium": "medium",

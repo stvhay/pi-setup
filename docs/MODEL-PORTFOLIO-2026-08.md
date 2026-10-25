@@ -48,6 +48,23 @@ Metered estimates, justification, aggregate budget, fresh-worker rules, provider
 
 Rollback is a policy-only revert of this amendment and its synchronized configuration/tests, not a routing-code or state migration. Live deployment still requires separate approval.
 
+## Codex subscription catalog refresh — 2026-10-25
+
+`pi-wu8h` supersedes the October 11 Codex metadata above using the owner's fresh Codex 0.164.0 `~/.codex/models_cache.json`, fetched at `2026-10-25T04:29:39.984071Z`. Pi and Codex account identifiers were compared locally and matched; neither credentials nor account identifiers are retained here.
+
+| Enabled Codex model | Default context | Native reasoning | Input |
+|---|---:|---|---|
+| GPT-6.1 Sol | 500,000 | low/medium/high/xhigh/max | text/image |
+| GPT-6 Astra | 272,000 | low/medium/high/xhigh/max | text/image |
+| GPT-5.6 Terra | 272,000 | low/medium/high/xhigh/max | text/image |
+| GPT-6 Luna | 272,000 | low/medium/high/xhigh/max | text/image |
+
+Pi minimal remains an alias for low; no active Codex model offers off. Terra's historical audio and instant/extra-high metadata no longer describes the active venue. Spark is absent from the refreshed catalog and is removed from enabled selection, without asserting global retirement. Historical disabled family records remain unchanged. Astra/medium startup, task effort policy and Sol/low memory workers remain unchanged.
+
+All four advertise an optional 872,000 maximum context. Sol/Astra/Terra also advertise `ultra` with automatic delegation. Neither is enabled: owner chose provider defaults, not optional context expansion or unverified delegation support. Codex's 95% effective-context factor is client headroom; Pi keeps its native reserve and observational-memory ratio. The refresh has no maximum-output field, so existing Pi 128,000-token output metadata is retained, not newly verified. Metadata presence does not prove successful inference or acceptance at context boundaries. OpenRouter metadata, pricing, output caps and spending policy are outside this change.
+
+Tests resolve tracked overrides through the installed Pi runtime offline, checking model selection, context, input and supported thinking. No live deployment or inference probe is part of this alignment. Rollback is a policy-only revert of this amendment and its synchronized config/tests.
+
 ## Lasting routing and output policy
 
 Historical policy (superseded by the Astra amendment above): `pi-04q7.8` replaces the `pi-04q7.2` interim floor with an owner-selected capability/effort ladder: Terra at low thinking, then Sol at low, medium, high, extra-high, and explicit exceptional maximum effort. Existing routing maps `cheap-peer` to Terra-low; planning and research to Sol low/medium/high by risk; review to Sol low/medium/extra-high by risk; and orchestration to Sol extra-high. Maximum effort remains an explicit exceptional override because task routing has three risk levels. Luna remains a subscription-backed fallback, Terra remains a review challenger, and different-family checks remain independent.

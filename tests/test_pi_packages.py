@@ -223,8 +223,51 @@ def test_codex_subscription_context_matches_routing_catalog():
 
     assert set(provider) == {"modelOverrides"}
     for family in ("gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"):
-        assert provider["modelOverrides"][family] == {"contextWindow": 272_000}
-        assert catalog[family]["venues"][0]["contextWindow"] == 272_000
+        context = 500_000 if family == "gpt-6.1-sol" else 272_000
+        expected = {"contextWindow": context}
+        if family != "gpt-6.1-sol":
+            expected["thinkingLevelMap"] = {"off": None}
+        assert provider["modelOverrides"][family] == expected
+        assert catalog[family]["venues"][0]["contextWindow"] == context
+
+
+def test_codex_subscription_defaults_resolve_in_pi_without_network(tmp_path):
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{ readFileSync }} from "node:fs";
+      import {{ ModelRuntime }} from "@earendil-works/pi-coding-agent";
+      import {{ getSupportedThinkingLevels }} from "@earendil-works/pi-ai";
+
+      const runtime = await ModelRuntime.create({{
+        authPath: {str(tmp_path / 'auth.json')!r},
+        modelsPath: {str(MODELS)!r},
+        modelsStorePath: {str(tmp_path / 'models-store.json')!r},
+        allowModelNetwork: false,
+        refreshOnCreate: false,
+      }});
+      assert.equal(runtime.getError(), undefined);
+      const settings = JSON.parse(readFileSync({str(SETTINGS)!r}, "utf8"));
+      const expected = {{
+        "gpt-6-astra": 272000, "gpt-6.1-sol": 500000,
+        "gpt-5.6-terra": 272000, "gpt-6-luna": 272000,
+      }};
+      assert.deepEqual(
+        settings.enabledModels.filter(id => id.startsWith("openai-codex/")).sort(),
+        Object.keys(expected).map(id => `openai-codex/${{id}}`).sort(),
+      );
+      for (const [id, context] of Object.entries(expected)) {{
+        const model = runtime.getModel("openai-codex", id);
+        assert.ok(model, id);
+        assert.equal(model.api, "openai-codex-responses");
+        assert.equal(model.contextWindow, context, id);
+        assert.deepEqual(model.input, ["text", "image"], id);
+        assert.deepEqual(getSupportedThinkingLevels(model),
+          ["minimal", "low", "medium", "high", "xhigh", "max"], id);
+        assert.equal(model.thinkingLevelMap.minimal, "low", id);
+        assert.equal(model.maxTokens, 128000, id);
+      }}
+    """
+    run_node(script, env={"HOME": str(tmp_path)})
 
 
 def test_betterwright_remains_unpinned_with_tracked_permission_adapter():
@@ -248,9 +291,9 @@ def test_observational_memory_compaction_precedes_native_threshold():
 
     effective_threshold = int(sol_context * config["compactAfterTokensRatio"])
     native_threshold = sol_context - 16_384
-    assert effective_threshold == 204_000
-    assert native_threshold == 255_616
-    assert native_threshold - effective_threshold == 51_616
+    assert effective_threshold == 375_000
+    assert native_threshold == 483_616
+    assert native_threshold - effective_threshold == 108_616
 
     def threshold_for(context):
         if isinstance(context, (int, float)) and context > 0:
@@ -261,8 +304,8 @@ def test_observational_memory_compaction_precedes_native_threshold():
 
     docs = PI_README.read_text(encoding="utf-8")
     assert "pi-observational-memory/releases/tag/3.1.4" in docs
-    assert "272,000 × 0.75 = 204,000" in docs
-    assert "51,616" in docs
+    assert "500,000 × 0.75 = 375,000" in docs
+    assert "108,616" in docs
     assert "different token counters" in docs
     assert "81,000" in docs
 
