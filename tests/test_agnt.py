@@ -351,16 +351,12 @@ def test_prompt_inventory_rows_reads_frontmatter(agnt):
     assert by_path["actions/review.md"]["kind"] == "action-template"
 
 
-def test_context_health_report_passes_without_failures(agnt):
+def test_context_health_report_passes_with_skill_discovery_budget(agnt):
     report = agnt.context_health_report()
     assert report["schemaVersion"] == 1
     assert report["passed"] is True
     assert report["failures"] == []
     assert "warningCount" in report["summary"]
-
-
-def test_context_health_reports_skill_discovery_budget(agnt):
-    report = agnt.context_health_report()
     summary = report["summary"]
     assert summary["skillDiscoveryLimit"] == 8000
     assert summary["skillDiscoveryChars"] <= summary["skillDiscoveryLimit"]

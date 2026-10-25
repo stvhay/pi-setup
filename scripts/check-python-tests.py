@@ -3,6 +3,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -18,6 +19,16 @@ class Collection:
         self.files = sorted({str(item.path) for item in session.items})
 
 
+def partition_files(files, durations):
+    groups = [[] for _ in range(min(4, len(files)))]
+    totals = [0.0] * len(groups)
+    for path in sorted(files, key=lambda path: (-durations.get(path, 1), path)):
+        index = min(range(len(groups)), key=totals.__getitem__)
+        groups[index].append(path)
+        totals[index] += durations.get(path, 1)
+    return groups
+
+
 def main(test_root=Path(__file__).resolve().parents[1] / "tests"):
     logs = Path(tempfile.mkdtemp(prefix="pi-python-tests-"))
     print(f"Logs: {logs}", flush=True)
@@ -28,7 +39,10 @@ def main(test_root=Path(__file__).resolve().parents[1] / "tests"):
         print((logs / "collection.log").read_text())
         return int(code)
     print(f"Collected {collection.count} tests in {len(collection.files)} files", flush=True)
-    groups = [collection.files[i::4] for i in range(min(4, len(collection.files)))]
+    # shortcut: historical weights drift; refresh from JUnit when shard times diverge.
+    durations = json.loads(Path(__file__).with_name("python-test-durations.json").read_text())
+    weights = {str((test_root / path).resolve()): seconds for path, seconds in durations.items()}
+    groups = partition_files(collection.files, weights)
 
     def run(index):
         with (logs / f"shard-{index}.log").open("w") as output:
