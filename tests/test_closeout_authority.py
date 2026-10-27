@@ -162,6 +162,68 @@ def test_captured_local_scope_completes_closeout(runtime, monkeypatch):
     assert runtime["store"].owner("pi-a")["phase"] == "completed"
 
 
+@pytest.mark.parametrize("other_phase", ["active", "paused", "reserved", "yielding", "completed"])
+@pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "repo-write", "git-commit"]}], indirect=True)
+def test_shared_checkout_closes_only_owned_bead(runtime, monkeypatch, other_phase):  # Tests INV-5
+    prepare_closeout(runtime, monkeypatch)
+    closeout_backend(runtime, monkeypatch)
+    store = runtime["store"]
+    store.claim("pi-b", "session-b", str(runtime["repo"]))
+    with store.locked() as state:
+        state["owners"]["pi-b"]["phase"] = other_phase
+        store._write(state)
+    other = store.owner("pi-b")
+    result = runtime["work"].direct_closeout("pi-a", outcome="success", reason="fixture complete")
+    assert result["status"] == "closed"
+    assert store.owner("pi-a")["phase"] == "completed"
+    assert store.owner("pi-b") == other
+    assert runtime["beads"]["pi-b"]["status"] == "open"
+    assert runtime["quality"].session_attempt_state("session-b")["outcome"] is None
+    # Completed-owner retries must also coexist with unfinished neighbours.
+    assert runtime["work"].direct_closeout("pi-a", outcome="success", reason="fixture complete")["status"] == "closed"
+
+
+@pytest.mark.parametrize("violation", ["foreign-session", "wrong-checkout", "wrong-header", "missing-owner",
+                                      "paused", "reserved", "yielding", "pending-transition", "dirty-tree"])
+@pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "repo-write", "git-commit"]}], indirect=True)
+def test_shared_checkout_preserves_closeout_guards(runtime, monkeypatch, violation):  # Tests FAIL-1
+    from test_work_continuation import progress
+    portable = prepare_closeout(runtime, monkeypatch)
+    store = runtime["store"]
+    if violation == "pending-transition":
+        cp = store.checkpoint("pi-a", "session-a", progress())
+        store.prepare(source_session="session-a", checkpoint_ref=cp["id"], target_bead="pi-a",
+                      target_checkout=str(runtime["repo"]), target_status="open", blockers=[],
+                      mode="resume", runtime_ready=True, authorize=lambda _: True)
+    store.claim("pi-b", "session-b", str(runtime["repo"]))
+    if violation in {"paused", "reserved", "yielding", "missing-owner"}:
+        with store.locked() as state:
+            if violation == "missing-owner":
+                del state["owners"]["pi-a"]
+            else:
+                state["owners"]["pi-a"]["phase"] = violation
+            store._write(state)
+    elif violation == "foreign-session":
+        monkeypatch.setenv("PI_SESSION_ID", "session-b")
+    elif violation == "wrong-checkout":
+        monkeypatch.chdir(runtime["other"])
+    elif violation == "wrong-header":
+        (runtime["root"] / "source.jsonl").write_text(json.dumps(
+            {"type": "session", "id": "session-b", "cwd": str(runtime["repo"])}))
+    elif violation == "dirty-tree":
+        dirty = runtime["repo"] / "dirty.txt"
+        dirty.write_text("other task's work")
+        subprocess.run(["git", "add", "--", "dirty.txt"], cwd=runtime["repo"], check=True, capture_output=True)
+    before = portable.read_bytes(), (store.root / "journal.json").read_bytes()
+    result = runtime["work"].direct_closeout("pi-a", outcome="success", reason="fixture complete")
+    assert result["status"] == "error"
+    stage = "preflight" if violation == "dirty-tree" else "ownership"
+    assert result["stages"][stage]["status"] == "failed"
+    assert runtime["quality"].session_attempt_state("session-a")["outcome"] is None
+    assert not any(args[0] == "close" for args in runtime["calls"])
+    assert (portable.read_bytes(), (store.root / "journal.json").read_bytes()) == before
+
+
 @pytest.mark.parametrize("phase", ["export", "stage"])
 @pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "repo-write", "git-commit"]}], indirect=True)
 def test_revocation_preserves_partial_export_or_index_without_commit(runtime, monkeypatch, phase):

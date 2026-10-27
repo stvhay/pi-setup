@@ -593,8 +593,9 @@ def _closeout_context(state: dict[str, Any], session_id: str, bead_id: str) -> N
     if owner is not None and (owner["session"] != session_id or owner["checkout"] != checkout
                               or owner["phase"] not in {"active", "completed"}):
         raise ValueError("closeout checkout or execution ownership does not match")
-    if any(key != bead_id and value["checkout"] == checkout and value["phase"] != "completed"
-           for key, value in state["owners"].items()):
+    # Shared direct checkouts are valid; only unowned legacy attempts are ambiguous.
+    if owner is None and any(value["checkout"] == checkout and value["phase"] != "completed"
+                             for value in state["owners"].values()):
         raise ValueError("closeout checkout belongs to another execution")
     # Persisted hosts must prove their header. Legacy headless callers retain
     # their existing explicit session/checkout contract; no launch is implied.

@@ -164,8 +164,9 @@ def test_fresh_checkout_bootstraps_tracked_beads(tmp_path):
     assert any(issue["id"] == created_id for issue in after)
 
 
+@pytest.mark.parametrize("shared_checkout", [False, True])
 @pytest.mark.parametrize("audit_enabled", [False, True])
-def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_path, audit_enabled):
+def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_path, audit_enabled, shared_checkout):
     for key in list(os.environ):
         if key.startswith(("BD_", "BEADS_", "GIT_")):
             monkeypatch.delenv(key)
@@ -228,6 +229,11 @@ def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_pat
     foreign_claim = subprocess.run(["bd", "update", first, "--claim", "--json"], capture_output=True, text=True)
     assert foreign_claim.returncode != 0
     monkeypatch.setenv("BD_ACTOR", "lifecycle-tester")
+    from agnt_lib.work_lifecycle import runtime_store
+    if shared_checkout:
+        monkeypatch.setenv("PI_SESSION_ID", "fresh-second")
+        assert agnt.direct_start(second, claim=True)["status"] == "started"
+        second_owner = runtime_store().owner(second)
     monkeypatch.setenv("PI_SESSION_ID", "fresh-first")
     assert agnt.direct_closeout(first, outcome="success", reason="Verified.")["status"] == "closed"
     rows = {row["id"]: row for row in map(json.loads, portable.read_text().splitlines())}
@@ -237,7 +243,12 @@ def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_pat
     if audit_enabled:
         assert audit.read_bytes().startswith(legacy)
         assert len(audit.read_text().splitlines()) == 2
-    assert agnt.handoff_check(second, session_id="fresh-first")["status"] == "ready"
+    if shared_checkout:
+        assert runtime_store().owner(second) == second_owner
+        assert bd("show", second)[0]["status"] == "in_progress"
+        assert quality.session_attempt_state("fresh-second")["outcome"] is None
+    else:
+        assert agnt.handoff_check(second, session_id="fresh-first")["status"] == "ready"
     monkeypatch.setenv("PI_SESSION_ID", "fresh-second")
     assert agnt.direct_start(second, claim=True)["status"] == "started"
     assert agnt.direct_closeout(second, outcome="success", reason="Verified second.")["status"] == "closed"
