@@ -344,7 +344,21 @@ EXTERNAL_RESULT_STATUSES = frozenset({"completed", "partial", "lost", "uncertain
 
 
 class SessionWorkItemConflict(ValueError):
-    pass
+    """Ownership refusal with a safe public diagnosis, never raw ledger detail."""
+
+    def __init__(self, message: str, *, reason: str = "session-conflict"):
+        self.public_message = {
+            "session-conflict": "session belongs to another work item or has a final outcome",
+            "bead-owned": "target Bead belongs to another execution; resume its owning session",
+            "checkout-mismatch": "current checkout differs from execution ownership; use an approved host transition",
+            "owner-inactive": "execution is not active; recover its recorded transition or closeout",
+            "session-linked": "session is linked to another Bead; preserve its assignment",
+            "session-finalized": "session has a final outcome; inspect canonical status and closeout",
+            "legacy-owner": "another unfinished legacy attempt requires ownership reconciliation",
+            "reserved-checkout": "checkout is reserved by another transition; recover that exact reservation",
+        }[reason]
+        self.reason = reason
+        super().__init__(message)
 
 
 class SessionOutcomeUnavailable(ValueError):

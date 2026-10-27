@@ -21,8 +21,8 @@ Confirm all before editing:
 
 - plan path resolved and read from project filesystem
 - current branch and repository root checked
-- execution checkout established: a non-main branch/worktree or explicit same-checkout authority for `main`/`master`
-- working tree checked; unrelated changes understood through human decision
+- execution checkout follows shared direct/isolation policy and any narrower user scope
+- working tree checked; unrelated ownership and edit overlap understood
 - relevant baseline established once or explicitly inherited, with failures classified
 - first risk-sized batch and its verification selected
 - stop conditions understood
@@ -31,26 +31,13 @@ Stop before edits if any item is unresolved.
 
 ## Branch and dirty-tree policy
 
-When starting from `main` or `master`:
+Follow shared `AGENTS.md` direct-work default and narrower project/user constraints. A checkout explicitly reserved for orchestration must stay on its approved branch and baseline. Do not edit or switch that checkout without exact same-checkout authority.
 
-1. Treat the current checkout as the orchestration checkout.
-2. Never switch the orchestration checkout to a feature branch or write implementation files there unless same-checkout execution is explicitly authorized.
-3. Require authority that specifically permits editing the shared checkout; generic implementation or commit authority is not same-checkout authority.
-4. Load `using-git-worktrees` when isolated local implementation is authorized; create a separate feature branch/worktree and run every edit and verification command there.
-5. Recheck that the orchestration checkout remains on `main`/`master` and clean at each checkpoint.
+Inspect path ownership and overlapping writes before choosing isolation. Unrelated untracked files alone do not require isolation; preserve known unrelated files without staging them. Ask only when ownership, overlap or authority is unresolved. Never stash, reset, clean, delete, move, or commit unrelated work without explicit approval. Approved task plans are not blockers.
 
-A branch switch in the same checkout is not isolation because untracked and ignored filesystem state stays shared. If neither a safe execution worktree nor explicit same-checkout authority is available, stop before edits.
+Load `using-git-worktrees` when isolation is needed and authorized. A branch switch or shell `cd` is not a Pi session transition; validate host checkout/header/ownership before implementation there. Read-only peers need no implementation ownership.
 
-Same-checkout execution remains allowed when project instructions or the current user specifically authorize it. Record that authority; it does not authorize remote or unrelated-work operations. Prune only after integration is verified. When initial approved scope names the exact path/branch cleanup, show clean tracked/untracked status and recovery SHA, then remove with non-force Git commands without another approval; otherwise leave the worktree intact pending later approval.
-
-When unrelated changes exist:
-
-1. Identify exact paths and likely ownership.
-2. Ask how to handle them.
-3. Continue only after the user authorizes leaving them untouched or provides another safe resolution.
-4. Never stash, reset, clean, delete, move, or commit them without explicit approval.
-
-Approved plan files or clearly related in-progress changes are not blockers; note them.
+Prune only after integration is verified. When initial approved scope names the exact path/branch cleanup, show clean tracked/untracked status and recovery SHA, then remove with non-force Git commands without another approval; otherwise leave the worktree intact.
 
 ## Load and review plan
 

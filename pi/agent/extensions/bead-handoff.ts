@@ -5,7 +5,7 @@ import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earen
 import { Type } from "typebox";
 import { requestProcessReplacement, requireProcessReplacement } from "./lib/process-replacement.ts";
 import { runAgntJson } from "./lib/run-agnt-json.ts";
-import { continuationContext, registerContinuationStartup, runContinuationCommand, startContinuation } from "./lib/work-continuation.ts";
+import { continuationContext, registerContinuationStartup, reportContinuationCommand, startContinuation, type ContinuationOptions } from "./lib/work-continuation.ts";
 
 const BEAD_ID = /^[a-z][a-z0-9]*-[A-Za-z0-9._-]+$/;
 
@@ -235,32 +235,48 @@ async function startHandoff(requestedTarget: string | undefined, ctx: HandoffCon
   return targetBead;
 }
 
+async function routeHandoff(options: ContinuationOptions, ctx: HandoffContext, signal?: AbortSignal) {
+  const current = await continuationContext(ctx, signal);
+  if (options.transitionId || current.pendingTransition || current.status === "continuable" || current.status === "terminal") {
+    return startContinuation(options, ctx, signal, current);
+  }
+  if (options.mode || options.checkpointRef || options.checkout || options.progress) {
+    throw new Error(`Continuation options require unfinished assigned work; source is ${current.status}. No checkpoint was saved.`);
+  }
+  if (!["unassigned", "closed"].includes(String(current.status))) {
+    throw new Error(`Source requires ${current.status}; inspect ownership or closeout before handoff.`);
+  }
+  const targetBead = await startHandoff(options.targetBead, ctx, signal);
+  return {
+    content: [{ type: "text" as const, text: `Starting fresh-session handoff to ${targetBead}; Pi restart requested.` }],
+    details: { targetBead } as Record<string, unknown>,
+    terminate: true,
+  };
+}
+
 export default function beadHandoff(pi: ExtensionAPI): void {
   registerContinuationStartup(pi);
   pi.registerCommand("handoff-bead", {
     description: "Continue assigned work or start a ready Bead in a fresh Pi session",
     handler: async (args, ctx) => {
       const [verb, target, extra] = args.trim().split(/\s+/);
+      let options: ContinuationOptions;
       if (["resume", "switch", "next", "recover"].includes(verb)) {
         if (extra || (target && verb !== "recover" && !validBeadId(target))) throw new Error("Usage: /handoff-bead resume|switch|next [Bead ID], or recover <transition ID>");
         if (verb === "recover") {
           if (!target || !/^[a-f0-9]{32}$/.test(target)) throw new Error("Expected exact transition ID");
-          await runContinuationCommand({ transitionId: target }, ctx);
+          options = { transitionId: target };
         } else {
-          await runContinuationCommand({ mode: verb as "resume" | "switch" | "next", targetBead: target }, ctx);
+          options = { mode: verb as "resume" | "switch" | "next", targetBead: target };
         }
-        return;
-      }
-      const targetBead = args.trim() || undefined;
-      if (targetBead && !validBeadId(targetBead)) throw new Error("Usage: /handoff-bead [valid Bead ID]");
-      if (ctx.mode !== "tui") throw new Error("/handoff-bead requires interactive TUI mode; use an explicit continuation mode for a host manifest");
-      if (!ctx.sessionManager.getSessionFile()) throw new Error("/handoff-bead requires a persisted session");
-      const current = await continuationContext(ctx);
-      if (current.status === "continuable") {
-        await runContinuationCommand({ targetBead, ...(targetBead ? { mode: targetBead !== current.beadId ? "switch" as const : "resume" as const } : {}) }, ctx);
       } else {
-        await startHandoff(targetBead, ctx);
+        const targetBead = args.trim() || undefined;
+        if (targetBead && !validBeadId(targetBead)) throw new Error("Usage: /handoff-bead [valid Bead ID]");
+        if (ctx.mode !== "tui") throw new Error("/handoff-bead requires interactive TUI mode; use an explicit continuation mode for a host manifest");
+        if (!ctx.sessionManager.getSessionFile()) throw new Error("/handoff-bead requires a persisted session");
+        options = { targetBead };
       }
+      reportContinuationCommand(await routeHandoff(options, ctx), ctx);
     },
   });
 
@@ -272,6 +288,7 @@ export default function beadHandoff(pi: ExtensionAPI): void {
     promptGuidelines: [
       "For unfinished linked work, handoff_bead defaults to checkpoint/resume; a different target requests an assignment-scoped switch. Supply current concise progress in this call: decisions, completed work, next steps, blockers, verification and artifact paths, not a transcript. Use checkpointRef only to retain an exact existing checkpoint, never together with new progress.",
       "Use mode=next for deterministic eligible work inside the recorded assignment; transitionId recovers the exact reservation. Settle existing reservations before changing target, mode, checkpoint or checkout. Never close unfinished work or rewrite outcomes to enable continuation.",
+      "Canonically closed non-success work defaults to next within captured scope, using a reserved child. Requires its actual owning session/header, closure disposition, settled effects and a clean existing destination; preserve dirty source work in an approved isolated checkout. No success rewriting, new terminal worktree or foreign-owner sweep.",
       "After verified successful closeout, or from an unassigned session, the existing ready-work handoff remains available. Headless continuation returns a host manifest; /new is only a fallback for an unavailable runtime, never an ownership override.",
     ],
     parameters: Type.Object({
@@ -291,20 +308,7 @@ export default function beadHandoff(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const requestedTarget = params.targetBead?.trim() || undefined;
       if (requestedTarget && !validBeadId(requestedTarget)) throw new Error("targetBead must be a valid Bead ID");
-      if (params.mode || params.transitionId || params.checkpointRef || params.checkout || params.progress) {
-        return startContinuation({ ...params, targetBead: requestedTarget }, ctx, signal);
-      }
-      const current = await continuationContext(ctx, signal);
-      if (current.status === "continuable") {
-        return startContinuation({ targetBead: requestedTarget,
-          ...(requestedTarget ? { mode: requestedTarget !== current.beadId ? "switch" as const : "resume" as const } : {}) }, ctx, signal);
-      }
-      const targetBead = await startHandoff(requestedTarget, ctx, signal);
-      return {
-        content: [{ type: "text", text: `Starting fresh-session handoff to ${targetBead}; Pi restart requested.` }],
-        details: { targetBead },
-        terminate: true,
-      };
+      return routeHandoff({ ...params, targetBead: requestedTarget }, ctx, signal);
     },
   });
 }

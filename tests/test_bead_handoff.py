@@ -39,7 +39,7 @@ if [ "$1" = runtime-path ]; then
   exit 0
 fi
 if [ "$2" = transition-context ]; then
-  printf '%s\\n' '{"schemaVersion":1,"status":"legacy"}'
+  printf '%s\\n' '{"schemaVersion":1,"status":"unassigned"}'
   exit 0
 fi
 printf '%s\\n' "$@" > "$FAKE_AGNT_ARGS"

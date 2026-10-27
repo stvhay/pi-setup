@@ -7,6 +7,37 @@ from pathlib import Path
 import pytest
 
 
+@pytest.mark.parametrize("git_state", ["unborn", "changed-gitlink"])
+def test_claim_reads_metadata_not_working_file_bodies(lifecycle, tmp_path, monkeypatch, git_state):
+    import subprocess
+
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    def git(*args):
+        return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.name", "Fixture")
+    git("config", "user.email", "fixture@example.test")
+    (repo / ".gitignore").write_text("ignored/\n")
+    (repo / "ignored").mkdir()
+    (repo / "ignored" / "sentinel").write_text("must not read")
+    with (repo / "large").open("wb") as stream:
+        stream.truncate(lifecycle._MAX_FILE + 1)
+    if git_state == "changed-gitlink":
+        git("commit", "--allow-empty", "-qm", "base")
+        head = git("rev-parse", "HEAD").decode()
+        git("update-index", "--add", "--cacheinfo", f"160000,{head},submodule")
+        (repo / "submodule").mkdir()
+    journal = lifecycle.LifecycleStore(tmp_path / "journal")
+    original_open = Path.open
+    def guarded_open(path, *args, **kwargs):
+        assert not path.is_relative_to(repo), f"claim read workspace content: {path}"
+        return original_open(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "open", guarded_open)
+    journal.claim("pi-a", "session-a", str(repo))
+    assert journal.owner("pi-a")["checkout"] == str(repo)
+
+
 def test_lifecycle_service_available(agnt):
     assert importlib.util.find_spec("agnt_lib.work_lifecycle"), "resumable lifecycle service is missing"
 
@@ -95,10 +126,10 @@ def test_pending_transition_blocks_completed_checkout_release(lifecycle, tmp_pat
     journal, repo, cp = setup_attempt(lifecycle, tmp_path)
     tx = prepare(journal, repo, cp)
     with pytest.raises(ValueError, match="pending transition"):
-        journal.release_completed("pi-a", "session-a")
+        journal.release_terminal("pi-a", "session-a")
     assert journal.owner("pi-a")["phase"] == "active"
     journal.cancel(tx["id"], source_session="session-a")
-    journal.release_completed("pi-a", "session-a")
+    journal.release_terminal("pi-a", "session-a")
     assert journal.owner("pi-a")["phase"] == "completed"
 
 
@@ -244,7 +275,7 @@ def test_prepare_ignores_completed_checkout_owners(lifecycle, tmp_path, target):
     checkout.mkdir(exist_ok=True)
     for bead in ("pi-c", "pi-d"):
         journal.claim(bead, f"session-{bead}", str(checkout))
-        journal.release_completed(bead, f"session-{bead}")
+        journal.release_terminal(bead, f"session-{bead}")
     owners = {bead: journal.owner(bead) for bead in ("pi-c", "pi-d")}
 
     tx = prepare(journal, repo, cp, target=target, checkout=checkout)

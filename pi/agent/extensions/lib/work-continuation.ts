@@ -102,11 +102,13 @@ function report(details: Record<string, unknown>, terminate = false) {
   return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details, ...(terminate ? { terminate: true } : {}) };
 }
 
-export async function startContinuation(options: ContinuationOptions, ctx: Context, signal?: AbortSignal) {
+export async function startContinuation(options: ContinuationOptions, ctx: Context, signal?: AbortSignal,
+  inspected?: Record<string, unknown>) {
   const sourceSession = ctx.sessionManager.getSessionId();
-  const current = await continuationContext(ctx, signal);
+  const current = inspected ?? await continuationContext(ctx, signal);
+  const mode = options.mode ?? (current.status === "terminal" ? "next" : options.targetBead && options.targetBead !== current.beadId ? "switch" : "resume");
   if (ctx.mode !== "tui") {
-    return report({ status: "host-required", mode: options.mode ?? "resume", sourceSession,
+    return report({ status: "host-required", mode, sourceSession,
       checkpointRef: options.checkpointRef, targetBead: options.targetBead, transitionId: options.transitionId,
       progress: options.progress, source: current, reason: "Caller owns process launch. No checkpoint, reservation or shutdown performed." });
   }
@@ -122,8 +124,11 @@ export async function startContinuation(options: ContinuationOptions, ctx: Conte
   if (recoveryId) {
     result = await runTransition(ctx, ["transition-recover", recoveryId], signal);
   } else {
-    if (current.status !== "continuable" || typeof current.beadId !== "string") {
-      throw new Error("Continuation requires unfinished assigned work; use normal closeout handoff otherwise");
+    if (!["continuable", "terminal"].includes(String(current.status)) || typeof current.beadId !== "string") {
+      throw new Error("Continuation requires assigned unfinished or verified terminal work; inspect source state otherwise");
+    }
+    if (current.status === "terminal" && (options.mode === "resume" || options.targetBead === current.beadId)) {
+      throw new Error("Terminal departure requires different assigned work, not source resume");
     }
     let checkpointRef = options.checkpointRef;
     if (!checkpointRef) {
@@ -133,7 +138,7 @@ export async function startContinuation(options: ContinuationOptions, ctx: Conte
       if (!checkpointRef) throw new Error("Checkpoint was not persisted; no launch requested");
     }
     result = await runTransition(ctx, ["transition-prepare", ...(options.targetBead ? [options.targetBead] : []),
-      "--mode", options.mode ?? (options.targetBead && options.targetBead !== current.beadId ? "switch" : "resume"),
+      "--mode", mode,
       "--session-id", sourceSession, "--checkpoint-ref", checkpointRef,
       "--runtime-ready", ...(options.checkout ? ["--checkout", options.checkout] : [])], signal);
     if (result.status === "idle") return report(result);
@@ -142,7 +147,9 @@ export async function startContinuation(options: ContinuationOptions, ctx: Conte
     reason: "Reserved transition is not launchable; inspect its recorded recovery action.",
     ...value, status: "reconciliation-required",
   });
-  if (result.status === "blocked" && !result.transition) return reconcile(result);
+  if (result.status === "blocked" && !result.transition) {
+    return result.transitionId ? reconcile(result) : report(result);
+  }
   let pending = reservationFrom(result);
   if (pending.sourceSession !== sourceSession || realpathSync(parentSession) !== pending.sourceSessionFile) {
     throw new Error("Only the reserved persisted source may launch this continuation");
@@ -221,8 +228,7 @@ export async function startContinuation(options: ContinuationOptions, ctx: Conte
     childSession: tx.childSession, checkpointRef: tx.checkpointRef }, true);
 }
 
-export async function runContinuationCommand(options: ContinuationOptions, ctx: Context): Promise<void> {
-  const result = await startContinuation(options, ctx);
+export function reportContinuationCommand(result: ReturnType<typeof report>, ctx: Context): void {
   if (result.terminate) return;
   const details = result.details;
   const transition = details.transition as { id?: string } | undefined;

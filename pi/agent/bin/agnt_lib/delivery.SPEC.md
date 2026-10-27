@@ -2,7 +2,7 @@
 
 ## Status and purpose
 
-In-progress pi-pvcg source foundation. `DeliveryStore` coordinates recoverable effects through **trusted concrete adapters**. Core tests use a fake provider; `WorktreeCreationAdapter` adds disposable native Git/Beads tests. No lifecycle creation consumer or public execution CLI is connected yet. This is not evidence of autonomous full delivery, live activation, or deployment.
+In-progress pi-pvcg source foundation. `DeliveryStore` coordinates recoverable effects through **trusted concrete adapters**. Core tests use a fake provider; `WorktreeCreationAdapter` adds disposable native Git/Beads tests. Continuation consumes native creation receipts and checks settled effects before terminal departure; orchestrated creation and a public execution CLI remain unconnected. This is not evidence of autonomous full delivery, live activation, or deployment.
 
 The core keeps standing-policy authority separate from quality experiment grants. It is not a scheduler, deployment platform, or shell sandbox.
 
@@ -26,6 +26,8 @@ Resolved action schema 1 binds repository, Bead, effect closure, decision refs, 
 Observations classify `applied`, `not-applied`, or `uncertain`, bound to the exact target/source with evidence refs. Exceptions, malformed data, mismatched identity, or missing evidence produce uncertainty, not proof of absence. Provider error text is not copied into receipts/results.
 
 `not-applied` must prove terminal absence/quiescence. A missing provider object after a timeout is **not** sufficient if a request may still land. Concrete local-process adapters must preserve resource lease FDs in their effect processes so a host crash cannot release the lease while a local writer remains active. Remote adapters need provider-specific reconciliation/idempotency evidence; the core cannot infer it.
+
+`assert_settled(assignment, bead)` reads the validated receipt journal and rejects terminal execution departure while that assignment/Bead has prepared, started, not-applied or uncertain effects. Applied/cancelled receipts and other Beads are not reclassified. Unreadable evidence fails closed. This inspection grants no effects or authority and does not settle receipts.
 
 ## Persistence and resource ownership
 

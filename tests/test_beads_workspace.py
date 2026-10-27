@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from test_work_continuation import runtime  # noqa: F401
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TRACKED_BEADS_FILES = (
@@ -166,7 +168,7 @@ def test_fresh_checkout_bootstraps_tracked_beads(tmp_path):
 
 @pytest.mark.parametrize("shared_checkout", [False, True])
 @pytest.mark.parametrize("audit_enabled", [False, True])
-def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_path, audit_enabled, shared_checkout):
+def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_path, capsys, audit_enabled, shared_checkout):
     for key in list(os.environ):
         if key.startswith(("BD_", "BEADS_", "GIT_")):
             monkeypatch.delenv(key)
@@ -211,7 +213,7 @@ def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_pat
 
     quality = sys.modules["agnt_lib.quality"]
     improvement = sys.modules["agnt_lib.improvement"]
-    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda _kind: tmp_path / "quality")
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda _kind, **_kwargs: tmp_path / "quality")
     monkeypatch.setattr(improvement, "_best_effort_projection", lambda summary, _project: summary)
     monkeypatch.setenv("PI_SESSION_ID", "fresh-first")
     assert agnt.handoff_check(first, session_id="unassigned")["status"] == "ready"
@@ -234,7 +236,34 @@ def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_pat
         monkeypatch.setenv("PI_SESSION_ID", "fresh-second")
         assert agnt.direct_start(second, claim=True)["status"] == "started"
         second_owner = runtime_store().owner(second)
+    def resume(bead, session):
+        from agnt_lib.work_lifecycle import checkpoint_current
+        monkeypatch.setenv("PI_SESSION_ID", session)
+        source = tmp_path / f"{session}.jsonl"
+        header = json.dumps({"type": "session", "id": session, "cwd": str(repo)}) + "\n"
+        source.write_text(header)
+        monkeypatch.setenv("PI_SESSION_FILE", str(source))
+        cp = checkpoint_current(bead)["checkpoint"]
+        assert agnt.main(["work", "transition-prepare", bead, "--mode", "resume", "--session-id", session,
+                          "--checkpoint-ref", cp["id"], "--runtime-ready"]) == 0
+        tx = json.loads(capsys.readouterr().out)["transition"]
+        child = Path(tx["childSessionFile"])
+        child.parent.mkdir(parents=True, exist_ok=True)
+        child.write_text(json.dumps({"type": "session", "id": tx["childSession"], "cwd": str(repo),
+                                     "parentSession": str(source)}) + "\n")
+        assert agnt.main(["work", "transition-stage", tx["id"], "--session-id", session]) == 0
+        capsys.readouterr()
+        monkeypatch.setenv("PI_SESSION_ID", tx["childSession"])
+        monkeypatch.setenv("PI_SESSION_FILE", str(child))
+        assert agnt.main(["work", "transition-attach", tx["id"], "--session-id", tx["childSession"]]) == 0
+        capsys.readouterr()
+        assert source.read_text() == header
+        assert quality.session_attempt_state(session) == {"beadId": bead, "outcome": None}
+        return tx["childSession"]
+
     monkeypatch.setenv("PI_SESSION_ID", "fresh-first")
+    if shared_checkout:
+        resume(first, "fresh-first")
     assert agnt.direct_closeout(first, outcome="success", reason="Verified.")["status"] == "closed"
     rows = {row["id"]: row for row in map(json.loads, portable.read_text().splitlines())}
     canonical = bd("show", first)[0]
@@ -249,10 +278,61 @@ def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_pat
         assert quality.session_attempt_state("fresh-second")["outcome"] is None
     else:
         assert agnt.handoff_check(second, session_id="fresh-first")["status"] == "ready"
+    monkeypatch.delenv("PI_SESSION_FILE", raising=False)
     monkeypatch.setenv("PI_SESSION_ID", "fresh-second")
+    if shared_checkout:
+        resume(second, "fresh-second")
     assert agnt.direct_start(second, claim=True)["status"] == "started"
     assert agnt.direct_closeout(second, outcome="success", reason="Verified second.")["status"] == "closed"
     assert run("git", "status", "--porcelain", "--untracked-files=no") == ""
+
+
+@pytest.mark.parametrize("isolated", [False, True])
+@pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "work-transition", "repo-write", "git-commit"]}], indirect=True)
+def test_native_terminal_departure_preserves_cancelled_source(agnt, runtime, monkeypatch, capsys, isolated):
+    from test_work_continuation import checkpoint, prepare, stage
+    for key in list(os.environ):
+        if key.startswith(("BD_", "BEADS_", "GIT_")):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv("BD_EXPORT_AUTO", "false")
+    monkeypatch.setenv("BD_AUDIT_ENABLED", "0")
+    monkeypatch.setenv("BD_ACTOR", "terminal-fixture")
+    def run(*args, cwd=None):
+        result = subprocess.run(args, cwd=cwd or runtime["repo"], check=True, capture_output=True, text=True)
+        return result.stdout
+    def native(args):
+        result = subprocess.run(["bd", *args, "--json"], check=False, capture_output=True, text=True)
+        return result.returncode, json.loads(result.stdout) if result.returncode == 0 else None, result.stderr
+    run("bd", "init", "--prefix", "pi", "--skip-agents", "--skip-hooks", "--non-interactive")
+    for bead in ("pi-a", "pi-b"):
+        run("bd", "create", "--id", bead, "--title", bead, "--type", "task")
+    run("bd", "export", "--readonly", "-o", str(runtime["repo"] / ".beads/issues.jsonl"))
+    run("git", "add", ".beads")
+    run("git", "commit", "-qm", "native terminal fixture")
+    run("git", "checkout", "--detach", run("git", "rev-parse", "HEAD").strip(), cwd=runtime["other"])
+    monkeypatch.setattr(runtime["work"], "run_beads_json", native)
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    runtime["quality"].capture_session_outcome("session-a", "pi-a", "partial", beads_runner=native)
+    run("bd", "close", "pi-a", "--reason", "Wontfix: cancelled fixture")
+    cancelled = native(["show", "pi-a"])[1][0]
+    if isolated:
+        (runtime["repo"] / "unfinished.txt").write_text("preserve cancelled work")
+    cp = checkpoint(agnt, runtime, capsys)
+    target = runtime["other"] if isolated else runtime["repo"]
+    tx = prepare(agnt, runtime, cp, capsys, target="pi-b", checkout=target)
+    stage(agnt, tx, capsys)
+    monkeypatch.chdir(target)
+    monkeypatch.setenv("PI_SESSION_ID", tx["childSession"])
+    monkeypatch.setenv("PI_SESSION_FILE", tx["childSessionFile"])
+    assert agnt.main(["work", "transition-attach", tx["id"], "--session-id", tx["childSession"]]) == 0
+    capsys.readouterr()
+    assert runtime["work"].direct_closeout("pi-b", outcome="success", reason="Verified next work")["status"] == "closed"
+    assert runtime["store"].owner("pi-a")["phase"] == "completed"
+    assert runtime["quality"].session_attempt_state("session-a") == {"beadId": "pi-a", "outcome": "partial"}
+    current = native(["show", "pi-a"])[1][0]
+    assert all(current[key] == cancelled[key] for key in ("status", "closed_at", "close_reason"))
+    if isolated:
+        assert (runtime["repo"] / "unfinished.txt").read_text() == "preserve cancelled work"
 
 
 def test_project_init_requires_tested_lifecycle_profile():

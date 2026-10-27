@@ -3536,27 +3536,24 @@ def _max_traces(value: str) -> int:
     return limit
 
 
-def _report_session_work_item_conflict(*, target_bead: str, json_output: bool) -> int:
+def _report_session_work_item_conflict(error: SessionWorkItemConflict, *, target_bead: str, json_output: bool) -> int:
+    can_handoff = error.reason in {"session-conflict", "session-linked"}
     if json_output:
         print(json.dumps({
             "schemaVersion": 1,
             "status": "error",
-            "error": "session belongs to another work item",
+            "error": error.public_message,
+            "reason": error.reason,
             "recovery": {
                 "action": "checkpoint-or-reconcile-ownership",
-                "handoffTool": {
-                    "name": "handoff_bead",
-                    "arguments": {"targetBead": target_bead},
-                },
-                "humanFallback": {"command": "/new", "onlyWhen": "continuation runtime unavailable"},
+                **({"handoffTool": {"name": "handoff_bead", "arguments": {"targetBead": target_bead}}}
+                   if can_handoff else {}),
             },
         }))
     else:
         print(
-            "Current Pi session belongs to another work item. "
-            f"Call handoff_bead with targetBead={target_bead}; "
-            "checkpoint/switch or reconcile ownership without relabeling history. "
-            "Use /new only when the continuation runtime is unavailable.",
+            error.public_message + (f"; use handoff_bead with targetBead={target_bead} or reconcile ownership"
+                                    if can_handoff else "; reconcile the recorded owner/context without takeover"),
             file=sys.stderr,
         )
     return 2
@@ -3624,8 +3621,8 @@ def cmd_improve(argv: list[str]) -> int:
     if args.action == "outcome":
         try:
             summary = record_current_session_outcome(args.bead, args.outcome)
-        except SessionWorkItemConflict:
-            return _report_session_work_item_conflict(target_bead=args.bead, json_output=args.json)
+        except SessionWorkItemConflict as exc:
+            return _report_session_work_item_conflict(exc, target_bead=args.bead, json_output=args.json)
         except (LangfuseError, OSError, ValueError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement outcome failed"}))
@@ -3640,8 +3637,8 @@ def cmd_improve(argv: list[str]) -> int:
     if args.action == "link":
         try:
             summary = link_current_session(args.bead)
-        except SessionWorkItemConflict:
-            return _report_session_work_item_conflict(target_bead=args.bead, json_output=args.json)
+        except SessionWorkItemConflict as exc:
+            return _report_session_work_item_conflict(exc, target_bead=args.bead, json_output=args.json)
         except (LangfuseError, OSError, ValueError):
             if args.json:
                 print(json.dumps({"schemaVersion": 1, "status": "error", "error": "improvement link failed"}))

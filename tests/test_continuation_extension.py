@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
@@ -33,8 +36,12 @@ if command == "transition-context":
     if "--session-id" in args and args[args.index("--session-id")+1] == tx["childSession"]:
         result = {"status": "child", "transition": tx}
     else:
-        result = {"status": "continuable", "beadId": "pi-a"}
+        result = {"status": os.environ.get("SOURCE_STATE", "continuable"), "beadId": "pi-a"}
         if os.environ.get("PENDING_TRANSITION"): result["pendingTransition"] = tx
+elif command in {"transition-prepare", "transition-recover"} and os.environ.get("REJECT_PREPARATION"):
+    result = {"status": "blocked", "reason": "source changed", "transitionId": None,
+              "recovery": "No transition was reserved; correct input or environment before preparing again."}
+    exit_code = 2
 elif command == "checkpoint":
     if "--input-file" in args and args[args.index("--input-file")+1] == "-":
         (root / "received-progress.json").write_text(sys.stdin.read())
@@ -85,12 +92,190 @@ sys.exit(int(os.environ.get("FAILURE_EXIT_CODE", exit_code)) if exit_code else 0
     return {"PI_CODING_AGENT_DIR": str(agent), "FIXTURE_ROOT": str(tmp_path)}
 
 
+def test_disposable_host_executes_relocation_round_trip(tmp_path):
+    """Real execve + SDK resources/tools + native Beads; no model or live host."""
+    root = Path(__file__).resolve().parents[1]
+    node = shutil.which("node")
+    if not node or not shutil.which("bd"):
+        pytest.skip("native Node/Beads unavailable")
+    home, repo, other = (tmp_path / name for name in ("home", "repo", "other"))
+    home.mkdir()
+    repo.mkdir()
+    agent = home / ".pi/agent"
+    (agent / "bin").mkdir(parents=True)
+    (agent / "bin/agnt").symlink_to(root / "pi/agent/bin/agnt")
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent),
+           "BD_EXPORT_AUTO": "false", "BD_AUDIT_ENABLED": "0", "BD_ACTOR": "fixture-host"}
+    def run(*args, cwd=repo):
+        result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        return result.stdout
+    run("git", "init", "-q")
+    run("git", "config", "user.name", "Fixture")
+    run("git", "config", "user.email", "fixture@example.invalid")
+    run("bd", "init", "--prefix", "probe", "--skip-agents", "--skip-hooks", "--non-interactive")
+    bead = json.loads(run("bd", "create", "--title", "Relocation probe", "--type", "task", "--json"))["id"]
+    run("bd", "export", "--readonly", "-o", str(repo / ".beads/issues.jsonl"))
+    (repo / "AGENTS.md").write_text("SOURCE_CONTEXT_MARKER\n")
+    run("git", "add", ".")
+    run("git", "commit", "-qm", "fixture baseline")
+    run("git", "worktree", "add", "-qb", "fixture-target", str(other))
+    (other / "AGENTS.md").write_text("TARGET_CONTEXT_MARKER\n")
+    run("git", "add", "AGENTS.md", cwd=other)
+    run("git", "commit", "-qm", "target context", cwd=other)
+    (repo / "unfinished.txt").write_text("preserved source dirt\n")
+    sdk = run_node('console.log(import.meta.resolve("@earendil-works/pi-coding-agent"));').stdout.strip()
+    host = tmp_path / "host.mjs"
+    proof = tmp_path / "host-proof.jsonl"
+    parent = tmp_path / "source.jsonl"
+    header = {"type": "session", "version": 3, "id": "source-host", "timestamp": "2026-10-27T00:00:00Z", "cwd": str(repo)}
+    parent.write_text(json.dumps(header) + "\n")
+    original = parent.read_bytes()
+    host.write_text(f'''
+import assert from "node:assert/strict";
+import {{ appendFileSync, readFileSync }} from "node:fs";
+import {{ dirname, resolve }} from "node:path";
+import {{ pathToFileURL, fileURLToPath }} from "node:url";
+import {{ spawnSync }} from "node:child_process";
+import {{ SessionManager, DefaultResourceLoader, SettingsManager, createReadTool, createBashTool }} from {json.dumps(sdk)};
+const loader = await import(pathToFileURL(resolve(dirname(fileURLToPath({json.dumps(sdk)})), "core/extensions/loader.js")).href);
+const runtime = loader.createExtensionRuntime();
+const loaded = await loader.loadExtensions([{json.dumps(str(root / "pi/agent/extensions/bead-handoff.ts"))}], process.cwd(), undefined, runtime);
+assert.deepEqual(loaded.errors, []);
+const extension = loaded.extensions[0];
+const fileIndex = process.argv.indexOf("--session");
+const sessionFile = fileIndex < 0 ? {json.dumps(str(parent))} : process.argv[fileIndex + 1];
+const manager = SessionManager.open(sessionFile);
+assert.equal(manager.getCwd(), process.cwd());
+process.env.PI_SESSION_ID = manager.getSessionId();
+process.env.PI_SESSION_FILE = sessionFile;
+const ctx = {{ mode: "tui", cwd: process.cwd(), sessionManager: manager,
+  shutdown() {{}}, ui: {{ notify(message, severity) {{ assert.notEqual(severity, "error", message); }} }} }};
+for (const handler of extension.handlers.get("session_start") ?? []) await handler({{type:"session_start"}}, ctx);
+function agnt(...args) {{
+  const result = spawnSync({json.dumps(str(agent / "bin/agnt"))}, args, {{env:process.env, encoding:"utf8"}});
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  return JSON.parse(result.stdout);
+}}
+const resourceLoader = new DefaultResourceLoader({{cwd: process.cwd(), agentDir: {json.dumps(str(agent))},
+  settingsManager: SettingsManager.inMemory({{packages:[], extensions:[]}}),
+  noExtensions:true, noSkills:true, noPromptTemplates:true, noThemes:true}});
+await resourceLoader.reload();
+const instructions = resourceLoader.getAgentsFiles().agentsFiles.map(x => x.content).join("\\n");
+const marker = process.cwd() === {json.dumps(str(other))} ? "TARGET_CONTEXT_MARKER" : "SOURCE_CONTEXT_MARKER";
+assert.ok(instructions.includes(marker), instructions);
+const read = await createReadTool(process.cwd()).execute("probe", {{path:"AGENTS.md"}});
+assert.ok(JSON.stringify(read).includes(marker));
+const shell = await createBashTool(process.cwd()).execute("probe", {{command:"pwd"}});
+assert.ok(JSON.stringify(shell).includes(process.cwd()));
+const phase = fileIndex < 0 ? "source" : process.cwd() === {json.dumps(str(other))} ? "target" : "returned";
+const owner = agnt("work", "direct-start", {json.dumps(bead)}, "--claim");
+assert.equal(owner.status, "started");
+appendFileSync({json.dumps(str(proof))}, JSON.stringify({{phase, cwd:process.cwd(), session:manager.getSessionId(),
+  header:manager.getHeader(), marker, pid:process.pid}}) + "\\n");
+if (phase === "returned") {{
+  assert.equal(readFileSync({json.dumps(str(repo / "unfinished.txt"))}, "utf8"), "preserved source dirt\\n");
+  const result = agnt("work", "direct-closeout", {json.dumps(bead)}, "--outcome", "success", "--reason", "Native host verified.");
+  assert.equal(result.status, "closed");
+}} else {{
+  const tool = extension.tools.get("handoff_bead").definition;
+  const result = await tool.execute("probe", {{checkout:phase === "source" ? {json.dumps(str(other))} : {json.dumps(str(repo))}}},
+      undefined, undefined, ctx);
+  assert.equal(result.terminate, true);
+}}
+process.exit(0);
+''')
+    run(node, str(host))
+    frames = [json.loads(line) for line in proof.read_text().splitlines()]
+    assert [frame["phase"] for frame in frames] == ["source", "target", "returned"]
+    assert len({frame["pid"] for frame in frames}) == 1  # Actual execve, not a mocked launcher.
+    assert len({frame["session"] for frame in frames}) == 3
+    assert parent.read_bytes() == original
+    assert json.loads(run("bd", "show", bead, "--json"))[0]["status"] == "closed"
+    assert (repo / "unfinished.txt").read_text() == "preserved source dirt\n"
+
+
 def context(tmp_path, session="source-session", mode="tui"):
     session_file = tmp_path / ("source.jsonl" if session == "source-session" else "children/child.jsonl")
     return f'''{{ mode: {mode!r}, cwd: {str(tmp_path)!r},
       sessionManager: {{ getSessionId: () => {session!r}, getSessionFile: () => {str(session_file)!r},
         getSessionDir: () => {str(tmp_path / "sessions")!r} }},
       shutdown() {{ shutdowns++; }}, ui: {{ notify() {{}} }} }}'''
+
+
+@pytest.mark.parametrize("source_state", ["unassigned", "closed"])
+@pytest.mark.parametrize("option", ["progress", "checkout", "checkpointRef", "mode"])
+def test_noncontinuable_options_are_rejected_without_false_source_claim(tmp_path, source_state, option):
+    env = fixture_agent(tmp_path)
+    env["SOURCE_STATE"] = source_state
+    options = {"progress": {"objective": "context"}, "checkout": str(tmp_path), "checkpointRef": "b" * 32, "mode": "resume"}
+    script = loader_prelude() + f'''
+      const tool = extension.tools.get("handoff_bead").definition;
+      let shutdowns = 0;
+      await assert.rejects(() => tool.execute("call", {json.dumps({option: options[option]})}, undefined, undefined,
+        {context(tmp_path)}), /options require unfinished assigned work; source is {source_state}/);
+      assert.equal(shutdowns, 0);
+    '''
+    run_node(script, env=env)
+    assert commands(tmp_path) == ["transition-context"]
+
+
+def test_headless_terminal_manifest_defaults_to_next_without_effects(tmp_path):
+    env = fixture_agent(tmp_path)
+    env["SOURCE_STATE"] = "terminal"
+    script = loader_prelude() + f'''
+      const tool = extension.tools.get("handoff_bead").definition;
+      let shutdowns = 0;
+      const result = await tool.execute("call", {{}}, undefined, undefined, {context(tmp_path, mode="rpc")});
+      assert.equal(result.details.status, "host-required");
+      assert.equal(result.details.mode, "next");
+      assert.equal(shutdowns, 0);
+    '''
+    run_node(script, env=env)
+    assert commands(tmp_path) == ["transition-context"]
+
+
+def test_terminal_departure_uses_reserved_continuation_not_legacy_handoff(tmp_path):
+    env = fixture_agent(tmp_path)
+    env["SOURCE_STATE"] = "terminal"
+    path = tmp_path / "transition.json"
+    tx = json.loads(path.read_text())
+    tx.update(targetBead="pi-b", mode="next")
+    path.write_text(json.dumps(tx))
+    script = loader_prelude() + f'''
+      const tool = extension.tools.get("handoff_bead").definition;
+      let shutdowns = 0;
+      process.argv = [process.execPath, "/opt/pi/cli.js"];
+      process.once = () => process;
+      process.execve = () => {{}};
+      const result = await tool.execute("call", {{}}, undefined, undefined, {context(tmp_path)});
+      assert.equal(result.details.status, "restart-requested");
+      assert.equal(result.details.targetBead, "pi-b");
+      assert.equal(shutdowns, 1);
+    '''
+    run_node(script, env=env)
+    calls = [json.loads(line)["args"] for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    prepare = next(args for args in calls if args[1] == "transition-prepare")
+    assert prepare[prepare.index("--mode") + 1] == "next"
+    assert "handoff-check" not in commands(tmp_path)
+
+
+@pytest.mark.parametrize("options", [{}, {"transitionId": "f" * 32}])
+def test_preparation_refusal_is_not_uncertain_reservation(tmp_path, options):
+    env = fixture_agent(tmp_path)
+    env["REJECT_PREPARATION"] = "1"
+    script = loader_prelude() + f'''
+      const tool = extension.tools.get("handoff_bead").definition;
+      let shutdowns = 0;
+      process.argv = [process.execPath, "/opt/pi/cli.js"];
+      const result = await tool.execute("call", {json.dumps(options)}, undefined, undefined, {context(tmp_path)});
+      assert.equal(result.details.status, "blocked");
+      assert.equal(result.details.transitionId, null);
+      assert.match(result.details.recovery, /No transition was reserved/);
+      assert.equal(shutdowns, 0);
+    '''
+    run_node(script, env=env)
+    assert "transition-stage" not in commands(tmp_path)
 
 
 def test_continuation_reserves_exact_child_and_no_transcript(tmp_path):

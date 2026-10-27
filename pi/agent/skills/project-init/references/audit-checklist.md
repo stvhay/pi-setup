@@ -83,11 +83,11 @@ Only audit if the project has opted into generated release automation.
 - **Severity:** DRIFT
 
 ### BEADS-2: Session lifecycle and Git authority
-- **Check:** quickrefs use `bd prime`, `bd ready`, `agnt work direct-start <id> --claim`, then verified task-owned commit and `agnt work direct-closeout <id> --outcome success --reason ...`; call `handoff_bead` only after clean success or from an unassigned session. Raw claim/close are lower-level transitions. Beads stealth/no-git-ops text does not override project Git authority.
+- **Check:** quickrefs use `bd prime`, `bd ready`, `agnt work direct-start <id> --claim`, then, for successful completion, verified task-owned commit and `agnt work direct-closeout <id> --outcome success --reason ...`. Unfinished work uses checkpoint/resume through `handoff_bead` without success or closure; scoped switches and exact-reservation recovery follow shared `AGENTS.md`. Unassigned ready-work handoff and verified successful-closeout handoff remain distinct. Raw claim/close are lower-level transitions. Beads stealth/no-git-ops text does not override project Git authority.
 - **Severity:** DRIFT
 
 ### BEADS-3: Portable-state boundary
-- **Check:** inspect `bd config get export.auto`, `bd config get export.interval`, and `bd config get export.git-add`. Document that auto-export is optional/throttled, not an every-mutation guarantee. Direct closeout explicitly runs `bd export --readonly`, verifies canonical target parity, and commits before handoff. Dolt is canonical; JSONL is interchange, not history backup or remote sync. Test consecutive mutations/export parity in an isolated workspace, never live history.
+- **Check:** inspect `bd config get export.auto`, `bd config get export.interval`, and `bd config get export.git-add`. Document that auto-export is optional/throttled, not an every-mutation guarantee. Direct closeout explicitly runs `bd export --readonly`, verifies canonical target parity, and commits before successful-closeout handoff, not before unfinished continuation. Dolt is canonical; JSONL is interchange, not history backup or remote sync. Test consecutive mutations/export parity in an isolated workspace, never live history.
 - **Severity:** DRIFT
 
 ### BEADS-4: Audit ownership

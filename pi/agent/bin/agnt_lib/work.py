@@ -965,6 +965,15 @@ def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, A
         if str(source_bead.get("status") or "").lower() != "closed":
             return failed("current work item is not closed")
         if not handoff_closeout_is_clean(source_bead):
+            committed = _git(Path.cwd(), ["show", "HEAD:.beads/issues.jsonl"])
+            try:
+                row = _portable_issue_rows_text(committed.stdout).get(source_bead_id)
+                if committed.returncode == 0 and row and all(
+                    row.get(field) == source_bead.get(field) for field in ("status", "closed_at", "close_reason")
+                ):
+                    return failed("source closeout is already committed; inspect newer uncommitted checkout changes before handoff")
+            except (ValueError, OSError):
+                pass
             return failed("current work item closeout is incomplete")
 
     target_bead = None
@@ -1201,9 +1210,9 @@ def direct_start(bead_id: str, *, claim: bool, scope_beads: list[str] | None = N
         return {"schemaVersion": 1, "status": "error", "bead": bead, "stages": stages,
                 "repair": {"failedStage": "authority", "requiredAction": "inspect-current-authority",
                            "retryCommand": retry_command, "safeToRetry": False}}
-    except SessionWorkItemConflict:
+    except SessionWorkItemConflict as exc:
         stages["claim"] = {"status": "skipped", "reason": "session-conflict"}
-        stages["link"] = {"status": "failed", "error": "session belongs to another work item or has a final outcome"}
+        stages["link"] = {"status": "failed", "error": exc.public_message}
         return {
             "schemaVersion": 1,
             "status": "error",
@@ -1212,13 +1221,14 @@ def direct_start(bead_id: str, *, claim: bool, scope_beads: list[str] | None = N
             "repair": {
                 "failedStage": "link",
                 "requiredAction": "checkpoint-or-reconcile-ownership",
+                "reason": exc.reason,
                 "retryCommand": retry_command,
                 "safeToRetry": False,
-                "handoffTool": {"name": "handoff_bead", "arguments": {"targetBead": bead_id}},
-                "humanFallback": {"onlyWhen": "continuation runtime unavailable", "command": "/new", "retryCommand": retry_command},
+                **({"handoffTool": {"name": "handoff_bead", "arguments": {"targetBead": bead_id}}}
+                   if exc.reason in {"session-conflict", "session-linked"} else {}),
             },
         }
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError) as exc:
         claim_stage = stages.setdefault("claim", {"status": "skipped", "reason": "link-preflight-failed"})
         claim_failed = claim_stage["status"] == "failed"
         stages["link"] = (
@@ -1232,6 +1242,7 @@ def direct_start(bead_id: str, *, claim: bool, scope_beads: list[str] | None = N
             "stages": stages,
             "repair": {
                 "failedStage": "claim" if claim_failed else "link",
+                "reason": "storage-failed" if isinstance(exc, OSError) else "validation-failed" if isinstance(exc, ValueError) else "operation-failed",
                 "requiredAction": "retry-same-session",
                 "retryCommand": retry_command,
                 "safeToRetry": True,
@@ -1323,12 +1334,29 @@ def _closeout_audit_paths(root: Path, bead_id: str, reason: str) -> List[str]:
     return [name]
 
 
+def _native_diagnostic(code: int, error: str) -> Dict[str, Any]:
+    # Return fixed diagnostic hints, never native text containing paths, titles or credentials.
+    text = error[:65536].lower()
+    hints = (
+        (("unclosed children", "open children", "deferred"), "inspect unclosed/deferred children and dependencies; do not force close"),
+        (("gpg", "signing", "failed to sign", "ssh-keygen"), "inspect Git signing agent/configuration before retrying the commit"),
+        (("index.lock", "locked", "lock file"), "inspect the native lock owner before retrying; do not remove locks blindly"),
+        (("permission denied", "read-only"), "inspect filesystem permission or read-only storage before retrying"),
+    )
+    detail = next((hint for markers, hint in hints if any(marker in text for marker in markers)),
+                  "inspect native command diagnostics locally; raw output is withheld")
+    return {"exitCode": code, "detail": detail}
+
+
 def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any]:
     stages: Dict[str, Any] = {}
     closed = False
 
-    def failed(stage: str, error: str, *, safe_to_retry: bool = True) -> Dict[str, Any]:
+    def failed(stage: str, error: str, *, safe_to_retry: bool = True,
+               diagnostic: Dict[str, Any] | None = None) -> Dict[str, Any]:
         stages[stage] = {"status": "failed", "error": error}
+        if diagnostic is not None:
+            stages[stage]["diagnostic"] = diagnostic
         return {
             "schemaVersion": 1,
             "status": "partial" if closed else "error",
@@ -1468,7 +1496,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         return denied
     code, _data, _error = run_beads_json(["close", bead_id, "--reason", reason])
     if code != 0:
-        return failed("close", "bead close failed")
+        return failed("close", "bead close failed", diagnostic=_native_diagnostic(code, _error))
     closed = True
     stages["close"] = {"status": "succeeded"}
 
@@ -1496,7 +1524,8 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
                 [exe, "export", "--readonly"], text=True, stdout=temp, stderr=subprocess.PIPE,
             )
             if exported.returncode != 0:
-                return failed("export", "portable Beads export failed")
+                return failed("export", "portable Beads export failed",
+                              diagnostic=_native_diagnostic(exported.returncode, exported.stderr))
             temp.seek(0)
             rows = _portable_issue_rows_text(temp.read().decode("utf-8"))
             stages["export"] = {"status": "succeeded", "rowCount": len(rows)}
@@ -1546,7 +1575,8 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         return denied
     added = _git(root, ["add", "--", *owned_paths])
     if added.returncode != 0:
-        return failed("stage", "portable Beads export could not be staged")
+        return failed("stage", "portable Beads export could not be staged",
+                      diagnostic=_native_diagnostic(added.returncode, added.stderr))
     staged = _git(root, ["diff", "--cached", "--name-only", "-z"])
     if staged.returncode != 0:
         return failed("stage", "staged paths could not be inspected")
@@ -1570,7 +1600,8 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
             ],
         )
         if committed.returncode != 0:
-            return failed("commit", "portable Beads state commit failed")
+            return failed("commit", "portable Beads state commit failed",
+                          diagnostic=_native_diagnostic(committed.returncode, committed.stderr))
         revision = _git(root, ["rev-parse", "HEAD"])
         if revision.returncode != 0 or not revision.stdout.strip():
             return failed("commit", "portable Beads state commit could not be verified")
@@ -1586,7 +1617,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     try:
         from .work_lifecycle import runtime_store
 
-        runtime_store().release_completed(bead_id, current_session_id())
+        runtime_store().release_terminal(bead_id, current_session_id())
     except (OSError, ValueError):
         return failed("ownership-release", "closeout committed; reconcile execution ownership before handoff")
     return {
@@ -1683,8 +1714,28 @@ def cmd_work(argv: List[str]) -> int:
         try:
             result = dispatch_cli(args)
         except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+            from .work_lifecycle import runtime_store
+
+            requested_id = getattr(args, "transition_id", None)
+            transition_id = None
+            inspected = False
+            try:
+                store = runtime_store()
+                if requested_id:
+                    with store.locked() as state:
+                        transition_id = requested_id if requested_id in state["transitions"] else None
+                else:
+                    pending = store.pending_transition(getattr(args, "session_id", None) or current_session_id())
+                    transition_id = pending["id"] if pending else None
+                inspected = True
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                pass
+            recovery = (f"Inspect exact transition {transition_id}; preserve work and do not replay uncertain effects."
+                        if transition_id else "Reservation state could not be inspected; restore access before any retry."
+                        if not inspected else "Requested transition was not found; verify the ID without allocating a replacement."
+                        if requested_id else "No transition was reserved; correct input or environment before preparing again.")
             result = {"schemaVersion": 1, "status": "blocked", "reason": str(exc)[:500],
-                      "recovery": "Preserve current checkout and reconcile the existing checkpoint/transition; do not replay an uncertain attachment."}
+                      "transitionId": transition_id, "recovery": recovery}
         print(json.dumps(result, indent=2, sort_keys=True))
         return 2 if result["status"] == "blocked" else 0
     if args.command == "direct-start":

@@ -570,9 +570,9 @@ def test_executing_plans_isolates_main_orchestration_checkout():
     workflow_eval = (ROOT / "scripts" / "eval-workflow-compliance.sh").read_text(encoding="utf-8")
     case = workflow_eval.split("case_executing_plans_stops_on_main()", 1)[1].split("case_subagent_driven_rejects_shared_file_parallelism()", 1)[0]
 
-    assert "Treat the current checkout as the orchestration checkout" in skill
-    assert "Never switch the orchestration checkout to a feature branch" in skill
-    assert "generic implementation or commit authority is not same-checkout authority" in skill
+    assert "Follow shared `AGENTS.md` direct-work default" in skill
+    assert "explicitly reserved for orchestration" in skill
+    assert "Do not edit or switch that checkout" in skill
     assert "Load `using-git-worktrees`" in skill
     assert "Prune only after integration" in skill
     assert "git branch -M main" in case
@@ -883,6 +883,19 @@ def test_unfinished_continuation_guidance_uses_one_normal_path():
     for skill, scenario in [("executing-plans", "unfinished-continuation"),
                             ("writing-plans", "coherent-continuation-scope")]:
         assert (ROOT / ".pi/skill-evals" / skill / "scenarios" / f"{scenario}.md").is_file()
+
+
+def test_lifecycle_guidance_distinguishes_unfinished_and_closed_work():
+    checklist = (AGENT / "skills/project-init/references/audit-checklist.md").read_text()
+    worktree = (AGENT / "skills/using-git-worktrees/SKILL.md").read_text()
+    execution = (AGENT / "skills/executing-plans/SKILL.md").read_text()
+    assert "only after clean success" not in checklist
+    assert "Unfinished work uses checkpoint/resume" in checklist
+    assert "successful-closeout handoff" in checklist
+    assert "Shell `cd` does not relocate Pi" in worktree
+    assert "Unrelated untracked files alone do not require isolation" in execution
+    for skill in ("executing-plans", "using-git-worktrees", "project-init"):
+        assert (ROOT / ".pi/skill-evals" / skill / "scenarios/lifecycle-guidance.md").is_file()
 
 
 def test_fresh_bead_recovery_docs_prefer_agent_handoff():

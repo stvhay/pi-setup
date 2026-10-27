@@ -2387,6 +2387,7 @@ def test_direct_start_reports_retryable_partial_link_failure(agnt, capsys):
         "failedStage": "link",
         "requiredAction": "retry-same-session",
         "retryCommand": "agnt work direct-start pi-test.partial --claim",
+        "reason": "operation-failed",
         "safeToRetry": True,
     }
     assert "private failure detail" not in json.dumps(result)
@@ -2418,14 +2419,10 @@ def test_direct_start_offers_checkpointed_continuation_after_conflict(agnt, caps
     assert result["repair"] == {
         "failedStage": "link",
         "requiredAction": "checkpoint-or-reconcile-ownership",
+        "reason": "session-conflict",
         "retryCommand": "agnt work direct-start pi-test.second --claim",
         "safeToRetry": False,
         "handoffTool": {"name": "handoff_bead", "arguments": {"targetBead": "pi-test.second"}},
-        "humanFallback": {
-            "onlyWhen": "continuation runtime unavailable",
-            "command": "/new",
-            "retryCommand": "agnt work direct-start pi-test.second --claim",
-        },
     }
     assert "pi-private.1" not in json.dumps(result)
     assert "/clone" not in json.dumps(result)
@@ -2762,6 +2759,7 @@ def test_direct_start_reports_retryable_partial_claim_failure(agnt):
         "failedStage": "claim",
         "requiredAction": "retry-same-session",
         "retryCommand": "agnt work direct-start pi-test.claim-failure --claim",
+        "reason": "operation-failed",
         "safeToRetry": True,
     }
     assert "private claim detail" not in json.dumps(result)

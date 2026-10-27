@@ -67,6 +67,17 @@ def setup(delivery, authority, tmp_path):
     return store, FakeAdapter(repo), owner
 
 
+def test_terminal_departure_requires_settled_own_effects(setup):
+    store, adapter, _ = setup
+    store.assert_settled("queue", "pi-a")
+    ref = store.prepare("queue", adapter)["receipt"]["id"]
+    with pytest.raises(ValueError, match="unresolved admitted effects"):
+        store.assert_settled("queue", "pi-a")
+    store.assert_settled("queue", "pi-b")
+    store.execute(ref, adapter)
+    store.assert_settled("queue", "pi-a")
+
+
 def test_delivery_service_available(agnt):
     assert importlib.util.find_spec("agnt_lib.delivery"), "delivery service is missing"
 

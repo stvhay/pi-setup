@@ -34,7 +34,7 @@ git rev-parse --show-toplevel
 git worktree list 2>/dev/null || true
 ```
 
-If the working tree has unrelated uncommitted changes, stop and ask how to proceed.
+Inspect unrelated paths and edit overlap. Preserve known unrelated files; ask when ownership, overlap or the approved base is ambiguous. Untracked files alone do not require a worktree.
 
 ## Step 2: Choose worktree directory
 
@@ -140,14 +140,14 @@ Local-only default branch:
 git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME" "$DEFAULT_BRANCH"
 ```
 
-Then verify location:
+Verify Git location without changing host identity:
 
 ```bash
-cd "$WORKTREE_PATH"
-pwd
-git branch --show-current
-git status --short
+git -C "$WORKTREE_PATH" branch --show-current
+git -C "$WORKTREE_PATH" status --short
 ```
+
+Shell `cd` does not relocate Pi: tools, instructions, persisted session header and execution ownership remain bound to the host context. Before implementation in the worktree, use a supported, approved host transition and verify those bindings. If runtime cannot relocate the owning session, stop with that capability gap; do not relabel the session or use `/new` to take ownership.
 
 ## Step 7: Isolate environment setup
 
@@ -234,7 +234,7 @@ After verified integration, use the shared completion contract's deletion previe
 
 Pairs with:
 
-- `executing-plans` — execute a written plan in an isolated checkout
+- `executing-plans` — execute an approved plan in its authorized checkout
 - `subagent-driven-development` — create one worktree per independent implementation task
 - `finishing-a-development-branch` — verify, summarize, and gate cleanup/merge actions
 

@@ -113,6 +113,89 @@ def workspace_snapshot(checkout: str) -> dict[str, Any]:
             "statusFingerprint": status_fingerprint, "changed": changed}
 
 
+def _check_reserved_checkout(state: dict[str, Any], bead: str, checkout: str) -> None:
+    from .quality import SessionWorkItemConflict
+
+    if any(tx["targetBead"] != bead and tx["targetCheckout"] == checkout
+           and tx["state"] not in {"attached", "cancelled"}
+           and (tx["sourceBead"] != tx["targetBead"]
+                or state["checkpoints"][tx["checkpointRef"]]["workspace"]["checkout"] != checkout)
+           for tx in state["transitions"].values()):
+        raise SessionWorkItemConflict("reserved checkout belongs to another transition", reason="reserved-checkout")
+
+
+def _check_transition_destination(request: dict[str, Any], *, terminal: bool) -> None:
+    from .authority import repository_identity
+
+    if not request.get("sourceCheckout"):
+        raise ValueError("transition source checkout evidence is unavailable")
+    if not terminal:
+        if request["targetBead"] != request["sourceBead"] and request["targetCheckout"] == request["sourceCheckout"]:
+            raise ValueError("cross-Bead switching requires checkout isolation")
+        if (request["targetBead"] == request["sourceBead"] and request["targetCheckout"] != request["sourceCheckout"]
+                and repository_identity(request["targetCheckout"]) != repository_identity(request["sourceCheckout"])):
+            raise ValueError("same-Bead relocation requires the same canonical repository")
+        return
+    if request["targetBead"] == request["sourceBead"] or request.get("isolation"):
+        raise ValueError("terminal departure requires different assigned work in an existing checkout")
+    if not request.get("sourceCheckout") or repository_identity(request["targetCheckout"]) != repository_identity(request["sourceCheckout"]):
+        raise ValueError("terminal departure requires the same canonical repository")
+    snapshot = request.get("targetWorkspace")
+    if not snapshot or snapshot["head"] is None or snapshot["changed"]:
+        raise ValueError("terminal departure requires a clean target; preserve source dirt in an isolated checkout")
+
+
+def _transition_facts(state: dict[str, Any], cp: dict[str, Any], *, source_session: str,
+                      target_bead: str, checkout: str, mode: str, isolating: bool,
+                      terminal: bool = False) -> dict[str, Any]:
+    """Shared readiness/preparation checks; callers hold the lifecycle lock."""
+    source_bead = cp["bead"]
+    if cp["session"] != source_session:
+        raise ValueError("checkpoint ownership mismatch")
+    if mode not in {"resume", "switch", "next"} or (mode == "resume" and source_bead != target_bead):
+        raise ValueError("invalid transition mode")
+    source = state["owners"].get(source_bead)
+    target = state["owners"].get(target_bead)
+    if not source or source["session"] != source_session or source["phase"] != "active":
+        raise ValueError("source ownership conflict")
+    if any(tx["sourceSession"] == source_session and tx["state"] not in {"attached", "cancelled"}
+           for tx in state["transitions"].values()):
+        raise ValueError("source ownership has a pending transition")
+    _check_reserved_checkout(state, target_bead, checkout)
+    same_checkout_resume = target_bead == source_bead and checkout == source["checkout"]
+    if not same_checkout_resume and any(
+        key not in {source_bead, target_bead} and value["checkout"] == checkout
+        and value["phase"] != "completed" for key, value in state["owners"].items()
+    ):
+        raise ValueError("target checkout ownership conflict")
+    if target_bead != source_bead:
+        if target is not None and target["phase"] != "paused":
+            raise ValueError("target ownership conflict")
+        if target is not None and target["checkout"] != checkout:
+            raise ValueError("target checkout identity changed")
+    if isolating and (target is not None or Path(checkout).exists()):
+        raise ValueError("native isolation requires an unowned absent checkout")
+    source_snapshot = workspace_snapshot(source["checkout"])
+    if source_snapshot != cp["workspace"]:
+        raise ValueError("source workspace changed since checkpoint")
+    target_snapshot = None if isolating else workspace_snapshot(checkout)
+    _check_transition_destination({"sourceBead": source_bead, "targetBead": target_bead,
+                                   "sourceCheckout": source["checkout"], "targetCheckout": checkout,
+                                   "targetWorkspace": target_snapshot, "isolation": isolating}, terminal=terminal)
+    progress_key = fingerprint({"source": source_bead, "target": target_bead,
+                                "sourceWorkspace": source_snapshot, "targetWorkspace": target_snapshot,
+                                "progress": cp["progress"]})
+    if sum(previous.get("progressKey") == progress_key and previous["state"] == "attached"
+           for previous in state["transitions"].values()) >= 3:
+        raise ValueError("unchanged progress continuation limit reached; inspect the blocker before retry")
+    return {"targetBefore": copy.deepcopy(target), "targetWorkspace": target_snapshot, "progressKey": progress_key}
+
+
+def _authorization_request(tx: dict[str, Any], checkpoint: dict[str, Any]) -> dict[str, Any]:
+    # Bind revalidation to immutable checkpoint facts, not a mutable session header.
+    return {**copy.deepcopy(tx), "sourceCheckout": checkpoint["workspace"]["checkout"]}
+
+
 class LifecycleStore:
     def __init__(self, root: Path):
         self.root = Path(root)
@@ -171,17 +254,24 @@ class LifecycleStore:
                 os.unlink(name)
 
     def claim(self, bead: str, session: str, checkout: str) -> None:
+        from .quality import SessionWorkItemConflict
+
         _identifier(bead)
         _identifier(session)
-        checkout = workspace_snapshot(checkout)["checkout"]
+        checkout = str(checkout_identity(checkout))
         with self.locked() as state:
+            _check_reserved_checkout(state, bead, checkout)
             owner = state["owners"].get(bead)
-            if owner is not None and (owner["session"] != session or owner["phase"] != "active"
-                                      or owner["checkout"] != checkout):
-                raise ValueError("execution ownership conflict")
+            if owner is not None:
+                if owner["session"] != session:
+                    raise SessionWorkItemConflict("execution ownership conflict", reason="bead-owned")
+                if owner["phase"] != "active":
+                    raise SessionWorkItemConflict("execution ownership conflict", reason="owner-inactive")
+                if owner["checkout"] != checkout:
+                    raise SessionWorkItemConflict("execution ownership conflict", reason="checkout-mismatch")
             if any(key != bead and value["session"] == session
                    for key, value in state["owners"].items()):
-                raise ValueError("session ownership cannot be shared or relabeled")
+                raise SessionWorkItemConflict("session ownership cannot be shared or relabeled", reason="session-linked")
             if owner is None:
                 state["owners"][bead] = {"session": session, "checkout": checkout, "phase": "active"}
                 self._write(state)
@@ -191,18 +281,20 @@ class LifecycleStore:
             return copy.deepcopy(state["owners"].get(bead))
 
     def bind_assignment(self, bead: str, session: str, assignment_ref: str) -> None:
+        from .quality import SessionWorkItemConflict
+
         with self.locked() as state:
             owner = state["owners"].get(bead)
             if not owner or owner["session"] != session or owner["phase"] != "active":
-                raise ValueError("assignment ownership conflict")
+                raise SessionWorkItemConflict("assignment ownership conflict")
             if owner.get("assignmentRef") not in {None, assignment_ref}:
                 raise ValueError("execution assignment is immutable")
             if owner.get("assignmentRef") is None:
                 owner["assignmentRef"] = assignment_ref
                 self._write(state)
 
-    def release_completed(self, bead: str, session: str) -> None:
-        """Called only after verified successful closeout, never for suspension."""
+    def release_terminal(self, bead: str, session: str) -> None:
+        """Release verified closeout; terminal departure releases through guarded attachment."""
         with self.locked() as state:
             owner = state["owners"].get(bead)
             if owner is None:
@@ -262,7 +354,8 @@ class LifecycleStore:
                 target_checkout: str, target_status: str, blockers: list[str], mode: str,
                 runtime_ready: bool, authorize: Authorize, source_session_file: str | None = None,
                 source_quality_directory: str | None = None,
-                isolation: dict[str, Any] | None = None) -> dict[str, Any]:
+                isolation: dict[str, Any] | None = None,
+                source_terminal: Authorize | None = None) -> dict[str, Any]:
         if runtime_ready is not True:
             raise ValueError("runtime launch capability is unavailable; host continuation required")
         _identifier(target_bead)
@@ -273,8 +366,6 @@ class LifecycleStore:
             if cp is None or cp["session"] != source_session:
                 raise ValueError("checkpoint ownership mismatch")
             source_bead = cp["bead"]
-            if mode not in {"resume", "switch", "next"} or (mode == "resume" and source_bead != target_bead):
-                raise ValueError("invalid transition mode")
             checkout = (str(Path(target_checkout).resolve(strict=False)) if isolation is not None
                         else str(checkout_identity(target_checkout)))
             identity = {"sourceSession": source_session, "sourceBead": source_bead,
@@ -299,39 +390,12 @@ class LifecycleStore:
             previous = state["transitions"].get(tx_id)
             if previous is not None:
                 return copy.deepcopy(previous)
-            source = state["owners"].get(source_bead)
-            target = state["owners"].get(target_bead)
-            if not source or source["session"] != source_session or source["phase"] != "active":
-                raise ValueError("source ownership conflict")
-            if any(tx["sourceSession"] == source_session and tx["state"] not in {"attached", "cancelled"}
-                   for tx in state["transitions"].values()):
-                raise ValueError("source ownership has a pending transition")
-            if target_bead != source_bead and target is not None and target["phase"] != "paused":
-                raise ValueError("target ownership conflict")
-            if any(key not in {source_bead, target_bead} and value["checkout"] == checkout
-                   and value["phase"] != "completed" for key, value in state["owners"].items()):
-                raise ValueError("target checkout ownership conflict")
-            if target is not None and target["checkout"] != checkout:
-                raise ValueError("target checkout identity changed")
-            if isolation is not None and (target is not None or Path(checkout).exists()):
-                raise ValueError("native isolation requires an unowned absent checkout")
-            source_snapshot = workspace_snapshot(source["checkout"])
-            if source_snapshot != cp["workspace"]:
-                raise ValueError("source workspace changed since checkpoint")
-            if target_bead != source_bead and checkout == source["checkout"]:
-                raise ValueError("cross-Bead switching requires checkout isolation")
-            tx = {"id": tx_id, **identity, "state": "isolating" if isolation is not None else "prepared",
-                  "childSession": str(uuid.uuid4()), "childSessionFile": None, "attempts": 0,
-                  "targetBefore": copy.deepcopy(target),
-                  "targetWorkspace": None if isolation is not None else workspace_snapshot(checkout)}
-            tx["progressKey"] = fingerprint({"source": source_bead, "target": target_bead,
-                                              "sourceWorkspace": source_snapshot,
-                                              "targetWorkspace": tx["targetWorkspace"],
-                                              "progress": cp["progress"]})
-            if sum(previous.get("progressKey") == tx["progressKey"] and previous["state"] == "attached"
-                   for previous in state["transitions"].values()) >= 3:
-                raise ValueError("unchanged progress continuation limit reached; inspect the blocker before retry")
-            if authorize(copy.deepcopy(tx)) is not True:
+            facts = _transition_facts(state, cp, source_session=source_session, target_bead=target_bead,
+                                      checkout=checkout, mode=mode, isolating=isolation is not None,
+                                      terminal=source_terminal(copy.deepcopy(identity)) if source_terminal else False)
+            tx = {"id": tx_id, **identity, **facts, "state": "isolating" if isolation is not None else "prepared",
+                  "childSession": str(uuid.uuid4()), "childSessionFile": None, "attempts": 0}
+            if authorize(_authorization_request(tx, cp)) is not True:
                 raise ValueError("transition authority is unavailable")
             if target_bead != source_bead:
                 state["owners"][target_bead] = {"session": tx["childSession"], "checkout": checkout,
@@ -385,7 +449,7 @@ class LifecycleStore:
                     or target["session"] != tx["childSession"] or target["phase"] != "reserved"
                     or workspace_snapshot(source["checkout"]) != cp["workspace"]):
                 raise ValueError("isolation ownership or source workspace changed")
-            if authorize(copy.deepcopy(tx)) is not True or observed(copy.deepcopy(tx)) is not True:
+            if authorize(_authorization_request(tx, cp)) is not True or observed(copy.deepcopy(tx)) is not True:
                 raise ValueError("native isolation requires current authority and exact fresh observation")
             snapshot = workspace_snapshot(tx["targetCheckout"])
             if snapshot["checkout"] != tx["targetCheckout"]:
@@ -450,9 +514,9 @@ class LifecycleStore:
             tx = state["transitions"][transition_id]
             if tx["sourceSession"] != source_session or tx["state"] != "staged":
                 raise ValueError("launch already requested or not staged; reconcile without replay")
-            if authorize(copy.deepcopy(tx)) is not True:
-                raise ValueError("transition authority is unavailable")
             cp = state["checkpoints"][tx["checkpointRef"]]
+            if authorize(_authorization_request(tx, cp)) is not True:
+                raise ValueError("transition authority is unavailable")
             if (workspace_snapshot(cp["workspace"]["checkout"]) != cp["workspace"]
                     or workspace_snapshot(tx["targetCheckout"]) != tx["targetWorkspace"]):
                 raise ValueError("workspace changed before launch")
@@ -478,7 +542,8 @@ class LifecycleStore:
             return copy.deepcopy(matches[0]) if matches else None
 
     def attach(self, transition_id: str, *, session_id: str, authorize: Authorize, attach: Attach,
-               attached: Callable[[str, str], bool | None] | None = None) -> dict[str, Any]:
+               attached: Callable[[str, str], bool | None] | None = None,
+               source_terminal: Authorize | None = None) -> dict[str, Any]:
         with self.locked() as state:
             tx = state["transitions"][transition_id]
             if tx["childSession"] != session_id:
@@ -487,9 +552,9 @@ class LifecycleStore:
                 return copy.deepcopy(tx)
             if tx["state"] not in {"staged", "launch-requested", "attaching"}:
                 raise ValueError("transition is not staged")
-            if authorize(copy.deepcopy(tx)) is not True:
-                raise ValueError("transition authority is unavailable")
             cp = state["checkpoints"][tx["checkpointRef"]]
+            if authorize(_authorization_request(tx, cp)) is not True:
+                raise ValueError("transition authority is unavailable")
             if workspace_snapshot(cp["workspace"]["checkout"]) != cp["workspace"]:
                 raise ValueError("source workspace changed before attachment")
             if workspace_snapshot(tx["targetCheckout"]) != tx["targetWorkspace"]:
@@ -510,7 +575,7 @@ class LifecycleStore:
             if source["session"] != tx["sourceSession"] or source["phase"] != "yielding":
                 raise ValueError("source ownership changed during attachment")
             if tx["sourceBead"] != tx["targetBead"]:
-                source["phase"] = "paused"
+                source["phase"] = "completed" if source_terminal and source_terminal(_authorization_request(tx, cp)) else "paused"
             state["owners"][tx["targetBead"]] = {
                 "session": session_id, "checkout": tx["targetCheckout"], "phase": "active",
                 "assignmentRef": tx["assignmentRef"],
@@ -765,28 +830,25 @@ def guard_session_link(session_id: str, bead_id: str, link: Callable[[Callable[[
     from . import quality
 
     attempt = quality.session_attempt_state(session_id)
-    if attempt["beadId"] not in {None, bead_id} or attempt["outcome"] is not None:
-        raise quality.SessionWorkItemConflict("session ownership/outcome is immutable; use handoff_bead for checkpointed continuation")
+    if attempt["beadId"] not in {None, bead_id}:
+        raise quality.SessionWorkItemConflict("session ownership is immutable", reason="session-linked")
+    if attempt["outcome"] is not None:
+        raise quality.SessionWorkItemConflict("session outcome is immutable", reason="session-finalized")
     store = runtime_store()
     if store.owner(bead_id) is None and any(
         other != session_id and outcome is None
         for other, outcome in quality.work_item_attempts(bead_id).items()
     ):
-        raise quality.SessionWorkItemConflict("another legacy attempt may still own execution; reconcile ownership")
+        raise quality.SessionWorkItemConflict("another legacy attempt may still own execution; reconcile ownership", reason="legacy-owner")
     # Durable reservation precedes the external Beads claim. A failed link keeps
     # the same owner for retry; elapsed time never grants ownership to a sibling.
     try:
         assignment_ref = _direct_assignment(bead_id, scope_beads)
     except (OSError, ValueError):
         raise WorkAuthorityUnavailable("current assignment authority requires inspection") from None
-    try:
-        _require_assignment_effects(assignment_ref, bead_id, required_effects)
-        store.claim(bead_id, session_id, str(Path.cwd()))
-        store.bind_assignment(bead_id, session_id, assignment_ref)
-    except WorkAuthorityUnavailable:
-        raise
-    except ValueError as exc:
-        raise quality.SessionWorkItemConflict(str(exc)) from exc
+    _require_assignment_effects(assignment_ref, bead_id, required_effects)
+    store.claim(bead_id, session_id, str(Path.cwd()))
+    store.bind_assignment(bead_id, session_id, assignment_ref)
     # Recheck after acquiring the quality transaction, immediately before its
     # external claim callback. Capture scope here; never reacquire lifecycle
     # ownership while holding the quality lock.
@@ -856,6 +918,30 @@ def _isolation_action(request: dict[str, Any]) -> dict[str, Any]:
     return action
 
 
+def _terminal_disposition(bead: dict[str, Any], outcome: str | None) -> bool:
+    if bead.get("status") != "closed":
+        return False
+    if (outcome not in {"partial", "failure", "unclear"}
+            or not isinstance(bead.get("closed_at"), str) or not bead["closed_at"].strip()
+            or not isinstance(bead.get("close_reason"), str) or not bead["close_reason"].strip()):
+        raise ValueError("terminal departure requires recorded non-success and canonical closure disposition")
+    return True
+
+
+def _transition_source_terminal(request: dict[str, Any]) -> bool:
+    from .quality import session_attempt_state
+
+    attempt = session_attempt_state(request["sourceSession"], directory=request["sourceQualityDirectory"])
+    terminal = _terminal_disposition(_bead(request["sourceBead"]), attempt["outcome"])
+    if terminal:
+        if attempt["beadId"] != request["sourceBead"]:
+            raise ValueError("terminal source outcome does not match its Bead")
+        delivery_store().assert_settled(request["assignmentRef"], request["sourceBead"])
+    if request.get("id"):
+        _check_transition_destination(request, terminal=terminal)
+    return terminal
+
+
 def _transition_authorized(request: dict[str, Any], *, planned_action: dict[str, Any] | None = None) -> bool:
     from .quality import session_attempt_state
 
@@ -870,6 +956,7 @@ def _transition_authorized(request: dict[str, Any], *, planned_action: dict[str,
     attempt = session_attempt_state(request["sourceSession"], directory=path)
     if attempt["beadId"] != request["sourceBead"] or attempt["outcome"] == "success":
         return False
+    _transition_source_terminal(request)
     return _transition_effects_authorized(request, planned_action=planned_action)
 
 
@@ -880,8 +967,13 @@ def _transition_effects_authorized(request: dict[str, Any], *, planned_action: d
     target = _bead(request["targetBead"])
     source = _bead(request["sourceBead"])
     if (target.get("status") not in {"open", "in_progress"}
-            or source.get("status") not in {"open", "in_progress"} or _blockers(target)):
+            or source.get("status") not in {"open", "in_progress", "closed"} or _blockers(target)):
         return False
+    if source.get("status") == "closed":
+        if not (source.get("closed_at") and source.get("close_reason")):
+            return False
+    if request.get("id"):
+        _check_transition_destination(request, terminal=source.get("status") == "closed")
     if target.get("assignee") and target.get("assignee") != source.get("assignee"):
         return False
     refs = _decision_refs(target)
@@ -921,9 +1013,15 @@ def checkpoint_current(bead_id: str, progress: dict[str, Any] | None = None, *,
     if attempt["outcome"] == "success":
         raise ValueError("successful source requires closeout repair, not unfinished continuation")
     bead = _bead(bead_id)
-    if bead.get("status") == "closed":
-        raise ValueError("closed work uses verified closeout handoff, not an unfinished checkpoint")
+    terminal = _terminal_disposition(bead, attempt["outcome"])
     store = runtime_store()
+    if terminal:
+        owner = store.owner(bead_id)
+        if not owner or owner["session"] != session_id or owner["phase"] != "active":
+            raise ValueError("terminal departure requires its active recorded execution owner")
+        _source_session_file(session_id, owner["checkout"])
+        validate_closeout_context(session_id, bead_id)
+        delivery_store().assert_settled(owner.get("assignmentRef", ""), bead_id)
     if store.owner(bead_id) is None:
         if any(other != session_id and outcome is None
                for other, outcome in quality.work_item_attempts(bead_id).items()):
@@ -946,7 +1044,7 @@ def checkpoint_current(bead_id: str, progress: dict[str, Any] | None = None, *,
         # No invented progress/ownership/verification. Bead and measured checkout
         # remain sufficient for a fresh attempt to inspect and continue safely.
         progress = {"objective": str(bead.get("description") or bead.get("title") or bead_id)[:16000],
-                    "decisions": [], "completed": [], "next": ["Inspect Bead, referenced artifacts and preserved checkout; continue acceptance work."],
+                    "decisions": [], "completed": [], "next": ["Inspect target Bead and referenced artifacts; preserve source outcomes and checkout files."],
                     "blockers": _blockers(bead), "verification": [], "ownedPaths": [], "artifactRefs": [],
                     "assignmentRef": assignment_ref}
     cp = store.checkpoint(bead_id, session_id, progress)
@@ -970,8 +1068,9 @@ def transition_check(target_bead: str | None, *, mode: str, session_id: str,
     if cp is None or cp["bead"] != source_bead or cp["session"] != session_id:
         raise ValueError("matching checkpoint required before transition")
     source = _bead(source_bead)
-    if source.get("status") == "closed":
-        raise ValueError("closed source requires verified successful-closeout handoff")
+    terminal = _terminal_disposition(source, attempt["outcome"])
+    if terminal and (mode == "resume" or target_bead == source_bead):
+        raise ValueError("terminal departure requires different assigned work, not source resume")
     if mode == "resume":
         target_bead = target_bead or source_bead
     if target_bead is None:
@@ -997,7 +1096,7 @@ def transition_check(target_bead: str | None, *, mode: str, session_id: str,
     target = _bead(target_bead)
     owner = store.owner(target_bead)
     creation = None
-    if target_bead != source_bead and checkout is None and owner is None:
+    if target_bead != source_bead and checkout is None and owner is None and not terminal:
         from .worktree_policy import WorktreeCreationAdapter
         creation = WorktreeCreationAdapter(cp["workspace"]["checkout"], target_bead,
                                             decision_refs=_decision_refs(target)).resolve()
@@ -1006,14 +1105,10 @@ def transition_check(target_bead: str | None, *, mode: str, session_id: str,
         target_checkout = creation["facts"]["checkout"]
     else:
         target_checkout = str(checkout_identity(checkout or (owner["checkout"] if owner else str(Path.cwd()))))
-    if mode == "resume" and target_bead != source_bead:
-        raise ValueError("resume target must match source Bead")
-    if target_bead != source_bead and target_checkout == cp["workspace"]["checkout"]:
-        raise ValueError("target requires an isolated existing checkout; preserve source work")
-    if target_bead != source_bead and owner and owner["phase"] != "paused":
-        raise ValueError("target execution ownership is busy")
-    if workspace_snapshot(cp["workspace"]["checkout"]) != cp["workspace"]:
-        raise ValueError("source changed; refresh checkpoint before transition")
+    _source_session_file(session_id, cp["workspace"]["checkout"])
+    with store.locked() as state:
+        _transition_facts(state, cp, source_session=session_id, target_bead=target_bead,
+                          checkout=target_checkout, mode=mode, isolating=creation is not None, terminal=terminal)
     request = {"sourceSession": session_id, "sourceBead": source_bead, "targetBead": target_bead,
                "sourceQualityDirectory": source_quality,
                "targetCheckout": target_checkout, "assignmentRef": cp["progress"]["assignmentRef"]}
@@ -1059,7 +1154,7 @@ def _advance_isolation(store: LifecycleStore, transition_id: str, session_id: st
         def publish() -> dict[str, Any] | None:
             pending = receipts.find_pending(tx["assignmentRef"], fingerprint(action))
             if pending is None:
-                if not _transition_authorized(tx):
+                if not _transition_authorized(_authorization_request(tx, cp)):
                     publication["status"] = "authority-denied"
                     return None
                 pending = receipts.prepare(tx["assignmentRef"], adapter, expected_action_fingerprint=fingerprint(action))
@@ -1070,13 +1165,13 @@ def _advance_isolation(store: LifecycleStore, transition_id: str, session_id: st
             denied = publication["status"] == "authority-denied"
             return {**tx, "requiredAction": "inspect-current-authority" if denied else "reconcile-native-isolation",
                     "deliveryStatus": publication["status"]}
-    authorized = _transition_authorized(tx)
+    authorized = _transition_authorized(_authorization_request(tx, cp))
     result = (receipts.execute(tx["isolation"]["receipt"], adapter) if authorized
               else receipts.reconcile(tx["isolation"]["receipt"], adapter))
     tx = store.status(tx["id"])
     if tx["state"] == "cancelled" or tx.get("cancelRequested"):
         raise ValueError("native isolation cancellation supersedes preparation; inspect transition status")
-    if not _transition_authorized(tx):
+    if not _transition_authorized(_authorization_request(tx, cp)):
         return {**tx, "requiredAction": "inspect-current-authority", "deliveryStatus": "authority-denied",
                 "observedDeliveryStatus": result["status"]}
     if result["status"] != "applied":
@@ -1187,11 +1282,17 @@ def transition_context(session_id: str) -> dict[str, Any]:
         return {"schemaVersion": 1, "status": "child", "transition": store.recover(tx["id"])}
     attempt = quality.session_attempt_state(session_id)
     bead_id = attempt["beadId"]
-    if not bead_id or _bead(bead_id).get("status") == "closed":
-        return {"schemaVersion": 1, "status": "legacy"}
-    return {"schemaVersion": 1, "status": "continuable", "beadId": bead_id,
-            "outcome": attempt["outcome"], "owner": store.owner(bead_id),
-            "pendingTransition": store.pending_transition(session_id)}
+    pending = store.pending_transition(session_id)
+    if not bead_id:
+        with store.locked() as state:
+            owned = any(owner["session"] == session_id for owner in state["owners"].values())
+        return {"schemaVersion": 1, "status": "legacy" if owned or pending else "unassigned",
+                "pendingTransition": pending}
+    closed = _bead(bead_id).get("status") == "closed"
+    status = ("closed" if attempt["outcome"] == "success" else "terminal") if closed else (
+        "closeout-required" if attempt["outcome"] == "success" else "continuable")
+    return {"schemaVersion": 1, "status": status, "beadId": bead_id,
+            "outcome": attempt["outcome"], "owner": store.owner(bead_id), "pendingTransition": pending}
 
 
 def add_cli_parsers(sub: Any) -> None:
@@ -1274,7 +1375,8 @@ def dispatch_cli(args: Any) -> dict[str, Any]:
                            target_status=result["target"]["status"], blockers=[], mode=args.mode,
                            runtime_ready=args.runtime_ready, authorize=_transition_authorized,
                            source_session_file=source_file,
-                           source_quality_directory=result["source"]["qualityDirectory"], isolation=isolation)
+                           source_quality_directory=result["source"]["qualityDirectory"], isolation=isolation,
+                           source_terminal=_transition_source_terminal)
         tx = store.reserve_child_file(tx["id"])
         if isolation is not None:
             tx = _advance_isolation(store, tx["id"], args.session_id)
@@ -1305,7 +1407,7 @@ def dispatch_cli(args: Any) -> dict[str, Any]:
         if args.command == "transition-bind-child":
             tx = store.reserve_child_file(tx["id"], source_session=args.session_id)
         elif args.command == "transition-stage":
-            if args.session_id != tx["sourceSession"] or not _transition_authorized(tx):
+            if args.session_id != tx["sourceSession"] or not _transition_authorized(_authorization_request(tx, cp)):
                 raise ValueError("source identity or authority changed before launch")
             _verify_child_header(tx, empty=tx["state"] == "prepared")
             tx = store.stage(tx["id"], child_session_file=tx["childSessionFile"])
@@ -1325,6 +1427,7 @@ def dispatch_cli(args: Any) -> dict[str, Any]:
             if os.environ.get("PI_SESSION_FILE") and Path(os.environ["PI_SESSION_FILE"]).resolve() != Path(tx["childSessionFile"]):
                 raise ValueError("current persisted session does not match reserved child file")
             _verify_child_header(tx)
+            cp = store.get_checkpoint(tx["checkpointRef"])
             def attached(bead: str, session: str) -> bool:
                 owner = quality.session_work_item(session)
                 if owner not in {None, bead}:
@@ -1335,12 +1438,12 @@ def dispatch_cli(args: Any) -> dict[str, Any]:
                     # attach already checked source outcome under its lifecycle
                     # lock, which also excludes canonical success recording.
                     # Quality is locked here: do not reacquire its ledger.
-                    if not _transition_effects_authorized(tx):
+                    if not _transition_effects_authorized(_authorization_request(tx, cp)):
                         raise WorkAuthorityUnavailable("transition authority changed before target claim")
                     code, _, _ = run_beads_json(["update", bead, "--claim"])
                     if code:
                         raise ValueError("target Beads claim failed; preserve reserved transition")
                 quality.capture_session_link(session, bead, beads_runner=run_beads_json, before_link=claim)
             tx = store.attach(tx["id"], session_id=args.session_id, authorize=_transition_authorized,
-                              attach=attach, attached=attached)
+                              attach=attach, attached=attached, source_terminal=_transition_source_terminal)
     return _transition_response(tx)

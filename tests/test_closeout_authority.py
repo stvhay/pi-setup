@@ -162,6 +162,67 @@ def test_captured_local_scope_completes_closeout(runtime, monkeypatch):
     assert runtime["store"].owner("pi-a")["phase"] == "completed"
 
 
+@pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "repo-write", "git-commit"]}], indirect=True)
+def test_later_portable_dirt_does_not_relabel_verified_closeout(runtime, monkeypatch):
+    portable = prepare_closeout(runtime, monkeypatch)
+    closeout_backend(runtime, monkeypatch)
+    assert runtime["work"].direct_closeout("pi-a", outcome="success", reason="fixture complete")["status"] == "closed"
+    with portable.open("a") as stream:
+        stream.write(json.dumps(runtime["beads"]["pi-b"]) + "\n")
+    before = portable.read_bytes()
+    result = runtime["work"].handoff_check("pi-b", session_id="session-a")
+    assert result["status"] == "error"
+    assert "already committed" in result["error"]
+    assert "newer uncommitted" in result["error"]
+    assert portable.read_bytes() == before
+    assert runtime["store"].owner("pi-a")["phase"] == "completed"
+
+
+@pytest.mark.parametrize("phase, native_error, expected", [
+    ("close", "cannot close issue with unclosed children: pi-child (deferred)", "children"),
+    ("export", "permission denied", "permission"),
+    ("stage", "unable to create index.lock: File exists", "lock"),
+    ("commit", "error: gpg failed to sign the data", "signing"),
+])
+@pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "repo-write", "git-commit"]}], indirect=True)
+def test_native_closeout_failure_keeps_safe_diagnosis(runtime, monkeypatch, phase, native_error, expected):
+    prepare_closeout(runtime, monkeypatch)
+    exporter = closeout_backend(runtime, monkeypatch)
+    original_exporter = exporter.read_bytes()
+    original_beads, original_git = runtime["work"].run_beads_json, runtime["work"]._git
+    private = "password=fixture-private-value https://user:fixture-credential@example.invalid SECRET-DETAIL"
+    error = native_error + "\n" + private + "\n" + "x" * 5000
+    if phase == "close":
+        original = runtime["work"].run_beads_json
+        monkeypatch.setattr(runtime["work"], "run_beads_json",
+                            lambda args: (7, None, error) if args[0] == "close" else original(args))
+    elif phase == "export":
+        exporter.write_text("#!/usr/bin/env python3\nimport sys\nsys.stderr.write(" + repr(error) + "); sys.exit(7)\n")
+    else:
+        original = runtime["work"]._git
+        def fail_git(root, args):
+            if args[0] == ("add" if phase == "stage" else "commit"):
+                return subprocess.CompletedProcess(args, 7, "", error)
+            return original(root, args)
+        monkeypatch.setattr(runtime["work"], "_git", fail_git)
+    result = runtime["work"].direct_closeout("pi-a", outcome="success", reason="fixture complete")
+    assert result["repair"]["failedStage"] == phase
+    diagnostic = result["stages"][phase]["diagnostic"]
+    assert diagnostic["exitCode"] == 7
+    assert expected in diagnostic["detail"]
+    assert len(diagnostic["detail"]) < 500
+    assert "fixture-private" not in json.dumps(result)
+    assert "fixture-credential" not in json.dumps(result)
+    assert "SECRET-DETAIL" not in json.dumps(result)
+    assert runtime["quality"].session_attempt_state("session-a")["outcome"] == "success"
+    assert runtime["store"].owner("pi-a")["phase"] == "active"
+    monkeypatch.setattr(runtime["work"], "run_beads_json", original_beads)
+    monkeypatch.setattr(runtime["work"], "_git", original_git)
+    exporter.write_bytes(original_exporter)
+    assert runtime["work"].direct_closeout("pi-a", outcome="success", reason="fixture complete")["status"] == "closed"
+    assert runtime["quality"].session_attempt_state("session-a")["outcome"] == "success"
+
+
 @pytest.mark.parametrize("other_phase", ["active", "paused", "reserved", "yielding", "completed"])
 @pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "repo-write", "git-commit"]}], indirect=True)
 def test_shared_checkout_closes_only_owned_bead(runtime, monkeypatch, other_phase):  # Tests INV-5

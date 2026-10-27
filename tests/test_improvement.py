@@ -4890,8 +4890,26 @@ def test_local_session_owner_conflict_blocks_projection(monkeypatch):
         lambda: pytest.fail("local conflict must block projection lookup"),
     )
 
-    with pytest.raises(improvement.SessionWorkItemConflict, match="handoff_bead"):
+    with pytest.raises(improvement.SessionWorkItemConflict) as error:
         improvement.link_current_session("pi-second.1")
+    assert error.value.reason == "session-linked"
+
+
+@pytest.mark.parametrize("action", ["link", "outcome"])
+@pytest.mark.parametrize("reason", ["bead-owned", "checkout-mismatch", "session-finalized"])
+def test_improve_cli_preserves_actual_ownership_diagnosis(monkeypatch, capsys, action, reason):
+    error = improvement.SessionWorkItemConflict("private foreign owner detail", reason=reason)
+    def fail(*args):
+        raise error
+    monkeypatch.setattr(improvement, "link_current_session" if action == "link" else "record_current_session_outcome", fail)
+    args = [action, "pi-second.1", *(["partial"] if action == "outcome" else []), "--json"]
+    assert improvement.cmd_improve(args) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["reason"] == reason
+    assert result["error"] == error.public_message
+    assert "handoffTool" not in result["recovery"]
+    assert "humanFallback" not in result["recovery"]
+    assert "private" not in json.dumps(result)
 
 
 def test_improve_cli_offers_continuation_after_local_work_item_conflict(monkeypatch, capsys):
@@ -4914,14 +4932,14 @@ def test_improve_cli_offers_continuation_after_local_work_item_conflict(monkeypa
     assert json.loads(output) == {
         "schemaVersion": 1,
         "status": "error",
-        "error": "session belongs to another work item",
+        "error": "session is linked to another Bead; preserve its assignment",
+        "reason": "session-linked",
         "recovery": {
             "action": "checkpoint-or-reconcile-ownership",
             "handoffTool": {
                 "name": "handoff_bead",
                 "arguments": {"targetBead": "pi-second.1"},
             },
-            "humanFallback": {"command": "/new", "onlyWhen": "continuation runtime unavailable"},
         },
     }
     assert "pi-first.1" not in output

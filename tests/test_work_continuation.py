@@ -106,6 +106,418 @@ def test_direct_sessions_share_canonical_checkout_without_relabeling(runtime, mo
         assert runtime["quality"].session_attempt_state(session) == {"beadId": bead, "outcome": None}
 
 
+@pytest.mark.parametrize("failure, reason", [(OSError("private storage path"), "storage-failed"),
+                                           (ValueError("private invalid context"), "validation-failed"),
+                                           (RuntimeError("private runtime detail"), "operation-failed")])
+def test_direct_start_nonownership_failure_is_typed_without_private_detail(runtime, monkeypatch, failure, reason):
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(runtime["work"], "link_current_session", fail)
+    result = runtime["work"].direct_start("pi-a", claim=True)
+    assert result["repair"]["reason"] == reason
+    assert result["repair"]["requiredAction"] == "retry-same-session"
+    assert "private" not in json.dumps(result)
+    assert "handoffTool" not in result["repair"]
+    assert not any(call[0] == "update" for call in runtime["calls"])
+
+
+def test_claim_storage_validation_is_not_an_ownership_conflict(runtime):
+    from agnt_lib import quality, work_lifecycle
+
+    runtime["store"].root.mkdir(mode=0o755)
+    runtime["store"].root.chmod(0o755)
+    with pytest.raises(ValueError, match="journal directory must be owner-private") as error:
+        work_lifecycle.guard_session_link("session-a", "pi-a", lambda _: pytest.fail("must not link"))
+    assert not isinstance(error.value, quality.SessionWorkItemConflict)
+    assert not any(call[0] == "update" for call in runtime["calls"])
+    assert runtime["quality"].session_work_item("session-a") is None
+
+
+def test_claim_checkout_validation_is_not_an_ownership_conflict(runtime, monkeypatch):
+    from agnt_lib import quality, work_lifecycle
+
+    def unavailable(_checkout):
+        raise ValueError("checkout is not a directory")
+    monkeypatch.setattr(work_lifecycle, "checkout_identity", unavailable)
+    with pytest.raises(ValueError, match="checkout is not a directory") as error:
+        work_lifecycle.guard_session_link("session-a", "pi-a", lambda _: pytest.fail("must not link"))
+    assert not isinstance(error.value, quality.SessionWorkItemConflict)
+    assert runtime["store"].owner("pi-a") is None
+    assert not any(call[0] == "update" for call in runtime["calls"])
+
+
+@pytest.mark.parametrize(("condition", "reason"), [("foreign", "bead-owned"), ("checkout", "checkout-mismatch"),
+                                                   ("final", "session-finalized"), ("relabel", "session-linked")])
+def test_direct_start_reports_actual_ownership_condition(runtime, monkeypatch, condition, reason):
+    if condition == "foreign":
+        runtime["store"].claim("pi-a", "foreign-session", str(runtime["repo"]))
+    else:
+        assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+        if condition == "checkout":
+            monkeypatch.chdir(runtime["other"])
+        elif condition == "final":
+            runtime["quality"].capture_session_outcome("session-a", "pi-a", "partial", beads_runner=runtime["work"].run_beads_json)
+    runtime["calls"].clear()
+    result = runtime["work"].direct_start("pi-b" if condition == "relabel" else "pi-a", claim=True)
+    assert result["repair"]["reason"] == reason
+    assert result["repair"]["safeToRetry"] is False
+    assert "humanFallback" not in result["repair"]
+    assert "final outcome" not in result["stages"]["link"]["error"] or condition == "final"
+    assert not any(call[0] == "update" for call in runtime["calls"])
+
+
+def test_claim_foreign_owner_has_typed_conflict(runtime):
+    from agnt_lib import quality
+
+    runtime["store"].claim("pi-a", "foreign-session", str(runtime["repo"]))
+    with pytest.raises(quality.SessionWorkItemConflict, match="execution ownership conflict"):
+        runtime["store"].claim("pi-a", "session-a", str(runtime["repo"]))
+
+
+def test_shared_direct_owner_can_check_and_resume(agnt, runtime, capsys):  # Tests INV-5
+    from agnt_lib.work_lifecycle import transition_check
+
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    runtime["store"].claim("pi-b", "session-b", str(runtime["repo"]))
+    other_owner = runtime["store"].owner("pi-b")
+    cp = checkpoint(agnt, runtime, capsys)
+    assert transition_check("pi-a", mode="resume", session_id="session-a", checkpoint_ref=cp["id"])["status"] == "ready"
+    tx = prepare(agnt, runtime, cp, capsys)
+    assert tx["state"] == "prepared"
+    assert runtime["store"].owner("pi-b") == other_owner
+
+
+@pytest.mark.parametrize("problem", ["occupied", "wrong-owner", "wrong-header", "invalid-mode"])
+def test_readiness_rejects_same_conditions_as_preparation(agnt, runtime, capsys, problem):
+    from agnt_lib.work_lifecycle import transition_check
+
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    cp = checkpoint(agnt, runtime, capsys)
+    target, mode, checkout_path = "pi-b", "switch", str(runtime["other"])
+    if problem == "occupied":
+        runtime["store"].claim("pi-c", "session-c", checkout_path)
+    elif problem == "wrong-owner":
+        with runtime["store"].locked() as state:
+            state["owners"]["pi-a"]["session"] = "foreign-session"
+            runtime["store"]._write(state)
+    elif problem == "wrong-header":
+        (runtime["root"] / "source.jsonl").write_text(json.dumps({"type": "session", "id": "wrong", "cwd": str(runtime["repo"])}))
+    else:
+        mode = "invalid"
+    with pytest.raises(ValueError):
+        transition_check(target, mode=mode, session_id="session-a", checkpoint_ref=cp["id"], checkout=checkout_path)
+    assert runtime["store"].pending_transition("session-a") is None
+
+
+@pytest.mark.parametrize("outcome", ["partial", "failure", "unclear"])
+@pytest.mark.parametrize("isolated", [False, True])
+def test_terminal_departure_preserves_outcome_and_source(agnt, runtime, capsys, monkeypatch, outcome, isolated):  # Tests INV-8
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    runtime["quality"].capture_session_outcome("session-a", "pi-a", outcome, beads_runner=runtime["work"].run_beads_json)
+    runtime["beads"]["pi-a"].update(status="closed", closed_at="2026-10-27T00:00:00Z", close_reason="Wontfix")
+    header = (runtime["root"] / "source.jsonl").read_bytes()
+    if isolated:
+        (runtime["repo"] / "unfinished.txt").write_text("preserve cancelled work")
+    cp = checkpoint(agnt, runtime, capsys)
+    target = runtime["other"] if isolated else runtime["repo"]
+    tx = prepare(agnt, runtime, cp, capsys, target="pi-b", checkout=target)
+    assert runtime["store"].owner("pi-a")["phase"] == "active"
+    stage(agnt, tx, capsys)
+    monkeypatch.chdir(target)
+    monkeypatch.setenv("PI_SESSION_ID", tx["childSession"])
+    monkeypatch.setenv("PI_SESSION_FILE", tx["childSessionFile"])
+    assert agnt.main(["work", "transition-attach", tx["id"], "--session-id", tx["childSession"]]) == 0
+    capsys.readouterr()
+    assert runtime["store"].owner("pi-a")["phase"] == "completed"
+    assert runtime["store"].owner("pi-b")["session"] == tx["childSession"]
+    assert runtime["quality"].session_attempt_state("session-a") == {"beadId": "pi-a", "outcome": outcome}
+    assert runtime["quality"].session_attempt_state(tx["childSession"]) == {"beadId": "pi-b", "outcome": None}
+    assert (runtime["root"] / "source.jsonl").read_bytes() == header
+    if isolated:
+        assert (runtime["repo"] / "unfinished.txt").read_text() == "preserve cancelled work"
+    assert not any(call[0] == "close" for call in runtime["calls"])
+
+
+@pytest.mark.parametrize("reopen", [True, False])
+def test_source_disposition_change_during_claim_preserves_reservation(agnt, runtime, capsys, monkeypatch, reopen):
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    runtime["quality"].capture_session_outcome("session-a", "pi-a", "partial", beads_runner=runtime["work"].run_beads_json)
+    closure = {"status": "closed", "closed_at": "2026-10-27T00:00:00Z", "close_reason": "Cancelled"}
+    target = runtime["repo"] if reopen else runtime["other"]
+    if reopen:
+        runtime["beads"]["pi-a"].update(closure)
+    else:
+        (target / "unfinished.txt").write_text("preserve target dirt")
+    cp = checkpoint(agnt, runtime, capsys)
+    tx = prepare(agnt, runtime, cp, capsys, target="pi-b", checkout=target)
+    stage(agnt, tx, capsys)
+    monkeypatch.chdir(target)
+    monkeypatch.setenv("PI_SESSION_ID", tx["childSession"])
+    monkeypatch.setenv("PI_SESSION_FILE", tx["childSessionFile"])
+    original = runtime["work"].run_beads_json
+    def runner(args):
+        result = original(args)
+        if args[:2] == ["update", "pi-b"]:
+            runtime["beads"]["pi-a"].update({"status": "open"} if reopen else closure)
+        return result
+    monkeypatch.setattr(runtime["work"], "run_beads_json", runner)
+    assert agnt.main(["work", "transition-attach", tx["id"], "--session-id", tx["childSession"]]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["transitionId"] == tx["id"]
+    assert runtime["store"].status(tx["id"])["state"] == "attaching"
+    assert runtime["store"].owner("pi-a")["phase"] == "yielding"
+    assert runtime["store"].owner("pi-b")["phase"] == "reserved"
+    assert runtime["quality"].session_work_item(tx["childSession"]) == "pi-b"
+    assert runtime["quality"].session_attempt_state("session-a")["outcome"] == "partial"
+
+
+def test_terminal_same_checkout_destination_rejects_competing_claim(agnt, runtime, capsys):
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    runtime["quality"].capture_session_outcome("session-a", "pi-a", "partial", beads_runner=runtime["work"].run_beads_json)
+    runtime["beads"]["pi-a"].update(status="closed", closed_at="2026-10-27T00:00:00Z", close_reason="Cancelled")
+    cp = checkpoint(agnt, runtime, capsys)
+    tx = prepare(agnt, runtime, cp, capsys, target="pi-b", checkout=runtime["repo"])
+    with pytest.raises(ValueError, match="reserved"):
+        runtime["store"].claim("pi-c", "session-c", str(runtime["repo"]))
+    assert runtime["store"].pending_transition("session-a")["id"] == tx["id"]
+    assert runtime["store"].owner("pi-c") is None
+
+
+@pytest.mark.parametrize("phase", ["stage", "launch", "attach"])
+def test_newly_closed_source_revalidates_terminal_destination(agnt, runtime, capsys, monkeypatch, phase):
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    runtime["quality"].capture_session_outcome("session-a", "pi-a", "partial", beads_runner=runtime["work"].run_beads_json)
+    (runtime["other"] / "unfinished.txt").write_text("preserve target dirt")
+    cp = checkpoint(agnt, runtime, capsys)
+    tx = prepare(agnt, runtime, cp, capsys, target="pi-b", checkout=runtime["other"])
+    if phase != "stage":
+        stage(agnt, tx, capsys)
+    else:
+        path = Path(tx["childSessionFile"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"type": "session", "id": tx["childSession"], "cwd": tx["targetCheckout"],
+                                    "parentSession": tx["sourceSessionFile"]}) + "\n")
+    runtime["beads"]["pi-a"].update(status="closed", closed_at="2026-10-27T00:00:00Z", close_reason="Cancelled")
+    session = "session-a"
+    if phase == "attach":
+        session = tx["childSession"]
+        monkeypatch.chdir(runtime["other"])
+        monkeypatch.setenv("PI_SESSION_ID", session)
+        monkeypatch.setenv("PI_SESSION_FILE", tx["childSessionFile"])
+    calls = list(runtime["calls"])
+    assert agnt.main(["work", "transition-" + phase, tx["id"], "--session-id", session]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "blocked" and result["transitionId"] == tx["id"]
+    assert not any(call[0] == "update" for call in runtime["calls"][len(calls):])
+    assert runtime["store"].owner("pi-a")["phase"] != "completed"
+    assert runtime["store"].owner("pi-b")["phase"] == "reserved"
+    assert (runtime["other"] / "unfinished.txt").read_text() == "preserve target dirt"
+
+
+@pytest.mark.parametrize("phase", ["stage", "launch", "attach"])
+def test_reopened_terminal_source_cannot_share_checkout(agnt, runtime, capsys, monkeypatch, phase):  # Tests INV-8
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    runtime["quality"].capture_session_outcome("session-a", "pi-a", "partial", beads_runner=runtime["work"].run_beads_json)
+    runtime["beads"]["pi-a"].update(status="closed", closed_at="2026-10-27T00:00:00Z", close_reason="Cancelled")
+    cp = checkpoint(agnt, runtime, capsys)
+    tx = prepare(agnt, runtime, cp, capsys, target="pi-b", checkout=runtime["repo"])
+    if phase != "stage":
+        stage(agnt, tx, capsys)
+    else:
+        path = Path(tx["childSessionFile"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"type": "session", "id": tx["childSession"], "cwd": tx["targetCheckout"],
+                                    "parentSession": tx["sourceSessionFile"]}) + "\n")
+    runtime["beads"]["pi-a"]["status"] = "open"
+    session = "session-a"
+    if phase == "attach":
+        session = tx["childSession"]
+        monkeypatch.setenv("PI_SESSION_ID", session)
+        monkeypatch.setenv("PI_SESSION_FILE", tx["childSessionFile"])
+    calls = list(runtime["calls"])
+    assert agnt.main(["work", "transition-" + phase, tx["id"], "--session-id", session]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "blocked"
+    assert result["transitionId"] == tx["id"]
+    assert not any(call[0] == "update" for call in runtime["calls"][len(calls):])
+    assert runtime["store"].owner("pi-b")["phase"] == "reserved"
+    assert runtime["quality"].session_attempt_state("session-a")["outcome"] == "partial"
+
+
+@pytest.mark.parametrize("problem", ["missing-owner", "foreign-owner", "missing-disposition", "no-outcome", "success",
+                                      "dirty-source", "dirty-target", "revoked", "resume", "unknown-effects"])
+def test_terminal_departure_refuses_missing_proof(agnt, runtime, capsys, monkeypatch, problem):  # Tests INV-8
+    from agnt_lib import work_lifecycle
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    if problem != "no-outcome":
+        runtime["quality"].capture_session_outcome("session-a", "pi-a", "success" if problem == "success" else "partial",
+                                                   beads_runner=runtime["work"].run_beads_json)
+    runtime["beads"]["pi-a"].update(status="closed", closed_at="2026-10-27T00:00:00Z", close_reason="Cancelled")
+    if problem == "missing-disposition":
+        runtime["beads"]["pi-a"].pop("close_reason")
+    if problem in {"missing-owner", "foreign-owner"}:
+        with runtime["store"].locked() as state:
+            if problem == "missing-owner":
+                del state["owners"]["pi-a"]
+            else:
+                state["owners"]["pi-a"]["session"] = "foreign"
+            runtime["store"]._write(state)
+    if problem == "revoked":
+        runtime["permission"].revoke("stop")
+    if problem == "unknown-effects":
+        monkeypatch.setattr(work_lifecycle, "delivery_store", lambda: (_ for _ in ()).throw(ValueError("receipt inspection unavailable")))
+    before_owner = runtime["store"].owner("pi-a")
+    try:
+        cp = work_lifecycle.checkpoint_current("pi-a")
+        target = runtime["repo"]
+        if problem in {"dirty-source", "dirty-target"}:
+            target = runtime["other"] if problem == "dirty-target" else runtime["repo"]
+            (target / "unfinished.txt").write_text("retain")
+            cp = work_lifecycle.checkpoint_current("pi-a")
+        result = work_lifecycle.transition_check("pi-a" if problem == "resume" else "pi-b",
+            mode="resume" if problem == "resume" else "switch", session_id="session-a",
+            checkpoint_ref=cp["checkpoint"]["id"], checkout=str(target))
+    except ValueError:
+        pass
+    else:
+        pytest.fail(f"terminal departure accepted missing proof: {problem}: {result}")
+    assert runtime["store"].pending_transition("session-a") is None
+    assert runtime["store"].owner("pi-b") is None
+    owner = runtime["store"].owner("pi-a")
+    assert (owner or {}).get("phase") == (before_owner or {}).get("phase")
+
+
+def test_same_bead_relocation_binds_checkout_only_on_attachment(agnt, runtime, capsys, monkeypatch):  # Tests INV-1
+    from agnt_lib.work_lifecycle import transition_check
+
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    source_file = runtime["root"] / "source.jsonl"
+    parent_bytes = source_file.read_bytes()
+    (runtime["repo"] / "dirty.txt").write_text("source dirt")
+    cp = checkpoint(agnt, runtime, capsys)
+    owner = runtime["store"].owner("pi-a")
+    assert transition_check("pi-a", mode="resume", session_id="session-a", checkpoint_ref=cp["id"], checkout=str(runtime["other"]))["status"] == "ready"
+    tx = prepare(agnt, runtime, cp, capsys, checkout=runtime["other"])
+    assert runtime["store"].owner("pi-a") == owner
+    stage(agnt, tx, capsys)
+    monkeypatch.chdir(runtime["other"])
+    monkeypatch.setenv("PI_SESSION_ID", tx["childSession"])
+    monkeypatch.setenv("PI_SESSION_FILE", tx["childSessionFile"])
+    assert agnt.main(["work", "transition-attach", tx["id"], "--session-id", tx["childSession"]]) == 0
+    capsys.readouterr()
+    assert runtime["store"].owner("pi-a")["checkout"] == str(runtime["other"])
+    assert runtime["quality"].session_attempt_state("session-a") == {"beadId": "pi-a", "outcome": None}
+    assert source_file.read_bytes() == parent_bytes
+    assert (runtime["repo"] / "dirty.txt").read_text() == "source dirt"
+    back_cp = runtime["store"].checkpoint("pi-a", tx["childSession"], progress())
+    assert agnt.main(["work", "transition-prepare", "pi-a", "--mode", "resume", "--session-id", tx["childSession"],
+                      "--checkpoint-ref", back_cp["id"], "--checkout", str(runtime["repo"]), "--runtime-ready"]) == 0
+    back = json.loads(capsys.readouterr().out)["transition"]
+    stage(agnt, back, capsys)
+    monkeypatch.chdir(runtime["repo"])
+    monkeypatch.setenv("PI_SESSION_ID", back["childSession"])
+    monkeypatch.setenv("PI_SESSION_FILE", back["childSessionFile"])
+    assert agnt.main(["work", "transition-attach", back["id"], "--session-id", back["childSession"]]) == 0
+    capsys.readouterr()
+    assert runtime["store"].owner("pi-a")["checkout"] == str(runtime["repo"])
+    assert (runtime["repo"] / "dirty.txt").read_text() == "source dirt"
+
+
+@pytest.mark.parametrize("problem", ["foreign-repository", "occupied", "source-drift", "target-drift", "revoked", "cancel"])
+def test_relocation_preserves_guards_and_source_binding(agnt, runtime, capsys, problem):
+    from agnt_lib.work_lifecycle import transition_check
+
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    cp = checkpoint(agnt, runtime, capsys)
+    owner = runtime["store"].owner("pi-a")
+    destination = runtime["other"]
+    if problem == "foreign-repository":
+        destination = runtime["root"] / "foreign"
+        destination.mkdir()
+        subprocess.run(["git", "init", "-q", str(destination)], check=True)
+    elif problem == "occupied":
+        runtime["store"].claim("pi-b", "session-b", str(destination))
+    if problem in {"foreign-repository", "occupied"}:
+        with pytest.raises(ValueError, match="repository|ownership"):
+            transition_check("pi-a", mode="resume", session_id="session-a", checkpoint_ref=cp["id"], checkout=str(destination))
+        assert runtime["store"].pending_transition("session-a") is None
+    else:
+        tx = prepare(agnt, runtime, cp, capsys, checkout=destination)
+        if problem == "cancel":
+            assert agnt.main(["work", "transition-cancel", tx["id"], "--session-id", "session-a"]) == 0
+            capsys.readouterr()
+        else:
+            if problem == "revoked":
+                runtime["permission"].revoke("fixture revocation")
+            else:
+                path = runtime["repo"] if problem == "source-drift" else destination
+                (path / "concurrent.txt").write_text("must preserve")
+            child = Path(tx["childSessionFile"])
+            child.parent.mkdir(parents=True, exist_ok=True)
+            child.write_text(json.dumps({"type": "session", "id": tx["childSession"], "cwd": str(destination),
+                                         "parentSession": tx["sourceSessionFile"]}) + "\n")
+            assert agnt.main(["work", "transition-stage", tx["id"], "--session-id", "session-a"]) == 2
+            capsys.readouterr()
+    assert runtime["store"].owner("pi-a") == owner
+
+
+def test_relocation_reserves_target_against_new_claims_and_transitions(agnt, runtime, capsys):
+    from agnt_lib.quality import SessionWorkItemConflict
+
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    cp = checkpoint(agnt, runtime, capsys)
+    tx = prepare(agnt, runtime, cp, capsys, checkout=runtime["other"])
+    with pytest.raises(SessionWorkItemConflict, match="reserved checkout"):
+        runtime["store"].claim("pi-b", "session-b", str(runtime["other"]))
+    runtime["store"].claim("pi-b", "session-b", str(runtime["repo"]))
+    cp_b = runtime["store"].checkpoint("pi-b", "session-b", progress())
+    with pytest.raises(ValueError, match="reserved checkout"):
+        runtime["store"].prepare(source_session="session-b", checkpoint_ref=cp_b["id"], target_bead="pi-b",
+                                 target_checkout=str(runtime["other"]), target_status="open", blockers=[], mode="resume",
+                                 runtime_ready=True, authorize=lambda _: True)
+    runtime["store"].cancel(tx["id"], source_session="session-a")
+    assert runtime["store"].owner("pi-a")["checkout"] == str(runtime["repo"])
+
+
+@pytest.mark.parametrize(("state", "expected"), [("unassigned", "unassigned"), ("open", "continuable"),
+                                                   ("success", "closeout-required"), ("closed-success", "closed"),
+                                                   ("closed-failure", "terminal")])
+def test_transition_context_distinguishes_source_states(runtime, state, expected):
+    from agnt_lib.work_lifecycle import transition_context
+
+    if state != "unassigned":
+        assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+        if state not in {"open", "unassigned"}:
+            outcome = "failure" if state == "closed-failure" else "success"
+            runtime["quality"].capture_session_outcome("session-a", "pi-a", outcome, beads_runner=runtime["work"].run_beads_json)
+        if state.startswith("closed-"):
+            runtime["beads"]["pi-a"]["status"] = "closed"
+    assert transition_context("session-a")["status"] == expected
+
+
+def test_unknown_transition_does_not_claim_a_reservation(agnt, runtime, capsys):
+    requested = "f" * 32
+    assert agnt.main(["work", "transition-recover", requested]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["transitionId"] is None
+    assert "not found" in result["recovery"]
+    assert "uncertain" not in result["recovery"]
+
+
+def test_prepare_rejection_does_not_invent_uncertain_launch(agnt, runtime, capsys):
+    assert runtime["work"].direct_start("pi-a", claim=True)["status"] == "started"
+    cp = checkpoint(agnt, runtime, capsys)
+    (runtime["repo"] / "drift").write_text("changed")
+    assert agnt.main(["work", "transition-prepare", "pi-a", "--mode", "resume", "--session-id", "session-a",
+                      "--checkpoint-ref", cp["id"], "--runtime-ready"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "blocked"
+    assert result["transitionId"] is None
+    assert "uncertain" not in result["recovery"]
+    assert "No transition was reserved" in result["recovery"]
+    assert runtime["store"].pending_transition("session-a") is None
+
+
 def test_workspace_snapshot_ignores_git_environment(runtime, monkeypatch):
     from agnt_lib.work_lifecycle import workspace_snapshot
     (runtime["repo"] / "source-only.txt").write_text("source")

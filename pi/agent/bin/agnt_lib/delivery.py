@@ -221,6 +221,13 @@ class DeliveryStore:
         with self._journal() as state:
             return self._result(self._receipt(state, ref))
 
+    def assert_settled(self, assignment: str, bead: str) -> None:
+        """Terminal execution cannot abandon its admitted, unresolved effects."""
+        with self._journal() as state:
+            if any(receipt["assignment"] == assignment and receipt["action"]["bead"] == bead
+                   and _phase(receipt) in _ACTIVE for receipt in state["receipts"].values()):
+                raise ValueError("unresolved admitted effects require exact receipt reconciliation")
+
     def find_pending(self, assignment: str, action_fingerprint: str) -> dict[str, Any] | None:
         """Recover an unbound reservation without creating authority or effects."""
         with self._journal() as state:
