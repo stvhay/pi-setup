@@ -169,6 +169,7 @@ def config_source(source: Path) -> Path:
     ("agent/AGENTS.md", "before.md", 0o640, "old guidance\n", "new guidance\n"),
     ("agent/skills/token-saver/SKILL.md", "before.md", 0o640, "old skill\n", "new skill\n"),
     ("agent/bin/start-craft-mcp.sh", "before.sh", 0o750, "#!/bin/sh\nexit 98\n", "#!/bin/sh\nexit 99\n"),
+    ("agent/bin/agnt_lib/work_lifecycle.py", "before.py", 0o640, "# old lifecycle\n", "# new lifecycle\n"),
 ])
 def test_file_update_previews_backs_up_and_preserves_unrelated_state(tmp_path, relative, backup_name, file_mode, old, new):
     source = config_source(tmp_path / "source")
@@ -281,10 +282,11 @@ def test_craft_file_update_refuses_unsafe_or_nonexecutable_paths(tmp_path, side,
     assert not (dest / "runtime").exists()
 
 
-@pytest.mark.parametrize("relative", ["agent/AGENTS.md", "agent/skills/token-saver/SKILL.md"])
+@pytest.mark.parametrize("relative", ["agent/AGENTS.md", "agent/skills/token-saver/SKILL.md",
+                                     "agent/bin/agnt_lib/work_lifecycle.py"])
 @pytest.mark.parametrize("side", ["source", "destination"])
 @pytest.mark.parametrize("problem", ["missing", "symlink", "symlink-parent"])
-def test_guidance_file_update_refuses_unsafe_paths(tmp_path, relative, side, problem):
+def test_guidance_and_lifecycle_file_update_refuses_unsafe_paths(tmp_path, relative, side, problem):
     source = config_source(tmp_path / "source")
     dest = config_source(tmp_path / ".pi")
     for root in (source, dest):
@@ -306,13 +308,17 @@ def test_guidance_file_update_refuses_unsafe_paths(tmp_path, relative, side, pro
 
 @pytest.mark.parametrize("relative", ["agent/bin/other.sh", "agent/bin/start-craft-mcp.sh.extra",
                                      "agent/bin/agnt", "agent/extensions/fixture.local.ts",
-                                     "agent/settings.json", "agent/AGENTS.md.extra"])
+                                     "agent/settings.json", "agent/AGENTS.md.extra",
+                                     "agent/bin/agnt_lib/other.py", "agent/bin/agnt_lib/work_lifecycle.py.extra",
+                                     "agent/bin/agnt_lib/./work_lifecycle.py"])
 def test_file_update_rejects_other_existing_files(tmp_path, relative):
     source = config_source(tmp_path / "source")
     dest = config_source(tmp_path / ".pi")
     # Keep fixture agnt functional because layout validation invokes it.
     new = '#!/bin/sh\nprintf "{}\\n"\n# new\n'
     old = '#!/bin/sh\nprintf "{}\\n"\n# old\n'
+    for root in (source, dest):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
     (source / relative).write_text(new)
     (dest / relative).write_text(old)
     (source / relative).chmod(0o755)

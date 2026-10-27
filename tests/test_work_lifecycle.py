@@ -224,13 +224,35 @@ def test_session_cannot_claim_second_bead(lifecycle, tmp_path, separate_checkout
     assert journal.owner("pi-b") is None
 
 
-def test_prepare_cannot_reserve_another_beads_checkout(lifecycle, tmp_path):
+@pytest.mark.parametrize("phase", ["active", "paused", "reserved", "yielding"])
+def test_prepare_cannot_reserve_another_beads_checkout(lifecycle, tmp_path, phase):
     journal, repo, cp = setup_attempt(lifecycle, tmp_path)
     occupied = tmp_path / "occupied"
     occupied.mkdir()
     journal.claim("pi-c", "session-c", str(occupied))
-    with pytest.raises(ValueError, match="ownership"):
+    with journal.locked() as state:
+        state["owners"]["pi-c"]["phase"] = phase
+        journal._write(state)
+    with pytest.raises(ValueError, match="target checkout ownership conflict"):
         prepare(journal, repo, cp, target="pi-b", checkout=occupied)
+
+
+@pytest.mark.parametrize("target", ["pi-a", "pi-b"])
+def test_prepare_ignores_completed_checkout_owners(lifecycle, tmp_path, target):
+    journal, repo, cp = setup_attempt(lifecycle, tmp_path)
+    checkout = repo if target == "pi-a" else tmp_path / "target"
+    checkout.mkdir(exist_ok=True)
+    for bead in ("pi-c", "pi-d"):
+        journal.claim(bead, f"session-{bead}", str(checkout))
+        journal.release_completed(bead, f"session-{bead}")
+    owners = {bead: journal.owner(bead) for bead in ("pi-c", "pi-d")}
+
+    tx = prepare(journal, repo, cp, target=target, checkout=checkout)
+
+    assert tx["state"] == "prepared"
+    assert tx["checkpointRef"] == cp["id"]
+    assert {bead: journal.owner(bead) for bead in owners} == owners
+    assert (repo / "unfinished.txt").read_text() == "preserve dirty work"
 
 
 def test_uncertain_attach_requires_inspection_before_retry(lifecycle, tmp_path):

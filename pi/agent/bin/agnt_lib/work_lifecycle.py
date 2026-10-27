@@ -309,7 +309,7 @@ class LifecycleStore:
             if target_bead != source_bead and target is not None and target["phase"] != "paused":
                 raise ValueError("target ownership conflict")
             if any(key not in {source_bead, target_bead} and value["checkout"] == checkout
-                   for key, value in state["owners"].items()):
+                   and value["phase"] != "completed" for key, value in state["owners"].items()):
                 raise ValueError("target checkout ownership conflict")
             if target is not None and target["checkout"] != checkout:
                 raise ValueError("target checkout identity changed")
