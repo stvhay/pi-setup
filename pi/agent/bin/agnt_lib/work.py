@@ -913,17 +913,37 @@ def finish_work(bundle: Path, *, status: str, summary: str, evidence: List[str],
     return {"result": result, "beadClose": close_result}
 
 
+def _beads_tracking_mode(root: Path) -> str:
+    tracked = _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"])
+    if tracked.returncode == 0:
+        return "shared"
+    paths = _git(root, ["ls-files", "-z", "--", ".beads"])
+    ignored = _git(root, ["check-ignore", "-q", "--", ".beads/"])
+    directory = root / ".beads"
+    if (tracked.returncode != 1 or paths.returncode != 0 or paths.stdout or ignored.returncode != 0
+            or directory.is_symlink() or (directory.exists() and not directory.is_dir())):
+        raise ValueError("Beads tracking is ambiguous or mixed; retain a tracked export or explicitly ignore wholly untracked .beads/")
+    return "local-only"
+
+
 def handoff_closeout_is_clean(source_bead: Dict[str, Any]) -> bool:
     root_result = _git(Path.cwd(), ["rev-parse", "--show-toplevel"])
     if root_result.returncode != 0 or not root_result.stdout.strip():
         return False
     root = Path(root_result.stdout.strip())
     portable_path = root / ".beads" / "issues.jsonl"
-    if _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"]).returncode != 0:
+    try:
+        mode = _beads_tracking_mode(root)
+    except (OSError, ValueError):
         return False
     status = _git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=no"])
     if status.returncode != 0 or status.stdout:
         return False
+    if mode == "local-only":
+        return source_bead.get("status") == "closed" and all(
+            isinstance(source_bead.get(field), str) and source_bead[field].strip()
+            for field in ("id", "closed_at", "close_reason")
+        )
     try:
         portable = _portable_issue_rows(portable_path).get(str(source_bead.get("id") or ""))
     except (OSError, json.JSONDecodeError, ValueError):
@@ -964,6 +984,16 @@ def handoff_check(target_bead_id: str | None, *, session_id: str) -> Dict[str, A
             return failed("could not load current work item")
         if str(source_bead.get("status") or "").lower() != "closed":
             return failed("current work item is not closed")
+        try:
+            from .work_lifecycle import runtime_store, validate_closeout_context
+
+            owner = runtime_store().owner(source_bead_id)
+            if owner is not None:
+                validate_closeout_context(session_id, source_bead_id)
+                if owner["phase"] != "completed":
+                    return failed("current work item closeout finalization is incomplete; reconcile in its owning session")
+        except (OSError, RuntimeError, ValueError):
+            return failed("current work item closeout finalization could not be verified")
         if not handoff_closeout_is_clean(source_bead):
             committed = _git(Path.cwd(), ["show", "HEAD:.beads/issues.jsonl"])
             try:
@@ -1396,31 +1426,34 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     from .work_lifecycle import checkout_identity
     if root.resolve() != checkout_identity(str(Path.cwd())):
         return failed("preflight", "Git checkout identity differs from execution context")
+    try:
+        mode = _beads_tracking_mode(root)
+    except (OSError, ValueError) as exc:
+        return failed("preflight", str(exc) if isinstance(exc, ValueError) else "Beads tracking could not be inspected")
     portable_path = root / ".beads" / "issues.jsonl"
     try:
-        parent_stat = portable_path.parent.stat()
-        parent_identity = (parent_stat.st_dev, parent_stat.st_ino)
+        parent_stat = portable_path.parent.stat() if portable_path.parent.exists() else None
+        parent_identity = (parent_stat.st_dev, parent_stat.st_ino) if parent_stat else None
     except OSError:
         return failed("preflight", "portable Beads directory is unavailable")
 
     def portable_target_is_current() -> bool:
         try:
-            current_parent = portable_path.parent.stat()
+            current_parent = portable_path.parent.stat() if portable_path.parent.exists() else None
+            current_identity = (current_parent.st_dev, current_parent.st_ino) if current_parent else None
             return (checkout_identity(str(Path.cwd())) == root.resolve()
+                    and _beads_tracking_mode(root) == mode
                     and not portable_path.parent.is_symlink()
                     and portable_path.parent.resolve() == root.resolve() / ".beads"
-                    and (current_parent.st_dev, current_parent.st_ino) == parent_identity
-                    and not portable_path.is_symlink() and portable_path.is_file())
+                    and current_identity == parent_identity
+                    and (mode == "local-only" or (not portable_path.is_symlink() and portable_path.is_file())))
         except (OSError, RuntimeError, ValueError):
             return False
 
     if not portable_target_is_current():
         return failed("preflight", "portable Beads target must be a regular file inside this checkout")
-    tracked = _git(root, ["ls-files", "--error-unmatch", "--", ".beads/issues.jsonl"])
-    if tracked.returncode != 0:
-        return failed("preflight", "portable Beads export is not tracked")
     try:
-        audit_paths = _closeout_audit_paths(root, bead_id, reason)
+        audit_paths = _closeout_audit_paths(root, bead_id, reason) if mode == "shared" else []
     except (OSError, ValueError):
         return failed("preflight", "tracked audit changes are not owned closure appends")
     dirty = _git(
@@ -1432,7 +1465,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
             "--untracked-files=no",
             "--",
             ".",
-            ":(exclude).beads/issues.jsonl",
+            *([":(exclude).beads/issues.jsonl"] if mode == "shared" else []),
             *[f":(exclude){path}" for path in audit_paths],
         ],
     )
@@ -1445,7 +1478,8 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
     from .work_lifecycle import closeout_effect_guard
     try:
         check_effects = closeout_effect_guard(session_id, bead_id, reason=reason)
-        check_effects(("beads-write", "repo-write", "git-commit"))
+        close_effects = ("beads-write", "repo-write", "git-commit") if mode == "shared" else ("beads-write", "repo-write")
+        check_effects(close_effects)
     except (OSError, RuntimeError, ValueError):
         return failed("authority", "closeout effects are outside captured authority", safe_to_retry=False)
 
@@ -1457,6 +1491,28 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         except (OSError, RuntimeError, ValueError):
             return failed("authority", "closeout authority or ownership changed; preserve partial state", safe_to_retry=False)
         return None
+
+    def finish(canonical: Dict[str, Any], commit: str | None) -> Dict[str, Any]:
+        denied = authority_failure(close_effects)
+        if denied:
+            return denied
+        if not handoff_closeout_is_clean(canonical):
+            return failed("clean", "closeout is not ready for handoff")
+        stages["clean"] = {"status": "succeeded"}
+        try:
+            from .work_lifecycle import runtime_store
+
+            runtime_store().release_terminal(bead_id, current_session_id())
+        except (OSError, ValueError):
+            return failed("ownership-release", "closeout verified; reconcile execution ownership before handoff")
+        return {
+            "schemaVersion": 1,
+            "status": "closed",
+            "bead": {"id": bead_id, "status": "closed"},
+            "stages": stages,
+            "commit": commit,
+            "repair": None,
+        }
 
     try:
         outcome_result = record_current_session_outcome(bead_id, outcome)
@@ -1491,7 +1547,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
 
     # Beads may update portable bookkeeping during close; retain the complete
     # local closeout ceiling before starting that native write.
-    denied = authority_failure(("beads-write", "repo-write", "git-commit"))
+    denied = authority_failure(close_effects)
     if denied:
         return denied
     code, _data, _error = run_beads_json(["close", bead_id, "--reason", reason])
@@ -1499,6 +1555,18 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         return failed("close", "bead close failed", diagnostic=_native_diagnostic(code, _error))
     closed = True
     stages["close"] = {"status": "succeeded"}
+
+    if mode == "local-only":
+        code, data, _error = run_beads_json(["show", bead_id])
+        canonical = normalize_bead(data)
+        if (code != 0 or not canonical or canonical.get("id") != bead_id
+                or canonical.get("status") != "closed" or canonical.get("close_reason") != reason
+                or not isinstance(canonical.get("closed_at"), str) or not canonical["closed_at"].strip()):
+            return failed("verify", "canonical Beads closeout could not be verified")
+        stages["verify"] = {"status": "succeeded"}
+        for stage in ("export", "parity", "stage", "commit"):
+            stages[stage] = {"status": "skipped", "reason": "local-only"}
+        return finish(canonical, None)
 
     exe = beads_bin()
     if not exe:
@@ -1611,23 +1679,7 @@ def direct_closeout(bead_id: str, *, outcome: str, reason: str) -> Dict[str, Any
         stages["stage"] = {"status": "skipped", "reason": "already-recorded"}
         stages["commit"] = {"status": "skipped", "reason": "already-recorded"}
         commit = None
-    if not handoff_closeout_is_clean(canonical):
-        return failed("clean", "committed closeout is not ready for handoff")
-    stages["clean"] = {"status": "succeeded"}
-    try:
-        from .work_lifecycle import runtime_store
-
-        runtime_store().release_terminal(bead_id, current_session_id())
-    except (OSError, ValueError):
-        return failed("ownership-release", "closeout committed; reconcile execution ownership before handoff")
-    return {
-        "schemaVersion": 1,
-        "status": "closed",
-        "bead": {"id": bead_id, "status": "closed"},
-        "stages": stages,
-        "commit": commit,
-        "repair": None,
-    }
+    return finish(canonical, commit)
 
 
 def cmd_work(argv: List[str]) -> int:

@@ -287,6 +287,52 @@ def test_real_beads_start_closeout_handoff_and_export(agnt, monkeypatch, tmp_pat
     assert run("git", "status", "--porcelain", "--untracked-files=no") == ""
 
 
+@pytest.mark.parametrize("worktree", [False, True])
+def test_native_stealth_closeout_and_handoff(agnt, monkeypatch, tmp_path, worktree):
+    for key in list(os.environ):
+        if key.startswith(("BD_", "BEADS_", "GIT_")):
+            monkeypatch.delenv(key)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    home.mkdir()
+    repo.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("BD_EXPORT_AUTO", "false")
+    monkeypatch.chdir(repo)
+
+    def run(*args):
+        return subprocess.run(args, check=True, capture_output=True, text=True).stdout
+
+    run("git", "init", "-q")
+    run("git", "config", "user.name", "Fixture")
+    run("git", "config", "user.email", "fixture@example.invalid")
+    run("git", "commit", "--allow-empty", "-qm", "base")
+    run("bd", "init", "--stealth", "--prefix", "probe", "--skip-agents", "--skip-hooks", "--non-interactive")
+    first, second = [json.loads(run("bd", "create", "--title", title, "--type", "task", "--json"))["id"]
+                     for title in ("First", "Second")]
+    if worktree:
+        other = tmp_path / "other"
+        run("git", "worktree", "add", "-qb", "other", str(other))
+        monkeypatch.chdir(other)
+        assert not (other / ".beads").exists()
+    quality, improvement = sys.modules["agnt_lib.quality"], sys.modules["agnt_lib.improvement"]
+    monkeypatch.setattr(quality, "resolve_runtime_directory", lambda _kind, **_kwargs: tmp_path / "quality")
+    monkeypatch.setattr(improvement, "_best_effort_projection", lambda summary, _project: summary)
+    monkeypatch.setenv("PI_SESSION_ID", "local-only")
+    head = run("git", "rev-parse", "HEAD")
+    assert agnt.direct_start(first, claim=True)["status"] == "started"
+    for _ in range(2):
+        result = agnt.direct_closeout(first, outcome="success", reason="Verified local-only.")
+        assert result["status"] == "closed", result
+        assert result["commit"] is None
+        assert agnt.handoff_check(second, session_id="local-only")["status"] == "ready"
+    canonical = json.loads(run("bd", "show", first, "--json"))[0]
+    assert canonical["status"] == "closed" and canonical["close_reason"] == "Verified local-only."
+    assert run("git", "rev-parse", "HEAD") == head
+    assert run("git", "ls-files", "--", ".beads") == ""
+    assert run("git", "status", "--porcelain", "--untracked-files=no") == ""
+    assert not (repo / ".beads/issues.jsonl").exists()
+
+
 @pytest.mark.parametrize("isolated", [False, True])
 @pytest.mark.parametrize("runtime", [{"effects": ["beads-write", "work-transition", "repo-write", "git-commit"]}], indirect=True)
 def test_native_terminal_departure_preserves_cancelled_source(agnt, runtime, monkeypatch, capsys, isolated):

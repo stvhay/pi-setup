@@ -869,6 +869,21 @@ def test_global_instructions_use_direct_lifecycle_start():
     assert "use `/clone` or `/new`" not in instructions
 
 
+def test_beads_publication_guidance_allows_both_modes():
+    instructions = (AGENT / "AGENTS.md").read_text()
+    common = (AGENT / "skills/dev-workflow-common/SKILL.md").read_text()
+    checklist = (AGENT / "skills/project-init/references/audit-checklist.md").read_text()
+    finishing = (AGENT / "skills/finishing-a-development-branch/SKILL.md").read_text()
+    for content in (instructions, common, checklist):
+        assert "local-only" in content
+        assert "shared" in content
+        assert "ignored" in content and "untracked" in content
+    assert "shared mode only" in common
+    assert "Local-only Beads does not disable" in finishing
+    assert "--stealth" in checklist
+    assert "published history" in checklist
+
+
 def test_unfinished_continuation_guidance_uses_one_normal_path():
     instructions = (AGENT / "AGENTS.md").read_text(encoding="utf-8")
     execution = (AGENT / "skills/executing-plans/SKILL.md").read_text(encoding="utf-8")

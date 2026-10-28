@@ -52,7 +52,7 @@ Reuse or establish one relevant baseline before optional closeout phases. Do not
 9. **Run assigned or explicitly requested extraction**
 10. **Ask for approval before any remote/destructive action**
 
-Use local project-readiness mode when the project uses local Beads/issues plus atomic commits and no PR/remote workflow. In that mode, verify the tracked task is complete, summarize commits and evidence, and present safe next actions instead of forcing PR language.
+Use local project-readiness mode when the project has no PR/remote workflow. Local-only Beads does not disable approved code pushes or PRs; publication of Beads is a separate choice. In that mode, verify the tracked task is complete, summarize commits and evidence, and present safe next actions instead of forcing PR language.
 
 ## Step 1: Inspect branch state
 
@@ -161,7 +161,7 @@ PLANS_DIR=$(~/.pi/agent/bin/agnt plans-dir)
 find "$PLANS_DIR" -maxdepth 1 -type f \( -name '*-design.md' -o -name '*-plan.md' \) | sort
 ```
 
-Prepare this summary. For local-only Beads/project workflows, title it `Project Readiness Report`, replace PR/base fields with task IDs and commits, and omit remote-only next actions.
+Prepare this summary. For projects without a PR/remote workflow, title it `Project Readiness Report`, replace PR/base fields with task IDs and commits, and omit remote-only next actions.
 
 ```markdown
 ## Branch Readiness Report
